@@ -44,14 +44,14 @@ export default function Sidebar({
   const [location] = useLocation();
 
   return (
-    <div className="w-64 bg-white shadow-lg border-r border-slate-200 flex flex-col">
+    <div className="w-64 lg:w-64 md:w-16 sm:w-16 bg-white shadow-lg border-r border-slate-200 flex flex-col transition-all duration-300">
       {/* Logo and Brand */}
       <div className="p-6 border-b border-slate-200">
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
             <LinkIcon className="text-white text-xl" />
           </div>
-          <div>
+          <div className="hidden md:block">
             <h1 className="text-xl font-bold text-slate-800">ChainSync</h1>
             <p className="text-sm text-slate-500">POS & Analytics</p>
           </div>
@@ -64,7 +64,7 @@ export default function Sidebar({
           <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
             <span className="text-white text-sm font-medium">{userInitials}</span>
           </div>
-          <div>
+          <div className="hidden md:block">
             <p className="text-sm font-medium text-slate-800">{userName}</p>
             <p className="text-xs text-primary font-medium capitalize">{userRole}</p>
           </div>
@@ -72,7 +72,7 @@ export default function Sidebar({
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 py-6 space-y-2">
+      <nav className="flex-1 px-2 md:px-4 py-6 space-y-2">
         {navigationItems.map((item) => {
           const Icon = item.icon;
           const isActive = location === item.path;
@@ -88,8 +88,8 @@ export default function Sidebar({
                     : "text-slate-600 hover:bg-slate-100"
                 )}
               >
-                <Icon className="w-5 h-5" />
-                <span>{item.label}</span>
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                <span className="hidden md:block">{item.label}</span>
                 {showAlert && (
                   <Badge variant="destructive" className="ml-auto text-xs">
                     {alertCount}
@@ -102,11 +102,11 @@ export default function Sidebar({
       </nav>
 
       {/* Store Selector */}
-      <div className="p-4 border-t border-slate-200">
+      <div className="p-2 md:p-4 border-t border-slate-200">
         <select
           value={selectedStore}
           onChange={(e) => onStoreChange(e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+          className="w-full px-2 md:px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
         >
           {stores.map((store) => (
             <option key={store.id} value={store.id}>

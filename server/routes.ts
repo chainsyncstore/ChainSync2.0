@@ -16,6 +16,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Store-specific routes (must come before generic :id route)
+  app.get("/api/stores/:storeId/alerts", async (req, res) => {
+    try {
+      const alerts = await storage.getLowStockAlerts(req.params.storeId);
+      res.json(alerts);
+    } catch (error) {
+      console.error("Error fetching alerts:", error);
+      res.status(500).json({ message: "Failed to fetch alerts" });
+    }
+  });
+
+  app.get("/api/stores/:storeId/analytics/daily-sales", async (req, res) => {
+    try {
+      const date = req.query.date ? new Date(req.query.date as string) : new Date();
+      const dailySales = await storage.getDailySales(req.params.storeId, date);
+      res.json(dailySales);
+    } catch (error) {
+      console.error("Error fetching daily sales:", error);
+      res.status(500).json({ message: "Failed to fetch daily sales" });
+    }
+  });
+
+  app.get("/api/stores/:storeId/analytics/popular-products", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const popularProducts = await storage.getPopularProducts(req.params.storeId, limit);
+      res.json(popularProducts);
+    } catch (error) {
+      console.error("Error fetching popular products:", error);
+      res.status(500).json({ message: "Failed to fetch popular products" });
+    }
+  });
+
+  app.get("/api/stores/:storeId/analytics/profit-loss", async (req, res) => {
+    try {
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+      
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid date format" });
+      }
+      
+      const profitLoss = await storage.getStoreProfitLoss(req.params.storeId, startDate, endDate);
+      res.json(profitLoss);
+    } catch (error) {
+      console.error("Error fetching profit/loss:", error);
+      res.status(500).json({ message: "Failed to fetch profit/loss data" });
+    }
+  });
+
+  app.get("/api/stores/:storeId/inventory", async (req, res) => {
+    try {
+      const inventory = await storage.getStoreInventory(req.params.storeId);
+      res.json(inventory);
+    } catch (error) {
+      console.error("Error fetching inventory:", error);
+      res.status(500).json({ message: "Failed to fetch inventory" });
+    }
+  });
+
   app.get("/api/stores/:id", async (req, res) => {
     try {
       const store = await storage.getStore(req.params.id);
@@ -209,56 +269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Analytics routes
-  app.get("/api/stores/:storeId/analytics/daily-sales", async (req, res) => {
-    try {
-      const date = req.query.date ? new Date(req.query.date as string) : new Date();
-      const sales = await storage.getDailySales(req.params.storeId, date);
-      res.json(sales);
-    } catch (error) {
-      console.error("Error fetching daily sales:", error);
-      res.status(500).json({ message: "Failed to fetch daily sales" });
-    }
-  });
-
-  app.get("/api/stores/:storeId/analytics/popular-products", async (req, res) => {
-    try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-      const popularProducts = await storage.getPopularProducts(req.params.storeId, limit);
-      res.json(popularProducts);
-    } catch (error) {
-      console.error("Error fetching popular products:", error);
-      res.status(500).json({ message: "Failed to fetch popular products" });
-    }
-  });
-
-  app.get("/api/stores/:storeId/analytics/profit-loss", async (req, res) => {
-    try {
-      const startDate = new Date(req.query.startDate as string);
-      const endDate = new Date(req.query.endDate as string);
-      
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        return res.status(400).json({ message: "Invalid date format" });
-      }
-      
-      const profitLoss = await storage.getStoreProfitLoss(req.params.storeId, startDate, endDate);
-      res.json(profitLoss);
-    } catch (error) {
-      console.error("Error fetching profit/loss:", error);
-      res.status(500).json({ message: "Failed to fetch profit/loss data" });
-    }
-  });
-
-  // Alert routes
-  app.get("/api/stores/:storeId/alerts", async (req, res) => {
-    try {
-      const alerts = await storage.getLowStockAlerts(req.params.storeId);
-      res.json(alerts);
-    } catch (error) {
-      console.error("Error fetching alerts:", error);
-      res.status(500).json({ message: "Failed to fetch alerts" });
-    }
-  });
+  // Remove duplicate routes - they're already defined above
 
   app.put("/api/alerts/:alertId/resolve", async (req, res) => {
     try {
