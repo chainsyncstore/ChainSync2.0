@@ -239,3 +239,15 @@ export type InsertTransactionItem = z.infer<typeof insertTransactionItemSchema>;
 
 export type LowStockAlert = typeof lowStockAlerts.$inferSelect;
 export type InsertLowStockAlert = z.infer<typeof insertLowStockAlertSchema>;
+
+// User-Store permissions table (many-to-many relationship for managers)
+export const userStorePermissions = pgTable("user_store_permissions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull(),
+  storeId: uuid("store_id").notNull(),
+  grantedBy: uuid("granted_by"), // ID of admin/manager who granted permission
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type UserStorePermission = typeof userStorePermissions.$inferSelect;
+export type InsertUserStorePermission = typeof userStorePermissions.$inferInsert;

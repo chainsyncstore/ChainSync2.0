@@ -23,15 +23,27 @@ interface SidebarProps {
   isMobile?: boolean; // Add prop to indicate if it's in mobile menu
 }
 
-const navigationItems = [
-  { path: "/", icon: ScanBarcode, label: "Point of Sale" },
-  { path: "/inventory", icon: Package, label: "Inventory" },
-  { path: "/analytics", icon: TrendingUp, label: "Analytics" },
-  { path: "/alerts", icon: AlertTriangle, label: "Alerts", hasAlert: true },
-  { path: "/data-import", icon: Upload, label: "Data Import" },
-  { path: "/multi-store", icon: Building2, label: "Multi-Store" },
-  { path: "/settings", icon: Settings, label: "Settings" },
-];
+const getNavigationItems = (userRole: string) => {
+  const baseItems = [
+    { path: "/inventory", icon: Package, label: "Inventory" },
+    { path: "/analytics", icon: TrendingUp, label: "Analytics" },
+    { path: "/alerts", icon: AlertTriangle, label: "Alerts", hasAlert: true },
+    { path: "/data-import", icon: Upload, label: "Data Import" },
+    { path: "/settings", icon: Settings, label: "Settings" },
+  ];
+
+  // Admin gets multi-store view
+  if (userRole === "admin") {
+    baseItems.splice(-1, 0, { path: "/multi-store", icon: Building2, label: "Multi-Store" });
+  }
+
+  // Add POS for admin and manager (not as main dashboard)
+  if (userRole === "admin" || userRole === "manager") {
+    baseItems.splice(0, 0, { path: "/pos", icon: ScanBarcode, label: "Point of Sale" });
+  }
+
+  return baseItems;
+};
 
 export default function Sidebar({
   userRole,
@@ -78,7 +90,7 @@ export default function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 px-2 md:px-4 py-6 space-y-2">
-        {navigationItems.map((item) => {
+        {getNavigationItems(userRole).map((item) => {
           const Icon = item.icon;
           const isActive = location === item.path;
           const showAlert = item.hasAlert && alertCount > 0;
