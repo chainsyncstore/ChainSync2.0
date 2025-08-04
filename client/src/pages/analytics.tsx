@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import Sidebar from "@/components/layout/sidebar";
 import TopBar from "@/components/layout/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,13 +10,14 @@ import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, LowStockAlert, Product } from "@shared/schema";
 
 export default function Analytics() {
+  const { user, logout } = useAuth();
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const [selectedStore, setSelectedStore] = useState<string>("");
 
   const userData = {
-    role: "manager",
-    name: "John Doe",
-    initials: "JD",
+    role: user?.role || "manager",
+    name: `${user?.firstName || "User"} ${user?.lastName || ""}`.trim(),
+    initials: `${user?.firstName?.[0] || "U"}${user?.lastName?.[0] || ""}`,
   };
 
   const { data: stores = [] } = useQuery<Store[]>({
@@ -72,6 +74,7 @@ export default function Analytics() {
         stores={stores}
         onStoreChange={setSelectedStore}
         alertCount={alerts.length}
+        onLogout={logout}
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">

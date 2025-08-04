@@ -21,6 +21,7 @@ interface SidebarProps {
   onStoreChange: (storeId: string) => void;
   alertCount: number;
   isMobile?: boolean; // Add prop to indicate if it's in mobile menu
+  onLogout?: () => void; // Add logout handler
 }
 
 const getNavigationItems = (userRole: string) => {
@@ -54,6 +55,7 @@ export default function Sidebar({
   onStoreChange,
   alertCount,
   isMobile = false,
+  onLogout,
 }: SidebarProps) {
   const [location] = useLocation();
 
@@ -134,6 +136,16 @@ export default function Sidebar({
             </option>
           ))}
         </select>
+        
+        {/* Logout Button */}
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="w-full mt-3 px-3 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors border border-red-200 hover:border-red-300"
+          >
+            Sign Out
+          </button>
+        )}
       </div>
     </div>
   );
