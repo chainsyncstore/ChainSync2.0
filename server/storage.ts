@@ -115,7 +115,7 @@ export class DatabaseStorage implements IStorage {
     
     // Admin can access all stores
     if (user.role === "admin") {
-      return await this.getStores();
+      return await this.getAllStores();
     }
     
     // Cashier only access their assigned store
@@ -131,10 +131,10 @@ export class DatabaseStorage implements IStorage {
       
       if (storeIds.length === 0) return [];
       
-      const stores = await db.select().from(stores).where(
+      const storeResults = await db.select().from(stores).where(
         sql`${stores.id} = ANY(${storeIds})`
       );
-      return stores;
+      return storeResults;
     }
     
     return [];
