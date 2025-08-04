@@ -28,7 +28,6 @@ function Dashboard({ userRole }: { userRole: string }) {
         <Route path="/data-import" component={DataImport} />
         <Route path="/multi-store" component={MultiStore} />
         <Route path="/settings" component={Settings} />
-        <Route path="/pos" component={POS} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -43,7 +42,6 @@ function Dashboard({ userRole }: { userRole: string }) {
         <Route path="/alerts" component={Alerts} />
         <Route path="/data-import" component={DataImport} />
         <Route path="/settings" component={Settings} />
-        <Route path="/pos" component={POS} />
         <Route component={NotFound} />
       </Switch>
     );

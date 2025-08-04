@@ -38,10 +38,7 @@ const getNavigationItems = (userRole: string) => {
     baseItems.splice(-1, 0, { path: "/multi-store", icon: Building2, label: "Multi-Store" });
   }
 
-  // Add POS for admin and manager (not as main dashboard)
-  if (userRole === "admin" || userRole === "manager") {
-    baseItems.splice(0, 0, { path: "/pos", icon: ScanBarcode, label: "Point of Sale" });
-  }
+  // POS is removed from admin and manager navigation
 
   return baseItems;
 };
