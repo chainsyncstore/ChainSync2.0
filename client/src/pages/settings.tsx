@@ -105,8 +105,12 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <Sidebar
+    <div className="min-h-screen bg-slate-50">
+      <TopBar
+        title="Settings"
+        subtitle="Configure store settings, notifications, and system preferences"
+        currentDateTime={currentDateTime}
+        onLogout={() => {}}
         userRole={userData.role}
         userName={userData.name}
         userInitials={userData.initials}
@@ -116,15 +120,7 @@ export default function SettingsPage() {
         alertCount={alerts.length}
       />
       
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar
-          title="Settings"
-          subtitle="Configure store settings, notifications, and system preferences"
-          currentDateTime={currentDateTime}
-          onLogout={() => {}}
-        />
-        
-        <main className="flex-1 overflow-auto p-6">
+      <main className="p-4 md:p-6">
           <div className="max-w-4xl mx-auto space-y-6">
             <Tabs defaultValue="store" className="space-y-6">
               <TabsList>
@@ -576,7 +572,6 @@ export default function SettingsPage() {
             </Tabs>
           </div>
         </main>
-      </div>
     </div>
   );
 }

@@ -65,8 +65,12 @@ export default function Analytics() {
   const profitMargin = profitLoss.revenue > 0 ? (profitLoss.profit / profitLoss.revenue) * 100 : 0;
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <Sidebar
+    <div className="min-h-screen bg-slate-50">
+      <TopBar
+        title="Analytics Dashboard"
+        subtitle="Track performance and insights across your stores"
+        currentDateTime={currentDateTime}
+        onLogout={logout}
         userRole={userData.role}
         userName={userData.name}
         userInitials={userData.initials}
@@ -76,15 +80,7 @@ export default function Analytics() {
         alertCount={alerts.length}
       />
       
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar
-          title="Analytics Dashboard"
-          subtitle="Track performance and insights across your stores"
-          currentDateTime={currentDateTime}
-          onLogout={logout}
-        />
-        
-        <main className="flex-1 overflow-auto p-6">
+      <main className="p-4 md:p-6">
           <div className="space-y-6">
             {/* Key Performance Indicators */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -257,7 +253,6 @@ export default function Analytics() {
             </Card>
           </div>
         </main>
-      </div>
     </div>
   );
 }

@@ -165,8 +165,12 @@ export default function DataImport() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <Sidebar
+    <div className="min-h-screen bg-slate-50">
+      <TopBar
+        title="Data Import & Migration"
+        subtitle="Import data from existing POS systems and manage data migration"
+        currentDateTime={currentDateTime}
+        onLogout={() => {}}
         userRole={userData.role}
         userName={userData.name}
         userInitials={userData.initials}
@@ -176,15 +180,7 @@ export default function DataImport() {
         alertCount={alerts.length}
       />
       
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar
-          title="Data Import & Migration"
-          subtitle="Import data from existing POS systems and manage data migration"
-          currentDateTime={currentDateTime}
-          onLogout={() => {}}
-        />
-        
-        <main className="flex-1 overflow-auto p-6">
+      <main className="p-4 md:p-6">
           <div className="space-y-6">
             {/* Quick Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -362,7 +358,6 @@ export default function DataImport() {
             </Card>
           </div>
         </main>
-      </div>
     </div>
   );
 }

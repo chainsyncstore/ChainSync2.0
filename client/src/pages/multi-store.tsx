@@ -93,8 +93,12 @@ export default function MultiStore() {
   const averageProfitMargin = storePerformance.reduce((acc, store) => acc + store.profitMargin, 0) / storePerformance.length;
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <Sidebar
+    <div className="min-h-screen bg-slate-50">
+      <TopBar
+        title="Multi-Store Management"
+        subtitle="Monitor and compare performance across all store locations"
+        currentDateTime={currentDateTime}
+        onLogout={() => {}}
         userRole={userData.role}
         userName={userData.name}
         userInitials={userData.initials}
@@ -104,15 +108,7 @@ export default function MultiStore() {
         alertCount={alerts.length}
       />
       
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar
-          title="Multi-Store Management"
-          subtitle="Monitor and compare performance across all store locations"
-          currentDateTime={currentDateTime}
-          onLogout={() => {}}
-        />
-        
-        <main className="flex-1 overflow-auto p-6">
+      <main className="p-4 md:p-6">
           <div className="space-y-6">
             {/* Chain Overview */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -349,7 +345,6 @@ export default function MultiStore() {
             </Tabs>
           </div>
         </main>
-      </div>
     </div>
   );
 }
