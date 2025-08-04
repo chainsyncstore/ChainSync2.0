@@ -65,8 +65,12 @@ export default function Alerts() {
   const warningAlerts = alertsWithProducts.filter((alert: any) => alert.currentStock > 0);
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <Sidebar
+    <div className="min-h-screen bg-slate-50">
+      <TopBar
+        title="Stock Alerts"
+        subtitle="Monitor low stock and critical inventory levels"
+        currentDateTime={currentDateTime}
+        onLogout={() => {}}
         userRole={userData.role}
         userName={userData.name}
         userInitials={userData.initials}
@@ -76,15 +80,7 @@ export default function Alerts() {
         alertCount={alerts.length}
       />
       
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar
-          title="Stock Alerts"
-          subtitle="Monitor low stock and critical inventory levels"
-          currentDateTime={currentDateTime}
-          onLogout={() => {}}
-        />
-        
-        <main className="flex-1 overflow-auto p-6">
+      <main className="p-4 md:p-6">
           <div className="space-y-6">
             {/* Alert Summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -241,7 +237,6 @@ export default function Alerts() {
             )}
           </div>
         </main>
-      </div>
     </div>
   );
 }

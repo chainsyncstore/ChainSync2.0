@@ -208,35 +208,22 @@ export default function POS() {
 
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-      <div className="hidden lg:block">
-        <Sidebar
-          userRole={userData.role}
-          userName={userData.name}
-          userInitials={userData.initials}
-          selectedStore={selectedStore}
-          stores={stores}
-          onStoreChange={setSelectedStore}
-          alertCount={alerts.length}
-        />
-      </div>
+    <div className="min-h-screen bg-slate-50">
+      <TopBar
+        title="Point of Sale System"
+        subtitle="Scan products and process transactions"
+        currentDateTime={currentDateTime}
+        onLogout={logout}
+        userRole={userData.role}
+        userName={userData.name}
+        userInitials={userData.initials}
+        selectedStore={selectedStore}
+        stores={stores}
+        onStoreChange={setSelectedStore}
+        alertCount={alerts.length}
+      />
       
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <TopBar
-          title="Point of Sale System"
-          subtitle="Scan products and process transactions"
-          currentDateTime={currentDateTime}
-          onLogout={logout}
-          userRole={userData.role}
-          userName={userData.name}
-          userInitials={userData.initials}
-          selectedStore={selectedStore}
-          stores={stores}
-          onStoreChange={setSelectedStore}
-          alertCount={alerts.length}
-        />
-        
-        <main className="flex-1 overflow-auto p-2 sm:p-4 lg:p-6">
+      <main className="p-2 sm:p-4 lg:p-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
             <div className="lg:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
               <BarcodeScanner
@@ -268,7 +255,6 @@ export default function POS() {
             </div>
           </div>
         </main>
-      </div>
 
       <ProductSearchModal
         isOpen={isSearchModalOpen}
