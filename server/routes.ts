@@ -3,8 +3,71 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertProductSchema, insertTransactionSchema, insertTransactionItemSchema } from "@shared/schema";
 import { z } from "zod";
+import session from "express-session";
+import connectPg from "connect-pg-simple";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Session configuration
+  const pgSession = connectPg(session);
+  app.use(session({
+    store: new pgSession({
+      conString: process.env.DATABASE_URL,
+      createTableIfMissing: true,
+    }),
+    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: false, // Set to true in production with HTTPS
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    },
+  }));
+
+  // Authentication middleware
+  const authenticateUser = (req: any, res: any, next: any) => {
+    if (req.session.user) {
+      next();
+    } else {
+      res.status(401).json({ message: "Authentication required" });
+    }
+  };
+
+  // Authentication routes
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      const user = await storage.authenticateUser(username, password);
+      
+      if (user) {
+        req.session.user = user;
+        res.json(user);
+      } else {
+        res.status(401).json({ message: "Invalid credentials" });
+      }
+    } catch (error) {
+      console.error("Authentication error:", error);
+      res.status(500).json({ message: "Authentication failed" });
+    }
+  });
+
+  app.get("/api/auth/me", (req: any, res) => {
+    if (req.session.user) {
+      res.json(req.session.user);
+    } else {
+      res.status(401).json({ message: "Not authenticated" });
+    }
+  });
+
+  app.post("/api/auth/logout", (req: any, res) => {
+    req.session.destroy((err: any) => {
+      if (err) {
+        console.error("Logout error:", err);
+        return res.status(500).json({ message: "Logout failed" });
+      }
+      res.json({ message: "Logged out successfully" });
+    });
+  });
   // Store routes
   app.get("/api/stores", async (req, res) => {
     try {

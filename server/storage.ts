@@ -5,9 +5,12 @@ import {
   inventory,
   transactions,
   transactionItems,
+  userStorePermissions,
   lowStockAlerts,
   type User,
   type InsertUser,
+  type UserStorePermission,
+  type InsertUserStorePermission,
   type Store,
   type InsertStore,
   type Product,
@@ -81,6 +84,70 @@ export class DatabaseStorage implements IStorage {
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
     return user || undefined;
+  }
+
+  async authenticateUser(username: string, password: string): Promise<User | null> {
+    // Simple password check - in production, use proper password hashing
+    const user = await this.getUserByUsername(username);
+    
+    // Demo credentials
+    const validCredentials = {
+      admin: "admin123",
+      manager: "manager123", 
+      cashier: "cashier123"
+    };
+    
+    if (user && validCredentials[username as keyof typeof validCredentials] === password) {
+      return user;
+    }
+    
+    return null;
+  }
+
+  async getUserStorePermissions(userId: string): Promise<UserStorePermission[]> {
+    const permissions = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, userId));
+    return permissions;
+  }
+
+  async getUserAccessibleStores(userId: string): Promise<Store[]> {
+    const user = await this.getUser(userId);
+    if (!user) return [];
+    
+    // Admin can access all stores
+    if (user.role === "admin") {
+      return await this.getStores();
+    }
+    
+    // Cashier only access their assigned store
+    if (user.role === "cashier" && user.storeId) {
+      const store = await this.getStore(user.storeId);
+      return store ? [store] : [];
+    }
+    
+    // Manager can access stores they have permissions for
+    if (user.role === "manager") {
+      const permissions = await this.getUserStorePermissions(userId);
+      const storeIds = permissions.map(p => p.storeId);
+      
+      if (storeIds.length === 0) return [];
+      
+      const stores = await db.select().from(stores).where(
+        sql`${stores.id} = ANY(${storeIds})`
+      );
+      return stores;
+    }
+    
+    return [];
+  }
+
+  async grantStoreAccess(userId: string, storeId: string, grantedBy: string): Promise<UserStorePermission> {
+    const [permission] = await db.insert(userStorePermissions).values({
+      userId,
+      storeId,
+      grantedBy,
+    }).returning();
+    
+    return permission;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
