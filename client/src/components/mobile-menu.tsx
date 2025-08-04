@@ -33,16 +33,22 @@ export default function MobileMenu({
             <Menu className="h-6 w-6" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="p-0 w-64">
-          <Sidebar
-            userRole={userRole}
-            userName={userName}
-            userInitials={userInitials}
-            selectedStore={selectedStore}
-            stores={stores}
-            onStoreChange={onStoreChange}
-            alertCount={alertCount}
-          />
+        <SheetContent side="left" className="p-0 w-64 overflow-y-auto">
+          <div className="h-full">
+            <Sidebar
+              userRole={userRole}
+              userName={userName}
+              userInitials={userInitials}
+              selectedStore={selectedStore}
+              stores={stores}
+              onStoreChange={(storeId) => {
+                onStoreChange(storeId);
+                setIsOpen(false); // Close menu after selection
+              }}
+              alertCount={alertCount}
+              isMobile={true} // Enable mobile mode for full labels
+            />
+          </div>
         </SheetContent>
       </Sheet>
     </div>
