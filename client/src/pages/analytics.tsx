@@ -74,7 +74,6 @@ export default function Analytics() {
         stores={stores}
         onStoreChange={setSelectedStore}
         alertCount={alerts.length}
-        onLogout={logout}
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -82,7 +81,7 @@ export default function Analytics() {
           title="Analytics Dashboard"
           subtitle="Track performance and insights across your stores"
           currentDateTime={currentDateTime}
-          onLogout={() => {}}
+          onLogout={logout}
         />
         
         <main className="flex-1 overflow-auto p-6">
