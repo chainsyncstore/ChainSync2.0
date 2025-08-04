@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import Sidebar from "@/components/layout/sidebar";
 import TopBar from "@/components/layout/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,14 +12,15 @@ import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, Inventory, Product, LowStockAlert } from "@shared/schema";
 
 export default function Inventory() {
+  const { user, logout } = useAuth();
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
   const userData = {
-    role: "manager",
-    name: "John Doe",
-    initials: "JD",
+    role: user?.role || "manager",
+    name: `${user?.firstName || "User"} ${user?.lastName || ""}`.trim(),
+    initials: `${user?.firstName?.[0] || "U"}${user?.lastName?.[0] || ""}`,
   };
 
   const { data: stores = [] } = useQuery<Store[]>({
@@ -82,7 +84,7 @@ export default function Inventory() {
           title="Inventory Management"
           subtitle="Monitor stock levels and manage inventory"
           currentDateTime={currentDateTime}
-          onLogout={() => {}}
+          onLogout={logout}
         />
         
         <main className="flex-1 overflow-auto p-6">

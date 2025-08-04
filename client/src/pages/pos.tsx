@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import Sidebar from "@/components/layout/sidebar";
 import TopBar from "@/components/layout/topbar";
 import BarcodeScanner from "@/components/pos/barcode-scanner";
@@ -15,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Store, LowStockAlert } from "@shared/schema";
 
 export default function POS() {
+  const { user, logout } = useAuth();
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -35,11 +37,10 @@ export default function POS() {
 
   const { notifications, addNotification, removeNotification } = useNotifications();
 
-  // Mock user data - in a real app this would come from authentication
   const userData = {
-    role: "manager",
-    name: "John Doe",
-    initials: "JD",
+    role: user?.role || "cashier",
+    name: `${user?.firstName || "User"} ${user?.lastName || ""}`.trim(),
+    initials: `${user?.firstName?.[0] || "U"}${user?.lastName?.[0] || ""}`,
   };
 
   // Fetch stores
@@ -204,14 +205,7 @@ export default function POS() {
     });
   };
 
-  const handleLogout = () => {
-    // In real app, handle logout logic
-    addNotification({
-      type: "info",
-      title: "Logged Out",
-      message: "You have been logged out successfully.",
-    });
-  };
+
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -232,7 +226,7 @@ export default function POS() {
           title="Point of Sale System"
           subtitle="Scan products and process transactions"
           currentDateTime={currentDateTime}
-          onLogout={handleLogout}
+          onLogout={logout}
           userRole={userData.role}
           userName={userData.name}
           userInitials={userData.initials}
