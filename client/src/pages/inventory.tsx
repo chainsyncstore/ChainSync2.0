@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import Sidebar from "@/components/layout/sidebar";
 import TopBar from "@/components/layout/topbar";
-import ProductForm from "@/components/inventory/product-form";
 import StockAdjustment from "@/components/inventory/stock-adjustment";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Package, AlertTriangle, Search, Filter, Download, Upload, Plus, Edit, Trash2, Eye } from "lucide-react";
+import { Package, AlertTriangle, Search, Filter, Edit, Trash2, Eye } from "lucide-react";
 import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, Inventory, Product, LowStockAlert } from "@shared/schema";
 
@@ -127,12 +126,6 @@ export default function Inventory() {
     }
   };
 
-  const handleBulkExport = () => {
-    // In real app, this would trigger a download
-    console.log("Exporting selected items:", selectedItems);
-    setIsBulkActionsOpen(false);
-  };
-
   const handleBulkUpdate = () => {
     // In real app, this would open a bulk update modal
     console.log("Bulk updating selected items:", selectedItems);
@@ -219,15 +212,6 @@ export default function Inventory() {
               <div className="flex items-center justify-between">
                 <CardTitle>Inventory Management</CardTitle>
                 <div className="flex items-center space-x-2">
-                  <ProductForm mode="create" />
-                  <Button variant="outline">
-                    <Upload className="w-4 h-4 mr-2" />
-                    Import
-                  </Button>
-                  <Button variant="outline">
-                    <Download className="w-4 h-4 mr-2" />
-                    Export
-                  </Button>
                   {selectedItems.length > 0 && (
                     <Dialog open={isBulkActionsOpen} onOpenChange={setIsBulkActionsOpen}>
                       <DialogTrigger asChild>
@@ -240,10 +224,6 @@ export default function Inventory() {
                           <DialogTitle>Bulk Actions</DialogTitle>
                         </DialogHeader>
                         <div className="space-y-4">
-                          <Button onClick={handleBulkExport} className="w-full">
-                            <Download className="w-4 h-4 mr-2" />
-                            Export Selected
-                          </Button>
                           <Button onClick={handleBulkUpdate} variant="outline" className="w-full">
                             <Edit className="w-4 h-4 mr-2" />
                             Update Selected
@@ -382,10 +362,6 @@ export default function Inventory() {
                                 <StockAdjustment 
                                   inventory={item} 
                                   product={item.product}
-                                />
-                                <ProductForm 
-                                  product={item.product} 
-                                  mode="edit"
                                 />
                                 <Button size="sm" variant="ghost">
                                   <Eye className="w-4 h-4" />
