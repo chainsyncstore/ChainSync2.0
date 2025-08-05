@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Users, BarChart3, PieChart, Download, Calendar, Brain, Zap } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Users, Calendar, Brain, Zap } from "lucide-react";
 import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, LowStockAlert, Product } from "@shared/schema";
 
@@ -84,14 +84,7 @@ export default function Analytics() {
 
   const profitMargin = profitLoss.revenue > 0 ? (profitLoss.profit / profitLoss.revenue) * 100 : 0;
 
-  const handleExportReport = (type: string) => {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - parseInt(selectedPeriod));
-    const endDate = new Date();
-    
-    const url = `/api/stores/${selectedStore}/reports/${type}?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&format=csv`;
-    window.open(url, '_blank');
-  };
+
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -128,20 +121,7 @@ export default function Analytics() {
               <span className="text-sm text-gray-600">Analytics Period</span>
             </div>
             
-            <div className="flex items-center space-x-2">
-              <Button variant="outline" onClick={() => handleExportReport("sales")}>
-                <Download className="w-4 h-4 mr-2" />
-                Export Sales
-              </Button>
-              <Button variant="outline" onClick={() => handleExportReport("inventory")}>
-                <Download className="w-4 h-4 mr-2" />
-                Export Inventory
-              </Button>
-              <Button variant="outline" onClick={() => handleExportReport("customers")}>
-                <Download className="w-4 h-4 mr-2" />
-                Export Customers
-              </Button>
-            </div>
+
           </div>
 
           {/* Key Performance Indicators */}
@@ -363,32 +343,7 @@ export default function Analytics() {
             </CardContent>
           </Card>
 
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Button variant="outline" className="h-20 flex-col space-y-2">
-                  <BarChart3 className="w-6 h-6" />
-                  <span className="text-sm">Detailed Reports</span>
-                </Button>
-                <Button variant="outline" className="h-20 flex-col space-y-2">
-                  <PieChart className="w-6 h-6" />
-                  <span className="text-sm">Category Analysis</span>
-                </Button>
-                <Button variant="outline" className="h-20 flex-col space-y-2">
-                  <Users className="w-6 h-6" />
-                  <span className="text-sm">Customer Analysis</span>
-                </Button>
-                <Button variant="outline" className="h-20 flex-col space-y-2">
-                  <Calendar className="w-6 h-6" />
-                  <span className="text-sm">Schedule Reports</span>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+
             </TabsContent>
 
             <TabsContent value="sales" className="space-y-6">
