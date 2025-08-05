@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import Sidebar from "@/components/layout/sidebar";
-import TopBar from "@/components/layout/topbar";
 import CSVUploader from "@/components/data-import/csv-uploader";
 import ProductInput from "@/components/data-import/product-input";
 import TemplateDownloader from "@/components/data-import/template-downloader";
@@ -27,7 +25,6 @@ interface ImportJob {
 }
 
 export default function DataImport() {
-  const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [activeTab, setActiveTab] = useState("products");
   const queryClient = useQueryClient();
@@ -89,12 +86,7 @@ export default function DataImport() {
     },
   ]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentDateTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
+
 
   const handleFileUpload = (file: File, type: string) => {
     const newJob: ImportJob = {
@@ -175,22 +167,7 @@ export default function DataImport() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <TopBar
-        title="Data Import & Migration"
-        subtitle="Import data from existing POS systems and manage data migration"
-        currentDateTime={currentDateTime}
-        onLogout={() => {}}
-        userRole={userData.role}
-        userName={userData.name}
-        userInitials={userData.initials}
-        selectedStore={selectedStore}
-        stores={stores}
-        onStoreChange={setSelectedStore}
-        alertCount={alerts.length}
-      />
-      
-      <main className="p-4 md:p-6">
+    <div className="space-y-6">
           <div className="space-y-6">
             {/* Quick Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -371,7 +348,6 @@ export default function DataImport() {
               </CardContent>
             </Card>
           </div>
-        </main>
-    </div>
-  );
+      </div>
+    );
 }

@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import Sidebar from "@/components/layout/sidebar";
-import TopBar from "@/components/layout/topbar";
 import SalesChart from "@/components/analytics/sales-chart";
 import DemandForecast from "@/components/analytics/demand-forecast";
 import AiInsights from "@/components/analytics/ai-insights";
@@ -17,8 +15,7 @@ import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, LowStockAlert, Product } from "@shared/schema";
 
 export default function Analytics() {
-  const { user, logout } = useAuth();
-  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+  const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [selectedPeriod, setSelectedPeriod] = useState("30");
 
@@ -75,34 +72,15 @@ export default function Analytics() {
     queryKey: ["/api/stores", selectedStore, "analytics/customer-insights"],
   });
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentDateTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
+
 
   const profitMargin = profitLoss.revenue > 0 ? (profitLoss.profit / profitLoss.revenue) * 100 : 0;
 
 
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <TopBar
-        title="Analytics Dashboard"
-        subtitle="Track performance and insights across your stores"
-        currentDateTime={currentDateTime}
-        onLogout={logout}
-        userRole={userData.role}
-        userName={userData.name}
-        userInitials={userData.initials}
-        selectedStore={selectedStore}
-        stores={stores}
-        onStoreChange={setSelectedStore}
-        alertCount={alerts.length}
-      />
-      
-      <main className="p-4 md:p-6">
+    <div className="space-y-6">
+
         <div className="space-y-6">
           {/* Period Selector and Export Actions */}
           <div className="flex items-center justify-between">
@@ -390,7 +368,6 @@ export default function Analytics() {
             </TabsContent>
           </Tabs>
         </div>
-      </main>
-    </div>
-  );
+      </div>
+    );
 }

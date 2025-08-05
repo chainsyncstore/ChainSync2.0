@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import Sidebar from "@/components/layout/sidebar";
-import TopBar from "@/components/layout/topbar";
 import StockAdjustment from "@/components/inventory/stock-adjustment";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +14,7 @@ import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, Inventory, Product, LowStockAlert } from "@shared/schema";
 
 export default function Inventory() {
-  const { user, logout } = useAuth();
-  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+  const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
@@ -63,12 +60,7 @@ export default function Inventory() {
     queryKey: ["/api/products/brands"],
   });
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentDateTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
+
 
   const inventoryWithProducts = inventory.map((inv: any) => {
     const product = products.find((p: any) => p.id === inv.productId);
@@ -140,22 +132,7 @@ export default function Inventory() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <TopBar
-        title="Inventory Management"
-        subtitle="Monitor stock levels and manage inventory"
-        currentDateTime={currentDateTime}
-        onLogout={logout}
-        userRole={userData.role}
-        userName={userData.name}
-        userInitials={userData.initials}
-        selectedStore={selectedStore}
-        stores={stores}
-        onStoreChange={setSelectedStore}
-        alertCount={alerts.length}
-      />
-      
-      <main className="p-4 md:p-6">
+    <div className="space-y-6">
         <div className="space-y-6">
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -380,7 +357,6 @@ export default function Inventory() {
             </CardContent>
           </Card>
         </div>
-      </main>
-    </div>
-  );
+      </div>
+    );
 }

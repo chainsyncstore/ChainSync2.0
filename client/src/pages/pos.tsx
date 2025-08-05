@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import Sidebar from "@/components/layout/sidebar";
-import TopBar from "@/components/layout/topbar";
 import BarcodeScanner from "@/components/pos/barcode-scanner";
 import ShoppingCart from "@/components/pos/shopping-cart";
 import CheckoutPanel from "@/components/pos/checkout-panel";
@@ -16,8 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Store, LowStockAlert } from "@shared/schema";
 
 export default function POS() {
-  const { user, logout } = useAuth();
-  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+  const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -205,56 +202,38 @@ export default function POS() {
     });
   };
 
-
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      <TopBar
-        title="Point of Sale System"
-        subtitle="Scan products and process transactions"
-        currentDateTime={currentDateTime}
-        onLogout={logout}
-        userRole={userData.role}
-        userName={userData.name}
-        userInitials={userData.initials}
-        selectedStore={selectedStore}
-        stores={stores}
-        onStoreChange={setSelectedStore}
-        alertCount={alerts.length}
-      />
-      
-      <main className="p-2 sm:p-4 lg:p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
-            <div className="lg:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
-              <BarcodeScanner
-                onScan={handleBarcodeScanned}
-                onOpenSearch={() => setIsSearchModalOpen(true)}
-                isLoading={createTransactionMutation.isPending}
-              />
-              
-              <ShoppingCart
-                items={items}
-                onUpdateQuantity={updateQuantity}
-                onRemoveItem={removeItem}
-                onClearCart={clearCart}
-              />
-            </div>
+    <>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
+        <div className="lg:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
+          <BarcodeScanner
+            onScan={handleBarcodeScanned}
+            onOpenSearch={() => setIsSearchModalOpen(true)}
+            isLoading={createTransactionMutation.isPending}
+          />
+          
+          <ShoppingCart
+            items={items}
+            onUpdateQuantity={updateQuantity}
+            onRemoveItem={removeItem}
+            onClearCart={clearCart}
+          />
+        </div>
 
-            <div className="lg:col-span-4">
-              <CheckoutPanel
-                summary={summary}
-                payment={payment}
-                dailyStats={dailyStats}
-                onPaymentMethodChange={(method) => updatePayment({ method })}
-                onAmountReceivedChange={handleAmountReceivedChange}
-                onCompleteSale={handleCompleteSale}
-                onHoldTransaction={handleHoldTransaction}
-                onVoidTransaction={handleVoidTransaction}
-                isProcessing={createTransactionMutation.isPending}
-              />
-            </div>
-          </div>
-        </main>
+        <div className="lg:col-span-4">
+          <CheckoutPanel
+            summary={summary}
+            payment={payment}
+            dailyStats={dailyStats}
+            onPaymentMethodChange={(method) => updatePayment({ method })}
+            onAmountReceivedChange={handleAmountReceivedChange}
+            onCompleteSale={handleCompleteSale}
+            onHoldTransaction={handleHoldTransaction}
+            onVoidTransaction={handleVoidTransaction}
+            isProcessing={createTransactionMutation.isPending}
+          />
+        </div>
+      </div>
 
       <ProductSearchModal
         isOpen={isSearchModalOpen}
@@ -278,6 +257,6 @@ export default function POS() {
         notifications={notifications}
         onRemoveNotification={removeNotification}
       />
-    </div>
+    </>
   );
 }

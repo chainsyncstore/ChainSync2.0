@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import Sidebar from "@/components/layout/sidebar";
-import TopBar from "@/components/layout/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +9,6 @@ import { apiRequest } from "@/lib/queryClient";
 import type { Store, LowStockAlert, Product } from "@shared/schema";
 
 export default function Alerts() {
-  const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const [selectedStore, setSelectedStore] = useState<string>("");
   const queryClient = useQueryClient();
 
@@ -49,12 +46,7 @@ export default function Alerts() {
     },
   });
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentDateTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
+
 
   const alertsWithProducts = alerts.map((alert: any) => {
     const product = products.find((p: any) => p.id === alert.productId);
@@ -65,22 +57,7 @@ export default function Alerts() {
   const warningAlerts = alertsWithProducts.filter((alert: any) => alert.currentStock > 0);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <TopBar
-        title="Stock Alerts"
-        subtitle="Monitor low stock and critical inventory levels"
-        currentDateTime={currentDateTime}
-        onLogout={() => {}}
-        userRole={userData.role}
-        userName={userData.name}
-        userInitials={userData.initials}
-        selectedStore={selectedStore}
-        stores={stores}
-        onStoreChange={setSelectedStore}
-        alertCount={alerts.length}
-      />
-      
-      <main className="p-4 md:p-6">
+    <div className="space-y-6">
           <div className="space-y-6">
             {/* Alert Summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -236,7 +213,6 @@ export default function Alerts() {
               </Card>
             )}
           </div>
-        </main>
-    </div>
-  );
+      </div>
+    );
 }

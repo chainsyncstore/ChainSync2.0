@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import Sidebar from "@/components/layout/sidebar";
-import TopBar from "@/components/layout/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +9,6 @@ import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, LowStockAlert } from "@shared/schema";
 
 export default function MultiStore() {
-  const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const [selectedStore, setSelectedStore] = useState<string>("");
 
   const userData = {
@@ -35,12 +32,7 @@ export default function MultiStore() {
     queryKey: ["/api/stores", selectedStore, "alerts"],
   });
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentDateTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
+
 
   // Mock data for multi-store analytics
   const storePerformance = [
@@ -93,22 +85,7 @@ export default function MultiStore() {
   const averageProfitMargin = storePerformance.reduce((acc, store) => acc + store.profitMargin, 0) / storePerformance.length;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <TopBar
-        title="Multi-Store Management"
-        subtitle="Monitor and compare performance across all store locations"
-        currentDateTime={currentDateTime}
-        onLogout={() => {}}
-        userRole={userData.role}
-        userName={userData.name}
-        userInitials={userData.initials}
-        selectedStore={selectedStore}
-        stores={stores}
-        onStoreChange={setSelectedStore}
-        alertCount={alerts.length}
-      />
-      
-      <main className="p-4 md:p-6">
+    <div className="space-y-6">
           <div className="space-y-6">
             {/* Chain Overview */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -344,7 +321,6 @@ export default function MultiStore() {
               </TabsContent>
             </Tabs>
           </div>
-        </main>
-    </div>
-  );
+      </div>
+    );
 }
