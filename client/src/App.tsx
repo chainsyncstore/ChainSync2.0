@@ -1,3 +1,4 @@
+import React, { Suspense, lazy } from 'react';
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -15,18 +16,25 @@ import ResetPassword from "@/components/auth/reset-password";
 import MainLayout from "@/components/layout/main-layout";
 import { useState } from "react";
 
-// Pages
-import Landing from "@/pages/landing";
-import PaymentCallback from "@/pages/payment-callback";
-import POS from "@/pages/pos";
-import Inventory from "@/pages/inventory";
-import Analytics from "@/pages/analytics";  
-import Loyalty from "@/pages/loyalty";
-import Alerts from "@/pages/alerts";
-import DataImport from "@/pages/data-import";
-import MultiStore from "@/pages/multi-store";
-import Settings from "@/pages/settings";
-import NotFound from "@/pages/not-found";
+// Lazy load pages for better performance
+const Landing = lazy(() => import("@/pages/landing"));
+const PaymentCallback = lazy(() => import("@/pages/payment-callback"));
+const POS = lazy(() => import("@/pages/pos"));
+const Inventory = lazy(() => import("@/pages/inventory"));
+const Analytics = lazy(() => import("@/pages/analytics"));  
+const Loyalty = lazy(() => import("@/pages/loyalty"));
+const Alerts = lazy(() => import("@/pages/alerts"));
+const DataImport = lazy(() => import("@/pages/data-import"));
+const MultiStore = lazy(() => import("@/pages/multi-store"));
+const Settings = lazy(() => import("@/pages/settings"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+
+// Loading component for lazy-loaded pages
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-screen">
+    <PageLoading />
+  </div>
+);
 
 // Dashboard component for different user roles
 function Dashboard({ userRole }: { userRole: string }) {
@@ -37,19 +45,21 @@ function Dashboard({ userRole }: { userRole: string }) {
   if (role === "admin") {
     return (
       <MainLayout userRole={role}>
-        <Switch>
-          <Route path="/" component={Analytics} /> {/* Admin sees analytics as default */}
-          <Route path="/login" component={Analytics} /> {/* Redirect login to default */}
-          <Route path="/inventory" component={Inventory} />
-          <Route path="/analytics" component={Analytics} />
-          <Route path="/loyalty" component={Loyalty} />
-          <Route path="/alerts" component={Alerts} />
-          <Route path="/data-import" component={DataImport} />
-          <Route path="/multi-store" component={MultiStore} />
-          <Route path="/settings" component={Settings} />
-          <Route path="/pos" component={POS} />
-          <Route component={NotFound} />
-        </Switch>
+        <Suspense fallback={<PageLoader />}>
+          <Switch>
+            <Route path="/" component={Analytics} /> {/* Admin sees analytics as default */}
+            <Route path="/login" component={Analytics} /> {/* Redirect login to default */}
+            <Route path="/inventory" component={Inventory} />
+            <Route path="/analytics" component={Analytics} />
+            <Route path="/loyalty" component={Loyalty} />
+            <Route path="/alerts" component={Alerts} />
+            <Route path="/data-import" component={DataImport} />
+            <Route path="/multi-store" component={MultiStore} />
+            <Route path="/settings" component={Settings} />
+            <Route path="/pos" component={POS} />
+            <Route component={NotFound} />
+          </Switch>
+        </Suspense>
       </MainLayout>
     );
   }
@@ -57,18 +67,20 @@ function Dashboard({ userRole }: { userRole: string }) {
   if (role === "manager") {
     return (
       <MainLayout userRole={role}>
-        <Switch>
-          <Route path="/" component={Inventory} /> {/* Manager sees inventory as default */}
-          <Route path="/login" component={Inventory} /> {/* Redirect login to default */}
-          <Route path="/inventory" component={Inventory} />
-          <Route path="/analytics" component={Analytics} />
-          <Route path="/loyalty" component={Loyalty} />
-          <Route path="/alerts" component={Alerts} />
-          <Route path="/data-import" component={DataImport} />
-          <Route path="/settings" component={Settings} />
-          <Route path="/pos" component={POS} />
-          <Route component={NotFound} />
-        </Switch>
+        <Suspense fallback={<PageLoader />}>
+          <Switch>
+            <Route path="/" component={Inventory} /> {/* Manager sees inventory as default */}
+            <Route path="/login" component={Inventory} /> {/* Redirect login to default */}
+            <Route path="/inventory" component={Inventory} />
+            <Route path="/analytics" component={Analytics} />
+            <Route path="/loyalty" component={Loyalty} />
+            <Route path="/alerts" component={Alerts} />
+            <Route path="/data-import" component={DataImport} />
+            <Route path="/settings" component={Settings} />
+            <Route path="/pos" component={POS} />
+            <Route component={NotFound} />
+          </Switch>
+        </Suspense>
       </MainLayout>
     );
   }
@@ -76,18 +88,20 @@ function Dashboard({ userRole }: { userRole: string }) {
   // Cashier role (default) - redirect directly to POS
   return (
     <MainLayout userRole={role}>
-      <Switch>
-        <Route path="/" component={POS} />
-        <Route path="/login" component={POS} /> {/* Redirect login to default */}
-        <Route path="/pos" component={POS} />
-        <Route path="/inventory" component={Inventory} />
-        <Route path="/analytics" component={Analytics} />
-        <Route path="/loyalty" component={Loyalty} />
-        <Route path="/alerts" component={Alerts} />
-        <Route path="/data-import" component={DataImport} />
-        <Route path="/settings" component={Settings} />
-        <Route component={POS} /> {/* All other routes redirect to POS */}
-      </Switch>
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/" component={POS} />
+          <Route path="/login" component={POS} /> {/* Redirect login to default */}
+          <Route path="/pos" component={POS} />
+          <Route path="/inventory" component={Inventory} />
+          <Route path="/analytics" component={Analytics} />
+          <Route path="/loyalty" component={Loyalty} />
+          <Route path="/alerts" component={Alerts} />
+          <Route path="/data-import" component={DataImport} />
+          <Route path="/settings" component={Settings} />
+          <Route component={POS} /> {/* All other routes redirect to POS */}
+        </Switch>
+      </Suspense>
     </MainLayout>
   );
 }
@@ -102,52 +116,54 @@ function Router() {
 
   if (!isAuthenticated) {
     return (
-      <Switch>
-        <Route path="/" component={Landing} />
-        <Route path="/login" component={() => 
-          showForgotPassword ? (
-            <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
-          ) : (
-            <Login 
-              onLogin={login} 
-              onForgotPassword={() => setShowForgotPassword(true)}
-              isLoading={isLoading} 
-              error={error} 
-            />
-          )
-        } />
-        <Route path="/signup" component={Signup} />
-        <Route path="/reset-password" component={({ params }: any) => {
-          const urlParams = new URLSearchParams(window.location.search);
-          const token = urlParams.get('token');
-          return token ? (
-            <ResetPassword 
-              token={token} 
-              onSuccess={() => window.location.href = '/login'} 
-            />
-          ) : (
-            <Login 
-              onLogin={login} 
-              onForgotPassword={() => setShowForgotPassword(true)}
-              isLoading={isLoading} 
-              error={error} 
-            />
-          );
-        }} />
-        <Route path="/payment/callback" component={PaymentCallback} />
-        <Route component={() => 
-          showForgotPassword ? (
-            <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
-          ) : (
-            <Login 
-              onLogin={login} 
-              onForgotPassword={() => setShowForgotPassword(true)}
-              isLoading={isLoading} 
-              error={error} 
-            />
-          )
-        } />
-      </Switch>
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/" component={Landing} />
+          <Route path="/login" component={() => 
+            showForgotPassword ? (
+              <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
+            ) : (
+              <Login 
+                onLogin={login} 
+                onForgotPassword={() => setShowForgotPassword(true)}
+                isLoading={isLoading} 
+                error={error} 
+              />
+            )
+          } />
+          <Route path="/signup" component={Signup} />
+          <Route path="/reset-password" component={({ params }: any) => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            return token ? (
+              <ResetPassword 
+                token={token} 
+                onSuccess={() => window.location.href = '/login'} 
+              />
+            ) : (
+              <Login 
+                onLogin={login} 
+                onForgotPassword={() => setShowForgotPassword(true)}
+                isLoading={isLoading} 
+                error={error} 
+              />
+            );
+          }} />
+          <Route path="/payment/callback" component={PaymentCallback} />
+          <Route component={() => 
+            showForgotPassword ? (
+              <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
+            ) : (
+              <Login 
+                onLogin={login} 
+                onForgotPassword={() => setShowForgotPassword(true)}
+                isLoading={isLoading} 
+                error={error} 
+              />
+            )
+          } />
+        </Switch>
+      </Suspense>
     );
   }
 

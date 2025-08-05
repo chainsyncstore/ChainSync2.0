@@ -8,7 +8,8 @@ import {
   timestamp, 
   boolean, 
   uuid,
-  pgEnum
+  pgEnum,
+  index
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -37,7 +38,11 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  storeIdIdx: index("users_store_id_idx").on(table.storeId),
+  isActiveIdx: index("users_is_active_idx").on(table.isActive),
+  createdAtIdx: index("users_created_at_idx").on(table.createdAt),
+}));
 
 // Stores table
 export const stores = pgTable("stores", {
@@ -67,7 +72,13 @@ export const products = pgTable("products", {
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  nameIdx: index("products_name_idx").on(table.name),
+  categoryIdx: index("products_category_idx").on(table.category),
+  brandIdx: index("products_brand_idx").on(table.brand),
+  isActiveIdx: index("products_is_active_idx").on(table.isActive),
+  createdAtIdx: index("products_created_at_idx").on(table.createdAt),
+}));
 
 // Inventory table
 export const inventory = pgTable("inventory", {
@@ -79,7 +90,10 @@ export const inventory = pgTable("inventory", {
   maxStockLevel: integer("max_stock_level").default(100),
   lastRestocked: timestamp("last_restocked"),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  storeIdIdx: index("inventory_store_id_idx").on(table.storeId),
+  productIdIdx: index("inventory_product_id_idx").on(table.productId),
+}));
 
 // Transactions table
 export const transactions = pgTable("transactions", {
@@ -96,7 +110,11 @@ export const transactions = pgTable("transactions", {
   receiptNumber: varchar("receipt_number", { length: 255 }).unique(),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => ({
+  storeIdIdx: index("transactions_store_id_idx").on(table.storeId),
+  cashierIdIdx: index("transactions_cashier_id_idx").on(table.cashierId),
+  createdAtIdx: index("transactions_created_at_idx").on(table.createdAt),
+}));
 
 // Transaction Items table
 export const transactionItems = pgTable("transaction_items", {
@@ -106,7 +124,10 @@ export const transactionItems = pgTable("transaction_items", {
   quantity: integer("quantity").notNull(),
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
-});
+}, (table) => ({
+  transactionIdIdx: index("transaction_items_transaction_id_idx").on(table.transactionId),
+  productIdIdx: index("transaction_items_product_id_idx").on(table.productId),
+}));
 
 // Low Stock Alerts table
 export const lowStockAlerts = pgTable("low_stock_alerts", {
@@ -118,7 +139,10 @@ export const lowStockAlerts = pgTable("low_stock_alerts", {
   isResolved: boolean("is_resolved").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   resolvedAt: timestamp("resolved_at"),
-});
+}, (table) => ({
+  storeIdIdx: index("low_stock_alerts_store_id_idx").on(table.storeId),
+  productIdIdx: index("low_stock_alerts_product_id_idx").on(table.productId),
+}));
 
 // User-Store permissions table (many-to-many relationship for managers)
 export const userStorePermissions = pgTable("user_store_permissions", {
@@ -127,7 +151,10 @@ export const userStorePermissions = pgTable("user_store_permissions", {
   storeId: uuid("store_id").notNull(),
   grantedBy: uuid("granted_by"), // ID of admin/manager who granted permission
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  userIdIdx: index("user_store_permissions_user_id_idx").on(table.userId),
+  storeIdIdx: index("user_store_permissions_store_id_idx").on(table.storeId),
+}));
 
 // Loyalty Program Tables
 export const loyaltyTiers = pgTable("loyalty_tiers", {
@@ -141,7 +168,9 @@ export const loyaltyTiers = pgTable("loyalty_tiers", {
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  storeIdIdx: index("loyalty_tiers_store_id_idx").on(table.storeId),
+}));
 
 export const customers = pgTable("customers", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -157,7 +186,9 @@ export const customers = pgTable("customers", {
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  storeIdIdx: index("customers_store_id_idx").on(table.storeId),
+}));
 
 export const loyaltyTransactions = pgTable("loyalty_transactions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -170,7 +201,10 @@ export const loyaltyTransactions = pgTable("loyalty_transactions", {
   tierBefore: uuid("tier_before"),
   tierAfter: uuid("tier_after"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  customerIdIdx: index("loyalty_transactions_customer_id_idx").on(table.customerId),
+  transactionIdIdx: index("loyalty_transactions_transaction_id_idx").on(table.transactionId),
+}));
 
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -388,7 +422,12 @@ export const ipWhitelists = pgTable("ip_whitelists", {
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  ipAddressIdx: index("ip_whitelists_ip_address_idx").on(table.ipAddress),
+  whitelistedByIdx: index("ip_whitelists_whitelisted_by_idx").on(table.whitelistedBy),
+  whitelistedForIdx: index("ip_whitelists_whitelisted_for_idx").on(table.whitelistedFor),
+  storeIdIdx: index("ip_whitelists_store_id_idx").on(table.storeId),
+}));
 
 export const ipWhitelistLogs = pgTable("ip_whitelist_logs", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -400,14 +439,19 @@ export const ipWhitelistLogs = pgTable("ip_whitelist_logs", {
   reason: varchar("reason", { length: 255 }),
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  ipAddressIdx: index("ip_whitelist_logs_ip_address_idx").on(table.ipAddress),
+  userIdIdx: index("ip_whitelist_logs_user_id_idx").on(table.userId),
+}));
 
 // Session table for express-session
 export const sessions = pgTable("session", {
   sid: varchar("sid", { length: 255 }).primaryKey(),
   sess: text("sess").notNull(),
   expire: timestamp("expire").notNull(),
-});
+}, (table) => ({
+  expireIdx: index("session_expire_idx").on(table.expire),
+}));
 
 // Password Reset Tokens table
 export const passwordResetTokens = pgTable("password_reset_tokens", {
@@ -417,7 +461,10 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   expiresAt: timestamp("expires_at").notNull(),
   isUsed: boolean("is_used").default(false),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  userIdIdx: index("password_reset_tokens_user_id_idx").on(table.userId),
+  tokenIdx: index("password_reset_tokens_token_idx").on(table.token),
+}));
 
 // AI Demand Forecasting Tables
 export const forecastModels = pgTable("forecast_models", {
@@ -432,7 +479,9 @@ export const forecastModels = pgTable("forecast_models", {
   lastTrained: timestamp("last_trained"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  storeIdIdx: index("forecast_models_store_id_idx").on(table.storeId),
+}));
 
 export const demandForecasts = pgTable("demand_forecasts", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -447,7 +496,12 @@ export const demandForecasts = pgTable("demand_forecasts", {
   accuracy: decimal("accuracy", { precision: 5, scale: 4 }),
   factors: text("factors"), // JSON string of factors that influenced the forecast
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  storeIdIdx: index("demand_forecasts_store_id_idx").on(table.storeId),
+  productIdIdx: index("demand_forecasts_product_id_idx").on(table.productId),
+  modelIdIdx: index("demand_forecasts_model_id_idx").on(table.modelId),
+  forecastDateIdx: index("demand_forecasts_forecast_date_idx").on(table.forecastDate),
+}));
 
 export const aiInsights = pgTable("ai_insights", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -461,7 +515,9 @@ export const aiInsights = pgTable("ai_insights", {
   isActioned: boolean("is_actioned").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   actionedAt: timestamp("actioned_at"),
-});
+}, (table) => ({
+  storeIdIdx: index("ai_insights_store_id_idx").on(table.storeId),
+}));
 
 export const seasonalPatterns = pgTable("seasonal_patterns", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -474,7 +530,10 @@ export const seasonalPatterns = pgTable("seasonal_patterns", {
   averageDemand: integer("average_demand").notNull(),
   confidence: decimal("confidence", { precision: 5, scale: 4 }),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  storeIdIdx: index("seasonal_patterns_store_id_idx").on(table.storeId),
+  productIdIdx: index("seasonal_patterns_product_id_idx").on(table.productId),
+}));
 
 export const externalFactors = pgTable("external_factors", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -488,7 +547,9 @@ export const externalFactors = pgTable("external_factors", {
   impactStrength: decimal("impact_strength", { precision: 3, scale: 2 }).default("0.00"), // -1.00 to 1.00
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  storeIdIdx: index("external_factors_store_id_idx").on(table.storeId),
+}));
 
 // AI Relations
 export const forecastModelsRelations = relations(forecastModels, ({ one, many }) => ({

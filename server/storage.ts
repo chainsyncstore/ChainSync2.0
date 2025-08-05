@@ -45,6 +45,41 @@ import { AuthService } from "./auth";
 import { eq, and, desc, asc, sql, lt, lte, gte, between, isNotNull, or } from "drizzle-orm";
 import crypto from "crypto";
 
+// Simple in-memory cache for frequently accessed data
+class Cache {
+  private cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+
+  set(key: string, data: any, ttl: number = 300000): void { // 5 minutes default
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl
+    });
+  }
+
+  get(key: string): any | null {
+    const item = this.cache.get(key);
+    if (!item) return null;
+    
+    if (Date.now() - item.timestamp > item.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    return item.data;
+  }
+
+  delete(key: string): void {
+    this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+const cache = new Cache();
+
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
@@ -68,6 +103,8 @@ export interface IStorage {
 
   // Product operations
   getAllProducts(): Promise<Product[]>;
+  getProductsCount(): Promise<number>;
+  getProductsPaginated(limit: number, offset: number): Promise<Product[]>;
   getProduct(id: string): Promise<Product | undefined>;
   getProductByBarcode(barcode: string): Promise<Product | undefined>;
   getProductBySku(sku: string): Promise<Product | undefined>;
@@ -87,6 +124,8 @@ export interface IStorage {
   addTransactionItem(item: InsertTransactionItem): Promise<TransactionItem>;
   getTransaction(id: string): Promise<Transaction | undefined>;
   getTransactionsByStore(storeId: string, limit?: number): Promise<Transaction[]>;
+  getTransactionsCountByStore(storeId: string): Promise<number>;
+  getTransactionsByStorePaginated(storeId: string, limit: number, offset: number): Promise<Transaction[]>;
   updateTransaction(id: string, transaction: Partial<Transaction>): Promise<Transaction>;
   getTransactionItems(transactionId: string): Promise<TransactionItem[]>;
 
@@ -116,6 +155,8 @@ export interface IStorage {
   
   createLoyaltyTransaction(transaction: InsertLoyaltyTransaction): Promise<LoyaltyTransaction>;
   getLoyaltyTransactions(storeId: string, limit?: number): Promise<LoyaltyTransaction[]>;
+  getLoyaltyTransactionsCount(storeId: string): Promise<number>;
+  getLoyaltyTransactionsPaginated(storeId: string, limit: number, offset: number): Promise<LoyaltyTransaction[]>;
   getCustomerLoyaltyTransactions(customerId: string, limit?: number): Promise<LoyaltyTransaction[]>;
   
   // IP Whitelist operations
@@ -133,6 +174,10 @@ export interface IStorage {
   exportTransactions(storeId: string, startDate: Date, endDate: Date, format: string): Promise<any>;
   exportCustomers(storeId: string, format: string): Promise<any>;
   exportInventory(storeId: string, format: string): Promise<any>;
+  
+  // Loyalty Customer pagination
+  getLoyaltyCustomersCount(storeId: string): Promise<number>;
+  getLoyaltyCustomersPaginated(storeId: string, limit: number, offset: number): Promise<Customer[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -359,6 +404,15 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(products).where(eq(products.isActive, true));
   }
 
+  async getProductsCount(): Promise<number> {
+    const [count] = await db.select({ count: sql`COUNT(*)` }).from(products);
+    return parseInt(String(count?.count || "0"));
+  }
+
+  async getProductsPaginated(limit: number, offset: number): Promise<Product[]> {
+    return await db.select().from(products).where(eq(products.isActive, true)).limit(limit).offset(offset);
+  }
+
   async getProduct(id: string): Promise<Product | undefined> {
     const [product] = await db.select().from(products).where(eq(products.id, id));
     return product || undefined;
@@ -376,51 +430,104 @@ export class DatabaseStorage implements IStorage {
 
   async createProduct(insertProduct: InsertProduct): Promise<Product> {
     const [product] = await db.insert(products).values(insertProduct).returning();
+    
+    // Invalidate related caches
+    cache.delete('product_categories');
+    cache.delete('product_brands');
+    
     return product;
   }
 
   async updateProduct(id: string, updateProduct: Partial<InsertProduct>): Promise<Product> {
     const [product] = await db
       .update(products)
-      .set({ ...updateProduct, updatedAt: new Date() })
+      .set(updateProduct)
       .where(eq(products.id, id))
       .returning();
+    
+    // Invalidate related caches
+    cache.delete('product_categories');
+    cache.delete('product_brands');
+    
     return product;
   }
 
   async searchProducts(query: string): Promise<Product[]> {
+    const searchTerm = `%${query.toLowerCase()}%`;
+    
     return await db
       .select()
       .from(products)
       .where(
         and(
           eq(products.isActive, true),
-          sql`${products.name} ILIKE ${`%${query}%`} OR ${products.barcode} ILIKE ${`%${query}%`} OR ${products.sku} ILIKE ${`%${query}%`}`
+          or(
+            sql`LOWER(${products.name}) LIKE ${searchTerm}`,
+            sql`LOWER(${products.description}) LIKE ${searchTerm}`,
+            sql`LOWER(${products.category}) LIKE ${searchTerm}`,
+            sql`LOWER(${products.brand}) LIKE ${searchTerm}`,
+            sql`LOWER(${products.sku}) LIKE ${searchTerm}`,
+            sql`LOWER(${products.barcode}) LIKE ${searchTerm}`
+          )
         )
-      );
+      )
+      .orderBy(desc(products.createdAt))
+      .limit(50); // Limit results for performance
   }
 
   // Enhanced Product Management Methods
   async deleteProduct(id: string): Promise<void> {
     await db.delete(products).where(eq(products.id, id));
+    
+    // Invalidate related caches
+    cache.delete('product_categories');
+    cache.delete('product_brands');
   }
 
   async getProductCategories(): Promise<string[]> {
-    const result = await db.select({ category: products.category })
+    const cacheKey = 'product_categories';
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
+    const result = await db
+      .selectDistinct({ category: products.category })
       .from(products)
-      .where(isNotNull(products.category))
-      .groupBy(products.category);
-    
-    return result.map(r => r.category).filter((category): category is string => typeof category === 'string');
+      .where(
+        and(
+          eq(products.isActive, true),
+          isNotNull(products.category)
+        )
+      );
+
+    const categories = result
+      .map(row => row.category)
+      .filter(Boolean) as string[];
+
+    cache.set(cacheKey, categories, 600000); // Cache for 10 minutes
+    return categories;
   }
 
   async getProductBrands(): Promise<string[]> {
-    const result = await db.select({ brand: products.brand })
+    const cacheKey = 'product_brands';
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
+    const result = await db
+      .selectDistinct({ brand: products.brand })
       .from(products)
-      .where(isNotNull(products.brand))
-      .groupBy(products.brand);
-    
-    return result.map(r => r.brand).filter((brand): brand is string => typeof brand === 'string');
+      .where(
+        and(
+          eq(products.isActive, true),
+          isNotNull(products.brand)
+        )
+      );
+
+    const brands = result
+      .map(row => row.brand)
+      .filter(Boolean) as string[];
+
+    cache.set(cacheKey, brands, 600000); // Cache for 10 minutes
+    return brands;
   }
 
   // Inventory operations
@@ -492,6 +599,21 @@ export class DatabaseStorage implements IStorage {
       .where(eq(transactions.storeId, storeId))
       .orderBy(desc(transactions.createdAt))
       .limit(limit);
+  }
+
+  async getTransactionsCountByStore(storeId: string): Promise<number> {
+    const [count] = await db.select({ count: sql`COUNT(*)` }).from(transactions).where(eq(transactions.storeId, storeId));
+    return parseInt(String(count?.count || "0"));
+  }
+
+  async getTransactionsByStorePaginated(storeId: string, limit: number, offset: number): Promise<Transaction[]> {
+    return await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.storeId, storeId))
+      .orderBy(desc(transactions.createdAt))
+      .limit(limit)
+      .offset(offset);
   }
 
   async updateTransaction(id: string, updateTransaction: Partial<Transaction>): Promise<Transaction> {
@@ -881,6 +1003,37 @@ export class DatabaseStorage implements IStorage {
       .where(eq(customers.storeId, storeId))
       .orderBy(desc(loyaltyTransactions.createdAt))
       .limit(limit);
+  }
+
+  async getLoyaltyTransactionsCount(storeId: string): Promise<number> {
+    const [count] = await db.select({ count: sql`COUNT(*)` }).from(loyaltyTransactions).where(eq(loyaltyTransactions.storeId, storeId));
+    return parseInt(String(count?.count || "0"));
+  }
+
+  async getLoyaltyTransactionsPaginated(storeId: string, limit: number, offset: number): Promise<LoyaltyTransaction[]> {
+    return await db
+      .select({
+        id: loyaltyTransactions.id,
+        customerId: loyaltyTransactions.customerId,
+        transactionId: loyaltyTransactions.transactionId,
+        pointsEarned: loyaltyTransactions.pointsEarned,
+        pointsRedeemed: loyaltyTransactions.pointsRedeemed,
+        pointsBefore: loyaltyTransactions.pointsBefore,
+        pointsAfter: loyaltyTransactions.pointsAfter,
+        tierBefore: loyaltyTransactions.tierBefore,
+        tierAfter: loyaltyTransactions.tierAfter,
+        createdAt: loyaltyTransactions.createdAt,
+        customer: {
+          firstName: customers.firstName,
+          lastName: customers.lastName,
+        },
+      })
+      .from(loyaltyTransactions)
+      .leftJoin(customers, eq(loyaltyTransactions.customerId, customers.id))
+      .where(eq(customers.storeId, storeId))
+      .orderBy(desc(loyaltyTransactions.createdAt))
+      .limit(limit)
+      .offset(offset);
   }
 
   async getCustomerLoyaltyTransactions(customerId: string, limit = 50): Promise<LoyaltyTransaction[]> {
@@ -1406,6 +1559,41 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(ipWhitelistLogs)
       .orderBy(desc(ipWhitelistLogs.createdAt))
       .limit(limit);
+  }
+
+  // Loyalty Customer pagination
+  async getLoyaltyCustomersCount(storeId: string): Promise<number> {
+    const [count] = await db.select({ count: sql`COUNT(*)` }).from(customers).where(eq(customers.storeId, storeId));
+    return parseInt(String(count?.count || "0"));
+  }
+
+  async getLoyaltyCustomersPaginated(storeId: string, limit: number, offset: number): Promise<Customer[]> {
+    return await db.select({
+      id: customers.id,
+      firstName: customers.firstName,
+      lastName: customers.lastName,
+      email: customers.email,
+      phone: customers.phone,
+      storeId: customers.storeId,
+      loyaltyNumber: customers.loyaltyNumber,
+      currentPoints: customers.currentPoints,
+      lifetimePoints: customers.lifetimePoints,
+      tierId: customers.tierId,
+      isActive: customers.isActive,
+      createdAt: customers.createdAt,
+      updatedAt: customers.updatedAt,
+      tier: {
+        id: loyaltyTiers.id,
+        name: loyaltyTiers.name,
+        color: loyaltyTiers.color,
+      },
+    })
+    .from(customers)
+    .leftJoin(loyaltyTiers, eq(customers.tierId, loyaltyTiers.id))
+    .where(eq(customers.storeId, storeId))
+    .orderBy(desc(customers.createdAt))
+    .limit(limit)
+    .offset(offset);
   }
 }
 

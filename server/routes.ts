@@ -31,6 +31,11 @@ import {
   ConflictError,
   PaymentError
 } from "./lib/errors";
+import { 
+  performanceMiddleware, 
+  getPerformanceMetrics, 
+  clearPerformanceMetrics 
+} from "./lib/performance";
 
 // Extend the session interface
 declare module "express-session" {
@@ -48,6 +53,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   if (!process.env.SESSION_SECRET) {
     throw new Error('SESSION_SECRET environment variable is required for production');
   }
+
+  // Add performance monitoring middleware
+  app.use(performanceMiddleware);
 
   // Session configuration
   const pgSession = connectPg(session);
@@ -508,8 +516,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Product routes
   app.get("/api/products", async (req, res) => {
     try {
-      const products = await storage.getAllProducts();
-      res.json(products);
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = (page - 1) * limit;
+      
+      // Get total count for pagination metadata
+      const totalCount = await storage.getProductsCount();
+      const products = await storage.getProductsPaginated(limit, offset);
+      
+      res.json({
+        data: products,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasNext: page * limit < totalCount,
+          hasPrev: page > 1
+        }
+      });
     } catch (error) {
       console.error("Error fetching products:", error);
       res.status(500).json({ message: "Failed to fetch products" });
@@ -774,9 +799,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/stores/:storeId/transactions", async (req, res) => {
     try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-      const transactions = await storage.getTransactionsByStore(req.params.storeId, limit);
-      res.json(transactions);
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = (page - 1) * limit;
+      
+      // Get total count for pagination metadata
+      const totalCount = await storage.getTransactionsCountByStore(req.params.storeId);
+      const transactions = await storage.getTransactionsByStorePaginated(req.params.storeId, limit, offset);
+      
+      res.json({
+        data: transactions,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasNext: page * limit < totalCount,
+          hasPrev: page > 1
+        }
+      });
     } catch (error) {
       console.error("Error fetching transactions:", error);
       res.status(500).json({ message: "Failed to fetch transactions" });
@@ -916,8 +957,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/stores/:storeId/loyalty/customers", async (req, res) => {
     try {
-      const customers = await storage.getLoyaltyCustomers(req.params.storeId);
-      res.json(customers);
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = (page - 1) * limit;
+      
+      // Get total count for pagination metadata
+      const totalCount = await storage.getLoyaltyCustomersCount(req.params.storeId);
+      const customers = await storage.getLoyaltyCustomersPaginated(req.params.storeId, limit, offset);
+      
+      res.json({
+        data: customers,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasNext: page * limit < totalCount,
+          hasPrev: page > 1
+        }
+      });
     } catch (error) {
       console.error("Error fetching loyalty customers:", error);
       res.status(500).json({ message: "Failed to fetch loyalty customers" });
@@ -987,9 +1045,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/stores/:storeId/loyalty/transactions", async (req, res) => {
     try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-      const transactions = await storage.getLoyaltyTransactions(req.params.storeId, limit);
-      res.json(transactions);
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = (page - 1) * limit;
+      
+      // Get total count for pagination metadata
+      const totalCount = await storage.getLoyaltyTransactionsCount(req.params.storeId);
+      const transactions = await storage.getLoyaltyTransactionsPaginated(req.params.storeId, limit, offset);
+      
+      res.json({
+        data: transactions,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasNext: page * limit < totalCount,
+          hasPrev: page > 1
+        }
+      });
     } catch (error) {
       console.error("Error fetching loyalty transactions:", error);
       res.status(500).json({ message: "Failed to fetch loyalty transactions" });
@@ -1775,6 +1849,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const httpServer = createServer(app);
-  return httpServer;
+  // Performance monitoring endpoints (admin only)
+  app.get("/api/performance/metrics", authenticateUser, (req, res) => {
+    // Only allow admin users to access performance metrics
+    if (req.session.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    getPerformanceMetrics(req, res);
+  });
+
+  app.delete("/api/performance/metrics", authenticateUser, (req, res) => {
+    // Only allow admin users to clear performance metrics
+    if (req.session.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    clearPerformanceMetrics(req, res);
+  });
+
+  // Create HTTP server
+  const server = createServer(app);
+  
+  return server;
 }

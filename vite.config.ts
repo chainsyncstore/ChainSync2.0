@@ -27,11 +27,48 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendor chunks for better caching
+          vendor: ['react', 'react-dom'],
+          ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
+          charts: ['recharts'],
+          forms: ['react-hook-form', '@hookform/resolvers'],
+          utils: ['date-fns', 'clsx', 'tailwind-merge'],
+        },
+      },
+    },
+    // Enable tree shaking and minification
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: process.env.NODE_ENV === 'production',
+        drop_debugger: process.env.NODE_ENV === 'production',
+      },
+    },
+    // Optimize chunk size
+    chunkSizeWarningLimit: 1000,
   },
   server: {
     fs: {
       strict: true,
       deny: ["**/.*"],
     },
+  },
+  // Optimize dependencies
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-select',
+      'recharts',
+      'react-hook-form',
+      'date-fns',
+      'clsx',
+      'tailwind-merge',
+    ],
   },
 });
