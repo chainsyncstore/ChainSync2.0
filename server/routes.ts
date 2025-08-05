@@ -581,37 +581,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/products", async (req, res) => {
+  app.post("/api/products", handleAsyncError(async (req, res) => {
     try {
       const productData = insertProductSchema.parse(req.body);
       const product = await storage.createProduct(productData);
-      res.status(201).json(product);
+      sendSuccessResponse(res, product, "Product created successfully", 201);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid product data", errors: error.errors });
+        throw new ValidationError("Invalid product data", error.errors);
       }
-      console.error("Error creating product:", error);
-      res.status(500).json({ message: "Failed to create product" });
+      throw error;
     }
-  });
+  }));
 
   // Enhanced Product Management Routes
-  app.put("/api/products/:id", async (req, res) => {
+  app.put("/api/products/:id", handleAsyncError(async (req, res) => {
     try {
       const productData = insertProductSchema.partial().parse(req.body);
       const product = await storage.updateProduct(req.params.id, productData);
       if (!product) {
-        return res.status(404).json({ message: "Product not found" });
+        throw new NotFoundError("Product not found");
       }
-      res.json(product);
+      sendSuccessResponse(res, product, "Product updated successfully");
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid product data", errors: error.errors });
+        throw new ValidationError("Invalid product data", error.errors);
       }
-      console.error("Error updating product:", error);
-      res.status(500).json({ message: "Failed to update product" });
+      throw error;
     }
-  });
+  }));
 
   app.delete("/api/products/:id", async (req, res) => {
     try {
@@ -664,22 +662,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/stores/:storeId/inventory/:productId", async (req, res) => {
+  app.put("/api/stores/:storeId/inventory/:productId", handleAsyncError(async (req, res) => {
     try {
       const { storeId, productId } = req.params;
-      const { quantity } = req.body;
+      const { quantity, adjustmentData } = req.body;
       
-      if (typeof quantity !== "number") {
-        return res.status(400).json({ message: "Quantity must be a number" });
+      // Validate quantity
+      if (typeof quantity !== "number" || quantity < 0) {
+        throw new ValidationError("Quantity must be a non-negative number");
+      }
+
+      // Validate adjustment data if provided
+      if (adjustmentData) {
+        enhancedStockAdjustmentSchema.parse(adjustmentData);
       }
 
       const inventory = await storage.updateInventory(productId, storeId, { quantity });
-      res.json(inventory);
+      sendSuccessResponse(res, inventory, "Inventory updated successfully");
     } catch (error) {
-      console.error("Error updating inventory:", error);
-      res.status(500).json({ message: "Failed to update inventory" });
+      if (error instanceof z.ZodError) {
+        throw new ValidationError("Invalid adjustment data", error.errors);
+      }
+      throw error;
     }
-  });
+  }));
 
   // Enhanced Inventory Management Routes
   app.post("/api/stores/:storeId/inventory/bulk-update", async (req, res) => {
@@ -982,7 +988,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/stores/:storeId/loyalty/customers", async (req, res) => {
+  app.post("/api/stores/:storeId/loyalty/customers", handleAsyncError(async (req, res) => {
     try {
       const customerData = insertCustomerSchema.parse({
         ...req.body,
@@ -996,15 +1002,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...customerData,
         loyaltyNumber,
       });
-      res.status(201).json(customer);
+      sendSuccessResponse(res, customer, "Customer created successfully", 201);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid customer data", errors: error.errors });
+        throw new ValidationError("Invalid customer data", error.errors);
       }
-      console.error("Error creating loyalty customer:", error);
-      res.status(500).json({ message: "Failed to create loyalty customer" });
+      throw error;
     }
-  });
+  }));
 
   app.get("/api/loyalty/customers/:customerId", async (req, res) => {
     try {

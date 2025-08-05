@@ -30,11 +30,27 @@ export default function CheckoutPanel({
   isProcessing,
 }: CheckoutPanelProps) {
   const [amountReceived, setAmountReceived] = useState("");
+  const [amountError, setAmountError] = useState("");
 
   const handleAmountChange = (value: string) => {
     setAmountReceived(value);
-    const amount = parseFloat(value) || 0;
-    onAmountReceivedChange(amount);
+    setAmountError("");
+
+    // Validate amount
+    const amount = parseFloat(value);
+    if (value && (isNaN(amount) || amount < 0)) {
+      setAmountError("Please enter a valid amount");
+      onAmountReceivedChange(0);
+      return;
+    }
+
+    if (amount > 999999.99) {
+      setAmountError("Amount cannot exceed 999,999.99");
+      onAmountReceivedChange(0);
+      return;
+    }
+
+    onAmountReceivedChange(amount || 0);
   };
 
   const changeDue = payment.amountReceived ? Math.max(0, payment.amountReceived - summary.total) : 0;
@@ -103,8 +119,11 @@ export default function CheckoutPanel({
                 onChange={(e) => handleAmountChange(e.target.value)}
                 placeholder="0.00"
                 step="0.01"
-                className="text-lg font-mono text-right h-12 sm:h-10"
+                className={`text-lg font-mono text-right h-12 sm:h-10 ${amountError ? "border-red-500" : ""}`}
               />
+              {amountError && (
+                <p className="text-red-500 text-sm mt-1">{amountError}</p>
+              )}
             </div>
             <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
               <span className="text-slate-600">Change Due</span>

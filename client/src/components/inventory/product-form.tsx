@@ -17,18 +17,50 @@ import { apiRequest } from "@/lib/queryClient";
 import { Barcode, Camera, Save, X, Plus, Image as ImageIcon } from "lucide-react";
 
 const productSchema = z.object({
-  name: z.string().min(1, "Product name is required"),
-  barcode: z.string().optional(),
-  description: z.string().optional(),
-  price: z.string().min(1, "Price is required").regex(/^\d+(\.\d{1,2})?$/, "Invalid price format"),
-  cost: z.string().optional().refine((val) => !val || /^\d+(\.\d{1,2})?$/.test(val), "Invalid cost format"),
-  category: z.string().min(1, "Category is required"),
-  brand: z.string().optional(),
+  name: z.string()
+    .min(1, "Product name is required")
+    .max(255, "Product name must be less than 255 characters")
+    .regex(/^[a-zA-Z0-9\s\-_&.,()]+$/, "Product name contains invalid characters"),
+  barcode: z.string()
+    .max(255, "Barcode must be less than 255 characters")
+    .regex(/^[0-9]*$/, "Barcode must contain only numbers")
+    .optional(),
+  description: z.string()
+    .max(1000, "Description must be less than 1000 characters")
+    .optional(),
+  price: z.string()
+    .min(1, "Price is required")
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid price format - use numbers only (e.g., 10.99)")
+    .refine((val) => parseFloat(val) > 0, "Price must be greater than 0")
+    .refine((val) => parseFloat(val) <= 999999.99, "Price cannot exceed 999,999.99"),
+  cost: z.string()
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid cost format - use numbers only (e.g., 5.50)")
+    .refine((val) => !val || parseFloat(val) >= 0, "Cost cannot be negative")
+    .refine((val) => !val || parseFloat(val) <= 999999.99, "Cost cannot exceed 999,999.99")
+    .optional(),
+  category: z.string()
+    .min(1, "Category is required")
+    .max(255, "Category must be less than 255 characters"),
+  brand: z.string()
+    .max(255, "Brand must be less than 255 characters")
+    .optional(),
   isActive: z.boolean().default(true),
-  sku: z.string().optional(),
-  weight: z.string().optional(),
-  dimensions: z.string().optional(),
-  tags: z.string().optional(),
+  sku: z.string()
+    .max(255, "SKU must be less than 255 characters")
+    .regex(/^[A-Z0-9\-_]*$/, "SKU can only contain uppercase letters, numbers, hyphens, and underscores")
+    .optional(),
+  weight: z.string()
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid weight format - use numbers only")
+    .refine((val) => !val || parseFloat(val) >= 0, "Weight cannot be negative")
+    .refine((val) => !val || parseFloat(val) <= 999999.99, "Weight cannot exceed 999,999.99")
+    .optional(),
+  dimensions: z.string()
+    .max(100, "Dimensions must be less than 100 characters")
+    .regex(/^[0-9xX\s]*$/, "Dimensions can only contain numbers, 'x', and spaces")
+    .optional(),
+  tags: z.string()
+    .max(500, "Tags must be less than 500 characters")
+    .optional(),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;

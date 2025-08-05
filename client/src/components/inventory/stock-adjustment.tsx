@@ -17,11 +17,22 @@ import { Package, Plus, Minus, Edit, AlertTriangle, History, Save } from "lucide
 import { formatCurrency } from "@/lib/pos-utils";
 
 const adjustmentSchema = z.object({
-  adjustmentType: z.enum(["add", "remove", "set"]),
-  quantity: z.number().min(0.01, "Quantity must be greater than 0"),
-  reason: z.string().min(1, "Reason is required"),
-  notes: z.string().optional(),
-  cost: z.number().optional(),
+  adjustmentType: z.enum(["add", "remove", "set"], {
+    errorMap: () => ({ message: "Invalid adjustment type" })
+  }),
+  quantity: z.number()
+    .positive("Quantity must be greater than 0")
+    .max(999999999, "Quantity cannot exceed 999,999,999"),
+  reason: z.string()
+    .min(1, "Reason is required")
+    .max(255, "Reason must be less than 255 characters"),
+  notes: z.string()
+    .max(1000, "Notes must be less than 1000 characters")
+    .optional(),
+  cost: z.number()
+    .min(0, "Cost cannot be negative")
+    .max(999999.99, "Cost cannot exceed 999,999.99")
+    .optional(),
 });
 
 type AdjustmentFormData = z.infer<typeof adjustmentSchema>;

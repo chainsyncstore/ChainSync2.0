@@ -275,8 +275,233 @@ export const lowStockAlertsRelations = relations(lowStockAlerts, ({ one }) => ({
 
 
 
-// Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({
+// Enhanced validation schemas with comprehensive rules
+export const enhancedUserSchema = z.object({
+  username: z.string()
+    .min(3, "Username must be at least 3 characters")
+    .max(50, "Username must be less than 50 characters")
+    .regex(/^[a-zA-Z0-9_-]+$/, "Username can only contain letters, numbers, underscores, and hyphens"),
+  email: z.string()
+    .email("Invalid email format")
+    .max(255, "Email must be less than 255 characters"),
+  firstName: z.string()
+    .min(1, "First name is required")
+    .max(100, "First name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "First name can only contain letters, spaces, hyphens, and apostrophes"),
+  lastName: z.string()
+    .min(1, "Last name is required")
+    .max(100, "Last name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "Last name can only contain letters, spaces, hyphens, and apostrophes"),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be less than 128 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/\d/, "Password must contain at least one number")
+    .regex(/[!@#$%^&*(),.?":{}|<>]/, "Password must contain at least one special character"),
+  phone: z.string()
+    .min(10, "Phone number must be at least 10 digits")
+    .max(20, "Phone number must be less than 20 characters")
+    .regex(/^[\+]?[1-9][\d]{0,15}$/, "Invalid phone number format"),
+  companyName: z.string()
+    .min(1, "Company name is required")
+    .max(255, "Company name must be less than 255 characters"),
+  tier: z.enum(["basic", "premium", "enterprise"], {
+    errorMap: () => ({ message: "Invalid tier selection" })
+  }),
+  location: z.enum(["nigeria", "international"], {
+    errorMap: () => ({ message: "Invalid location selection" })
+  }),
+  role: z.enum(["cashier", "manager", "admin"], {
+    errorMap: () => ({ message: "Invalid role selection" })
+  }).default("cashier"),
+  storeId: z.string().uuid("Invalid store ID").optional(),
+  isActive: z.boolean().default(true),
+});
+
+export const enhancedProductSchema = z.object({
+  name: z.string()
+    .min(1, "Product name is required")
+    .max(255, "Product name must be less than 255 characters")
+    .regex(/^[a-zA-Z0-9\s\-_&.,()]+$/, "Product name contains invalid characters"),
+  sku: z.string()
+    .max(255, "SKU must be less than 255 characters")
+    .regex(/^[A-Z0-9\-_]+$/, "SKU can only contain uppercase letters, numbers, hyphens, and underscores")
+    .optional(),
+  barcode: z.string()
+    .max(255, "Barcode must be less than 255 characters")
+    .regex(/^[0-9]+$/, "Barcode must contain only numbers")
+    .optional(),
+  description: z.string()
+    .max(1000, "Description must be less than 1000 characters")
+    .optional(),
+  price: z.string()
+    .min(1, "Price is required")
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid price format - use numbers only (e.g., 10.99)")
+    .refine((val) => parseFloat(val) > 0, "Price must be greater than 0")
+    .refine((val) => parseFloat(val) <= 999999.99, "Price cannot exceed 999,999.99"),
+  cost: z.string()
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid cost format - use numbers only (e.g., 5.50)")
+    .refine((val) => !val || parseFloat(val) >= 0, "Cost cannot be negative")
+    .refine((val) => !val || parseFloat(val) <= 999999.99, "Cost cannot exceed 999,999.99")
+    .optional(),
+  category: z.string()
+    .min(1, "Category is required")
+    .max(255, "Category must be less than 255 characters"),
+  brand: z.string()
+    .max(255, "Brand must be less than 255 characters")
+    .optional(),
+  isActive: z.boolean().default(true),
+  weight: z.string()
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid weight format - use numbers only")
+    .refine((val) => !val || parseFloat(val) >= 0, "Weight cannot be negative")
+    .refine((val) => !val || parseFloat(val) <= 999999.99, "Weight cannot exceed 999,999.99")
+    .optional(),
+  dimensions: z.string()
+    .max(100, "Dimensions must be less than 100 characters")
+    .regex(/^[0-9xX\s]+$/, "Dimensions can only contain numbers, 'x', and spaces")
+    .optional(),
+  tags: z.string()
+    .max(500, "Tags must be less than 500 characters")
+    .optional(),
+});
+
+export const enhancedCustomerSchema = z.object({
+  storeId: z.string().uuid("Invalid store ID"),
+  firstName: z.string()
+    .min(1, "First name is required")
+    .max(100, "First name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "First name can only contain letters, spaces, hyphens, and apostrophes"),
+  lastName: z.string()
+    .min(1, "Last name is required")
+    .max(100, "Last name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "Last name can only contain letters, spaces, hyphens, and apostrophes"),
+  email: z.string()
+    .email("Invalid email format")
+    .max(255, "Email must be less than 255 characters")
+    .optional(),
+  phone: z.string()
+    .min(10, "Phone number must be at least 10 digits")
+    .max(20, "Phone number must be less than 20 characters")
+    .regex(/^[\+]?[1-9][\d]{0,15}$/, "Invalid phone number format")
+    .optional(),
+  loyaltyNumber: z.string()
+    .max(255, "Loyalty number must be less than 255 characters")
+    .regex(/^[A-Z0-9\-_]+$/, "Loyalty number can only contain uppercase letters, numbers, hyphens, and underscores")
+    .optional(),
+  currentPoints: z.number()
+    .int("Points must be a whole number")
+    .min(0, "Points cannot be negative")
+    .max(999999999, "Points cannot exceed 999,999,999")
+    .default(0),
+  lifetimePoints: z.number()
+    .int("Lifetime points must be a whole number")
+    .min(0, "Lifetime points cannot be negative")
+    .max(999999999, "Lifetime points cannot exceed 999,999,999")
+    .default(0),
+  tierId: z.string().uuid("Invalid tier ID").optional(),
+  isActive: z.boolean().default(true),
+});
+
+export const enhancedInventorySchema = z.object({
+  productId: z.string().uuid("Invalid product ID"),
+  storeId: z.string().uuid("Invalid store ID"),
+  quantity: z.number()
+    .int("Quantity must be a whole number")
+    .min(0, "Quantity cannot be negative")
+    .max(999999999, "Quantity cannot exceed 999,999,999"),
+  minStockLevel: z.number()
+    .int("Minimum stock level must be a whole number")
+    .min(0, "Minimum stock level cannot be negative")
+    .max(999999999, "Minimum stock level cannot exceed 999,999,999")
+    .default(10),
+  maxStockLevel: z.number()
+    .int("Maximum stock level must be a whole number")
+    .min(1, "Maximum stock level must be at least 1")
+    .max(999999999, "Maximum stock level cannot exceed 999,999,999")
+    .default(100),
+});
+
+export const enhancedStockAdjustmentSchema = z.object({
+  adjustmentType: z.enum(["add", "remove", "set"], {
+    errorMap: () => ({ message: "Invalid adjustment type" })
+  }),
+  quantity: z.number()
+    .positive("Quantity must be greater than 0")
+    .max(999999999, "Quantity cannot exceed 999,999,999"),
+  reason: z.string()
+    .min(1, "Reason is required")
+    .max(255, "Reason must be less than 255 characters"),
+  notes: z.string()
+    .max(1000, "Notes must be less than 1000 characters")
+    .optional(),
+  cost: z.number()
+    .min(0, "Cost cannot be negative")
+    .max(999999.99, "Cost cannot exceed 999,999.99")
+    .optional(),
+});
+
+export const enhancedLoyaltyTierSchema = z.object({
+  storeId: z.string().uuid("Invalid store ID"),
+  name: z.string()
+    .min(1, "Tier name is required")
+    .max(100, "Tier name must be less than 100 characters")
+    .regex(/^[a-zA-Z0-9\s\-_]+$/, "Tier name can only contain letters, numbers, spaces, hyphens, and underscores"),
+  description: z.string()
+    .max(500, "Description must be less than 500 characters")
+    .optional(),
+  pointsRequired: z.number()
+    .int("Points required must be a whole number")
+    .min(0, "Points required cannot be negative")
+    .max(999999999, "Points required cannot exceed 999,999,999"),
+  discountPercentage: z.number()
+    .min(0, "Discount percentage cannot be negative")
+    .max(100, "Discount percentage cannot exceed 100%"),
+  color: z.string()
+    .regex(/^#[0-9A-F]{6}$/i, "Color must be a valid hex color (e.g., #FF0000)")
+    .default("#6B7280"),
+});
+
+export const enhancedTransactionSchema = z.object({
+  storeId: z.string().uuid("Invalid store ID"),
+  customerId: z.string().uuid("Invalid customer ID").optional(),
+  total: z.number()
+    .positive("Total must be greater than 0")
+    .max(999999.99, "Total cannot exceed 999,999.99"),
+  tax: z.number()
+    .min(0, "Tax cannot be negative")
+    .max(999999.99, "Tax cannot exceed 999,999.99"),
+  discount: z.number()
+    .min(0, "Discount cannot be negative")
+    .max(999999.99, "Discount cannot exceed 999,999.99")
+    .default(0),
+  paymentMethod: z.enum(["cash", "card", "digital"], {
+    errorMap: () => ({ message: "Invalid payment method" })
+  }),
+  status: z.enum(["pending", "completed", "voided", "held"], {
+    errorMap: () => ({ message: "Invalid transaction status" })
+  }).default("pending"),
+  notes: z.string()
+    .max(1000, "Notes must be less than 1000 characters")
+    .optional(),
+});
+
+export const enhancedTransactionItemSchema = z.object({
+  transactionId: z.string().uuid("Invalid transaction ID"),
+  productId: z.string().uuid("Invalid product ID"),
+  quantity: z.number()
+    .positive("Quantity must be greater than 0")
+    .max(999999, "Quantity cannot exceed 999,999"),
+  unitPrice: z.number()
+    .positive("Unit price must be greater than 0")
+    .max(999999.99, "Unit price cannot exceed 999,999.99"),
+  total: z.number()
+    .positive("Total must be greater than 0")
+    .max(999999.99, "Total cannot exceed 999,999.99"),
+});
+
+// Enhanced insert schemas with validation
+export const insertUserSchema = enhancedUserSchema.omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -288,24 +513,24 @@ export const insertStoreSchema = createInsertSchema(stores).omit({
   updatedAt: true,
 });
 
-export const insertProductSchema = createInsertSchema(products).omit({
+export const insertProductSchema = enhancedProductSchema.omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 });
 
-export const insertInventorySchema = createInsertSchema(inventory).omit({
+export const insertInventorySchema = enhancedInventorySchema.omit({
   id: true,
   updatedAt: true,
 });
 
-export const insertTransactionSchema = createInsertSchema(transactions).omit({
+export const insertTransactionSchema = enhancedTransactionSchema.omit({
   id: true,
   createdAt: true,
   completedAt: true,
 });
 
-export const insertTransactionItemSchema = createInsertSchema(transactionItems).omit({
+export const insertTransactionItemSchema = enhancedTransactionItemSchema.omit({
   id: true,
 });
 
@@ -316,13 +541,13 @@ export const insertLowStockAlertSchema = createInsertSchema(lowStockAlerts).omit
 });
 
 // Loyalty Program Insert Schemas
-export const insertLoyaltyTierSchema = createInsertSchema(loyaltyTiers).omit({
+export const insertLoyaltyTierSchema = enhancedLoyaltyTierSchema.omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 });
 
-export const insertCustomerSchema = createInsertSchema(customers).omit({
+export const insertCustomerSchema = enhancedCustomerSchema.omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -677,21 +902,347 @@ export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTo
   createdAt: true,
 });
 
-// AI Types
-export type ForecastModel = typeof forecastModels.$inferSelect;
-export type InsertForecastModel = z.infer<typeof insertForecastModelSchema>;
+// Enhanced validation schemas with comprehensive rules
+export const enhancedUserSchema = z.object({
+  username: z.string()
+    .min(3, "Username must be at least 3 characters")
+    .max(50, "Username must be less than 50 characters")
+    .regex(/^[a-zA-Z0-9_-]+$/, "Username can only contain letters, numbers, underscores, and hyphens"),
+  email: z.string()
+    .email("Invalid email format")
+    .max(255, "Email must be less than 255 characters"),
+  firstName: z.string()
+    .min(1, "First name is required")
+    .max(100, "First name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "First name can only contain letters, spaces, hyphens, and apostrophes"),
+  lastName: z.string()
+    .min(1, "Last name is required")
+    .max(100, "Last name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "Last name can only contain letters, spaces, hyphens, and apostrophes"),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be less than 128 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/\d/, "Password must contain at least one number")
+    .regex(/[!@#$%^&*(),.?":{}|<>]/, "Password must contain at least one special character"),
+  phone: z.string()
+    .min(10, "Phone number must be at least 10 digits")
+    .max(20, "Phone number must be less than 20 characters")
+    .regex(/^[\+]?[1-9][\d]{0,15}$/, "Invalid phone number format"),
+  companyName: z.string()
+    .min(1, "Company name is required")
+    .max(255, "Company name must be less than 255 characters"),
+  tier: z.enum(["basic", "premium", "enterprise"], {
+    errorMap: () => ({ message: "Invalid tier selection" })
+  }),
+  location: z.enum(["nigeria", "international"], {
+    errorMap: () => ({ message: "Invalid location selection" })
+  }),
+  role: z.enum(["cashier", "manager", "admin"], {
+    errorMap: () => ({ message: "Invalid role selection" })
+  }).default("cashier"),
+  storeId: z.string().uuid("Invalid store ID").optional(),
+  isActive: z.boolean().default(true),
+});
 
-export type DemandForecast = typeof demandForecasts.$inferSelect;
-export type InsertDemandForecast = z.infer<typeof insertDemandForecastSchema>;
+export const enhancedProductSchema = z.object({
+  name: z.string()
+    .min(1, "Product name is required")
+    .max(255, "Product name must be less than 255 characters")
+    .regex(/^[a-zA-Z0-9\s\-_&.,()]+$/, "Product name contains invalid characters"),
+  sku: z.string()
+    .max(255, "SKU must be less than 255 characters")
+    .regex(/^[A-Z0-9\-_]+$/, "SKU can only contain uppercase letters, numbers, hyphens, and underscores")
+    .optional(),
+  barcode: z.string()
+    .max(255, "Barcode must be less than 255 characters")
+    .regex(/^[0-9]+$/, "Barcode must contain only numbers")
+    .optional(),
+  description: z.string()
+    .max(1000, "Description must be less than 1000 characters")
+    .optional(),
+  price: z.string()
+    .min(1, "Price is required")
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid price format - use numbers only (e.g., 10.99)")
+    .refine((val) => parseFloat(val) > 0, "Price must be greater than 0")
+    .refine((val) => parseFloat(val) <= 999999.99, "Price cannot exceed 999,999.99"),
+  cost: z.string()
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid cost format - use numbers only (e.g., 5.50)")
+    .refine((val) => !val || parseFloat(val) >= 0, "Cost cannot be negative")
+    .refine((val) => !val || parseFloat(val) <= 999999.99, "Cost cannot exceed 999,999.99")
+    .optional(),
+  category: z.string()
+    .min(1, "Category is required")
+    .max(255, "Category must be less than 255 characters"),
+  brand: z.string()
+    .max(255, "Brand must be less than 255 characters")
+    .optional(),
+  isActive: z.boolean().default(true),
+  weight: z.string()
+    .regex(/^\d+(\.\d{1,2})?$/, "Invalid weight format - use numbers only")
+    .refine((val) => !val || parseFloat(val) >= 0, "Weight cannot be negative")
+    .refine((val) => !val || parseFloat(val) <= 999999.99, "Weight cannot exceed 999,999.99")
+    .optional(),
+  dimensions: z.string()
+    .max(100, "Dimensions must be less than 100 characters")
+    .regex(/^[0-9xX\s]+$/, "Dimensions can only contain numbers, 'x', and spaces")
+    .optional(),
+  tags: z.string()
+    .max(500, "Tags must be less than 500 characters")
+    .optional(),
+});
 
-export type AiInsight = typeof aiInsights.$inferSelect;
-export type InsertAiInsight = z.infer<typeof insertAiInsightSchema>;
+export const enhancedCustomerSchema = z.object({
+  storeId: z.string().uuid("Invalid store ID"),
+  firstName: z.string()
+    .min(1, "First name is required")
+    .max(100, "First name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "First name can only contain letters, spaces, hyphens, and apostrophes"),
+  lastName: z.string()
+    .min(1, "Last name is required")
+    .max(100, "Last name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "Last name can only contain letters, spaces, hyphens, and apostrophes"),
+  email: z.string()
+    .email("Invalid email format")
+    .max(255, "Email must be less than 255 characters")
+    .optional(),
+  phone: z.string()
+    .min(10, "Phone number must be at least 10 digits")
+    .max(20, "Phone number must be less than 20 characters")
+    .regex(/^[\+]?[1-9][\d]{0,15}$/, "Invalid phone number format")
+    .optional(),
+  loyaltyNumber: z.string()
+    .max(255, "Loyalty number must be less than 255 characters")
+    .regex(/^[A-Z0-9\-_]+$/, "Loyalty number can only contain uppercase letters, numbers, hyphens, and underscores")
+    .optional(),
+  currentPoints: z.number()
+    .int("Points must be a whole number")
+    .min(0, "Points cannot be negative")
+    .max(999999999, "Points cannot exceed 999,999,999")
+    .default(0),
+  lifetimePoints: z.number()
+    .int("Lifetime points must be a whole number")
+    .min(0, "Lifetime points cannot be negative")
+    .max(999999999, "Lifetime points cannot exceed 999,999,999")
+    .default(0),
+  tierId: z.string().uuid("Invalid tier ID").optional(),
+  isActive: z.boolean().default(true),
+});
 
-export type SeasonalPattern = typeof seasonalPatterns.$inferSelect;
-export type InsertSeasonalPattern = z.infer<typeof insertSeasonalPatternSchema>;
+export const enhancedInventorySchema = z.object({
+  productId: z.string().uuid("Invalid product ID"),
+  storeId: z.string().uuid("Invalid store ID"),
+  quantity: z.number()
+    .int("Quantity must be a whole number")
+    .min(0, "Quantity cannot be negative")
+    .max(999999999, "Quantity cannot exceed 999,999,999"),
+  minStockLevel: z.number()
+    .int("Minimum stock level must be a whole number")
+    .min(0, "Minimum stock level cannot be negative")
+    .max(999999999, "Minimum stock level cannot exceed 999,999,999")
+    .default(10),
+  maxStockLevel: z.number()
+    .int("Maximum stock level must be a whole number")
+    .min(1, "Maximum stock level must be at least 1")
+    .max(999999999, "Maximum stock level cannot exceed 999,999,999")
+    .default(100),
+});
 
-export type ExternalFactor = typeof externalFactors.$inferSelect;
-export type InsertExternalFactor = z.infer<typeof insertExternalFactorSchema>;
+export const enhancedStockAdjustmentSchema = z.object({
+  adjustmentType: z.enum(["add", "remove", "set"], {
+    errorMap: () => ({ message: "Invalid adjustment type" })
+  }),
+  quantity: z.number()
+    .positive("Quantity must be greater than 0")
+    .max(999999999, "Quantity cannot exceed 999,999,999"),
+  reason: z.string()
+    .min(1, "Reason is required")
+    .max(255, "Reason must be less than 255 characters"),
+  notes: z.string()
+    .max(1000, "Notes must be less than 1000 characters")
+    .optional(),
+  cost: z.number()
+    .min(0, "Cost cannot be negative")
+    .max(999999.99, "Cost cannot exceed 999,999.99")
+    .optional(),
+});
+
+export const enhancedLoyaltyTierSchema = z.object({
+  storeId: z.string().uuid("Invalid store ID"),
+  name: z.string()
+    .min(1, "Tier name is required")
+    .max(100, "Tier name must be less than 100 characters")
+    .regex(/^[a-zA-Z0-9\s\-_]+$/, "Tier name can only contain letters, numbers, spaces, hyphens, and underscores"),
+  description: z.string()
+    .max(500, "Description must be less than 500 characters")
+    .optional(),
+  pointsRequired: z.number()
+    .int("Points required must be a whole number")
+    .min(0, "Points required cannot be negative")
+    .max(999999999, "Points required cannot exceed 999,999,999"),
+  discountPercentage: z.number()
+    .min(0, "Discount percentage cannot be negative")
+    .max(100, "Discount percentage cannot exceed 100%"),
+  color: z.string()
+    .regex(/^#[0-9A-F]{6}$/i, "Color must be a valid hex color (e.g., #FF0000)")
+    .default("#6B7280"),
+});
+
+export const enhancedTransactionSchema = z.object({
+  storeId: z.string().uuid("Invalid store ID"),
+  customerId: z.string().uuid("Invalid customer ID").optional(),
+  total: z.number()
+    .positive("Total must be greater than 0")
+    .max(999999.99, "Total cannot exceed 999,999.99"),
+  tax: z.number()
+    .min(0, "Tax cannot be negative")
+    .max(999999.99, "Tax cannot exceed 999,999.99"),
+  discount: z.number()
+    .min(0, "Discount cannot be negative")
+    .max(999999.99, "Discount cannot exceed 999,999.99")
+    .default(0),
+  paymentMethod: z.enum(["cash", "card", "digital"], {
+    errorMap: () => ({ message: "Invalid payment method" })
+  }),
+  status: z.enum(["pending", "completed", "voided", "held"], {
+    errorMap: () => ({ message: "Invalid transaction status" })
+  }).default("pending"),
+  notes: z.string()
+    .max(1000, "Notes must be less than 1000 characters")
+    .optional(),
+});
+
+export const enhancedTransactionItemSchema = z.object({
+  transactionId: z.string().uuid("Invalid transaction ID"),
+  productId: z.string().uuid("Invalid product ID"),
+  quantity: z.number()
+    .positive("Quantity must be greater than 0")
+    .max(999999, "Quantity cannot exceed 999,999"),
+  unitPrice: z.number()
+    .positive("Unit price must be greater than 0")
+    .max(999999.99, "Unit price cannot exceed 999,999.99"),
+  total: z.number()
+    .positive("Total must be greater than 0")
+    .max(999999.99, "Total cannot exceed 999,999.99"),
+});
+
+// Enhanced insert schemas with validation
+export const insertUserSchema = enhancedUserSchema.omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertProductSchema = enhancedProductSchema.omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCustomerSchema = enhancedCustomerSchema.omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertInventorySchema = enhancedInventorySchema.omit({
+  id: true,
+  updatedAt: true,
+});
+
+export const insertTransactionSchema = enhancedTransactionSchema.omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
+export const insertTransactionItemSchema = enhancedTransactionItemSchema.omit({
+  id: true,
+});
+
+export const insertLoyaltyTierSchema = enhancedLoyaltyTierSchema.omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Types
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type Store = typeof stores.$inferSelect;
+export type InsertStore = z.infer<typeof insertStoreSchema>;
+
+export type Product = typeof products.$inferSelect;
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+
+export type Inventory = typeof inventory.$inferSelect;
+export type InsertInventory = z.infer<typeof insertInventorySchema>;
+
+export type Transaction = typeof transactions.$inferSelect;
+export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
+
+export type TransactionItem = typeof transactionItems.$inferSelect;
+export type InsertTransactionItem = z.infer<typeof insertTransactionItemSchema>;
+
+export type LowStockAlert = typeof lowStockAlerts.$inferSelect;
+export type InsertLowStockAlert = z.infer<typeof insertLowStockAlertSchema>;
+
+// Loyalty Program Types
+export type LoyaltyTier = typeof loyaltyTiers.$inferSelect;
+export type InsertLoyaltyTier = z.infer<typeof insertLoyaltyTierSchema>;
+
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+
+export type LoyaltyTransaction = typeof loyaltyTransactions.$inferSelect;
+export type InsertLoyaltyTransaction = z.infer<typeof insertLoyaltyTransactionSchema>;
+
+
+
+export type UserStorePermission = typeof userStorePermissions.$inferSelect;
+export type InsertUserStorePermission = typeof userStorePermissions.$inferInsert;
+
+// Loyalty Program Relations
+export const loyaltyTiersRelations = relations(loyaltyTiers, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [loyaltyTiers.storeId],
+    references: [stores.id],
+  }),
+  customers: many(customers),
+}));
+
+export const customersRelations = relations(customers, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [customers.storeId],
+    references: [stores.id],
+  }),
+  tier: one(loyaltyTiers, {
+    fields: [customers.tierId],
+    references: [loyaltyTiers.id],
+  }),
+  loyaltyTransactions: many(loyaltyTransactions),
+}));
+
+export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ one }) => ({
+  customer: one(customers, {
+    fields: [loyaltyTransactions.customerId],
+    references: [customers.id],
+  }),
+  transaction: one(transactions, {
+    fields: [loyaltyTransactions.transactionId],
+    references: [transactions.id],
+  }),
+  tierBefore: one(loyaltyTiers, {
+    fields: [loyaltyTransactions.tierBefore],
+    references: [loyaltyTiers.id],
+  }),
+  tierAfter: one(loyaltyTiers, {
+    fields: [loyaltyTransactions.tierAfter],
+    references: [loyaltyTiers.id],
+  }),
+}));
 
 // IP Whitelist Types
 export type IpWhitelist = typeof ipWhitelists.$inferSelect;

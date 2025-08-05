@@ -38,6 +38,21 @@ export default function CSVUploader({
       return false;
     }
 
+    // Check file name for invalid characters
+    const invalidChars = /[<>:"/\\|?*]/;
+    if (invalidChars.test(file.name)) {
+      setErrorMessage("File name contains invalid characters");
+      setUploadStatus("error");
+      return false;
+    }
+
+    // Check file name length
+    if (file.name.length > 255) {
+      setErrorMessage("File name is too long (max 255 characters)");
+      setUploadStatus("error");
+      return false;
+    }
+
     return true;
   };
 

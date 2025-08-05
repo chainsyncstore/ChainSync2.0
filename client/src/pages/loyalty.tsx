@@ -87,6 +87,8 @@ export default function Loyalty() {
     phone: "",
   });
 
+  const [customerErrors, setCustomerErrors] = useState<Partial<typeof newCustomer>>({});
+
   const [newTier, setNewTier] = useState({
     name: "",
     description: "",
@@ -229,7 +231,57 @@ export default function Loyalty() {
       customer.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const validateCustomerForm = (): boolean => {
+    const errors: Partial<typeof newCustomer> = {};
+
+    // First name validation
+    if (!newCustomer.firstName.trim()) {
+      errors.firstName = "First name is required";
+    } else if (newCustomer.firstName.length > 100) {
+      errors.firstName = "First name must be less than 100 characters";
+    } else if (!/^[a-zA-Z\s'-]+$/.test(newCustomer.firstName)) {
+      errors.firstName = "First name can only contain letters, spaces, hyphens, and apostrophes";
+    }
+
+    // Last name validation
+    if (!newCustomer.lastName.trim()) {
+      errors.lastName = "Last name is required";
+    } else if (newCustomer.lastName.length > 100) {
+      errors.lastName = "Last name must be less than 100 characters";
+    } else if (!/^[a-zA-Z\s'-]+$/.test(newCustomer.lastName)) {
+      errors.lastName = "Last name can only contain letters, spaces, hyphens, and apostrophes";
+    }
+
+    // Email validation (optional but must be valid if provided)
+    if (newCustomer.email.trim()) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newCustomer.email)) {
+        errors.email = "Invalid email format";
+      } else if (newCustomer.email.length > 255) {
+        errors.email = "Email must be less than 255 characters";
+      }
+    }
+
+    // Phone validation (optional but must be valid if provided)
+    if (newCustomer.phone.trim()) {
+      if (!/^[\+]?[1-9][\d]{9,15}$/.test(newCustomer.phone.replace(/\s/g, ''))) {
+        errors.phone = "Invalid phone number format";
+      }
+    }
+
+    setCustomerErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleAddCustomer = async () => {
+    if (!validateCustomerForm()) {
+      toast({
+        title: "Validation Error",
+        description: "Please fix the errors in the form",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       // In a real app, this would be an API call
       const newCustomerData: Customer = {
@@ -244,6 +296,7 @@ export default function Loyalty() {
 
       setCustomers([...customers, newCustomerData]);
       setNewCustomer({ firstName: "", lastName: "", email: "", phone: "" });
+      setCustomerErrors({});
       setShowAddCustomer(false);
       toast({
         title: "Success",
@@ -411,7 +464,11 @@ export default function Loyalty() {
                             id="firstName"
                             value={newCustomer.firstName}
                             onChange={(e) => setNewCustomer({ ...newCustomer, firstName: e.target.value })}
+                            className={customerErrors.firstName ? "border-red-500" : ""}
                           />
+                          {customerErrors.firstName && (
+                            <p className="text-red-500 text-xs">{customerErrors.firstName}</p>
+                          )}
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="lastName">Last Name</Label>
@@ -419,7 +476,11 @@ export default function Loyalty() {
                             id="lastName"
                             value={newCustomer.lastName}
                             onChange={(e) => setNewCustomer({ ...newCustomer, lastName: e.target.value })}
+                            className={customerErrors.lastName ? "border-red-500" : ""}
                           />
+                          {customerErrors.lastName && (
+                            <p className="text-red-500 text-xs">{customerErrors.lastName}</p>
+                          )}
                         </div>
                       </div>
                       <div className="space-y-2">
@@ -429,7 +490,11 @@ export default function Loyalty() {
                           type="email"
                           value={newCustomer.email}
                           onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                          className={customerErrors.email ? "border-red-500" : ""}
                         />
+                        {customerErrors.email && (
+                          <p className="text-red-500 text-xs">{customerErrors.email}</p>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="phone">Phone</Label>
@@ -437,7 +502,11 @@ export default function Loyalty() {
                           id="phone"
                           value={newCustomer.phone}
                           onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                          className={customerErrors.phone ? "border-red-500" : ""}
                         />
+                        {customerErrors.phone && (
+                          <p className="text-red-500 text-xs">{customerErrors.phone}</p>
+                        )}
                       </div>
                     </div>
                     <DialogFooter>

@@ -121,20 +121,65 @@ export default function Signup() {
   const validateForm = (): boolean => {
     const newErrors: Partial<SignupForm> = {};
 
-    if (!formData.firstName.trim()) newErrors.firstName = "First name is required";
-    if (!formData.lastName.trim()) newErrors.lastName = "Last name is required";
+    // First name validation
+    if (!formData.firstName.trim()) {
+      newErrors.firstName = "First name is required";
+    } else if (formData.firstName.length > 100) {
+      newErrors.firstName = "First name must be less than 100 characters";
+    } else if (!/^[a-zA-Z\s'-]+$/.test(formData.firstName)) {
+      newErrors.firstName = "First name can only contain letters, spaces, hyphens, and apostrophes";
+    }
+
+    // Last name validation
+    if (!formData.lastName.trim()) {
+      newErrors.lastName = "Last name is required";
+    } else if (formData.lastName.length > 100) {
+      newErrors.lastName = "Last name must be less than 100 characters";
+    } else if (!/^[a-zA-Z\s'-]+$/.test(formData.lastName)) {
+      newErrors.lastName = "Last name can only contain letters, spaces, hyphens, and apostrophes";
+    }
+
+    // Email validation
     if (!formData.email.trim()) {
       newErrors.email = "Email is required";
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = "Email is invalid";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = "Invalid email format";
+    } else if (formData.email.length > 255) {
+      newErrors.email = "Email must be less than 255 characters";
     }
-    if (!formData.phone.trim()) newErrors.phone = "Phone number is required";
-    if (!formData.companyName.trim()) newErrors.companyName = "Company name is required";
+
+    // Phone validation
+    if (!formData.phone.trim()) {
+      newErrors.phone = "Phone number is required";
+    } else if (!/^[\+]?[1-9][\d]{9,15}$/.test(formData.phone.replace(/\s/g, ''))) {
+      newErrors.phone = "Invalid phone number format";
+    }
+
+    // Company name validation
+    if (!formData.companyName.trim()) {
+      newErrors.companyName = "Company name is required";
+    } else if (formData.companyName.length > 255) {
+      newErrors.companyName = "Company name must be less than 255 characters";
+    }
+
+    // Password validation
     if (!formData.password) {
       newErrors.password = "Password is required";
     } else if (formData.password.length < 8) {
       newErrors.password = "Password must be at least 8 characters";
+    } else if (formData.password.length > 128) {
+      newErrors.password = "Password must be less than 128 characters";
+    } else if (!/[A-Z]/.test(formData.password)) {
+      newErrors.password = "Password must contain at least one uppercase letter";
+    } else if (!/[a-z]/.test(formData.password)) {
+      newErrors.password = "Password must contain at least one lowercase letter";
+    } else if (!/\d/.test(formData.password)) {
+      newErrors.password = "Password must contain at least one number";
+    } else if (!/[!@#$%^&*(),.?":{}|<>]/.test(formData.password)) {
+      newErrors.password = "Password must contain at least one special character";
     }
+
+    // Confirm password validation
     if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = "Passwords do not match";
     }
