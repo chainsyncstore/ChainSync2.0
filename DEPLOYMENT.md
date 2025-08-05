@@ -23,21 +23,29 @@
 Create a `.env` file in the root directory with the following variables:
 
 ```env
-# Database Configuration
+# Database Configuration (REQUIRED)
 DATABASE_URL="your-postgresql-connection-string"
+
+# Session Security (REQUIRED for production)
+SESSION_SECRET="your-super-secure-random-session-secret-key"
+
+# Environment
+NODE_ENV="production"
+
+# Port Configuration
+PORT=5000
 
 # Google Cloud Storage (optional - for file uploads)
 GOOGLE_CLOUD_PROJECT_ID="your-project-id"
 GOOGLE_CLOUD_BUCKET_NAME="your-bucket-name"
 GOOGLE_CLOUD_PRIVATE_KEY="your-private-key"
 GOOGLE_CLOUD_CLIENT_EMAIL="your-client-email"
-
-# Session Secret (for authentication)
-SESSION_SECRET="your-random-secret-key"
-
-# Port Configuration
-PORT=5000
 ```
+
+**Important Security Notes:**
+- Generate a strong SESSION_SECRET using: `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+- Never commit your `.env` file to version control
+- Use different secrets for development and production
 
 ## Step 3: Database Setup
 
@@ -47,9 +55,14 @@ Run the following commands to set up your database:
 # Push the database schema
 npm run db:push
 
-# Seed the database with sample data
-npx tsx scripts/seed.ts
+# Seed the database with secure users (RECOMMENDED for production)
+npm run seed:secure
+
+# OR seed with demo users (for development only)
+npm run seed:demo
 ```
+
+**Security Note:** The secure seed script generates random passwords and displays them in the console. Save these credentials securely!
 
 ## Step 4: Start the Application
 
@@ -68,19 +81,25 @@ Open your browser and navigate to:
 - **Development**: http://localhost:5000
 - **Production**: http://localhost:5000
 
-## Default Login Credentials
+## Login Credentials
 
-After seeding the database, you can log in with:
+### For Secure Users (Production)
+After running `npm run seed:secure`, the console will display secure credentials like:
+```
+Admin: admin / Kx9#mP2$vL8@nQ5
+Manager: manager / R7#jH4$tY9@wE2
+Cashier: cashier / B3#fN6$mK1@xP8
+```
 
-- **Manager Account**:
-  - Username: `manager1`
-  - Email: `john@chainsync.com`
-  - Role: Manager
+**IMPORTANT:** Save these credentials securely and change them after first login!
 
-- **Cashier Account**:
-  - Username: `cashier1`
-  - Email: `alice@chainsync.com`
-  - Role: Cashier
+### For Demo Users (Development)
+After running `npm run seed:demo`, you can use:
+- **Admin**: `admin` / `admin123`
+- **Manager**: `manager` / `manager123`
+- **Cashier**: `cashier` / `cashier123`
+
+**WARNING:** Demo credentials should NEVER be used in production!
 
 ## Troubleshooting
 

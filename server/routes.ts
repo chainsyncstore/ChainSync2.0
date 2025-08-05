@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { AuthService } from "./auth";
 import { 
   insertProductSchema, 
   insertTransactionSchema, 
@@ -28,6 +29,15 @@ declare module "express-session" {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Validate required environment variables
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL environment variable is required');
+  }
+  
+  if (!process.env.SESSION_SECRET) {
+    throw new Error('SESSION_SECRET environment variable is required for production');
+  }
+
   // Session configuration
   const pgSession = connectPg(session);
   app.use(session({
@@ -35,14 +45,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       conString: process.env.DATABASE_URL,
       createTableIfMissing: true,
     }),
-    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false, // Set to true in production with HTTPS
+      secure: process.env.NODE_ENV === 'production', // Secure in production
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'strict',
     },
+    name: 'chainsync.sid', // Custom session name
   }));
 
   // Authentication middleware
@@ -58,12 +70,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { username, password } = req.body;
+      
+      // Validate input
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+      
       const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
       const user = await storage.authenticateUser(username, password, ipAddress);
       
       if (user) {
-        req.session.user = user;
-        res.json(user);
+        // Sanitize user data before storing in session
+        const sanitizedUser = AuthService.sanitizeUserForSession(user);
+        req.session.user = sanitizedUser;
+        res.json(sanitizedUser);
       } else {
         res.status(401).json({ message: "Invalid credentials or IP not whitelisted" });
       }
@@ -101,16 +121,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "All fields are required" });
       }
 
+      // Validate password strength
+      const passwordValidation = AuthService.validatePassword(password);
+      if (!passwordValidation.isValid) {
+        return res.status(400).json({ 
+          message: "Password does not meet security requirements",
+          errors: passwordValidation.errors 
+        });
+      }
+
       // Check if user already exists
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
         return res.status(400).json({ message: "User with this email already exists" });
       }
 
-      // Create user account
+      // Create user account with hashed password
       const user = await storage.createUser({
         username: email,
-        password: password, // In production, hash the password
+        password: password, // Will be hashed in storage.createUser
         email,
         firstName,
         lastName,

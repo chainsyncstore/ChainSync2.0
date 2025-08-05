@@ -92,10 +92,11 @@ export default function Login({ onLogin, onForgotPassword, isLoading, error }: L
           
           <div className="text-center text-sm text-slate-600 mt-4">
             <div className="space-y-1">
-              <p><strong>Demo Credentials:</strong></p>
-              <p>Admin: admin / admin123</p>
-              <p>Manager: manager / manager123</p>
-              <p>Cashier: cashier / cashier123</p>
+              <p><strong>Production System</strong></p>
+              <p>Please contact your system administrator for login credentials.</p>
+              <p className="text-xs text-slate-500">
+                For demo access, run the secure seed script and check the console output.
+              </p>
             </div>
           </div>
         </CardContent>

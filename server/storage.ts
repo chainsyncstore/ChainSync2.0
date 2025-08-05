@@ -41,6 +41,7 @@ import {
   type PasswordResetToken,
 } from "@shared/schema";
 import { db } from "./db";
+import { AuthService } from "./auth";
 import { eq, and, desc, asc, sql, lt, lte, gte, between, isNotNull, or } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -152,17 +153,60 @@ export class DatabaseStorage implements IStorage {
   }
 
   async authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null> {
-    // Simple password check - in production, use proper password hashing
-    const user = await this.getUserByUsername(username);
-    
-    // Demo credentials
-    const validCredentials = {
-      admin: "admin123",
-      manager: "manager123", 
-      cashier: "cashier123"
-    };
-    
-    if (user && validCredentials[username as keyof typeof validCredentials] === password) {
+    try {
+      const user = await this.getUserByUsername(username);
+      
+      if (!user || !user.password) {
+        // Log failed login attempt for non-existent user
+        if (ipAddress) {
+          await this.logIpAccess(
+            ipAddress, 
+            'unknown', 
+            username, 
+            'login_attempt', 
+            false, 
+            'User not found',
+            undefined
+          );
+        }
+        return null;
+      }
+
+      // Check if user is active
+      if (!user.isActive) {
+        if (ipAddress) {
+          await this.logIpAccess(
+            ipAddress, 
+            user.id, 
+            username, 
+            'login_attempt', 
+            false, 
+            'Account disabled',
+            undefined
+          );
+        }
+        return null;
+      }
+
+      // Verify password using bcrypt
+      const isPasswordValid = await AuthService.comparePassword(password, user.password);
+      
+      if (!isPasswordValid) {
+        // Log failed login attempt
+        if (ipAddress) {
+          await this.logIpAccess(
+            ipAddress, 
+            user.id, 
+            username, 
+            'login_attempt', 
+            false, 
+            'Invalid password',
+            undefined
+          );
+        }
+        return null;
+      }
+
       // Check IP whitelist if IP address is provided
       if (ipAddress && user.id) {
         const isWhitelisted = await this.checkIpWhitelisted(ipAddress, user.id);
@@ -184,22 +228,10 @@ export class DatabaseStorage implements IStorage {
       }
       
       return user;
+    } catch (error) {
+      console.error('Authentication error:', error);
+      return null;
     }
-    
-    // Log failed login attempt
-    if (ipAddress && user?.id) {
-      await this.logIpAccess(
-        ipAddress, 
-        user.id, 
-        username, 
-        'login_attempt', 
-        false, 
-        'Invalid credentials',
-        undefined
-      );
-    }
-    
-    return null;
   }
 
   async getUserStorePermissions(userId: string): Promise<UserStorePermission[]> {
@@ -249,6 +281,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
+    // Hash password if provided
+    if (insertUser.password) {
+      const hashedPassword = await AuthService.hashPassword(insertUser.password);
+      insertUser.password = hashedPassword;
+    }
+    
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
@@ -278,8 +316,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserPassword(userId: string, newPassword: string): Promise<User> {
+    // Validate password strength
+    const validation = AuthService.validatePassword(newPassword);
+    if (!validation.isValid) {
+      throw new Error(`Password validation failed: ${validation.errors.join(', ')}`);
+    }
+    
+    const hashedPassword = await AuthService.hashPassword(newPassword);
     const [user] = await db.update(users)
-      .set({ password: newPassword, updatedAt: new Date() })
+      .set({ password: hashedPassword, updatedAt: new Date() })
       .where(eq(users.id, userId))
       .returning();
     return user;
