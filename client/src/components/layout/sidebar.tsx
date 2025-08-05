@@ -10,6 +10,7 @@ import {
   Building2,
   Settings,
   Link as LinkIcon,
+  Crown,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -28,6 +29,7 @@ const getNavigationItems = (userRole: string) => {
   const baseItems = [
     { path: "/inventory", icon: Package, label: "Inventory" },
     { path: "/analytics", icon: TrendingUp, label: "Analytics" },
+    { path: "/loyalty", icon: Crown, label: "Loyalty" },
     { path: "/alerts", icon: AlertTriangle, label: "Alerts", hasAlert: true },
     { path: "/data-import", icon: Upload, label: "Data Import" },
     { path: "/settings", icon: Settings, label: "Settings" },

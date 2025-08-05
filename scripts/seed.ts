@@ -1,5 +1,6 @@
 import { db } from "../server/db";
 import { stores, products, inventory, users } from "../shared/schema";
+import seedLoyaltyData from "./seed-loyalty";
 
 async function seed() {
   console.log("🌱 Seeding database...");
@@ -22,24 +23,35 @@ async function seed() {
 
     console.log(`✅ Created stores: ${store1.name}, ${store2.name}`);
 
-    // Create sample users
+    // Create sample users for all roles
+    const [admin] = await db.insert(users).values({
+      username: "admin",
+      firstName: "System",
+      lastName: "Administrator",
+      email: "admin@chainsync.com",
+      role: "admin",
+      storeId: null, // Admin can access all stores
+    }).returning();
+
     const [manager] = await db.insert(users).values({
-      username: "manager1",
-      fullName: "John Doe",
-      email: "john@chainsync.com",
+      username: "manager",
+      firstName: "John",
+      lastName: "Doe",
+      email: "manager@chainsync.com",
       role: "manager",
       storeId: store1.id,
     }).returning();
 
     const [cashier] = await db.insert(users).values({
-      username: "cashier1",
-      fullName: "Alice Johnson",
-      email: "alice@chainsync.com",
+      username: "cashier",
+      firstName: "Alice",
+      lastName: "Johnson",
+      email: "cashier@chainsync.com",
       role: "cashier",
       storeId: store1.id,
     }).returning();
 
-    console.log(`✅ Created users: ${manager.fullName}, ${cashier.fullName}`);
+    console.log(`✅ Created users: ${admin.firstName} ${admin.lastName} (Admin), ${manager.firstName} ${manager.lastName} (Manager), ${cashier.firstName} ${cashier.lastName} (Cashier)`);
 
     // Create sample products
     const sampleProducts = [
@@ -117,6 +129,9 @@ async function seed() {
 
     await db.insert(inventory).values(inventoryData);
     console.log(`✅ Created inventory for ${inventoryData.length} items across both stores`);
+
+    // Seed loyalty program data
+    await seedLoyaltyData();
 
     console.log("🎉 Database seeded successfully!");
     console.log(`Store IDs: ${store1.id}, ${store2.id}`);

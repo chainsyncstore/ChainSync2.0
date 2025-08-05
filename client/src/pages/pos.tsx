@@ -263,7 +263,7 @@ export default function POS() {
           addItem({
             id: product.id,
             name: product.name,
-            barcode: product.barcode,
+            barcode: product.barcode || "",
             price: parseFloat(product.price),
           });
           addNotification({

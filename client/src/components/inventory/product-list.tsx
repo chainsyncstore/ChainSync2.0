@@ -52,7 +52,7 @@ export default function ProductList({
     new Set(
       inventory
         .map(item => item.product.category)
-        .filter(Boolean)
+        .filter((category): category is string => typeof category === 'string')
     )
   );
 
@@ -124,7 +124,7 @@ export default function ProductList({
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
               {categories.map(category => (
-                <SelectItem key={category} value={category || ""}>
+                <SelectItem key={category} value={category}>
                   {category}
                 </SelectItem>
               ))}

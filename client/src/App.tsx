@@ -4,12 +4,18 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
+import { AIChatProvider } from "@/hooks/use-ai-chat";
 import Login from "@/components/auth/login";
+import Signup from "@/components/auth/signup";
+import MainLayout from "@/components/layout/main-layout";
 
 // Pages
+import Landing from "@/pages/landing";
+import PaymentCallback from "@/pages/payment-callback";
 import POS from "@/pages/pos";
 import Inventory from "@/pages/inventory";
 import Analytics from "@/pages/analytics";  
+import Loyalty from "@/pages/loyalty";
 import Alerts from "@/pages/alerts";
 import DataImport from "@/pages/data-import";
 import MultiStore from "@/pages/multi-store";
@@ -20,39 +26,47 @@ import NotFound from "@/pages/not-found";
 function Dashboard({ userRole }: { userRole: string }) {
   if (userRole === "admin") {
     return (
-      <Switch>
-        <Route path="/" component={Analytics} /> {/* Admin sees analytics as default */}
-        <Route path="/inventory" component={Inventory} />
-        <Route path="/analytics" component={Analytics} />
-        <Route path="/alerts" component={Alerts} />
-        <Route path="/data-import" component={DataImport} />
-        <Route path="/multi-store" component={MultiStore} />
-        <Route path="/settings" component={Settings} />
-        <Route component={NotFound} />
-      </Switch>
+      <MainLayout userRole={userRole}>
+        <Switch>
+          <Route path="/" component={Analytics} /> {/* Admin sees analytics as default */}
+          <Route path="/inventory" component={Inventory} />
+          <Route path="/analytics" component={Analytics} />
+          <Route path="/loyalty" component={Loyalty} />
+          <Route path="/alerts" component={Alerts} />
+          <Route path="/data-import" component={DataImport} />
+          <Route path="/multi-store" component={MultiStore} />
+          <Route path="/settings" component={Settings} />
+          <Route component={NotFound} />
+        </Switch>
+      </MainLayout>
     );
   }
   
   if (userRole === "manager") {
     return (
-      <Switch>
-        <Route path="/" component={Inventory} /> {/* Manager sees inventory as default */}
-        <Route path="/inventory" component={Inventory} />
-        <Route path="/analytics" component={Analytics} />
-        <Route path="/alerts" component={Alerts} />
-        <Route path="/data-import" component={DataImport} />
-        <Route path="/settings" component={Settings} />
-        <Route component={NotFound} />
-      </Switch>
+      <MainLayout userRole={userRole}>
+        <Switch>
+          <Route path="/" component={Inventory} /> {/* Manager sees inventory as default */}
+          <Route path="/inventory" component={Inventory} />
+          <Route path="/analytics" component={Analytics} />
+          <Route path="/loyalty" component={Loyalty} />
+          <Route path="/alerts" component={Alerts} />
+          <Route path="/data-import" component={DataImport} />
+          <Route path="/settings" component={Settings} />
+          <Route component={NotFound} />
+        </Switch>
+      </MainLayout>
     );
   }
   
   // Cashier role - redirect directly to POS
   return (
-    <Switch>
-      <Route path="/" component={POS} />
-      <Route component={POS} /> {/* All other routes redirect to POS */}
-    </Switch>
+    <MainLayout userRole={userRole}>
+      <Switch>
+        <Route path="/" component={POS} />
+        <Route component={POS} /> {/* All other routes redirect to POS */}
+      </Switch>
+    </MainLayout>
   );
 }
 
@@ -71,7 +85,15 @@ function Router() {
   }
 
   if (!isAuthenticated) {
-    return <Login onLogin={login} isLoading={isLoading} error={error} />;
+    return (
+      <Switch>
+        <Route path="/" component={Landing} />
+        <Route path="/login" component={() => <Login onLogin={login} isLoading={isLoading} error={error} />} />
+        <Route path="/signup" component={Signup} />
+        <Route path="/payment/callback" component={PaymentCallback} />
+        <Route component={() => <Login onLogin={login} isLoading={isLoading} error={error} />} />
+      </Switch>
+    );
   }
 
   return <Dashboard userRole={user?.role || "cashier"} />;
@@ -80,10 +102,12 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <AIChatProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </AIChatProvider>
     </QueryClientProvider>
   );
 }

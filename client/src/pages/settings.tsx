@@ -1,32 +1,68 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import Sidebar from "@/components/layout/sidebar";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import TopBar from "@/components/layout/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Settings, Store as StoreIcon, Users, Bell, Shield, Database } from "lucide-react";
-import { formatPhoneNumber } from "@/lib/pos-utils";
-import type { Store, LowStockAlert } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { 
+  Store, 
+  Users, 
+  Shield, 
+  Bell, 
+  CreditCard, 
+  Database, 
+  Download, 
+  Upload,
+  Save,
+  Trash2,
+  Plus,
+  Edit,
+  Eye,
+  EyeOff
+} from "lucide-react";
+import type { Store as StoreType, User } from "@shared/schema";
 
-export default function SettingsPage() {
+export default function Settings() {
+  const { user, logout } = useAuth();
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const [selectedStore, setSelectedStore] = useState<string>("");
+  const [activeTab, setActiveTab] = useState("store");
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const userData = {
-    role: "manager",
-    name: "John Doe",
-    initials: "JD",
+    role: user?.role || "manager",
+    name: `${user?.firstName || "User"} ${user?.lastName || ""}`.trim(),
+    initials: `${user?.firstName?.[0] || "U"}${user?.lastName?.[0] || ""}`,
   };
 
-  const { data: stores = [] } = useQuery<Store[]>({
+  const { data: stores = [] } = useQuery<StoreType[]>({
     queryKey: ["/api/stores"],
+  });
+
+  const { data: users = [] } = useQuery<User[]>({
+    queryKey: ["/api/users"],
+  });
+
+  const { data: storeSettings = {} } = useQuery<{
+    name?: string;
+    phone?: string;
+    address?: string;
+    taxRate?: string;
+    isActive?: boolean;
+  }>({
+    queryKey: ["/api/stores", selectedStore, "settings"],
+    enabled: !!selectedStore,
   });
 
   // Auto-select first store when stores are loaded
@@ -36,47 +72,6 @@ export default function SettingsPage() {
     }
   }, [stores, selectedStore]);
 
-  const { data: alerts = [] } = useQuery<LowStockAlert[]>({
-    queryKey: ["/api/stores", selectedStore, "alerts"],
-  });
-
-  // Settings state
-  const [storeSettings, setStoreSettings] = useState({
-    name: "Main Street Store",
-    address: "123 Main Street, City, State 12345",
-    phone: "(555) 123-4567",
-    email: "mainstreet@chainsync.com",
-    taxRate: "8.5",
-    timezone: "America/New_York",
-    currency: "USD",
-  });
-
-  const [notificationSettings, setNotificationSettings] = useState({
-    lowStockAlerts: true,
-    dailyReports: true,
-    weeklyReports: false,
-    errorNotifications: true,
-    emailNotifications: true,
-    smsNotifications: false,
-  });
-
-  const [posSettings, setPosSettings] = useState({
-    autoCompleteBarcode: true,
-    requireCustomerInfo: false,
-    printReceipts: true,
-    askForEmail: false,
-    roundCash: true,
-    allowPartialPayments: false,
-  });
-
-  const [securitySettings, setSecuritySettings] = useState({
-    requirePasswordChange: false,
-    sessionTimeout: "60",
-    maxLoginAttempts: "3",
-    enableTwoFactor: false,
-    logUserActivity: true,
-  });
-
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentDateTime(new Date());
@@ -84,494 +79,513 @@ export default function SettingsPage() {
     return () => clearInterval(timer);
   }, []);
 
-  const handleSaveStoreSettings = () => {
-    console.log("Saving store settings:", storeSettings);
-    // In real app, make API call to save settings
-  };
+  const updateStoreSettingsMutation = useMutation({
+    mutationFn: async (settings: any) => {
+      const response = await apiRequest("PUT", `/api/stores/${selectedStore}/settings`, settings);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Settings Updated",
+        description: "Store settings have been saved successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "settings"] });
+    },
+    onError: () => {
+      toast({
+        title: "Update Failed",
+        description: "Failed to update store settings",
+        variant: "destructive",
+      });
+    },
+  });
 
-  const handleSaveNotificationSettings = () => {
-    console.log("Saving notification settings:", notificationSettings);
-    // In real app, make API call to save settings
-  };
-
-  const handleSavePOSSettings = () => {
-    console.log("Saving POS settings:", posSettings);
-    // In real app, make API call to save settings
-  };
-
-  const handleSaveSecuritySettings = () => {
-    console.log("Saving security settings:", securitySettings);
-    // In real app, make API call to save settings
+  const handleExportData = (type: string) => {
+    const url = `/api/stores/${selectedStore}/export/${type}?format=csv`;
+    window.open(url, '_blank');
   };
 
   return (
     <div className="min-h-screen bg-slate-50">
       <TopBar
         title="Settings"
-        subtitle="Configure store settings, notifications, and system preferences"
+        subtitle="Configure your store and system preferences"
         currentDateTime={currentDateTime}
-        onLogout={() => {}}
+        onLogout={logout}
         userRole={userData.role}
         userName={userData.name}
         userInitials={userData.initials}
         selectedStore={selectedStore}
         stores={stores}
         onStoreChange={setSelectedStore}
-        alertCount={alerts.length}
+        alertCount={0}
       />
       
       <main className="p-4 md:p-6">
-          <div className="max-w-4xl mx-auto space-y-6">
-            <Tabs defaultValue="store" className="space-y-6">
-              <TabsList>
-                <TabsTrigger value="store" className="flex items-center space-x-2">
-                  <StoreIcon className="w-4 h-4" />
-                  <span>Store</span>
-                </TabsTrigger>
-                <TabsTrigger value="pos" className="flex items-center space-x-2">
-                  <Settings className="w-4 h-4" />
-                  <span>POS</span>
-                </TabsTrigger>
-                <TabsTrigger value="notifications" className="flex items-center space-x-2">
-                  <Bell className="w-4 h-4" />
-                  <span>Notifications</span>
-                </TabsTrigger>
-                <TabsTrigger value="users" className="flex items-center space-x-2">
-                  <Users className="w-4 h-4" />
-                  <span>Users</span>
-                </TabsTrigger>
-                <TabsTrigger value="security" className="flex items-center space-x-2">
-                  <Shield className="w-4 h-4" />
-                  <span>Security</span>
-                </TabsTrigger>
-                <TabsTrigger value="backup" className="flex items-center space-x-2">
-                  <Database className="w-4 h-4" />
-                  <span>Backup</span>
-                </TabsTrigger>
-              </TabsList>
+        <div className="max-w-6xl mx-auto space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-6">
+              <TabsTrigger value="store" className="flex items-center space-x-2">
+                <Store className="w-4 h-4" />
+                <span>Store</span>
+              </TabsTrigger>
+              <TabsTrigger value="users" className="flex items-center space-x-2">
+                <Users className="w-4 h-4" />
+                <span>Users</span>
+              </TabsTrigger>
+              <TabsTrigger value="security" className="flex items-center space-x-2">
+                <Shield className="w-4 h-4" />
+                <span>Security</span>
+              </TabsTrigger>
+              <TabsTrigger value="notifications" className="flex items-center space-x-2">
+                <Bell className="w-4 h-4" />
+                <span>Notifications</span>
+              </TabsTrigger>
+              <TabsTrigger value="integrations" className="flex items-center space-x-2">
+                <CreditCard className="w-4 h-4" />
+                <span>Integrations</span>
+              </TabsTrigger>
+              <TabsTrigger value="data" className="flex items-center space-x-2">
+                <Database className="w-4 h-4" />
+                <span>Data</span>
+              </TabsTrigger>
+            </TabsList>
 
-              <TabsContent value="store">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Store Information</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <Label htmlFor="store-name">Store Name</Label>
-                        <Input
-                          id="store-name"
-                          value={storeSettings.name}
-                          onChange={(e) => setStoreSettings({...storeSettings, name: e.target.value})}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="store-phone">Phone Number</Label>
-                        <Input
-                          id="store-phone"
-                          value={storeSettings.phone}
-                          onChange={(e) => setStoreSettings({...storeSettings, phone: formatPhoneNumber(e.target.value)})}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="store-address">Address</Label>
-                      <Textarea
-                        id="store-address"
-                        value={storeSettings.address}
-                        onChange={(e) => setStoreSettings({...storeSettings, address: e.target.value})}
-                        rows={3}
+            {/* Store Settings */}
+            <TabsContent value="store" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Store Information</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="storeName">Store Name</Label>
+                      <Input
+                        id="storeName"
+                        defaultValue={storeSettings.name || ""}
+                        placeholder="Enter store name"
                       />
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <Label htmlFor="store-email">Email</Label>
-                        <Input
-                          id="store-email"
-                          type="email"
-                          value={storeSettings.email}
-                          onChange={(e) => setStoreSettings({...storeSettings, email: e.target.value})}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="tax-rate">Tax Rate (%)</Label>
-                        <Input
-                          id="tax-rate"
-                          type="number"
-                          step="0.1"
-                          value={storeSettings.taxRate}
-                          onChange={(e) => setStoreSettings({...storeSettings, taxRate: e.target.value})}
-                        />
-                      </div>
+                    <div>
+                      <Label htmlFor="storePhone">Phone Number</Label>
+                      <Input
+                        id="storePhone"
+                        defaultValue={storeSettings.phone || ""}
+                        placeholder="Enter phone number"
+                      />
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <Label htmlFor="timezone">Timezone</Label>
-                        <Select value={storeSettings.timezone} onValueChange={(value) => setStoreSettings({...storeSettings, timezone: value})}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="America/New_York">Eastern Time</SelectItem>
-                            <SelectItem value="America/Chicago">Central Time</SelectItem>
-                            <SelectItem value="America/Denver">Mountain Time</SelectItem>
-                            <SelectItem value="America/Los_Angeles">Pacific Time</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="currency">Currency</Label>
-                        <Select value={storeSettings.currency} onValueChange={(value) => setStoreSettings({...storeSettings, currency: value})}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="USD">USD - US Dollar</SelectItem>
-                            <SelectItem value="CAD">CAD - Canadian Dollar</SelectItem>
-                            <SelectItem value="EUR">EUR - Euro</SelectItem>
-                            <SelectItem value="GBP">GBP - British Pound</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="storeAddress">Address</Label>
+                    <Textarea
+                      id="storeAddress"
+                      defaultValue={storeSettings.address || ""}
+                      placeholder="Enter store address"
+                      rows={3}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="taxRate">Tax Rate (%)</Label>
+                      <Input
+                        id="taxRate"
+                        type="number"
+                        step="0.01"
+                        defaultValue={storeSettings.taxRate || "8.5"}
+                        placeholder="8.5"
+                      />
                     </div>
-
-                    <Separator />
-
-                    <div className="flex justify-end">
-                      <Button onClick={handleSaveStoreSettings}>Save Store Settings</Button>
+                    <div>
+                      <Label htmlFor="currency">Currency</Label>
+                      <Select defaultValue="USD">
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="USD">USD ($)</SelectItem>
+                          <SelectItem value="EUR">EUR (€)</SelectItem>
+                          <SelectItem value="GBP">GBP (£)</SelectItem>
+                          <SelectItem value="CAD">CAD (C$)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch id="storeActive" defaultChecked={storeSettings.isActive !== false} />
+                    <Label htmlFor="storeActive">Store is active</Label>
+                  </div>
+                  <Button onClick={() => updateStoreSettingsMutation.mutate({})}>
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Store Settings
+                  </Button>
+                </CardContent>
+              </Card>
 
-              <TabsContent value="pos">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>POS System Settings</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Auto-complete barcode scanning</Label>
-                          <p className="text-sm text-gray-500">Automatically add items when barcode is scanned</p>
-                        </div>
-                        <Switch
-                          checked={posSettings.autoCompleteBarcode}
-                          onCheckedChange={(checked) => setPosSettings({...posSettings, autoCompleteBarcode: checked})}
-                        />
+              <Card>
+                <CardHeader>
+                  <CardTitle>Business Hours</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => (
+                    <div key={day} className="flex items-center space-x-4">
+                      <div className="w-24">
+                        <Label>{day}</Label>
                       </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Print receipts automatically</Label>
-                          <p className="text-sm text-gray-500">Print receipt after each completed transaction</p>
-                        </div>
-                        <Switch
-                          checked={posSettings.printReceipts}
-                          onCheckedChange={(checked) => setPosSettings({...posSettings, printReceipts: checked})}
-                        />
+                      <div className="flex items-center space-x-2">
+                        <Input type="time" defaultValue="09:00" className="w-24" />
+                        <span>to</span>
+                        <Input type="time" defaultValue="17:00" className="w-24" />
                       </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Round cash payments</Label>
-                          <p className="text-sm text-gray-500">Round cash totals to nearest nickel</p>
-                        </div>
-                        <Switch
-                          checked={posSettings.roundCash}
-                          onCheckedChange={(checked) => setPosSettings({...posSettings, roundCash: checked})}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Require customer information</Label>
-                          <p className="text-sm text-gray-500">Require customer details for all transactions</p>
-                        </div>
-                        <Switch
-                          checked={posSettings.requireCustomerInfo}
-                          onCheckedChange={(checked) => setPosSettings({...posSettings, requireCustomerInfo: checked})}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Ask for email receipts</Label>
-                          <p className="text-sm text-gray-500">Prompt customers for email receipt option</p>
-                        </div>
-                        <Switch
-                          checked={posSettings.askForEmail}
-                          onCheckedChange={(checked) => setPosSettings({...posSettings, askForEmail: checked})}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Allow partial payments</Label>
-                          <p className="text-sm text-gray-500">Enable split payments across multiple methods</p>
-                        </div>
-                        <Switch
-                          checked={posSettings.allowPartialPayments}
-                          onCheckedChange={(checked) => setPosSettings({...posSettings, allowPartialPayments: checked})}
-                        />
-                      </div>
+                      <Switch defaultChecked={day !== "Sunday"} />
                     </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-                    <Separator />
-
-                    <div className="flex justify-end">
-                      <Button onClick={handleSavePOSSettings}>Save POS Settings</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="notifications">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Notification Preferences</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Low stock alerts</Label>
-                          <p className="text-sm text-gray-500">Get notified when inventory levels are low</p>
-                        </div>
-                        <Switch
-                          checked={notificationSettings.lowStockAlerts}
-                          onCheckedChange={(checked) => setNotificationSettings({...notificationSettings, lowStockAlerts: checked})}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Daily reports</Label>
-                          <p className="text-sm text-gray-500">Receive daily sales and performance reports</p>
-                        </div>
-                        <Switch
-                          checked={notificationSettings.dailyReports}
-                          onCheckedChange={(checked) => setNotificationSettings({...notificationSettings, dailyReports: checked})}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Weekly reports</Label>
-                          <p className="text-sm text-gray-500">Receive weekly analytics summaries</p>
-                        </div>
-                        <Switch
-                          checked={notificationSettings.weeklyReports}
-                          onCheckedChange={(checked) => setNotificationSettings({...notificationSettings, weeklyReports: checked})}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Error notifications</Label>
-                          <p className="text-sm text-gray-500">Get alerted about system errors and issues</p>
-                        </div>
-                        <Switch
-                          checked={notificationSettings.errorNotifications}
-                          onCheckedChange={(checked) => setNotificationSettings({...notificationSettings, errorNotifications: checked})}
-                        />
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    <div className="space-y-4">
-                      <h4 className="font-medium">Delivery Methods</h4>
-                      
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Email notifications</Label>
-                          <p className="text-sm text-gray-500">Receive notifications via email</p>
-                        </div>
-                        <Switch
-                          checked={notificationSettings.emailNotifications}
-                          onCheckedChange={(checked) => setNotificationSettings({...notificationSettings, emailNotifications: checked})}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>SMS notifications</Label>
-                          <p className="text-sm text-gray-500">Receive critical alerts via SMS</p>
-                        </div>
-                        <Switch
-                          checked={notificationSettings.smsNotifications}
-                          onCheckedChange={(checked) => setNotificationSettings({...notificationSettings, smsNotifications: checked})}
-                        />
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    <div className="flex justify-end">
-                      <Button onClick={handleSaveNotificationSettings}>Save Notification Settings</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="users">
-                <Card>
-                  <CardHeader>
+            {/* User Management */}
+            <TabsContent value="users" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
                     <CardTitle>User Management</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <p className="text-sm text-gray-600">Manage user accounts and permissions for this store.</p>
-                        <Button>Add User</Button>
+                    <Button>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add User
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {users.map((user) => (
+                      <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                            <span className="text-blue-600 font-medium">
+                              {user.firstName?.[0]}{user.lastName?.[0]}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-medium">{user.firstName} {user.lastName}</p>
+                            <p className="text-sm text-gray-600">{user.email}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Badge variant={user.role === "admin" ? "default" : "secondary"}>
+                            {user.role}
+                          </Badge>
+                          <Button variant="outline" size="sm">
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button variant="outline" size="sm" className="text-red-600">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
-                      
-                      <div className="border rounded-lg p-4">
-                        <p className="text-center text-gray-500">User management interface would be implemented here</p>
-                        <p className="text-center text-sm text-gray-400 mt-2">
-                          Features: Add/remove users, role assignments, permission management
-                        </p>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Security Settings */}
+            <TabsContent value="security" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Security Settings</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="currentPassword">Current Password</Label>
+                    <Input
+                      id="currentPassword"
+                      type="password"
+                      placeholder="Enter current password"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="newPassword">New Password</Label>
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      placeholder="Enter new password"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      placeholder="Confirm new password"
+                    />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch id="twoFactor" />
+                    <Label htmlFor="twoFactor">Enable Two-Factor Authentication</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch id="sessionTimeout" defaultChecked />
+                    <Label htmlFor="sessionTimeout">Auto-logout after 30 minutes of inactivity</Label>
+                  </div>
+                  <Button>
+                    <Save className="w-4 h-4 mr-2" />
+                    Update Security Settings
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Login History</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <div>
+                        <p className="text-sm font-medium">Login from Chrome on Windows</p>
+                        <p className="text-xs text-gray-600">192.168.1.100 • 2 hours ago</p>
+                      </div>
+                      <Badge variant="outline">Current</Badge>
+                    </div>
+                    <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <div>
+                        <p className="text-sm font-medium">Login from Safari on iPhone</p>
+                        <p className="text-xs text-gray-600">192.168.1.101 • 1 day ago</p>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-              <TabsContent value="security">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Security Settings</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Require regular password changes</Label>
-                          <p className="text-sm text-gray-500">Force users to update passwords every 90 days</p>
-                        </div>
-                        <Switch
-                          checked={securitySettings.requirePasswordChange}
-                          onCheckedChange={(checked) => setSecuritySettings({...securitySettings, requirePasswordChange: checked})}
-                        />
+            {/* Notification Settings */}
+            <TabsContent value="notifications" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Notification Preferences</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">Low Stock Alerts</p>
+                        <p className="text-sm text-gray-600">Get notified when products are running low</p>
                       </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Enable two-factor authentication</Label>
-                          <p className="text-sm text-gray-500">Require 2FA for admin and manager accounts</p>
-                        </div>
-                        <Switch
-                          checked={securitySettings.enableTwoFactor}
-                          onCheckedChange={(checked) => setSecuritySettings({...securitySettings, enableTwoFactor: checked})}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Log user activity</Label>
-                          <p className="text-sm text-gray-500">Track user actions for audit purposes</p>
-                        </div>
-                        <Switch
-                          checked={securitySettings.logUserActivity}
-                          onCheckedChange={(checked) => setSecuritySettings({...securitySettings, logUserActivity: checked})}
-                        />
-                      </div>
+                      <Switch defaultChecked />
                     </div>
-
                     <Separator />
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <Label htmlFor="session-timeout">Session Timeout (minutes)</Label>
-                        <Select value={securitySettings.sessionTimeout} onValueChange={(value) => setSecuritySettings({...securitySettings, sessionTimeout: value})}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="15">15 minutes</SelectItem>
-                            <SelectItem value="30">30 minutes</SelectItem>
-                            <SelectItem value="60">1 hour</SelectItem>
-                            <SelectItem value="120">2 hours</SelectItem>
-                            <SelectItem value="480">8 hours</SelectItem>
-                          </SelectContent>
-                        </Select>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">Daily Sales Reports</p>
+                        <p className="text-sm text-gray-600">Receive daily sales summaries</p>
                       </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="max-login-attempts">Max Login Attempts</Label>
-                        <Select value={securitySettings.maxLoginAttempts} onValueChange={(value) => setSecuritySettings({...securitySettings, maxLoginAttempts: value})}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="3">3 attempts</SelectItem>
-                            <SelectItem value="5">5 attempts</SelectItem>
-                            <SelectItem value="10">10 attempts</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      <Switch defaultChecked />
                     </div>
-
                     <Separator />
-
-                    <div className="flex justify-end">
-                      <Button onClick={handleSaveSecuritySettings}>Save Security Settings</Button>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">System Updates</p>
+                        <p className="text-sm text-gray-600">Notifications about system updates and maintenance</p>
+                      </div>
+                      <Switch />
                     </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="backup">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Data Backup & Recovery</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="space-y-4">
+                    <Separator />
+                    <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="font-medium mb-2">Automatic Backups</h4>
-                        <p className="text-sm text-gray-600 mb-4">
-                          Your data is automatically backed up to secure cloud storage every 24 hours.
-                        </p>
-                        <div className="flex space-x-4">
-                          <Button variant="outline">View Backup History</Button>
-                          <Button variant="outline">Download Latest Backup</Button>
-                        </div>
+                        <p className="font-medium">Customer Feedback</p>
+                        <p className="text-sm text-gray-600">Notifications about customer reviews and feedback</p>
                       </div>
+                      <Switch defaultChecked />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
-                      <Separator />
+              <Card>
+                <CardHeader>
+                  <CardTitle>Email Notifications</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="notificationEmail">Notification Email</Label>
+                    <Input
+                      id="notificationEmail"
+                      type="email"
+                      defaultValue={user?.email || ""}
+                      placeholder="Enter email for notifications"
+                    />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch id="emailNotifications" defaultChecked />
+                    <Label htmlFor="emailNotifications">Send notifications via email</Label>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-                      <div>
-                        <h4 className="font-medium mb-2">Manual Backup</h4>
-                        <p className="text-sm text-gray-600 mb-4">
-                          Create an immediate backup of your current data.
-                        </p>
-                        <Button>Create Backup Now</Button>
+            {/* Integrations */}
+            <TabsContent value="integrations" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Payment Processors</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center space-x-4">
+                      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <CreditCard className="w-6 h-6 text-blue-600" />
                       </div>
-
-                      <Separator />
-
                       <div>
-                        <h4 className="font-medium mb-2">Data Restoration</h4>
-                        <p className="text-sm text-gray-600 mb-4">
-                          Restore your data from a previous backup. This action cannot be undone.
-                        </p>
-                        <Button variant="outline" className="border-red-300 text-red-600 hover:bg-red-50">
-                          Restore from Backup
-                        </Button>
+                        <p className="font-medium">Stripe</p>
+                        <p className="text-sm text-gray-600">Credit card processing</p>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </div>
-        </main>
+                    <div className="flex items-center space-x-2">
+                      <Badge variant="outline">Connected</Badge>
+                      <Button variant="outline" size="sm">
+                        Configure
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center space-x-4">
+                      <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+                        <CreditCard className="w-6 h-6 text-gray-400" />
+                      </div>
+                      <div>
+                        <p className="font-medium">PayPal</p>
+                        <p className="text-sm text-gray-600">Digital payments</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Badge variant="secondary">Not Connected</Badge>
+                      <Button variant="outline" size="sm">
+                        Connect
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Accounting Software</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center space-x-4">
+                      <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                        <Database className="w-6 h-6 text-green-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium">QuickBooks</p>
+                        <p className="text-sm text-gray-600">Sync transactions and inventory</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Badge variant="outline">Connected</Badge>
+                      <Button variant="outline" size="sm">
+                        Sync Now
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Data Management */}
+            <TabsContent value="data" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data Export</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Button variant="outline" onClick={() => handleExportData("products")}>
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Products
+                    </Button>
+                    <Button variant="outline" onClick={() => handleExportData("transactions")}>
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Transactions
+                    </Button>
+                    <Button variant="outline">
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Customers
+                    </Button>
+                    <Button variant="outline">
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Inventory
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data Import</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Button variant="outline">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Import Products
+                    </Button>
+                    <Button variant="outline">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Import Customers
+                    </Button>
+                    <Button variant="outline">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Import Inventory
+                    </Button>
+                    <Button variant="outline">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Import Transactions
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data Backup</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Automatic Backups</p>
+                      <p className="text-sm text-gray-600">Daily backups at 2:00 AM</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Backup Retention</p>
+                      <p className="text-sm text-gray-600">Keep backups for 30 days</p>
+                    </div>
+                    <Select defaultValue="30">
+                      <SelectTrigger className="w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="7">7 days</SelectItem>
+                        <SelectItem value="30">30 days</SelectItem>
+                        <SelectItem value="90">90 days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button>
+                    <Download className="w-4 h-4 mr-2" />
+                    Create Manual Backup
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </main>
     </div>
   );
 }

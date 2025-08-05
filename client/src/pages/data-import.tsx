@@ -3,18 +3,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Sidebar from "@/components/layout/sidebar";
 import TopBar from "@/components/layout/topbar";
 import CSVUploader from "@/components/data-import/csv-uploader";
+import ProductInput from "@/components/data-import/product-input";
+import TemplateDownloader from "@/components/data-import/template-downloader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Database, CheckCircle, AlertTriangle, Download } from "lucide-react";
+import { Upload, Database, CheckCircle, AlertTriangle, Download, Plus, ScanLine } from "lucide-react";
 import { formatDateTime } from "@/lib/pos-utils";
 import type { Store, LowStockAlert } from "@shared/schema";
 
 interface ImportJob {
   id: string;
-  type: "products" | "inventory" | "transactions";
+  type: "products" | "inventory" | "transactions" | "loyalty";
   status: "pending" | "processing" | "completed" | "failed";
   fileName: string;
   totalRows: number;
@@ -74,6 +76,17 @@ export default function DataImport() {
       errorCount: 2,
       createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
     },
+    {
+      id: "3",
+      type: "loyalty",
+      status: "completed",
+      fileName: "loyalty_customers.csv",
+      totalRows: 25,
+      processedRows: 25,
+      errorCount: 0,
+      createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+      completedAt: new Date(Date.now() - 1 * 60 * 60 * 1000 + 2 * 60 * 1000).toISOString(),
+    },
   ]);
 
   useEffect(() => {
@@ -86,7 +99,7 @@ export default function DataImport() {
   const handleFileUpload = (file: File, type: string) => {
     const newJob: ImportJob = {
       id: Date.now().toString(),
-      type: type as "products" | "inventory" | "transactions",
+      type: type as "products" | "inventory" | "transactions" | "loyalty",
       status: "pending",
       fileName: file.name,
       totalRows: 0,
@@ -133,10 +146,7 @@ export default function DataImport() {
     }, 2000);
   };
 
-  const downloadTemplate = (type: string) => {
-    // In real app, this would download actual templates
-    console.log(`Downloading ${type} template`);
-  };
+
 
   const getStatusIcon = (status: ImportJob["status"]) => {
     switch (status) {
@@ -242,10 +252,11 @@ export default function DataImport() {
               </CardHeader>
               <CardContent>
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
-                  <TabsList className="grid w-full grid-cols-3">
+                  <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="products">Products</TabsTrigger>
                     <TabsTrigger value="inventory">Inventory</TabsTrigger>
                     <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                    <TabsTrigger value="loyalty">Loyalty</TabsTrigger>
                   </TabsList>
                   
                   <TabsContent value="products" className="space-y-4">
@@ -253,15 +264,12 @@ export default function DataImport() {
                       <div>
                         <h3 className="text-lg font-semibold">Product Import</h3>
                         <p className="text-sm text-gray-600">
-                          Import product catalog from CSV files. Includes name, barcode, price, cost, and category.
+                          Add individual products and stock levels. Products can be added via barcode scan or manual input. 
+                          If a product already exists, stock will be added to the existing inventory.
                         </p>
                       </div>
-                      <Button variant="outline" onClick={() => downloadTemplate("products")}>
-                        <Download className="w-4 h-4 mr-2" />
-                        Download Template
-                      </Button>
                     </div>
-                    <CSVUploader onFileUpload={(file) => handleFileUpload(file, "products")} />
+                    <ProductInput selectedStore={selectedStore} />
                   </TabsContent>
                   
                   <TabsContent value="inventory" className="space-y-4">
@@ -269,13 +277,10 @@ export default function DataImport() {
                       <div>
                         <h3 className="text-lg font-semibold">Inventory Import</h3>
                         <p className="text-sm text-gray-600">
-                          Update stock levels and inventory data. Includes quantities, min/max levels, and store locations.
+                          Update stock levels and inventory data. Download the template to see the required format for bulk inventory updates.
                         </p>
                       </div>
-                      <Button variant="outline" onClick={() => downloadTemplate("inventory")}>
-                        <Download className="w-4 h-4 mr-2" />
-                        Download Template
-                      </Button>
+                      <TemplateDownloader type="inventory" />
                     </div>
                     <CSVUploader onFileUpload={(file) => handleFileUpload(file, "inventory")} />
                   </TabsContent>
@@ -288,12 +293,22 @@ export default function DataImport() {
                           Import historical transaction data for analytics. Includes sales records and transaction details.
                         </p>
                       </div>
-                      <Button variant="outline" onClick={() => downloadTemplate("transactions")}>
-                        <Download className="w-4 h-4 mr-2" />
-                        Download Template
-                      </Button>
+                      <TemplateDownloader type="transactions" />
                     </div>
                     <CSVUploader onFileUpload={(file) => handleFileUpload(file, "transactions")} />
+                  </TabsContent>
+                  
+                  <TabsContent value="loyalty" className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h3 className="text-lg font-semibold">Loyalty Program Import</h3>
+                        <p className="text-sm text-gray-600">
+                          Import customer loyalty data including customer information, points, and tier assignments.
+                        </p>
+                      </div>
+                      <TemplateDownloader type="loyalty" />
+                    </div>
+                    <CSVUploader onFileUpload={(file) => handleFileUpload(file, "loyalty")} />
                   </TabsContent>
                 </Tabs>
               </CardContent>

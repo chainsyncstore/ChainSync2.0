@@ -1,0 +1,711 @@
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { 
+  Users, 
+  Crown, 
+  Gift, 
+  Plus, 
+  Search, 
+  Edit, 
+  Trash2, 
+  Award,
+  TrendingUp,
+  UserPlus
+} from "lucide-react";
+
+interface Customer {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  loyaltyNumber: string;
+  currentPoints: number;
+  lifetimePoints: number;
+  tier?: {
+    id: string;
+    name: string;
+    color: string;
+  };
+  createdAt: string;
+}
+
+interface LoyaltyTier {
+  id: string;
+  name: string;
+  description?: string;
+  pointsRequired: number;
+  discountPercentage: number;
+  color: string;
+  isActive: boolean;
+}
+
+interface LoyaltyTransaction {
+  id: string;
+  customer: {
+    firstName: string;
+    lastName: string;
+  };
+  pointsEarned: number;
+  pointsRedeemed: number;
+  pointsBefore: number;
+  pointsAfter: number;
+  tierBefore?: {
+    name: string;
+  };
+  tierAfter?: {
+    name: string;
+  };
+  createdAt: string;
+}
+
+export default function Loyalty() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [tiers, setTiers] = useState<LoyaltyTier[]>([]);
+  const [transactions, setTransactions] = useState<LoyaltyTransaction[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [showAddTier, setShowAddTier] = useState(false);
+  const { toast } = useToast();
+
+  // Form states
+  const [newCustomer, setNewCustomer] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+  });
+
+  const [newTier, setNewTier] = useState({
+    name: "",
+    description: "",
+    pointsRequired: 0,
+    discountPercentage: 0,
+    color: "#6B7280",
+  });
+
+  useEffect(() => {
+    fetchLoyaltyData();
+  }, []);
+
+  const fetchLoyaltyData = async () => {
+    try {
+      setIsLoading(true);
+      // In a real app, these would be API calls
+      // For now, we'll use mock data
+      const mockCustomers: Customer[] = [
+        {
+          id: "1",
+          firstName: "John",
+          lastName: "Doe",
+          email: "john.doe@email.com",
+          phone: "+1-555-0123",
+          loyaltyNumber: "LOY001",
+          currentPoints: 1250,
+          lifetimePoints: 2500,
+          tier: { id: "1", name: "Silver", color: "#C0C0C0" },
+          createdAt: "2024-01-15",
+        },
+        {
+          id: "2",
+          firstName: "Jane",
+          lastName: "Smith",
+          email: "jane.smith@email.com",
+          phone: "+1-555-0456",
+          loyaltyNumber: "LOY002",
+          currentPoints: 3200,
+          lifetimePoints: 5000,
+          tier: { id: "2", name: "Gold", color: "#FFD700" },
+          createdAt: "2024-01-10",
+        },
+        {
+          id: "3",
+          firstName: "Bob",
+          lastName: "Johnson",
+          email: "bob.johnson@email.com",
+          phone: "+1-555-0789",
+          loyaltyNumber: "LOY003",
+          currentPoints: 450,
+          lifetimePoints: 800,
+          tier: { id: "1", name: "Silver", color: "#C0C0C0" },
+          createdAt: "2024-02-01",
+        },
+      ];
+
+      const mockTiers: LoyaltyTier[] = [
+        {
+          id: "1",
+          name: "Bronze",
+          description: "New customers start here",
+          pointsRequired: 0,
+          discountPercentage: 0,
+          color: "#CD7F32",
+          isActive: true,
+        },
+        {
+          id: "2",
+          name: "Silver",
+          description: "Earn 5% discount on purchases",
+          pointsRequired: 1000,
+          discountPercentage: 5,
+          color: "#C0C0C0",
+          isActive: true,
+        },
+        {
+          id: "3",
+          name: "Gold",
+          description: "Earn 10% discount on purchases",
+          pointsRequired: 3000,
+          discountPercentage: 10,
+          color: "#FFD700",
+          isActive: true,
+        },
+        {
+          id: "4",
+          name: "Platinum",
+          description: "Earn 15% discount on purchases",
+          pointsRequired: 10000,
+          discountPercentage: 15,
+          color: "#E5E4E2",
+          isActive: true,
+        },
+      ];
+
+      const mockTransactions: LoyaltyTransaction[] = [
+        {
+          id: "1",
+          customer: { firstName: "John", lastName: "Doe" },
+          pointsEarned: 150,
+          pointsRedeemed: 0,
+          pointsBefore: 1100,
+          pointsAfter: 1250,
+          tierBefore: { name: "Silver" },
+          tierAfter: { name: "Silver" },
+          createdAt: "2024-03-15T10:30:00Z",
+        },
+        {
+          id: "2",
+          customer: { firstName: "Jane", lastName: "Smith" },
+          pointsEarned: 200,
+          pointsRedeemed: 0,
+          pointsBefore: 3000,
+          pointsAfter: 3200,
+          tierBefore: { name: "Gold" },
+          tierAfter: { name: "Gold" },
+          createdAt: "2024-03-14T15:45:00Z",
+        },
+      ];
+
+      setCustomers(mockCustomers);
+      setTiers(mockTiers);
+      setTransactions(mockTransactions);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load loyalty program data",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filteredCustomers = customers.filter(
+    (customer) =>
+      customer.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.loyaltyNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const handleAddCustomer = async () => {
+    try {
+      // In a real app, this would be an API call
+      const newCustomerData: Customer = {
+        id: Date.now().toString(),
+        ...newCustomer,
+        loyaltyNumber: `LOY${String(customers.length + 1).padStart(3, "0")}`,
+        currentPoints: 0,
+        lifetimePoints: 0,
+        tier: tiers.find(t => t.pointsRequired === 0),
+        createdAt: new Date().toISOString().split("T")[0],
+      };
+
+      setCustomers([...customers, newCustomerData]);
+      setNewCustomer({ firstName: "", lastName: "", email: "", phone: "" });
+      setShowAddCustomer(false);
+      toast({
+        title: "Success",
+        description: "Customer added successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add customer",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAddTier = async () => {
+    try {
+      // In a real app, this would be an API call
+      const newTierData: LoyaltyTier = {
+        id: Date.now().toString(),
+        ...newTier,
+        isActive: true,
+      };
+
+      setTiers([...tiers, newTierData]);
+      setNewTier({ name: "", description: "", pointsRequired: 0, discountPercentage: 0, color: "#6B7280" });
+      setShowAddTier(false);
+      toast({
+        title: "Success",
+        description: "Tier added successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add tier",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getTierForPoints = (points: number) => {
+    return tiers
+      .filter(tier => tier.isActive)
+      .sort((a, b) => b.pointsRequired - a.pointsRequired)
+      .find(tier => points >= tier.pointsRequired);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Loyalty Program</h1>
+          <p className="text-slate-600 mt-1">Manage customers, tiers, and loyalty points</p>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{customers.length}</div>
+            <p className="text-xs text-muted-foreground">
+              +12% from last month
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Tiers</CardTitle>
+            <Crown className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{tiers.filter(t => t.isActive).length}</div>
+            <p className="text-xs text-muted-foreground">
+              {tiers.length} total tiers
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Points Issued</CardTitle>
+            <Award className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {customers.reduce((sum, customer) => sum + customer.lifetimePoints, 0).toLocaleString()}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Lifetime points across all customers
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Avg Points/Customer</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {customers.length > 0 
+                ? Math.round(customers.reduce((sum, customer) => sum + customer.currentPoints, 0) / customers.length)
+                : 0
+              }
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Current points average
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main Content */}
+      <Tabs defaultValue="customers" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="customers">Customers</TabsTrigger>
+          <TabsTrigger value="tiers">Tiers</TabsTrigger>
+          <TabsTrigger value="transactions">Transactions</TabsTrigger>
+        </TabsList>
+
+        {/* Customers Tab */}
+        <TabsContent value="customers" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Customers</CardTitle>
+                  <CardDescription>
+                    Manage your loyalty program customers
+                  </CardDescription>
+                </div>
+                <Dialog open={showAddCustomer} onOpenChange={setShowAddCustomer}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Add Customer
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Add New Customer</DialogTitle>
+                      <DialogDescription>
+                        Add a new customer to the loyalty program
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="firstName">First Name</Label>
+                          <Input
+                            id="firstName"
+                            value={newCustomer.firstName}
+                            onChange={(e) => setNewCustomer({ ...newCustomer, firstName: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="lastName">Last Name</Label>
+                          <Input
+                            id="lastName"
+                            value={newCustomer.lastName}
+                            onChange={(e) => setNewCustomer({ ...newCustomer, lastName: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input
+                          id="email"
+                          type="email"
+                          value={newCustomer.email}
+                          onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="phone">Phone</Label>
+                        <Input
+                          id="phone"
+                          value={newCustomer.phone}
+                          onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setShowAddCustomer(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleAddCustomer}>Add Customer</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Search className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search customers..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="max-w-sm"
+                />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Loyalty #</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Current Points</TableHead>
+                    <TableHead>Tier</TableHead>
+                    <TableHead>Member Since</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredCustomers.map((customer) => (
+                    <TableRow key={customer.id}>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">
+                            {customer.firstName} {customer.lastName}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{customer.loyaltyNumber}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          {customer.email && <div>{customer.email}</div>}
+                          {customer.phone && <div className="text-muted-foreground">{customer.phone}</div>}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">{customer.currentPoints.toLocaleString()}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {customer.lifetimePoints.toLocaleString()} lifetime
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {customer.tier && (
+                          <Badge 
+                            style={{ backgroundColor: customer.tier.color, color: 'white' }}
+                          >
+                            {customer.tier.name}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {new Date(customer.createdAt).toLocaleDateString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tiers Tab */}
+        <TabsContent value="tiers" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Loyalty Tiers</CardTitle>
+                  <CardDescription>
+                    Manage customer tiers and their benefits
+                  </CardDescription>
+                </div>
+                <Dialog open={showAddTier} onOpenChange={setShowAddTier}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Tier
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Add New Tier</DialogTitle>
+                      <DialogDescription>
+                        Create a new loyalty tier with specific benefits
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="tierName">Tier Name</Label>
+                        <Input
+                          id="tierName"
+                          value={newTier.name}
+                          onChange={(e) => setNewTier({ ...newTier, name: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="description">Description</Label>
+                        <Textarea
+                          id="description"
+                          value={newTier.description}
+                          onChange={(e) => setNewTier({ ...newTier, description: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="pointsRequired">Points Required</Label>
+                          <Input
+                            id="pointsRequired"
+                            type="number"
+                            value={newTier.pointsRequired}
+                            onChange={(e) => setNewTier({ ...newTier, pointsRequired: parseInt(e.target.value) || 0 })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="discountPercentage">Discount %</Label>
+                          <Input
+                            id="discountPercentage"
+                            type="number"
+                            step="0.01"
+                            value={newTier.discountPercentage}
+                            onChange={(e) => setNewTier({ ...newTier, discountPercentage: parseFloat(e.target.value) || 0 })}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="color">Color</Label>
+                        <Input
+                          id="color"
+                          type="color"
+                          value={newTier.color}
+                          onChange={(e) => setNewTier({ ...newTier, color: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setShowAddTier(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleAddTier}>Add Tier</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4">
+                {tiers
+                  .sort((a, b) => a.pointsRequired - b.pointsRequired)
+                  .map((tier) => (
+                    <div
+                      key={tier.id}
+                      className="flex items-center justify-between p-4 border rounded-lg"
+                    >
+                      <div className="flex items-center space-x-4">
+                        <div
+                          className="w-4 h-4 rounded-full"
+                          style={{ backgroundColor: tier.color }}
+                        />
+                        <div>
+                          <div className="font-medium">{tier.name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {tier.description}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-right">
+                          <div className="font-medium">{tier.pointsRequired.toLocaleString()} points</div>
+                          <div className="text-sm text-muted-foreground">
+                            {tier.discountPercentage}% discount
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Button variant="outline" size="sm">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="outline" size="sm">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Transactions Tab */}
+        <TabsContent value="transactions" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Loyalty Transactions</CardTitle>
+              <CardDescription>
+                Track points earned and redeemed by customers
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Points Earned</TableHead>
+                    <TableHead>Points Redeemed</TableHead>
+                    <TableHead>Points Before</TableHead>
+                    <TableHead>Points After</TableHead>
+                    <TableHead>Tier Change</TableHead>
+                    <TableHead>Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {transactions.map((transaction) => (
+                    <TableRow key={transaction.id}>
+                      <TableCell>
+                        <div className="font-medium">
+                          {transaction.customer.firstName} {transaction.customer.lastName}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-green-600 font-medium">
+                          +{transaction.pointsEarned}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-red-600 font-medium">
+                          {transaction.pointsRedeemed > 0 ? `-${transaction.pointsRedeemed}` : "0"}
+                        </div>
+                      </TableCell>
+                      <TableCell>{transaction.pointsBefore.toLocaleString()}</TableCell>
+                      <TableCell>{transaction.pointsAfter.toLocaleString()}</TableCell>
+                      <TableCell>
+                        {transaction.tierBefore?.name !== transaction.tierAfter?.name ? (
+                          <div className="text-sm">
+                            <div className="text-muted-foreground">{transaction.tierBefore?.name}</div>
+                            <div className="font-medium">→ {transaction.tierAfter?.name}</div>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">No change</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {new Date(transaction.createdAt).toLocaleDateString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+} 

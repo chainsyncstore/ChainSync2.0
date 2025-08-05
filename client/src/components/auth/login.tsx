@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 interface LoginProps {
   onLogin: (username: string, password: string) => Promise<void>;
   isLoading: boolean;
-  error?: string;
+  error?: string | null;
 }
 
 export default function Login({ onLogin, isLoading, error }: LoginProps) {

@@ -5,14 +5,31 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+export function formatDate(date: Date, format: string = "MMM dd, yyyy"): string {
+  const options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  };
+
+  if (format === "MMM dd") {
+    options.year = undefined;
+  } else if (format === "MMM dd, yyyy") {
+    // Use default options
+  } else if (format === "yyyy-MM-dd") {
+    return date.toISOString().split('T')[0];
+  }
+
+  return new Intl.DateTimeFormat('en-US', options).format(date);
+}
+
 export function formatDateTime(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
   }).format(date);
 }
 
