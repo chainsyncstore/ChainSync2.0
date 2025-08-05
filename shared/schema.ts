@@ -376,6 +376,32 @@ export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ on
   }),
 }));
 
+// IP Whitelist Tables
+export const ipWhitelists = pgTable("ip_whitelists", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  ipAddress: varchar("ip_address", { length: 45 }).notNull(), // IPv6 can be up to 45 chars
+  description: varchar("description", { length: 255 }),
+  whitelistedBy: uuid("whitelisted_by").notNull(), // User ID who added this IP
+  whitelistedFor: uuid("whitelisted_for").notNull(), // User ID this IP is whitelisted for
+  role: userRoleEnum("role").notNull(), // Role this IP is whitelisted for
+  storeId: uuid("store_id"), // Store this IP is associated with (for managers/cashiers)
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const ipWhitelistLogs = pgTable("ip_whitelist_logs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  ipAddress: varchar("ip_address", { length: 45 }).notNull(),
+  userId: uuid("user_id"),
+  username: varchar("username", { length: 255 }),
+  action: varchar("action", { length: 50 }).notNull(), // 'login_attempt', 'whitelist_added', 'whitelist_removed'
+  success: boolean("success").notNull(),
+  reason: varchar("reason", { length: 255 }),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Session table for express-session
 export const sessions = pgTable("session", {
   sid: varchar("sid", { length: 255 }).primaryKey(),
@@ -503,6 +529,29 @@ export const externalFactorsRelations = relations(externalFactors, ({ one }) => 
   }),
 }));
 
+// IP Whitelist Relations
+export const ipWhitelistsRelations = relations(ipWhitelists, ({ one }) => ({
+  whitelistedByUser: one(users, {
+    fields: [ipWhitelists.whitelistedBy],
+    references: [users.id],
+  }),
+  whitelistedForUser: one(users, {
+    fields: [ipWhitelists.whitelistedFor],
+    references: [users.id],
+  }),
+  store: one(stores, {
+    fields: [ipWhitelists.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const ipWhitelistLogsRelations = relations(ipWhitelistLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [ipWhitelistLogs.userId],
+    references: [users.id],
+  }),
+}));
+
 // AI Insert Schemas
 export const insertForecastModelSchema = createInsertSchema(forecastModels).omit({
   id: true,
@@ -531,6 +580,18 @@ export const insertExternalFactorSchema = createInsertSchema(externalFactors).om
   createdAt: true,
 });
 
+// IP Whitelist Insert Schemas
+export const insertIpWhitelistSchema = createInsertSchema(ipWhitelists).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertIpWhitelistLogSchema = createInsertSchema(ipWhitelistLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
 // AI Types
 export type ForecastModel = typeof forecastModels.$inferSelect;
 export type InsertForecastModel = z.infer<typeof insertForecastModelSchema>;
@@ -546,3 +607,10 @@ export type InsertSeasonalPattern = z.infer<typeof insertSeasonalPatternSchema>;
 
 export type ExternalFactor = typeof externalFactors.$inferSelect;
 export type InsertExternalFactor = z.infer<typeof insertExternalFactorSchema>;
+
+// IP Whitelist Types
+export type IpWhitelist = typeof ipWhitelists.$inferSelect;
+export type InsertIpWhitelist = z.infer<typeof insertIpWhitelistSchema>;
+
+export type IpWhitelistLog = typeof ipWhitelistLogs.$inferSelect;
+export type InsertIpWhitelistLog = z.infer<typeof insertIpWhitelistLogSchema>;
