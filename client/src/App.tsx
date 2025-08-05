@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { AIChatProvider } from "@/hooks/use-ai-chat";
+import { ErrorBoundary } from "@/components/error-boundary";
 import Login from "@/components/auth/login";
 import Signup from "@/components/auth/signup";
 import ForgotPassword from "@/components/auth/forgot-password";
@@ -166,14 +167,16 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AIChatProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </AIChatProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AIChatProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </AIChatProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

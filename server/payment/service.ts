@@ -1,4 +1,5 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
+import { PaymentError } from '../lib/errors';
 
 export interface PaymentRequest {
   email: string;
@@ -99,40 +100,116 @@ export class PaymentService {
     }
   }
 
-  async verifyPaystackPayment(reference: string): Promise<boolean> {
-    try {
-      const response = await axios.get(
-        `${this.paystackBaseUrl}/transaction/verify/${reference}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.paystackSecretKey}`
+  async verifyPaystackPayment(reference: string, maxRetries: number = 3): Promise<boolean> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Paystack verification attempt ${attempt}/${maxRetries} for reference: ${reference}`);
+        
+        const response = await axios.get(
+          `${this.paystackBaseUrl}/transaction/verify/${reference}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${this.paystackSecretKey}`
+            },
+            timeout: 10000 // 10 second timeout
           }
-        }
-      );
+        );
 
-      return response.data.data.status === 'success';
-    } catch (error) {
-      console.error('Paystack payment verification error:', error);
-      return false;
+        if (response.data.data.status === 'success') {
+          console.log(`Paystack verification successful on attempt ${attempt}`);
+          return true;
+        } else {
+          console.log(`Paystack verification failed - status: ${response.data.data.status}`);
+          return false;
+        }
+      } catch (error) {
+        lastError = error as Error;
+        const axiosError = error as AxiosError;
+        
+        console.error(`Paystack verification attempt ${attempt} failed:`, {
+          status: axiosError.response?.status,
+          message: axiosError.message,
+          reference
+        });
+
+        // Don't retry on client errors (4xx) except 429 (rate limit)
+        if (axiosError.response?.status && axiosError.response.status >= 400 && axiosError.response.status < 500 && axiosError.response.status !== 429) {
+          console.log('Client error detected, not retrying');
+          break;
+        }
+
+        // Wait before retrying (exponential backoff)
+        if (attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
+          console.log(`Waiting ${delay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
+
+    console.error(`Paystack verification failed after ${maxRetries} attempts for reference: ${reference}`);
+    throw new PaymentError(
+      `Payment verification failed after ${maxRetries} attempts`,
+      { reference, lastError: lastError?.message }
+    );
   }
 
-  async verifyFlutterwavePayment(transactionId: string): Promise<boolean> {
-    try {
-      const response = await axios.get(
-        `${this.flutterwaveBaseUrl}/transactions/${transactionId}/verify`,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.flutterwaveSecretKey}`
+  async verifyFlutterwavePayment(transactionId: string, maxRetries: number = 3): Promise<boolean> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Flutterwave verification attempt ${attempt}/${maxRetries} for transaction: ${transactionId}`);
+        
+        const response = await axios.get(
+          `${this.flutterwaveBaseUrl}/transactions/${transactionId}/verify`,
+          {
+            headers: {
+              'Authorization': `Bearer ${this.flutterwaveSecretKey}`
+            },
+            timeout: 10000 // 10 second timeout
           }
-        }
-      );
+        );
 
-      return response.data.data.status === 'successful';
-    } catch (error) {
-      console.error('Flutterwave payment verification error:', error);
-      return false;
+        if (response.data.data.status === 'successful') {
+          console.log(`Flutterwave verification successful on attempt ${attempt}`);
+          return true;
+        } else {
+          console.log(`Flutterwave verification failed - status: ${response.data.data.status}`);
+          return false;
+        }
+      } catch (error) {
+        lastError = error as Error;
+        const axiosError = error as AxiosError;
+        
+        console.error(`Flutterwave verification attempt ${attempt} failed:`, {
+          status: axiosError.response?.status,
+          message: axiosError.message,
+          transactionId
+        });
+
+        // Don't retry on client errors (4xx) except 429 (rate limit)
+        if (axiosError.response?.status && axiosError.response.status >= 400 && axiosError.response.status < 500 && axiosError.response.status !== 429) {
+          console.log('Client error detected, not retrying');
+          break;
+        }
+
+        // Wait before retrying (exponential backoff)
+        if (attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
+          console.log(`Waiting ${delay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
+
+    console.error(`Flutterwave verification failed after ${maxRetries} attempts for transaction: ${transactionId}`);
+    throw new PaymentError(
+      `Payment verification failed after ${maxRetries} attempts`,
+      { transactionId, lastError: lastError?.message }
+    );
   }
 
   generateReference(provider: 'paystack' | 'flutterwave'): string {

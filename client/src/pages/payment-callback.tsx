@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { apiClient, handleApiError } from "@/lib/api-client";
 
 export default function PaymentCallback() {
   const [, setLocation] = useLocation();
@@ -27,18 +28,12 @@ export default function PaymentCallback() {
         }
 
         // Verify payment with backend
-        const response = await fetch('/api/payment/verify', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            reference: paymentReference,
-            status: status
-          }),
+        const data = await apiClient.post('/payment/verify', {
+          reference: paymentReference,
+          status: status
         });
 
-        if (response.ok) {
+        if (data.success) {
           setStatus('success');
           setMessage('Payment successful! Your subscription is now active.');
           
@@ -52,6 +47,7 @@ export default function PaymentCallback() {
         }
       } catch (error) {
         console.error('Payment callback error:', error);
+        handleApiError(error);
         setStatus('error');
         setMessage('An error occurred while processing your payment.');
       }

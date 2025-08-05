@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { sendErrorResponse, AppError, isOperationalError } from "./lib/errors";
 
 const app = express();
 app.use(express.json());
@@ -40,11 +41,24 @@ app.use((req, res, next) => {
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    // Log the error for debugging
+    console.error('Error occurred:', {
+      message: err.message,
+      stack: err.stack,
+      statusCode: err.statusCode || err.status,
+      code: err.code,
+      path: _req.path,
+      method: _req.method,
+      timestamp: new Date().toISOString()
+    });
 
-    res.status(status).json({ message });
-    throw err;
+    // Send standardized error response
+    sendErrorResponse(res, err, _req.path);
+
+    // Only re-throw non-operational errors in development
+    if (app.get("env") === "development" && !isOperationalError(err)) {
+      throw err;
+    }
   });
 
   // importantly only setup vite in development and after

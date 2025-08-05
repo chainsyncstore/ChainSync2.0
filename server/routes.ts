@@ -20,6 +20,17 @@ import { forecastModels } from "@shared/schema";
 import { db } from "./db";
 import { OpenAIService } from "./openai/service";
 import { PaymentService } from "./payment/service";
+import { 
+  sendErrorResponse, 
+  sendSuccessResponse, 
+  handleAsyncError,
+  AppError,
+  ValidationError,
+  AuthenticationError,
+  NotFoundError,
+  ConflictError,
+  PaymentError
+} from "./lib/errors";
 
 // Extend the session interface
 declare module "express-session" {
@@ -62,42 +73,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (req.session.user) {
       next();
     } else {
-      res.status(401).json({ message: "Authentication required" });
+      sendErrorResponse(res, new AuthenticationError(), req.path);
     }
   };
 
   // Authentication routes
-  app.post("/api/auth/login", async (req, res) => {
-    try {
-      const { username, password } = req.body;
-      
-      // Validate input
-      if (!username || !password) {
-        return res.status(400).json({ message: "Username and password are required" });
-      }
-      
-      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
-      const user = await storage.authenticateUser(username, password, ipAddress);
-      
-      if (user) {
-        // Sanitize user data before storing in session
-        const sanitizedUser = AuthService.sanitizeUserForSession(user);
-        req.session.user = sanitizedUser;
-        res.json(sanitizedUser);
-      } else {
-        res.status(401).json({ message: "Invalid credentials or IP not whitelisted" });
-      }
-    } catch (error) {
-      console.error("Authentication error:", error);
-      res.status(500).json({ message: "Authentication failed" });
+  app.post("/api/auth/login", handleAsyncError(async (req, res) => {
+    const { username, password } = req.body;
+    
+    // Validate input
+    if (!username || !password) {
+      throw new ValidationError("Username and password are required");
     }
-  });
+    
+    const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+    const user = await storage.authenticateUser(username, password, ipAddress);
+    
+    if (user) {
+      // Sanitize user data before storing in session
+      const sanitizedUser = AuthService.sanitizeUserForSession(user);
+      req.session.user = sanitizedUser;
+      sendSuccessResponse(res, sanitizedUser, "Login successful");
+    } else {
+      throw new AuthenticationError("Invalid credentials or IP not whitelisted");
+    }
+  }));
 
   app.get("/api/auth/me", (req: any, res) => {
     if (req.session.user) {
-      res.json(req.session.user);
+      sendSuccessResponse(res, req.session.user);
     } else {
-      res.status(401).json({ message: "Not authenticated" });
+      sendErrorResponse(res, new AuthenticationError("Not authenticated"), req.path);
     }
   });
 
@@ -105,9 +111,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     req.session.destroy((err: any) => {
       if (err) {
         console.error("Logout error:", err);
-        return res.status(500).json({ message: "Logout failed" });
+        sendErrorResponse(res, new AppError("Logout failed", 500), req.path);
+      } else {
+        sendSuccessResponse(res, null, "Logged out successfully");
       }
-      res.json({ message: "Logged out successfully" });
     });
   });
 
@@ -357,47 +364,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payment verification route
-  app.post("/api/payment/verify", async (req, res) => {
-    try {
-      const { reference, status } = req.body;
-      
-      if (!reference) {
-        return res.status(400).json({ message: "Payment reference is required" });
-      }
+  app.post("/api/payment/verify", handleAsyncError(async (req, res) => {
+    const { reference, status } = req.body;
+    
+    if (!reference) {
+      throw new ValidationError("Payment reference is required");
+    }
 
-      const paymentService = new PaymentService();
-      
-      // Determine provider from reference
-      const provider = reference.startsWith('PAYSTACK') ? 'paystack' : 'flutterwave';
-      
-      let isPaymentSuccessful = false;
-      
+    const paymentService = new PaymentService();
+    
+    // Determine provider from reference
+    const provider = reference.startsWith('PAYSTACK') ? 'paystack' : 'flutterwave';
+    
+    let isPaymentSuccessful = false;
+    
+    try {
       if (provider === 'paystack') {
         isPaymentSuccessful = await paymentService.verifyPaystackPayment(reference);
       } else if (provider === 'flutterwave') {
         isPaymentSuccessful = await paymentService.verifyFlutterwavePayment(reference);
       }
-
-      if (isPaymentSuccessful) {
-        // Update user subscription status
-        // In production, you would update the user's subscription status in the database
-        console.log(`Payment verified successfully for reference: ${reference}`);
-        
-        res.json({ 
-          success: true, 
-          message: "Payment verified successfully" 
-        });
-      } else {
-        res.status(400).json({ 
-          success: false, 
-          message: "Payment verification failed" 
-        });
-      }
     } catch (error) {
-      console.error("Payment verification error:", error);
-      res.status(500).json({ message: "Payment verification failed" });
+      // Payment service errors are already PaymentError instances
+      throw error;
     }
-  });
+
+    if (isPaymentSuccessful) {
+      // Update user subscription status
+      // In production, you would update the user's subscription status in the database
+      console.log(`Payment verified successfully for reference: ${reference}`);
+      
+      sendSuccessResponse(res, { success: true }, "Payment verified successfully");
+    } else {
+      throw new PaymentError("Payment verification failed", { reference, provider });
+    }
+  }));
 
   // Payment webhook route (for handling payment confirmations)
   app.post("/api/payment/webhook", async (req, res) => {

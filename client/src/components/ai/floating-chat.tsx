@@ -6,6 +6,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Send, Bot, User, X, MessageCircle, Sparkles, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAIChat } from '@/hooks/use-ai-chat';
+import { apiClient, handleApiError } from '@/lib/api-client';
 
 interface ChatMessage {
     id: string;
@@ -75,23 +76,11 @@ export default function FloatingChat({ storeId = "default", className }: Floatin
         setIsLoading(true);
 
         try {
-            const response = await fetch('/api/openai/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: inputText,
-                    storeId,
-                    sessionId: `floating-chat-${storeId}-${Date.now()}`
-                })
+            const data = await apiClient.post('/openai/chat', {
+                message: inputText,
+                storeId,
+                sessionId: `floating-chat-${storeId}-${Date.now()}`
             });
-
-            if (!response.ok) {
-                throw new Error('Failed to get response');
-            }
-
-            const data = await response.json();
             
             const botMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
@@ -104,6 +93,7 @@ export default function FloatingChat({ storeId = "default", className }: Floatin
             addMessage(botMessage);
         } catch (error) {
             console.error('Chat error:', error);
+            handleApiError(error);
             const errorMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
                 text: "I'm sorry, I encountered an error. Please try again or check your connection.",
@@ -168,23 +158,11 @@ export default function FloatingChat({ storeId = "default", className }: Floatin
 
     const sendQuickAction = async (action: string) => {
         try {
-            const response = await fetch('/api/openai/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: action,
-                    storeId,
-                    sessionId: `floating-chat-${storeId}-${Date.now()}`
-                })
+            const data = await apiClient.post('/openai/chat', {
+                message: action,
+                storeId,
+                sessionId: `floating-chat-${storeId}-${Date.now()}`
             });
-
-            if (!response.ok) {
-                throw new Error('Failed to get response');
-            }
-
-            const data = await response.json();
             
             const botMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
@@ -197,6 +175,7 @@ export default function FloatingChat({ storeId = "default", className }: Floatin
             addMessage(botMessage);
         } catch (error) {
             console.error('Chat error:', error);
+            handleApiError(error);
             const errorMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
                 text: "I'm sorry, I encountered an error. Please try again or check your connection.",
