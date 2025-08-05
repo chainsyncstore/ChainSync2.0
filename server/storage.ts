@@ -1044,7 +1044,7 @@ export class DatabaseStorage implements IStorage {
     if (format === "csv") {
       const csvHeader = "Loyalty Number,First Name,Last Name,Email,Phone,Current Points,Total Points Earned,Join Date\n";
       const csvRows = customerData.map(c => 
-        `"${c.loyaltyNumber || ''}","${c.firstName || ''}","${c.lastName || ''}","${c.email || ''}","${c.phone || ''}",${c.currentPoints},${c.totalPointsEarned},${c.createdAt?.toISOString() || ''}`
+        `"${c.loyaltyNumber || ''}","${c.firstName || ''}","${c.lastName || ''}","${c.email || ''}","${c.phone || ''}",${c.currentPoints},${c.lifetimePoints},${c.createdAt?.toISOString() || ''}`
       ).join('\n');
       return csvHeader + csvRows;
     }
@@ -1059,7 +1059,7 @@ export class DatabaseStorage implements IStorage {
       barcode: products.barcode,
       sku: products.sku,
       quantity: inventory.quantity,
-      reorderPoint: inventory.reorderPoint,
+      minStockLevel: inventory.minStockLevel,
       lastUpdated: inventory.updatedAt,
     })
     .from(inventory)
@@ -1068,9 +1068,9 @@ export class DatabaseStorage implements IStorage {
     .orderBy(asc(products.name));
 
     if (format === "csv") {
-      const csvHeader = "Product ID,Product Name,Barcode,SKU,Quantity,Reorder Point,Last Updated\n";
+      const csvHeader = "Product ID,Product Name,Barcode,SKU,Quantity,Min Stock Level,Last Updated\n";
       const csvRows = inventoryData.map(i => 
-        `${i.productId},"${i.productName || ''}","${i.barcode || ''}","${i.sku || ''}",${i.quantity},${i.reorderPoint},${i.lastUpdated?.toISOString() || ''}`
+        `${i.productId},"${i.productName || ''}","${i.barcode || ''}","${i.sku || ''}",${i.quantity},${i.minStockLevel},${i.lastUpdated?.toISOString() || ''}`
       ).join('\n');
       return csvHeader + csvRows;
     }

@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
-import { Download, Store, Users, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
+import { Download, Store as StoreIcon, Users, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
 import { useToast } from '../hooks/use-toast';
 import type { Store } from '@shared/schema';
 
@@ -108,7 +108,7 @@ export default function Settings() {
       <Tabs defaultValue="store" className="space-y-6">
         <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="store" className="flex items-center gap-2">
-            <Store className="h-4 w-4" />
+                          <StoreIcon className="h-4 w-4" />
             Store
           </TabsTrigger>
           <TabsTrigger value="users" className="flex items-center gap-2">
