@@ -6,8 +6,8 @@ import ShoppingCart from "@/components/pos/shopping-cart";
 import CheckoutPanel from "@/components/pos/checkout-panel";
 import ProductSearchModal from "@/components/pos/product-search-modal";
 import ToastSystem from "@/components/notifications/toast-system";
+import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
-import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
 import { useNotifications } from "@/hooks/use-notifications";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -33,6 +33,15 @@ export default function POS() {
   } = useCart();
 
   const { notifications, addNotification, removeNotification } = useNotifications();
+
+  const {
+    isScanning,
+    inputBuffer,
+    isScannerActive,
+    activateScanner,
+    deactivateScanner,
+    setOnScan,
+  } = useScannerContext();
 
   const userData = {
     role: user?.role || "cashier",
@@ -147,7 +156,11 @@ export default function POS() {
     }
   };
 
-  useBarcodeScanner(handleBarcodeScanned);
+  // Set the scan callback in the global context
+  useEffect(() => {
+    setOnScan(handleBarcodeScanned);
+    return () => setOnScan(null);
+  }, [setOnScan]);
 
   // Update date/time every minute
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
@@ -211,6 +224,11 @@ export default function POS() {
             onScan={handleBarcodeScanned}
             onOpenSearch={() => setIsSearchModalOpen(true)}
             isLoading={createTransactionMutation.isPending}
+            isScannerActive={isScannerActive}
+            onActivateScanner={activateScanner}
+            onDeactivateScanner={deactivateScanner}
+            isScanning={isScanning}
+            inputBuffer={inputBuffer}
           />
           
           <ShoppingCart

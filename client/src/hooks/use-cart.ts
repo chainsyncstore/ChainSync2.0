@@ -1,9 +1,29 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { CartItem, CartSummary, PaymentData } from "@/types/pos";
+import { CART_STORAGE_KEY, saveCart, loadCart, clearCart as clearCartStorage } from "@/lib/utils";
 
 export function useCart() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [payment, setPayment] = useState<PaymentData>({ method: "cash" });
+
+  // Load cart from localStorage on mount
+  useEffect(() => {
+    const savedCart = loadCart();
+    if (savedCart) {
+      if (savedCart.items && Array.isArray(savedCart.items)) {
+        setItems(savedCart.items);
+      }
+      if (savedCart.payment) {
+        setPayment(savedCart.payment);
+      }
+    }
+  }, []);
+
+  // Save cart to localStorage whenever items or payment changes
+  useEffect(() => {
+    const cartData = { items, payment };
+    saveCart(cartData);
+  }, [items, payment]);
 
   const addItem = useCallback((product: { id: string; name: string; barcode: string; price: number }) => {
     setItems(currentItems => {
@@ -51,6 +71,7 @@ export function useCart() {
   const clearCart = useCallback(() => {
     setItems([]);
     setPayment({ method: "cash" });
+    clearCartStorage();
   }, []);
 
   const summary: CartSummary = {

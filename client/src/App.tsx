@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { AIChatProvider } from "@/hooks/use-ai-chat";
+import { ScannerProvider } from "@/hooks/use-barcode-scanner";
 import { ErrorBoundary } from "@/components/error-boundary";
 import Login from "@/components/auth/login";
 import Signup from "@/components/auth/signup";
@@ -170,10 +171,12 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AIChatProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Router />
-          </TooltipProvider>
+          <ScannerProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Router />
+            </TooltipProvider>
+          </ScannerProvider>
         </AIChatProvider>
       </QueryClientProvider>
     </ErrorBoundary>

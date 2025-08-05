@@ -2,15 +2,30 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Plus, Search, ScanLine } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Search, ScanLine, Power, PowerOff } from "lucide-react";
 
 interface BarcodeScannerProps {
   onScan: (barcode: string) => void;
   onOpenSearch: () => void;
   isLoading?: boolean;
+  isScannerActive?: boolean;
+  onActivateScanner?: () => void;
+  onDeactivateScanner?: () => void;
+  isScanning?: boolean;
+  inputBuffer?: string;
 }
 
-export default function BarcodeScanner({ onScan, onOpenSearch, isLoading }: BarcodeScannerProps) {
+export default function BarcodeScanner({ 
+  onScan, 
+  onOpenSearch, 
+  isLoading,
+  isScannerActive = false,
+  onActivateScanner,
+  onDeactivateScanner,
+  isScanning = false,
+  inputBuffer = ""
+}: BarcodeScannerProps) {
   const [barcodeInput, setBarcodeInput] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -29,7 +44,23 @@ export default function BarcodeScanner({ onScan, onOpenSearch, isLoading }: Barc
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-      <h3 className="text-lg font-semibold text-slate-800 mb-4">Product Scanner</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-slate-800">Product Scanner</h3>
+        <div className="flex items-center space-x-2">
+          {isScannerActive && (
+            <Badge variant="secondary" className="bg-green-100 text-green-800">
+              <ScanLine className="w-3 h-3 mr-1" />
+              Scanner Active
+            </Badge>
+          )}
+          {isScanning && inputBuffer && (
+            <Badge variant="outline" className="font-mono">
+              {inputBuffer}
+            </Badge>
+          )}
+        </div>
+      </div>
+      
       <form onSubmit={handleSubmit} className="flex space-x-4">
         <div className="flex-1">
           <Label htmlFor="barcode" className="block text-sm font-medium text-slate-700 mb-2">
@@ -68,8 +99,45 @@ export default function BarcodeScanner({ onScan, onOpenSearch, isLoading }: Barc
             <Search className="w-4 h-4 mr-2" />
             Search
           </Button>
+          {onActivateScanner && onDeactivateScanner && (
+            <Button
+              type="button"
+              variant={isScannerActive ? "destructive" : "default"}
+              onClick={isScannerActive ? onDeactivateScanner : onActivateScanner}
+              className="px-6 py-3 font-medium"
+            >
+              {isScannerActive ? (
+                <>
+                  <PowerOff className="w-4 h-4 mr-2" />
+                  Deactivate Scanner
+                </>
+              ) : (
+                <>
+                  <Power className="w-4 h-4 mr-2" />
+                  Activate Scanner
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </form>
+      
+      {isScannerActive && (
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-800">
+            <ScanLine className="w-4 h-4 inline mr-2" />
+            Scanner is active. Point your barcode scanner at a product to scan automatically.
+            {onDeactivateScanner && (
+              <button
+                onClick={onDeactivateScanner}
+                className="ml-2 text-blue-600 hover:text-blue-800 underline"
+              >
+                Deactivate
+              </button>
+            )}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
