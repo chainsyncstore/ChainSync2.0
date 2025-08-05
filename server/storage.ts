@@ -12,6 +12,7 @@ import {
   loyaltyTransactions,
   ipWhitelists,
   ipWhitelistLogs,
+  passwordResetTokens,
   type User, 
   type Store, 
   type Product, 
@@ -37,9 +38,11 @@ import {
   type InsertIpWhitelist,
   type IpWhitelistLog,
   type InsertIpWhitelistLog,
+  type PasswordResetToken,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, lt, lte, gte, between, isNotNull, or } from "drizzle-orm";
+import crypto from "crypto";
 
 export interface IStorage {
   // User operations
@@ -49,6 +52,12 @@ export interface IStorage {
   authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null>;
   createUser(user: InsertUser): Promise<User>;
   getUsersByStore(storeId: string): Promise<User[]>;
+  
+  // Password reset operations
+  createPasswordResetToken(userId: string): Promise<PasswordResetToken>;
+  getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined>;
+  invalidatePasswordResetToken(token: string): Promise<void>;
+  updateUserPassword(userId: string, newPassword: string): Promise<User>;
 
   // Store operations
   getAllStores(): Promise<Store[]>;
@@ -246,6 +255,34 @@ export class DatabaseStorage implements IStorage {
 
   async getUsersByStore(storeId: string): Promise<User[]> {
     return await db.select().from(users).where(eq(users.storeId, storeId));
+  }
+
+  // Password reset operations
+  async createPasswordResetToken(userId: string): Promise<PasswordResetToken> {
+    const token = crypto.randomBytes(32).toString("hex");
+    const [resetToken] = await db.insert(passwordResetTokens).values({
+      userId,
+      token,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+    }).returning();
+    return resetToken;
+  }
+
+  async getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined> {
+    const [resetToken] = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.token, token));
+    return resetToken || undefined;
+  }
+
+  async invalidatePasswordResetToken(token: string): Promise<void> {
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.token, token));
+  }
+
+  async updateUserPassword(userId: string, newPassword: string): Promise<User> {
+    const [user] = await db.update(users)
+      .set({ password: newPassword, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
   }
 
   // Store operations

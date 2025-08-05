@@ -7,7 +7,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { AIChatProvider } from "@/hooks/use-ai-chat";
 import Login from "@/components/auth/login";
 import Signup from "@/components/auth/signup";
+import ForgotPassword from "@/components/auth/forgot-password";
+import ResetPassword from "@/components/auth/reset-password";
 import MainLayout from "@/components/layout/main-layout";
+import { useState } from "react";
 
 // Pages
 import Landing from "@/pages/landing";
@@ -88,6 +91,7 @@ function Dashboard({ userRole }: { userRole: string }) {
 
 function Router() {
   const { user, isLoading, isAuthenticated, login, logout, error } = useAuth();
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   if (isLoading) {
     return (
@@ -104,10 +108,49 @@ function Router() {
     return (
       <Switch>
         <Route path="/" component={Landing} />
-        <Route path="/login" component={() => <Login onLogin={login} isLoading={isLoading} error={error} />} />
+        <Route path="/login" component={() => 
+          showForgotPassword ? (
+            <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
+          ) : (
+            <Login 
+              onLogin={login} 
+              onForgotPassword={() => setShowForgotPassword(true)}
+              isLoading={isLoading} 
+              error={error} 
+            />
+          )
+        } />
         <Route path="/signup" component={Signup} />
+        <Route path="/reset-password" component={({ params }: any) => {
+          const urlParams = new URLSearchParams(window.location.search);
+          const token = urlParams.get('token');
+          return token ? (
+            <ResetPassword 
+              token={token} 
+              onSuccess={() => window.location.href = '/login'} 
+            />
+          ) : (
+            <Login 
+              onLogin={login} 
+              onForgotPassword={() => setShowForgotPassword(true)}
+              isLoading={isLoading} 
+              error={error} 
+            />
+          );
+        }} />
         <Route path="/payment/callback" component={PaymentCallback} />
-        <Route component={() => <Login onLogin={login} isLoading={isLoading} error={error} />} />
+        <Route component={() => 
+          showForgotPassword ? (
+            <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
+          ) : (
+            <Login 
+              onLogin={login} 
+              onForgotPassword={() => setShowForgotPassword(true)}
+              isLoading={isLoading} 
+              error={error} 
+            />
+          )
+        } />
       </Switch>
     );
   }

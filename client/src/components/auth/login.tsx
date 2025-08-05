@@ -8,11 +8,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface LoginProps {
   onLogin: (username: string, password: string) => Promise<void>;
+  onForgotPassword: () => void;
   isLoading: boolean;
   error?: string | null;
 }
 
-export default function Login({ onLogin, isLoading, error }: LoginProps) {
+export default function Login({ onLogin, onForgotPassword, isLoading, error }: LoginProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -78,6 +79,16 @@ export default function Login({ onLogin, isLoading, error }: LoginProps) {
               {isLoading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
+          
+          <div className="text-center">
+            <Button
+              variant="ghost"
+              onClick={onForgotPassword}
+              className="text-sm text-slate-600 hover:text-slate-900"
+            >
+              Forgot your password?
+            </Button>
+          </div>
           
           <div className="text-center text-sm text-slate-600 mt-4">
             <div className="space-y-1">

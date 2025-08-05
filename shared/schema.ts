@@ -409,6 +409,16 @@ export const sessions = pgTable("session", {
   expire: timestamp("expire").notNull(),
 });
 
+// Password Reset Tokens table
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull(),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  isUsed: boolean("is_used").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // AI Demand Forecasting Tables
 export const forecastModels = pgTable("forecast_models", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -552,6 +562,14 @@ export const ipWhitelistLogsRelations = relations(ipWhitelistLogs, ({ one }) => 
   }),
 }));
 
+// Password Reset Token Relations
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [passwordResetTokens.userId],
+    references: [users.id],
+  }),
+}));
+
 // AI Insert Schemas
 export const insertForecastModelSchema = createInsertSchema(forecastModels).omit({
   id: true,
@@ -592,6 +610,12 @@ export const insertIpWhitelistLogSchema = createInsertSchema(ipWhitelistLogs).om
   createdAt: true,
 });
 
+// Password Reset Token Insert Schema
+export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
 // AI Types
 export type ForecastModel = typeof forecastModels.$inferSelect;
 export type InsertForecastModel = z.infer<typeof insertForecastModelSchema>;
@@ -614,3 +638,7 @@ export type InsertIpWhitelist = z.infer<typeof insertIpWhitelistSchema>;
 
 export type IpWhitelistLog = typeof ipWhitelistLogs.$inferSelect;
 export type InsertIpWhitelistLog = z.infer<typeof insertIpWhitelistLogSchema>;
+
+// Password Reset Token Types
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
