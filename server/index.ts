@@ -2,55 +2,28 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { sendErrorResponse, AppError, isOperationalError } from "./lib/errors";
+import { logger, requestLogger } from "./lib/logger";
+import { monitoringService, monitoringMiddleware } from "./lib/monitoring";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
-  });
-
-  next();
-});
+// Add monitoring and logging middleware
+app.use(monitoringMiddleware);
+app.use(requestLogger);
 
 (async () => {
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    // Log the error for debugging
-    console.error('Error occurred:', {
-      message: err.message,
-      stack: err.stack,
-      statusCode: err.statusCode || err.status,
-      code: err.code,
+    // Log the error with structured logging
+    logger.error('Unhandled error occurred', {
       path: _req.path,
       method: _req.method,
-      timestamp: new Date().toISOString()
-    });
+      statusCode: err.statusCode || err.status,
+      code: err.code
+    }, err);
 
     // Send standardized error response
     sendErrorResponse(res, err, _req.path);
@@ -80,6 +53,10 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    logger.info(`Server started successfully`, {
+      port,
+      environment: app.get("env"),
+      nodeVersion: process.version
+    });
   });
 })();

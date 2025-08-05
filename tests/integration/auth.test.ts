@@ -1,0 +1,304 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import request from 'supertest';
+import express from 'express';
+import session from 'express-session';
+import { registerRoutes } from '@server/routes';
+import { storage } from '@server/storage';
+import { AuthService } from '@server/auth';
+
+describe('Authentication Integration Tests', () => {
+  let app: express.Application;
+
+  beforeEach(async () => {
+    // Create a fresh Express app for each test
+    app = express();
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: false }));
+
+    // Setup session middleware
+    app.use(session({
+      secret: 'test-secret',
+      resave: false,
+      saveUninitialized: false,
+      cookie: { secure: false }
+    }));
+
+    // Register routes
+    await registerRoutes(app);
+  });
+
+  describe('POST /api/auth/signup', () => {
+    it('should create a new user account successfully', async () => {
+      const userData = {
+        firstName: 'Test',
+        lastName: 'User',
+        email: 'test@example.com',
+        phone: '+1234567890',
+        companyName: 'Test Company',
+        password: 'StrongPass123!',
+        tier: 'basic',
+        location: 'Test Location'
+      };
+
+      const response = await request(app)
+        .post('/api/auth/signup')
+        .send(userData)
+        .expect(201);
+
+      expect(response.body.message).toBe('Account created successfully');
+      expect(response.body.user).toHaveProperty('id');
+      expect(response.body.user.email).toBe(userData.email);
+      expect(response.body.user).not.toHaveProperty('password');
+      expect(response.body.store).toHaveProperty('id');
+      expect(response.body.store.name).toBe(userData.companyName);
+    });
+
+    it('should reject weak passwords', async () => {
+      const userData = {
+        firstName: 'Test',
+        lastName: 'User',
+        email: 'test@example.com',
+        phone: '+1234567890',
+        companyName: 'Test Company',
+        password: 'weak',
+        tier: 'basic',
+        location: 'Test Location'
+      };
+
+      const response = await request(app)
+        .post('/api/auth/signup')
+        .send(userData)
+        .expect(400);
+
+      expect(response.body.message).toBe('Password does not meet security requirements');
+      expect(response.body.errors).toBeDefined();
+    });
+
+    it('should reject duplicate email addresses', async () => {
+      const userData = {
+        firstName: 'Test',
+        lastName: 'User',
+        email: 'duplicate@example.com',
+        phone: '+1234567890',
+        companyName: 'Test Company',
+        password: 'StrongPass123!',
+        tier: 'basic',
+        location: 'Test Location'
+      };
+
+      // Create first user
+      await request(app)
+        .post('/api/auth/signup')
+        .send(userData)
+        .expect(201);
+
+      // Try to create second user with same email
+      const response = await request(app)
+        .post('/api/auth/signup')
+        .send(userData)
+        .expect(400);
+
+      expect(response.body.message).toBe('User with this email already exists');
+    });
+
+    it('should require all fields', async () => {
+      const response = await request(app)
+        .post('/api/auth/signup')
+        .send({})
+        .expect(400);
+
+      expect(response.body.message).toBe('All fields are required');
+    });
+  });
+
+  describe('POST /api/auth/login', () => {
+    let testUser: any;
+
+    beforeEach(async () => {
+      // Create a test user
+      testUser = await storage.createUser({
+        username: 'testuser@example.com',
+        password: 'StrongPass123!',
+        email: 'testuser@example.com',
+        firstName: 'Test',
+        lastName: 'User',
+        phone: '+1234567890',
+        companyName: 'Test Company',
+        role: 'admin',
+        tier: 'basic',
+        location: 'Test Location',
+        isActive: true
+      });
+
+      // Create a store for the user
+      await storage.createStore({
+        name: 'Test Store',
+        ownerId: testUser.id,
+        address: 'Test Address',
+        phone: '+1234567890',
+        email: 'testuser@example.com',
+        isActive: true
+      });
+    });
+
+    it('should login successfully with valid credentials', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          username: 'testuser@example.com',
+          password: 'StrongPass123!'
+        })
+        .expect(200);
+
+      expect(response.body.status).toBe('success');
+      expect(response.body.data).toHaveProperty('id', testUser.id);
+      expect(response.body.data).toHaveProperty('email', testUser.email);
+      expect(response.body.data).not.toHaveProperty('password');
+    });
+
+    it('should reject invalid credentials', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          username: 'testuser@example.com',
+          password: 'wrongpassword'
+        })
+        .expect(401);
+
+      expect(response.body.status).toBe('error');
+      expect(response.body.message).toBe('Invalid credentials or IP not whitelisted');
+    });
+
+    it('should reject non-existent user', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          username: 'nonexistent@example.com',
+          password: 'StrongPass123!'
+        })
+        .expect(401);
+
+      expect(response.body.status).toBe('error');
+    });
+
+    it('should require username and password', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({})
+        .expect(422);
+
+      expect(response.body.status).toBe('error');
+      expect(response.body.message).toBe('Username and password are required');
+    });
+  });
+
+  describe('POST /api/auth/logout', () => {
+    it('should logout successfully', async () => {
+      const response = await request(app)
+        .post('/api/auth/logout')
+        .expect(200);
+
+      expect(response.body.status).toBe('success');
+      expect(response.body.message).toBe('Logged out successfully');
+    });
+  });
+
+  describe('GET /api/auth/me', () => {
+    let testUser: any;
+    let sessionCookie: string;
+
+    beforeEach(async () => {
+      // Create a test user
+      testUser = await storage.createUser({
+        username: 'testuser@example.com',
+        password: 'StrongPass123!',
+        email: 'testuser@example.com',
+        firstName: 'Test',
+        lastName: 'User',
+        phone: '+1234567890',
+        companyName: 'Test Company',
+        role: 'admin',
+        tier: 'basic',
+        location: 'Test Location',
+        isActive: true
+      });
+
+      // Login to get session
+      const loginResponse = await request(app)
+        .post('/api/auth/login')
+        .send({
+          username: 'testuser@example.com',
+          password: 'StrongPass123!'
+        });
+
+      sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';
+    });
+
+    it('should return user data when authenticated', async () => {
+      const response = await request(app)
+        .get('/api/auth/me')
+        .set('Cookie', sessionCookie)
+        .expect(200);
+
+      expect(response.body.status).toBe('success');
+      expect(response.body.data).toHaveProperty('id', testUser.id);
+      expect(response.body.data).toHaveProperty('email', testUser.email);
+    });
+
+    it('should return 401 when not authenticated', async () => {
+      const response = await request(app)
+        .get('/api/auth/me')
+        .expect(401);
+
+      expect(response.body.status).toBe('error');
+      expect(response.body.message).toBe('Not authenticated');
+    });
+  });
+
+  describe('POST /api/auth/forgot-password', () => {
+    let testUser: any;
+
+    beforeEach(async () => {
+      testUser = await storage.createUser({
+        username: 'testuser@example.com',
+        password: 'StrongPass123!',
+        email: 'testuser@example.com',
+        firstName: 'Test',
+        lastName: 'User',
+        phone: '+1234567890',
+        companyName: 'Test Company',
+        role: 'admin',
+        tier: 'basic',
+        location: 'Test Location',
+        isActive: true
+      });
+    });
+
+    it('should send reset email for existing user', async () => {
+      const response = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'testuser@example.com' })
+        .expect(200);
+
+      expect(response.body.message).toBe('Password reset email sent');
+    });
+
+    it('should not reveal if email exists or not', async () => {
+      const response = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'nonexistent@example.com' })
+        .expect(200);
+
+      expect(response.body.message).toBe('Password reset email sent');
+    });
+
+    it('should require email field', async () => {
+      const response = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({})
+        .expect(400);
+
+      expect(response.body.message).toBe('Email is required');
+    });
+  });
+}); 

@@ -36,6 +36,8 @@ import {
   getPerformanceMetrics, 
   clearPerformanceMetrics 
 } from "./lib/performance";
+import { logger, extractLogContext } from "./lib/logger";
+import { monitoringService } from "./lib/monitoring";
 
 // Extend the session interface
 declare module "express-session" {
@@ -95,15 +97,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
-    const user = await storage.authenticateUser(username, password, ipAddress);
+    const logContext = extractLogContext(req, { ipAddress });
     
-    if (user) {
-      // Sanitize user data before storing in session
-      const sanitizedUser = AuthService.sanitizeUserForSession(user);
-      req.session.user = sanitizedUser;
-      sendSuccessResponse(res, sanitizedUser, "Login successful");
-    } else {
-      throw new AuthenticationError("Invalid credentials or IP not whitelisted");
+    try {
+      const user = await storage.authenticateUser(username, password, ipAddress);
+      
+      if (user) {
+        // Sanitize user data before storing in session
+        const sanitizedUser = AuthService.sanitizeUserForSession(user);
+        req.session.user = sanitizedUser;
+        
+        // Log successful login
+        logger.logAuthEvent('login', { ...logContext, userId: user.id, storeId: user.storeId });
+        monitoringService.recordAuthEvent('login', { ...logContext, userId: user.id, storeId: user.storeId });
+        
+        sendSuccessResponse(res, sanitizedUser, "Login successful");
+      } else {
+        // Log failed login attempt
+        logger.logAuthEvent('login_failed', logContext);
+        monitoringService.recordAuthEvent('login_failed', logContext);
+        
+        throw new AuthenticationError("Invalid credentials or IP not whitelisted");
+      }
+    } catch (error) {
+      // Log failed login attempt
+      logger.logAuthEvent('login_failed', logContext);
+      monitoringService.recordAuthEvent('login_failed', logContext);
+      throw error;
     }
   }));
 
@@ -116,11 +136,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/auth/logout", (req: any, res) => {
+    const logContext = extractLogContext(req);
+    
     req.session.destroy((err: any) => {
       if (err) {
-        console.error("Logout error:", err);
+        logger.error("Logout error", logContext, err);
         sendErrorResponse(res, new AppError("Logout failed", 500), req.path);
       } else {
+        logger.logAuthEvent('logout', logContext);
         sendSuccessResponse(res, null, "Logged out successfully");
       }
     });
@@ -323,6 +346,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payment/initialize", async (req, res) => {
     try {
       const { email, amount, currency, provider, tier, metadata } = req.body;
+      const logContext = extractLogContext(req, { email, amount, provider, tier });
       
       if (!email || !amount || !currency || !provider || !tier) {
         return res.status(400).json({ message: "Missing required payment parameters" });
@@ -364,9 +388,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Unsupported payment provider" });
       }
 
+      // Log payment initiation
+      logger.logPaymentEvent('initiated', amount, { ...logContext, reference });
+      monitoringService.recordPaymentEvent('initiated', amount, { ...logContext, reference });
+
       res.json(paymentResponse.data);
     } catch (error) {
-      console.error("Payment initialization error:", error);
+      logger.error("Payment initialization error", extractLogContext(req), error);
       res.status(500).json({ message: "Failed to initialize payment" });
     }
   });
@@ -374,6 +402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Payment verification route
   app.post("/api/payment/verify", handleAsyncError(async (req, res) => {
     const { reference, status } = req.body;
+    const logContext = extractLogContext(req, { reference, status });
     
     if (!reference) {
       throw new ValidationError("Payment reference is required");
@@ -400,10 +429,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (isPaymentSuccessful) {
       // Update user subscription status
       // In production, you would update the user's subscription status in the database
-      console.log(`Payment verified successfully for reference: ${reference}`);
+      logger.logPaymentEvent('completed', undefined, { ...logContext, provider });
+      monitoringService.recordPaymentEvent('completed', undefined, { ...logContext, provider });
       
       sendSuccessResponse(res, { success: true }, "Payment verified successfully");
     } else {
+      logger.logPaymentEvent('failed', undefined, { ...logContext, provider });
+      monitoringService.recordPaymentEvent('failed', undefined, { ...logContext, provider });
+      
       throw new PaymentError("Payment verification failed", { reference, provider });
     }
   }));
@@ -666,6 +699,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { storeId, productId } = req.params;
       const { quantity, adjustmentData } = req.body;
+      const logContext = extractLogContext(req, { storeId, productId });
       
       // Validate quantity
       if (typeof quantity !== "number" || quantity < 0) {
@@ -678,6 +712,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const inventory = await storage.updateInventory(productId, storeId, { quantity });
+      
+      // Log inventory update
+      logger.logInventoryEvent('stock_adjusted', { ...logContext, quantity });
+      monitoringService.recordInventoryEvent('updated', { ...logContext, quantity });
+      
       sendSuccessResponse(res, inventory, "Inventory updated successfully");
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -728,6 +767,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/transactions", async (req, res) => {
     try {
       const transactionData = insertTransactionSchema.parse(req.body);
+      const logContext = extractLogContext(req, { storeId: transactionData.storeId });
       
       // Generate receipt number
       const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
@@ -737,12 +777,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         receiptNumber,
       });
       
+      // Log transaction creation
+      logger.logTransactionEvent('created', undefined, { ...logContext, transactionId: transaction.id });
+      monitoringService.recordTransactionEvent('created', undefined, { ...logContext, transactionId: transaction.id });
+      
       res.status(201).json(transaction);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid transaction data", errors: error.errors });
       }
-      console.error("Error creating transaction:", error);
+      logger.error("Error creating transaction", extractLogContext(req), error);
       res.status(500).json({ message: "Failed to create transaction" });
     }
   });
@@ -771,13 +815,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/transactions/:transactionId/complete", async (req, res) => {
     try {
+      const logContext = extractLogContext(req, { transactionId: req.params.transactionId });
+      
       const transaction = await storage.updateTransaction(req.params.transactionId, {
         status: "completed" as const,
         completedAt: new Date(),
       });
+      
+      // Log transaction completion
+      const totalAmount = transaction.totalAmount || 0;
+      logger.logTransactionEvent('completed', totalAmount, { ...logContext, storeId: transaction.storeId });
+      monitoringService.recordTransactionEvent('completed', totalAmount, { ...logContext, storeId: transaction.storeId });
+      
       res.json(transaction);
     } catch (error) {
-      console.error("Error completing transaction:", error);
+      logger.error("Error completing transaction", extractLogContext(req), error);
       res.status(500).json({ message: "Failed to complete transaction" });
     }
   });
@@ -1869,6 +1921,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ message: 'Access denied' });
     }
     clearPerformanceMetrics(req, res);
+  });
+
+  // Enhanced monitoring endpoints
+  app.get("/api/monitoring/performance", authenticateUser, (req, res) => {
+    if (req.session.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    const metrics = monitoringService.getPerformanceMetrics();
+    res.json({
+      status: 'success',
+      data: metrics,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  app.get("/api/monitoring/business", authenticateUser, (req, res) => {
+    if (req.session.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    const metrics = monitoringService.getBusinessMetrics();
+    res.json({
+      status: 'success',
+      data: metrics,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  app.get("/api/monitoring/all", authenticateUser, (req, res) => {
+    if (req.session.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    const allMetrics = monitoringService.getAllMetrics();
+    const performanceMetrics = monitoringService.getPerformanceMetrics();
+    const businessMetrics = monitoringService.getBusinessMetrics();
+    
+    res.json({
+      status: 'success',
+      data: {
+        performance: performanceMetrics,
+        business: businessMetrics,
+        raw: Object.fromEntries(allMetrics)
+      },
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  app.delete("/api/monitoring/clear", authenticateUser, (req, res) => {
+    if (req.session.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    monitoringService.clearMetrics();
+    res.json({
+      status: 'success',
+      message: 'All monitoring metrics cleared',
+      timestamp: new Date().toISOString()
+    });
   });
 
   // Create HTTP server
