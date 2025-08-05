@@ -23,9 +23,13 @@ export function useAuth(): AuthState & AuthActions {
     const checkAuth = async () => {
       try {
         const response = await fetch("/api/auth/me");
+        console.log("Auth check response status:", response.status);
         if (response.ok) {
           const userData = await response.json();
+          console.log("User data from auth check:", userData);
           setUser(userData);
+        } else {
+          console.log("Auth check failed - not authenticated");
         }
       } catch (err) {
         console.error("Auth check failed:", err);
@@ -52,10 +56,26 @@ export function useAuth(): AuthState & AuthActions {
 
       if (response.ok) {
         const userData = await response.json();
+        console.log("Login successful, user data:", userData);
         setUser(userData);
         setError(null);
+        
+        // Redirect to appropriate default page based on role
+        const role = userData.role || "cashier";
+        let defaultPath = "/";
+        if (role === "admin") {
+          defaultPath = "/analytics";
+        } else if (role === "manager") {
+          defaultPath = "/inventory";
+        } else {
+          defaultPath = "/pos";
+        }
+        
+        console.log("Redirecting to default path after login:", defaultPath);
+        window.location.href = defaultPath;
       } else {
         const errorData = await response.json();
+        console.log("Login failed:", errorData);
         setError(errorData.message || "Login failed");
       }
     } catch (err) {

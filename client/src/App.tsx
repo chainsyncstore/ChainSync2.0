@@ -24,11 +24,16 @@ import NotFound from "@/pages/not-found";
 
 // Dashboard component for different user roles
 function Dashboard({ userRole }: { userRole: string }) {
-  if (userRole === "admin") {
+  // Ensure userRole is always a valid string, default to "cashier" if undefined/null
+  const role = userRole || "cashier";
+  console.log("Dashboard rendering with role:", role);
+  
+  if (role === "admin") {
     return (
-      <MainLayout userRole={userRole}>
+      <MainLayout userRole={role}>
         <Switch>
           <Route path="/" component={Analytics} /> {/* Admin sees analytics as default */}
+          <Route path="/login" component={Analytics} /> {/* Redirect login to default */}
           <Route path="/inventory" component={Inventory} />
           <Route path="/analytics" component={Analytics} />
           <Route path="/loyalty" component={Loyalty} />
@@ -36,34 +41,45 @@ function Dashboard({ userRole }: { userRole: string }) {
           <Route path="/data-import" component={DataImport} />
           <Route path="/multi-store" component={MultiStore} />
           <Route path="/settings" component={Settings} />
+          <Route path="/pos" component={POS} />
           <Route component={NotFound} />
         </Switch>
       </MainLayout>
     );
   }
   
-  if (userRole === "manager") {
+  if (role === "manager") {
     return (
-      <MainLayout userRole={userRole}>
+      <MainLayout userRole={role}>
         <Switch>
           <Route path="/" component={Inventory} /> {/* Manager sees inventory as default */}
+          <Route path="/login" component={Inventory} /> {/* Redirect login to default */}
           <Route path="/inventory" component={Inventory} />
           <Route path="/analytics" component={Analytics} />
           <Route path="/loyalty" component={Loyalty} />
           <Route path="/alerts" component={Alerts} />
           <Route path="/data-import" component={DataImport} />
           <Route path="/settings" component={Settings} />
+          <Route path="/pos" component={POS} />
           <Route component={NotFound} />
         </Switch>
       </MainLayout>
     );
   }
   
-  // Cashier role - redirect directly to POS
+  // Cashier role (default) - redirect directly to POS
   return (
-    <MainLayout userRole={userRole}>
+    <MainLayout userRole={role}>
       <Switch>
         <Route path="/" component={POS} />
+        <Route path="/login" component={POS} /> {/* Redirect login to default */}
+        <Route path="/pos" component={POS} />
+        <Route path="/inventory" component={Inventory} />
+        <Route path="/analytics" component={Analytics} />
+        <Route path="/loyalty" component={Loyalty} />
+        <Route path="/alerts" component={Alerts} />
+        <Route path="/data-import" component={DataImport} />
+        <Route path="/settings" component={Settings} />
         <Route component={POS} /> {/* All other routes redirect to POS */}
       </Switch>
     </MainLayout>
@@ -96,7 +112,13 @@ function Router() {
     );
   }
 
-  return <Dashboard userRole={user?.role || "cashier"} />;
+  // Ensure we have a valid user role, default to "cashier" if undefined
+  const userRole = user?.role || "cashier";
+  console.log("User role:", userRole, "User:", user); // Debug logging
+  console.log("Current URL:", window.location.href);
+  console.log("Current pathname:", window.location.pathname);
+  
+  return <Dashboard userRole={userRole} />;
 }
 
 function App() {
