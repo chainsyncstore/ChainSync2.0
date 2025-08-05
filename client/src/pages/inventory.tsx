@@ -210,7 +210,6 @@ export default function Inventory() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Inventory Management</CardTitle>
                 <div className="flex items-center space-x-2">
                   {selectedItems.length > 0 && (
                     <Dialog open={isBulkActionsOpen} onOpenChange={setIsBulkActionsOpen}>

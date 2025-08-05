@@ -248,7 +248,6 @@ export default function DataImport() {
             {/* Import Interface */}
             <Card>
               <CardHeader>
-                <CardTitle>Import Data</CardTitle>
               </CardHeader>
               <CardContent>
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
