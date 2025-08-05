@@ -150,6 +150,7 @@ export default function POS() {
   useBarcodeScanner(handleBarcodeScanned);
 
   // Update date/time every minute
+  const [currentDateTime, setCurrentDateTime] = useState(new Date());
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentDateTime(new Date());
