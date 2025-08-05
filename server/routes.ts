@@ -58,13 +58,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { username, password } = req.body;
-      const user = await storage.authenticateUser(username, password);
+      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+      const user = await storage.authenticateUser(username, password, ipAddress);
       
       if (user) {
         req.session.user = user;
         res.json(user);
       } else {
-        res.status(401).json({ message: "Invalid credentials" });
+        res.status(401).json({ message: "Invalid credentials or IP not whitelisted" });
       }
     } catch (error) {
       console.error("Authentication error:", error);
@@ -1121,6 +1122,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/stores/:storeId/export/customers", async (req, res) => {
+    try {
+      const { format = "csv" } = req.query;
+      const exportData = await storage.exportCustomers(
+        req.params.storeId,
+        format as string
+      );
+      
+      res.setHeader("Content-Type", format === "csv" ? "text/csv" : "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename=customers-export.${format}`);
+      res.send(exportData);
+    } catch (error) {
+      console.error("Error exporting customers:", error);
+      res.status(500).json({ message: "Failed to export customers" });
+    }
+  });
+
+  app.get("/api/stores/:storeId/export/inventory", async (req, res) => {
+    try {
+      const { format = "csv" } = req.query;
+      const exportData = await storage.exportInventory(
+        req.params.storeId,
+        format as string
+      );
+      
+      res.setHeader("Content-Type", format === "csv" ? "text/csv" : "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename=inventory-export.${format}`);
+      res.send(exportData);
+    } catch (error) {
+      console.error("Error exporting inventory:", error);
+      res.status(500).json({ message: "Failed to export inventory" });
+    }
+  });
+
   // Settings Routes
   app.get("/api/stores/:storeId/settings", async (req, res) => {
     try {
@@ -1476,6 +1511,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({
         fulfillmentText: "I'm sorry, I encountered an error processing your request."
       });
+    }
+  });
+
+  // IP Whitelist routes
+  app.get("/api/ip-whitelist", authenticateUser, async (req: any, res) => {
+    try {
+      const user = req.session.user;
+      let whitelist: any[] = [];
+
+      if (user.role === "admin") {
+        // Admin can see all whitelists
+        whitelist = await storage.getAllIpWhitelists();
+      } else if (user.role === "manager") {
+        // Manager can see whitelists for their store
+        const accessibleStores = await storage.getUserAccessibleStores(user.id);
+        whitelist = [];
+        for (const store of accessibleStores) {
+          const storeWhitelist = await storage.getIpWhitelistForStore(store.id);
+          whitelist.push(...storeWhitelist);
+        }
+      } else {
+        // Cashier can only see their own whitelist
+        whitelist = await storage.getIpWhitelistForUser(user.id);
+      }
+
+      res.json(whitelist);
+    } catch (error) {
+      console.error("Error fetching IP whitelist:", error);
+      res.status(500).json({ message: "Failed to fetch IP whitelist" });
+    }
+  });
+
+  app.post("/api/ip-whitelist", authenticateUser, async (req: any, res) => {
+    try {
+      const { ipAddress, userId, description } = req.body;
+      const currentUser = req.session.user;
+
+      // Validate permissions
+      if (currentUser.role === "cashier") {
+        return res.status(403).json({ message: "Cashiers cannot manage IP whitelists" });
+      }
+
+      if (currentUser.role === "manager") {
+        // Manager can only whitelist IPs for users in their stores
+        const accessibleStores = await storage.getUserAccessibleStores(currentUser.id);
+        const targetUser = await storage.getUser(userId);
+        
+        if (!targetUser || !targetUser.storeId || 
+            !accessibleStores.some(store => store.id === targetUser.storeId)) {
+          return res.status(403).json({ message: "You can only whitelist IPs for users in your stores" });
+        }
+      }
+
+      const whitelist = await storage.addIpToWhitelist(
+        ipAddress, 
+        userId, 
+        currentUser.id, 
+        description
+      );
+
+      res.json(whitelist);
+    } catch (error) {
+      console.error("Error adding IP to whitelist:", error);
+      res.status(500).json({ message: "Failed to add IP to whitelist" });
+    }
+  });
+
+  app.delete("/api/ip-whitelist/:ipAddress/:userId", authenticateUser, async (req: any, res) => {
+    try {
+      const { ipAddress, userId } = req.params;
+      const currentUser = req.session.user;
+
+      // Validate permissions
+      if (currentUser.role === "cashier") {
+        return res.status(403).json({ message: "Cashiers cannot manage IP whitelists" });
+      }
+
+      if (currentUser.role === "manager") {
+        // Manager can only remove IPs for users in their stores
+        const accessibleStores = await storage.getUserAccessibleStores(currentUser.id);
+        const targetUser = await storage.getUser(userId);
+        
+        if (!targetUser || !targetUser.storeId || 
+            !accessibleStores.some(store => store.id === targetUser.storeId)) {
+          return res.status(403).json({ message: "You can only remove IPs for users in your stores" });
+        }
+      }
+
+      await storage.removeIpFromWhitelist(ipAddress, userId);
+      res.json({ message: "IP removed from whitelist" });
+    } catch (error) {
+      console.error("Error removing IP from whitelist:", error);
+      res.status(500).json({ message: "Failed to remove IP from whitelist" });
+    }
+  });
+
+  app.get("/api/ip-whitelist/logs", authenticateUser, async (req: any, res) => {
+    try {
+      const user = req.session.user;
+      
+      // Only admins can view logs
+      if (user.role !== "admin") {
+        return res.status(403).json({ message: "Only admins can view IP access logs" });
+      }
+
+      const logs = await storage.getIpAccessLogs(100);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching IP access logs:", error);
+      res.status(500).json({ message: "Failed to fetch IP access logs" });
     }
   });
 

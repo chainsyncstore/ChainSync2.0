@@ -1,30 +1,31 @@
-import {
-  users,
-  stores,
-  products,
-  inventory,
-  transactions,
-  transactionItems,
-  userStorePermissions,
+import { 
+  users, 
+  stores, 
+  products, 
+  inventory, 
+  transactions, 
+  transactionItems, 
   lowStockAlerts,
+  userStorePermissions,
   loyaltyTiers,
   customers,
   loyaltyTransactions,
-  type User,
-  type InsertUser,
-  type UserStorePermission,
-  type InsertUserStorePermission,
-  type Store,
-  type InsertStore,
-  type Product,
-  type InsertProduct,
-  type Inventory,
-  type InsertInventory,
-  type Transaction,
-  type InsertTransaction,
-  type TransactionItem,
-  type InsertTransactionItem,
+  ipWhitelists,
+  ipWhitelistLogs,
+  type User, 
+  type Store, 
+  type Product, 
+  type Inventory, 
+  type Transaction, 
+  type TransactionItem, 
   type LowStockAlert,
+  type UserStorePermission,
+  type InsertUser,
+  type InsertStore,
+  type InsertProduct,
+  type InsertInventory,
+  type InsertTransaction,
+  type InsertTransactionItem,
   type InsertLowStockAlert,
   type LoyaltyTier,
   type InsertLoyaltyTier,
@@ -32,6 +33,10 @@ import {
   type InsertCustomer,
   type LoyaltyTransaction,
   type InsertLoyaltyTransaction,
+  type IpWhitelist,
+  type InsertIpWhitelist,
+  type IpWhitelistLog,
+  type InsertIpWhitelistLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, lt, lte, gte, between, isNotNull, or } from "drizzle-orm";
@@ -41,6 +46,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null>;
   createUser(user: InsertUser): Promise<User>;
   getUsersByStore(storeId: string): Promise<User[]>;
 
@@ -101,6 +107,22 @@ export interface IStorage {
   createLoyaltyTransaction(transaction: InsertLoyaltyTransaction): Promise<LoyaltyTransaction>;
   getLoyaltyTransactions(storeId: string, limit?: number): Promise<LoyaltyTransaction[]>;
   getCustomerLoyaltyTransactions(customerId: string, limit?: number): Promise<LoyaltyTransaction[]>;
+  
+  // IP Whitelist operations
+  checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean>;
+  addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist>;
+  removeIpFromWhitelist(ipAddress: string, userId: string): Promise<void>;
+  getIpWhitelistForUser(userId: string): Promise<IpWhitelist[]>;
+  getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]>;
+  getAllIpWhitelists(): Promise<IpWhitelist[]>;
+  logIpAccess(ipAddress: string, userId: string, username: string, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void>;
+  getIpAccessLogs(limit?: number): Promise<IpWhitelistLog[]>;
+
+  // Export operations
+  exportProducts(storeId: string, format: string): Promise<any>;
+  exportTransactions(storeId: string, startDate: Date, endDate: Date, format: string): Promise<any>;
+  exportCustomers(storeId: string, format: string): Promise<any>;
+  exportInventory(storeId: string, format: string): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -120,7 +142,7 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async authenticateUser(username: string, password: string): Promise<User | null> {
+  async authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null> {
     // Simple password check - in production, use proper password hashing
     const user = await this.getUserByUsername(username);
     
@@ -132,7 +154,40 @@ export class DatabaseStorage implements IStorage {
     };
     
     if (user && validCredentials[username as keyof typeof validCredentials] === password) {
+      // Check IP whitelist if IP address is provided
+      if (ipAddress && user.id) {
+        const isWhitelisted = await this.checkIpWhitelisted(ipAddress, user.id);
+        
+        // Log the access attempt
+        await this.logIpAccess(
+          ipAddress, 
+          user.id, 
+          username, 
+          'login_attempt', 
+          isWhitelisted, 
+          isWhitelisted ? 'IP whitelisted' : 'IP not whitelisted',
+          undefined // userAgent can be added later
+        );
+        
+        if (!isWhitelisted) {
+          return null; // Access denied due to IP not being whitelisted
+        }
+      }
+      
       return user;
+    }
+    
+    // Log failed login attempt
+    if (ipAddress && user?.id) {
+      await this.logIpAccess(
+        ipAddress, 
+        user.id, 
+        username, 
+        'login_attempt', 
+        false, 
+        'Invalid credentials',
+        undefined
+      );
     }
     
     return null;
@@ -747,9 +802,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCustomerLoyaltyTransactions(customerId: string, limit = 50): Promise<LoyaltyTransaction[]> {
-    return await db
-      .select()
-      .from(loyaltyTransactions)
+    return await db.select().from(loyaltyTransactions)
       .where(eq(loyaltyTransactions.customerId, customerId))
       .orderBy(desc(loyaltyTransactions.createdAt))
       .limit(limit);
@@ -983,6 +1036,48 @@ export class DatabaseStorage implements IStorage {
     return transactionData;
   }
 
+  async exportCustomers(storeId: string, format: string): Promise<any> {
+    const customerData = await db.select()
+      .from(customers)
+      .orderBy(asc(customers.firstName));
+
+    if (format === "csv") {
+      const csvHeader = "Loyalty Number,First Name,Last Name,Email,Phone,Current Points,Total Points Earned,Join Date\n";
+      const csvRows = customerData.map(c => 
+        `"${c.loyaltyNumber || ''}","${c.firstName || ''}","${c.lastName || ''}","${c.email || ''}","${c.phone || ''}",${c.currentPoints},${c.totalPointsEarned},${c.createdAt?.toISOString() || ''}`
+      ).join('\n');
+      return csvHeader + csvRows;
+    }
+
+    return customerData;
+  }
+
+  async exportInventory(storeId: string, format: string): Promise<any> {
+    const inventoryData = await db.select({
+      productId: inventory.productId,
+      productName: products.name,
+      barcode: products.barcode,
+      sku: products.sku,
+      quantity: inventory.quantity,
+      reorderPoint: inventory.reorderPoint,
+      lastUpdated: inventory.updatedAt,
+    })
+    .from(inventory)
+    .innerJoin(products, eq(inventory.productId, products.id))
+    .where(eq(inventory.storeId, storeId))
+    .orderBy(asc(products.name));
+
+    if (format === "csv") {
+      const csvHeader = "Product ID,Product Name,Barcode,SKU,Quantity,Reorder Point,Last Updated\n";
+      const csvRows = inventoryData.map(i => 
+        `${i.productId},"${i.productName || ''}","${i.barcode || ''}","${i.sku || ''}",${i.quantity},${i.reorderPoint},${i.lastUpdated?.toISOString() || ''}`
+      ).join('\n');
+      return csvHeader + csvRows;
+    }
+
+    return inventoryData;
+  }
+
   // Settings Methods
   async getStoreSettings(storeId: string): Promise<any> {
     const store = await this.getStore(storeId);
@@ -1137,6 +1232,98 @@ export class DatabaseStorage implements IStorage {
       ...row.inventory,
       product: row.product
     }));
+  }
+
+  // IP Whitelist operations
+  async checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean> {
+    const user = await this.getUser(userId);
+    if (!user) return false;
+
+    // Check if IP is whitelisted for this specific user
+    const [whitelist] = await db.select().from(ipWhitelists)
+      .where(
+        sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId} AND ${ipWhitelists.isActive} = true`
+      );
+    
+    if (whitelist) return true;
+
+    // For managers and cashiers, also check store-level whitelists
+    if (user.role === "manager" || user.role === "cashier") {
+      if (user.storeId) {
+        const [storeWhitelist] = await db.select().from(ipWhitelists)
+          .where(
+            sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.storeId} = ${user.storeId} AND ${ipWhitelists.role} = ${user.role} AND ${ipWhitelists.isActive} = true`
+          );
+        
+        if (storeWhitelist) return true;
+      }
+    }
+
+    return false;
+  }
+
+  async addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist> {
+    const user = await this.getUser(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const [whitelist] = await db.insert(ipWhitelists).values({
+      ipAddress,
+      whitelistedFor: userId,
+      whitelistedBy,
+      role: user.role,
+      storeId: user.storeId,
+      description,
+    }).returning();
+
+    return whitelist;
+  }
+
+  async removeIpFromWhitelist(ipAddress: string, userId: string): Promise<void> {
+    await db.update(ipWhitelists)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(
+        sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId}`
+      );
+  }
+
+  async getIpWhitelistForUser(userId: string): Promise<IpWhitelist[]> {
+    return await db.select().from(ipWhitelists)
+      .where(
+        sql`${ipWhitelists.whitelistedFor} = ${userId} AND ${ipWhitelists.isActive} = true`
+      )
+      .orderBy(desc(ipWhitelists.createdAt));
+  }
+
+  async getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]> {
+    return await db.select().from(ipWhitelists)
+      .where(
+        sql`${ipWhitelists.storeId} = ${storeId} AND ${ipWhitelists.isActive} = true`
+      )
+      .orderBy(desc(ipWhitelists.createdAt));
+  }
+
+  async getAllIpWhitelists(): Promise<IpWhitelist[]> {
+    return await db.select().from(ipWhitelists);
+  }
+
+  async logIpAccess(ipAddress: string, userId: string, username: string, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void> {
+    await db.insert(ipWhitelistLogs).values({
+      ipAddress,
+      userId,
+      username,
+      action,
+      success,
+      reason,
+      userAgent,
+    });
+  }
+
+  async getIpAccessLogs(limit = 100): Promise<IpWhitelistLog[]> {
+    return await db.select().from(ipWhitelistLogs)
+      .orderBy(desc(ipWhitelistLogs.createdAt))
+      .limit(limit);
   }
 }
 
