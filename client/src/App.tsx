@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { AIChatProvider } from "@/hooks/use-ai-chat";
 import { ScannerProvider } from "@/hooks/use-barcode-scanner";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { PageLoading } from "@/components/ui/loading";
 import Login from "@/components/auth/login";
 import Signup from "@/components/auth/signup";
 import ForgotPassword from "@/components/auth/forgot-password";
@@ -96,14 +97,7 @@ function Router() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading...</p>
-        </div>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   if (!isAuthenticated) {

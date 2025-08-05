@@ -64,23 +64,23 @@ export default function Sidebar({
       isMobile ? "w-full" : "w-16 md:w-64"
     )}>
       {/* Logo and Brand */}
-      <div className="p-6 border-b border-slate-200">
+      <div className="p-4 sm:p-6 border-b border-slate-200">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-            <LinkIcon className="text-white text-xl" />
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
+            <LinkIcon className="text-white text-lg sm:text-xl" />
           </div>
           <div className={cn(isMobile ? "block" : "hidden md:block")}>
-            <h1 className="text-xl font-bold text-slate-800">ChainSync</h1>
-            <p className="text-sm text-slate-500">POS & Analytics</p>
+            <h1 className="text-lg sm:text-xl font-bold text-slate-800">ChainSync</h1>
+            <p className="text-xs sm:text-sm text-slate-500">POS & Analytics</p>
           </div>
         </div>
       </div>
 
       {/* User Role Indicator */}
-      <div className="px-3 sm:px-6 py-4 bg-blue-50 border-b border-slate-200">
+      <div className="px-3 sm:px-6 py-3 sm:py-4 bg-blue-50 border-b border-slate-200">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-sm font-medium">{userInitials}</span>
+          <div className="w-7 h-7 sm:w-8 sm:h-8 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-xs sm:text-sm font-medium">{userInitials}</span>
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-slate-800 truncate">{userName}</p>
@@ -90,7 +90,7 @@ export default function Sidebar({
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 md:px-4 py-6 space-y-2">
+      <nav className="flex-1 px-2 md:px-4 py-4 sm:py-6 space-y-1 sm:space-y-2">
         {getNavigationItems(userRole).map((item) => {
           const Icon = item.icon;
           const isActive = location === item.path;
@@ -100,7 +100,7 @@ export default function Sidebar({
             <Link key={item.path} href={item.path}>
               <div
                 className={cn(
-                  "flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors cursor-pointer",
+                  "flex items-center space-x-3 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer min-h-[44px] sm:min-h-[40px]",
                   isActive
                     ? "bg-primary text-white"
                     : "text-slate-600 hover:bg-slate-100"
@@ -108,11 +108,11 @@ export default function Sidebar({
               >
                 <Icon className="w-5 h-5 flex-shrink-0" />
                 <span className={cn(
-                  "truncate min-w-0",
+                  "truncate min-w-0 text-sm sm:text-base",
                   isMobile ? "block" : "hidden md:block"
                 )}>{item.label}</span>
                 {showAlert && (
-                  <Badge variant="destructive" className="ml-auto text-xs flex-shrink-0">
+                  <Badge variant="destructive" className="ml-auto text-xs flex-shrink-0 min-w-[20px] h-5">
                     {alertCount}
                   </Badge>
                 )}
@@ -127,7 +127,7 @@ export default function Sidebar({
         <select
           value={selectedStore}
           onChange={(e) => onStoreChange(e.target.value)}
-          className="w-full px-2 md:px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+          className="w-full px-2 md:px-3 py-2.5 sm:py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent min-h-[40px]"
         >
           {stores.map((store) => (
             <option key={store.id} value={store.id}>
@@ -135,7 +135,6 @@ export default function Sidebar({
             </option>
           ))}
         </select>
-
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Users, Calendar, Brain, Zap } from "lucide-react";
 import { formatCurrency } from "@/lib/pos-utils";
+import { LoadingSpinner, CardSkeleton, ChartSkeleton } from "@/components/ui/loading";
 import type { Store, LowStockAlert, Product } from "@shared/schema";
 
 export default function Analytics() {
@@ -83,10 +84,10 @@ export default function Analytics() {
 
         <div className="space-y-6">
           {/* Period Selector and Export Actions */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
+            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
               <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-full sm:w-40 h-10">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -98,8 +99,16 @@ export default function Analytics() {
               </Select>
               <span className="text-sm text-gray-600">Analytics Period</span>
             </div>
-            
-
+            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+              <Button variant="outline" size="sm" className="min-h-[36px]">
+                <Calendar className="w-4 h-4 mr-2" />
+                Export Report
+              </Button>
+              <Button variant="outline" size="sm" className="min-h-[36px]">
+                <Zap className="w-4 h-4 mr-2" />
+                Generate Insights
+              </Button>
+            </div>
           </div>
 
           {/* Key Performance Indicators */}

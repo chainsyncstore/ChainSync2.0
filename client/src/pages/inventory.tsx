@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Package, AlertTriangle, Search, Filter, Edit, Trash2, Eye } from "lucide-react";
 import { formatCurrency } from "@/lib/pos-utils";
+import { LoadingSpinner, CardSkeleton, TableRowSkeleton } from "@/components/ui/loading";
 import type { Store, Inventory, Product, LowStockAlert } from "@shared/schema";
 
 export default function Inventory() {
@@ -212,148 +213,159 @@ export default function Inventory() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Search products..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                
-                <Select value={selectedCategory || undefined} onValueChange={setSelectedCategory}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Categories" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {categories.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                
-                <Select value={selectedBrand || undefined} onValueChange={setSelectedBrand}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Brands" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Brands</SelectItem>
-                    {brands.map((brand) => (
-                      <SelectItem key={brand} value={brand}>
-                        {brand}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                
-                <Select value={stockFilter} onValueChange={setStockFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Stock Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Stock</SelectItem>
-                    <SelectItem value="low">Low Stock</SelectItem>
-                    <SelectItem value="out">Out of Stock</SelectItem>
-                    <SelectItem value="overstocked">Overstocked</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
+              {/* Filters */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Filter className="w-5 h-5" />
+                    <span>Filters</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        placeholder="Search products..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10 h-10"
+                      />
+                    </div>
+                    
+                    <Select value={selectedCategory || undefined} onValueChange={setSelectedCategory}>
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="All Categories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        {categories.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    
+                    <Select value={selectedBrand || undefined} onValueChange={setSelectedBrand}>
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="All Brands" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Brands</SelectItem>
+                        {brands.map((brand) => (
+                          <SelectItem key={brand} value={brand}>
+                            {brand}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    
+                    <Select value={stockFilter} onValueChange={setStockFilter}>
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="Stock Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Stock</SelectItem>
+                        <SelectItem value="low">Low Stock</SelectItem>
+                        <SelectItem value="out">Out of Stock</SelectItem>
+                        <SelectItem value="overstocked">Overstocked</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardContent>
+              </Card>
 
-          {/* Inventory Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Stock Levels</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left p-4 font-medium">
-                        <Checkbox 
-                          checked={selectedItems.length === filteredInventory.length && filteredInventory.length > 0}
-                          onCheckedChange={handleSelectAll}
-                        />
-                      </th>
-                      <th className="text-left p-4 font-medium">Product</th>
-                      <th className="text-left p-4 font-medium">SKU</th>
-                      <th className="text-right p-4 font-medium">Current Stock</th>
-                      <th className="text-right p-4 font-medium">Min Level</th>
-                      <th className="text-right p-4 font-medium">Max Level</th>
-                      <th className="text-right p-4 font-medium">Value</th>
-                      <th className="text-center p-4 font-medium">Status</th>
-                      <th className="text-center p-4 font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredInventory.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="text-center py-8 text-gray-500">
-                          <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                          <p>No inventory items found</p>
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredInventory.map((item: any) => {
-                        const stockStatus = getStockStatus(item);
-                        
-                        return (
-                          <tr key={item.id} className="border-b hover:bg-gray-50">
-                            <td className="p-4">
-                              <Checkbox 
-                                checked={selectedItems.includes(item.id)}
-                                onCheckedChange={(checked) => handleSelectItem(item.id, checked as boolean)}
-                              />
-                            </td>
-                            <td className="p-4">
-                              <div>
-                                <p className="font-medium">{item.product.name}</p>
-                                <p className="text-sm text-gray-500">{item.product.category}</p>
-                                {item.product.brand && (
-                                  <p className="text-xs text-gray-400">{item.product.brand}</p>
-                                )}
-                              </div>
-                            </td>
-                            <td className="p-4 font-mono text-sm">{item.product.barcode}</td>
-                            <td className="p-4 text-right font-medium">{item.quantity}</td>
-                            <td className="p-4 text-right">{item.minStockLevel}</td>
-                            <td className="p-4 text-right">{item.maxStockLevel}</td>
-                            <td className="p-4 text-right">
-                              {formatCurrency(item.quantity * parseFloat(item.product.price))}
-                            </td>
-                            <td className="p-4 text-center">
-                              <Badge variant={stockStatus.color as any}>
-                                {stockStatus.text}
-                              </Badge>
-                            </td>
-                            <td className="p-4 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <StockAdjustment 
-                                  inventory={item} 
-                                  product={item.product}
-                                />
-                                <Button size="sm" variant="ghost">
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button size="sm" variant="ghost" className="text-red-600">
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
+              {/* Inventory Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Stock Levels</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left p-3 sm:p-4 font-medium">
+                            <Checkbox 
+                              checked={selectedItems.length === filteredInventory.length && filteredInventory.length > 0}
+                              onCheckedChange={handleSelectAll}
+                            />
+                          </th>
+                          <th className="text-left p-3 sm:p-4 font-medium">Product</th>
+                          <th className="text-left p-3 sm:p-4 font-medium hidden sm:table-cell">SKU</th>
+                          <th className="text-right p-3 sm:p-4 font-medium">Current Stock</th>
+                          <th className="text-right p-3 sm:p-4 font-medium hidden lg:table-cell">Min Level</th>
+                          <th className="text-right p-3 sm:p-4 font-medium hidden lg:table-cell">Max Level</th>
+                          <th className="text-right p-3 sm:p-4 font-medium hidden md:table-cell">Value</th>
+                          <th className="text-center p-3 sm:p-4 font-medium">Status</th>
+                          <th className="text-center p-3 sm:p-4 font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredInventory.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="text-center py-8 text-gray-500">
+                              <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                              <p>No inventory items found</p>
                             </td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                        ) : (
+                          filteredInventory.map((item: any) => (
+                            <tr key={item.id} className="border-b hover:bg-slate-50">
+                              <td className="p-3 sm:p-4">
+                                <Checkbox 
+                                  checked={selectedItems.includes(item.id)}
+                                  onCheckedChange={(checked) => handleSelectItem(item.id, checked as boolean)}
+                                />
+                              </td>
+                              <td className="p-3 sm:p-4">
+                                <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                                    <Package className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-slate-800 text-sm sm:text-base">{item.product.name}</p>
+                                    <p className="text-xs sm:text-sm text-slate-500 hidden sm:block">{item.product.barcode}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="p-3 sm:p-4 hidden sm:table-cell">
+                                <span className="text-sm text-slate-600">{item.product.barcode}</span>
+                              </td>
+                              <td className="p-3 sm:p-4 text-right">
+                                <span className="font-medium text-slate-800">{item.quantity}</span>
+                              </td>
+                              <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
+                                <span className="text-sm text-slate-600">{item.minStockLevel}</span>
+                              </td>
+                              <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
+                                <span className="text-sm text-slate-600">{item.maxStockLevel}</span>
+                              </td>
+                              <td className="p-3 sm:p-4 text-right hidden md:table-cell">
+                                <span className="font-medium text-slate-800">{formatCurrency(item.quantity * parseFloat(item.product.price))}</span>
+                              </td>
+                              <td className="p-3 sm:p-4 text-center">
+                                {getStockStatus(item)}
+                              </td>
+                              <td className="p-3 sm:p-4 text-center">
+                                <div className="flex items-center justify-center space-x-1 sm:space-x-2">
+                                  <Button size="sm" variant="ghost" className="w-8 h-8 p-0 min-h-[32px]">
+                                    <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
+                                  </Button>
+                                  <Button size="sm" variant="ghost" className="w-8 h-8 p-0 min-h-[32px]">
+                                    <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             </CardContent>
           </Card>
         </div>

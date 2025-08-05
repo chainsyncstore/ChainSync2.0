@@ -218,8 +218,8 @@ export default function POS() {
 
   return (
     <>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
-        <div className="lg:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
+        <div className="xl:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
           <BarcodeScanner
             onScan={handleBarcodeScanned}
             onOpenSearch={() => setIsSearchModalOpen(true)}
@@ -239,7 +239,7 @@ export default function POS() {
           />
         </div>
 
-        <div className="lg:col-span-4">
+        <div className="xl:col-span-4">
           <CheckoutPanel
             summary={summary}
             payment={payment}

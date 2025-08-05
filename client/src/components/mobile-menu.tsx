@@ -29,11 +29,18 @@ export default function MobileMenu({
     <div className="lg:hidden">
       <Sheet open={isOpen} onOpenChange={setIsOpen}>
         <SheetTrigger asChild>
-          <Button variant="ghost" size="icon" className="lg:hidden">
-            <Menu className="h-6 w-6" />
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="lg:hidden w-10 h-10 min-h-[40px] min-w-[40px]"
+          >
+            <Menu className="h-5 w-5" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="p-0 w-64 overflow-y-auto">
+        <SheetContent 
+          side="left" 
+          className="p-0 w-80 max-w-[85vw] overflow-y-auto"
+        >
           <div className="h-full">
             <Sidebar
               userRole={userRole}
