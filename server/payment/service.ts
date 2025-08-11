@@ -38,6 +38,8 @@ export class PaymentService {
 
   async initializePaystackPayment(request: PaymentRequest): Promise<PaymentResponse> {
     try {
+      console.log(`Initializing Paystack payment with callback URL: ${request.callback_url}`);
+      
       const response = await axios.post(
         `${this.paystackBaseUrl}/transaction/initialize`,
         {
@@ -45,7 +47,7 @@ export class PaymentService {
           amount: request.amount,
           currency: request.currency,
           reference: request.reference,
-          callback_url: request.callback_url || `${process.env.BASE_URL}/payment/callback`,
+          callback_url: request.callback_url || `${process.env.BASE_URL || 'http://localhost:3000'}/payment/callback`,
           metadata: request.metadata
         },
         {
@@ -56,22 +58,28 @@ export class PaymentService {
         }
       );
 
+      console.log('Paystack payment initialized successfully:', response.data);
       return response.data;
     } catch (error) {
       console.error('Paystack payment initialization error:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('Paystack API response:', error.response?.data);
+      }
       throw new Error('Failed to initialize Paystack payment');
     }
   }
 
   async initializeFlutterwavePayment(request: PaymentRequest): Promise<PaymentResponse> {
     try {
+      console.log(`Initializing Flutterwave payment with callback URL: ${request.callback_url}`);
+      
       const response = await axios.post(
         `${this.flutterwaveBaseUrl}/payments`,
         {
           tx_ref: request.reference,
           amount: request.amount,
           currency: request.currency,
-          redirect_url: request.callback_url || `${process.env.BASE_URL}/payment/callback`,
+          redirect_url: request.callback_url || `${process.env.BASE_URL || 'http://localhost:3000'}/payment/callback`,
           customer: {
             email: request.email
           },
@@ -90,6 +98,7 @@ export class PaymentService {
         }
       );
 
+      console.log('Flutterwave payment initialized successfully:', response.data);
       return {
         status: response.data.status === 'success',
         message: response.data.message,
@@ -100,6 +109,9 @@ export class PaymentService {
       };
     } catch (error) {
       console.error('Flutterwave payment initialization error:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('Flutterwave API response:', error.response?.data);
+      }
       throw new Error('Failed to initialize Flutterwave payment');
     }
   }
@@ -160,15 +172,16 @@ export class PaymentService {
     );
   }
 
-  async verifyFlutterwavePayment(transactionId: string, maxRetries: number = 3): Promise<boolean> {
+  async verifyFlutterwavePayment(reference: string, maxRetries: number = 3): Promise<boolean> {
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`Flutterwave verification attempt ${attempt}/${maxRetries} for transaction: ${transactionId}`);
+        console.log(`Flutterwave verification attempt ${attempt}/${maxRetries} for reference: ${reference}`);
         
+        // Flutterwave verification endpoint expects the transaction reference
         const response = await axios.get(
-          `${this.flutterwaveBaseUrl}/transactions/${transactionId}/verify`,
+          `${this.flutterwaveBaseUrl}/transactions/verify_by_reference?tx_ref=${reference}`,
           {
             headers: {
               'Authorization': `Bearer ${this.flutterwaveSecretKey}`
@@ -191,7 +204,7 @@ export class PaymentService {
         console.error(`Flutterwave verification attempt ${attempt} failed:`, {
           status: axiosError.response?.status,
           message: axiosError.message,
-          transactionId
+          reference
         });
 
         // Don't retry on client errors (4xx) except 429 (rate limit)
@@ -209,10 +222,10 @@ export class PaymentService {
       }
     }
 
-    console.error(`Flutterwave verification failed after ${maxRetries} attempts for transaction: ${transactionId}`);
+    console.error(`Flutterwave verification failed after ${maxRetries} attempts for reference: ${reference}`);
     throw new PaymentError(
       `Payment verification failed after ${maxRetries} attempts`,
-      { transactionId, lastError: lastError?.message }
+      { reference, lastError: lastError?.message }
     );
   }
 

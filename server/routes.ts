@@ -355,12 +355,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const paymentService = new PaymentService();
       const reference = paymentService.generateReference(provider as 'paystack' | 'flutterwave');
       
+      // Ensure callback URL is properly set for both development and production
+      const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+      const callbackUrl = `${baseUrl}/payment/callback`;
+      
+      console.log(`Setting callback URL: ${callbackUrl} for ${provider} payment`);
+      
       const paymentRequest = {
         email,
         amount,
         currency,
         reference,
-        callback_url: `${process.env.BASE_URL || 'http://localhost:3000'}/payment/callback`,
+        callback_url: callbackUrl,
         metadata: {
           ...metadata,
           tier,
@@ -389,8 +395,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Log payment initiation
-      logger.logPaymentEvent('initiated', amount, { ...logContext, reference });
-      monitoringService.recordPaymentEvent('initiated', amount, { ...logContext, reference });
+      logger.logPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl });
+      monitoringService.recordPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl });
 
       res.json(paymentResponse.data);
     } catch (error) {
@@ -408,20 +414,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw new ValidationError("Payment reference is required");
     }
 
+    console.log(`Payment verification requested for reference: ${reference}, status: ${status}`);
+    
     const paymentService = new PaymentService();
     
     // Determine provider from reference
     const provider = reference.startsWith('PAYSTACK') ? 'paystack' : 'flutterwave';
+    console.log(`Detected payment provider: ${provider} for reference: ${reference}`);
     
     let isPaymentSuccessful = false;
     
     try {
       if (provider === 'paystack') {
+        console.log(`Verifying Paystack payment for reference: ${reference}`);
         isPaymentSuccessful = await paymentService.verifyPaystackPayment(reference);
       } else if (provider === 'flutterwave') {
+        console.log(`Verifying Flutterwave payment for reference: ${reference}`);
         isPaymentSuccessful = await paymentService.verifyFlutterwavePayment(reference);
       }
+      
+      console.log(`Payment verification result: ${isPaymentSuccessful ? 'SUCCESS' : 'FAILED'}`);
     } catch (error) {
+      console.error(`Payment verification error for ${provider}:`, error);
       // Payment service errors are already PaymentError instances
       throw error;
     }
@@ -432,11 +446,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       logger.logPaymentEvent('completed', undefined, { ...logContext, provider });
       monitoringService.recordPaymentEvent('completed', undefined, { ...logContext, provider });
       
+      console.log(`Payment completed successfully for ${provider} reference: ${reference}`);
       sendSuccessResponse(res, { success: true }, "Payment verified successfully");
     } else {
       logger.logPaymentEvent('failed', undefined, { ...logContext, provider });
       monitoringService.recordPaymentEvent('failed', undefined, { ...logContext, provider });
       
+      console.log(`Payment verification failed for ${provider} reference: ${reference}`);
       throw new PaymentError("Payment verification failed", { reference, provider });
     }
   }));
@@ -460,6 +476,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Payment webhook error:", error);
       res.status(500).json({ message: "Webhook processing failed" });
+    }
+  });
+
+  // Paystack-specific webhook endpoint
+  app.post("/api/payment/paystack-webhook", async (req, res) => {
+    try {
+      console.log('Paystack webhook received:', req.body);
+      
+      // In production, verify the webhook signature using Paystack's secret key
+      // For now, we'll process the webhook data
+      const { event, data } = req.body;
+      
+      if (event === 'charge.success') {
+        const { reference, amount, status, customer } = data;
+        console.log(`Paystack payment successful: ${reference}, amount: ${amount}, status: ${status}`);
+        
+        // Here you would:
+        // 1. Verify the payment with Paystack API
+        // 2. Update user subscription status
+        // 3. Send confirmation email
+        // 4. Log the successful payment
+        
+        // For now, just log it
+        logger.logPaymentEvent('webhook_success', amount, { reference, provider: 'paystack', customer: customer?.email });
+        monitoringService.recordPaymentEvent('webhook_success', amount, { reference, provider: 'paystack' });
+      }
+      
+      // Always respond with 200 to acknowledge receipt
+      res.status(200).json({ status: 'success' });
+    } catch (error) {
+      console.error("Paystack webhook error:", error);
+      // Still respond with 200 to prevent webhook retries
+      res.status(200).json({ status: 'error', message: "Webhook processing failed" });
+    }
+  });
+
+  // Flutterwave-specific webhook endpoint
+  app.post("/api/payment/flutterwave-webhook", async (req, res) => {
+    try {
+      console.log('Flutterwave webhook received:', req.body);
+      
+      // In production, verify the webhook signature using Flutterwave's secret hash
+      // For now, we'll process the webhook data
+      const { event, data } = req.body;
+      
+      if (event === 'charge.completed') {
+        const { tx_ref, amount, status, customer } = data;
+        console.log(`Flutterwave payment successful: ${tx_ref}, amount: ${amount}, status: ${status}`);
+        
+        // Here you would:
+        // 1. Verify the payment with Flutterwave API
+        // 2. Update user subscription status
+        // 3. Send confirmation email
+        // 4. Log the successful payment
+        
+        // For now, just log it
+        logger.logPaymentEvent('webhook_success', amount, { reference: tx_ref, provider: 'flutterwave', customer: customer?.email });
+        monitoringService.recordPaymentEvent('webhook_success', amount, { reference: tx_ref, provider: 'flutterwave' });
+      }
+      
+      // Always respond with 200 to acknowledge receipt
+      res.status(200).json({ status: 'success' });
+    } catch (error) {
+      console.error("Flutterwave webhook error:", error);
+      // Still respond with 200 to prevent webhook retries
+      res.status(200).json({ status: 'error', message: "Webhook processing failed" });
     }
   });
   // Store routes

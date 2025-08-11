@@ -16,16 +16,31 @@ export default function PaymentCallback() {
         // Get URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const reference = urlParams.get('reference');
+        const trxref = urlParams.get('trxref'); // Paystack
         const trx_ref = urlParams.get('trx_ref'); // Flutterwave
         const status = urlParams.get('status');
         
-        const paymentReference = reference || trx_ref;
+        // Log all URL parameters for debugging
+        console.log('Payment callback URL parameters:', {
+          reference,
+          trxref,
+          trx_ref,
+          status,
+          fullUrl: window.location.href,
+          searchParams: window.location.search
+        });
+        
+        // Paystack uses 'reference' and 'trxref', Flutterwave uses 'trx_ref'
+        const paymentReference = reference || trxref || trx_ref;
         
         if (!paymentReference) {
+          console.error('No payment reference found in URL parameters');
           setStatus('error');
           setMessage('Payment reference not found');
           return;
         }
+
+        console.log('Processing payment callback with reference:', paymentReference);
 
         // Verify payment with backend
         const data = await apiClient.post('/payment/verify', {
@@ -33,13 +48,15 @@ export default function PaymentCallback() {
           status: status
         });
 
+        console.log('Payment verification response:', data);
+
         if (data.success) {
           setStatus('success');
           setMessage('Payment successful! Your subscription is now active.');
           
-          // Redirect to dashboard after 3 seconds
+          // Redirect to analytics page after 3 seconds (default admin view)
           setTimeout(() => {
-            setLocation('/dashboard');
+            setLocation('/analytics');
           }, 3000);
         } else {
           setStatus('error');
@@ -117,7 +134,7 @@ export default function PaymentCallback() {
           <div className="flex flex-col space-y-2">
             {status === 'success' && (
               <Button 
-                onClick={() => setLocation('/dashboard')}
+                onClick={() => setLocation('/analytics')}
                 className="w-full"
               >
                 Go to Dashboard
