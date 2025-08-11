@@ -8,7 +8,11 @@ export class ServiceWorkerManager {
                           typeof window !== 'undefined' && (
                             window.location.hostname === 'localhost' || 
                             window.location.hostname === '127.0.0.1' || 
-                            window.location.hostname.includes('replit')
+                            window.location.hostname.includes('replit') ||
+                            window.location.hostname.includes('dev') ||
+                            window.location.port === '3000' ||
+                            window.location.port === '5173' ||
+                            window.location.port === '8080'
                           );
 
   private constructor() {}
@@ -20,21 +24,82 @@ export class ServiceWorkerManager {
     return ServiceWorkerManager.instance;
   }
 
+  // Manual cleanup function for development
+  async forceCleanup(): Promise<void> {
+    console.log('🔄 Force cleaning up service workers...');
+    
+    try {
+      if ('serviceWorker' in navigator) {
+        // Get all registrations
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        console.log(`Found ${registrations.length} service worker registrations`);
+        
+        // Unregister all
+        for (const registration of registrations) {
+          console.log('Unregistering:', registration.scope);
+          await registration.unregister();
+        }
+        
+        // Clear all caches
+        if ('caches' in window) {
+          const cacheNames = await caches.keys();
+          console.log(`Found ${cacheNames.length} caches`);
+          
+          for (const cacheName of cacheNames) {
+            console.log('Deleting cache:', cacheName);
+            await caches.delete(cacheName);
+          }
+        }
+        
+        console.log('✅ Service worker cleanup completed');
+      }
+    } catch (error) {
+      console.error('❌ Service worker cleanup failed:', error);
+    }
+  }
+
   async register(): Promise<void> {
     // Skip service worker in development mode to avoid conflicts
     if (this.isDevelopment) {
       console.log('Service Worker disabled in development mode');
       
-      // Unregister any existing service workers in development
+      // Force unregister any existing service workers in development
       try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          await registration.unregister();
-          console.log('Unregistered service worker in development mode');
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          console.log(`Found ${registrations.length} existing service worker registrations`);
+          
+          for (const registration of registrations) {
+            console.log('Unregistering service worker:', registration.scope);
+            await registration.unregister();
+            console.log('Service worker unregistered successfully');
+          }
+          
+          // Also try to unregister from the main thread
+          if (navigator.serviceWorker.controller) {
+            console.log('Unregistering controller service worker');
+            navigator.serviceWorker.controller.postMessage({ type: 'DISABLE' });
+          }
         }
       } catch (error) {
-        console.log('No service workers to unregister');
+        console.log('Error unregistering service workers:', error);
       }
+      
+      // Clear any service worker caches
+      try {
+        if ('caches' in window) {
+          const cacheNames = await caches.keys();
+          for (const cacheName of cacheNames) {
+            if (cacheName.includes('chainsync')) {
+              await caches.delete(cacheName);
+              console.log('Deleted cache:', cacheName);
+            }
+          }
+        }
+      } catch (error) {
+        console.log('Error clearing caches:', error);
+      }
+      
       return;
     }
 
@@ -130,3 +195,14 @@ export class ServiceWorkerManager {
 
 // Export singleton instance
 export const serviceWorkerManager = ServiceWorkerManager.getInstance();
+
+// Global cleanup function for browser console
+if (typeof window !== 'undefined') {
+  (window as any).cleanupServiceWorkers = async () => {
+    console.log('🧹 Manual service worker cleanup initiated...');
+    await serviceWorkerManager.forceCleanup();
+    console.log('✅ Manual cleanup completed. You can now refresh the page.');
+  };
+  
+  console.log('🛠️  Manual cleanup available: run cleanupServiceWorkers() in console');
+}

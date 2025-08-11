@@ -1,12 +1,44 @@
 // ChainSync Service Worker for Offline Capabilities
 // Phase 8 - Future Enhancements
 
+// Enhanced development mode detection
+const isDevelopment = () => {
+  // Check multiple development indicators
+  const hostname = self.location.hostname;
+  const port = self.location.port;
+  
+  return (
+    hostname === 'localhost' || 
+    hostname === '127.0.0.1' || 
+    hostname.includes('replit') ||
+    hostname.includes('dev') ||
+    port === '3000' ||
+    port === '5173' ||
+    port === '8080'
+  );
+};
+
 // Skip service worker in development mode
-if (self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1' || self.location.hostname.includes('replit')) {
-  console.log('Service Worker disabled in development mode');
-  // Unregister self in development
-  self.addEventListener('install', () => self.skipWaiting());
-  self.addEventListener('activate', () => self.registration?.unregister());
+if (isDevelopment()) {
+  console.log('Service Worker disabled in development mode - hostname:', self.location.hostname, 'port:', self.location.port);
+  
+  // Immediately unregister self in development
+  self.addEventListener('install', (event) => {
+    console.log('Service Worker install in development - skipping');
+    event.waitUntil(self.skipWaiting());
+  });
+  
+  self.addEventListener('activate', (event) => {
+    console.log('Service Worker activate in development - unregistering');
+    event.waitUntil(
+      self.registration.unregister().then(() => {
+        console.log('Service Worker unregistered in development mode');
+        return self.clients.claim();
+      })
+    );
+  });
+  
+  // Don't register any other event listeners in development
   return;
 }
 
@@ -176,7 +208,26 @@ async function handleStaticResource(request) {
 // Handle navigation requests
 async function handleNavigation(request) {
   try {
-    // Try network first for navigation
+    // Special handling for payment callback pages
+    const url = new URL(request.url);
+    if (url.pathname === '/payment/callback') {
+      console.log('Payment callback navigation detected, serving directly from network');
+      
+      try {
+        const response = await fetch(request);
+        return response;
+      } catch (error) {
+        console.log('Payment callback network failed, serving offline page');
+        // Return cached index.html for offline payment callback
+        const cachedResponse = await caches.match('/index.html');
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        throw error;
+      }
+    }
+    
+    // Try network first for other navigation requests
     const response = await fetch(request);
     return response;
   } catch (error) {
