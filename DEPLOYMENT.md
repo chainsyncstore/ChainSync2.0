@@ -34,12 +34,6 @@ NODE_ENV="production"
 
 # Port Configuration
 PORT=5000
-
-# Google Cloud Storage (optional - for file uploads)
-GOOGLE_CLOUD_PROJECT_ID="your-project-id"
-GOOGLE_CLOUD_BUCKET_NAME="your-bucket-name"
-GOOGLE_CLOUD_PRIVATE_KEY="your-private-key"
-GOOGLE_CLOUD_CLIENT_EMAIL="your-client-email"
 ```
 
 **Important Security Notes:**

@@ -28,8 +28,12 @@ export class PaymentService {
   private flutterwaveBaseUrl = 'https://api.flutterwave.com/v3';
 
   constructor() {
-    this.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || 'sk_test_...';
-    this.flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY || 'FLWSECK_TEST-...';
+    this.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
+    this.flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY || '';
+    
+    if (!this.paystackSecretKey || !this.flutterwaveSecretKey) {
+      throw new Error('Payment service keys are required. Please set PAYSTACK_SECRET_KEY and FLUTTERWAVE_SECRET_KEY in environment variables.');
+    }
   }
 
   async initializePaystackPayment(request: PaymentRequest): Promise<PaymentResponse> {
@@ -241,4 +245,4 @@ export class PaymentService {
       }
     };
   }
-} 
+}

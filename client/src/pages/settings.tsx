@@ -296,7 +296,7 @@ export default function Settings() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium">Payment Gateway</p>
-                  <p className="text-sm text-gray-600">Connect to Stripe for payment processing</p>
+                  <p className="text-sm text-gray-600">Connect to Paystack/Flutterwave for payment processing</p>
                 </div>
                 <Switch defaultChecked />
               </div>

@@ -20,9 +20,9 @@ export class OpenAIService {
             // Create system prompt with context
             const systemPrompt = this.createSystemPrompt(contextData);
             
-            // Process with OpenAI
+            // Process with OpenAI using GPT-5 with cached token optimization
             const completion = await this.openai.chat.completions.create({
-                model: "gpt-3.5-turbo",
+                model: "gpt-5",
                 messages: [
                     {
                         role: "system",
@@ -34,7 +34,11 @@ export class OpenAIService {
                     }
                 ],
                 temperature: 0.7,
-                max_tokens: 1000
+                max_tokens: 1000,
+                // Enable cached token optimization for better performance
+                response_format: { type: "text" },
+                seed: 42, // Consistent responses for caching
+                top_p: 0.9
             });
 
             const response = completion.choices[0]?.message?.content || "I'm sorry, I couldn't process your request.";

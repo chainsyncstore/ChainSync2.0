@@ -20,8 +20,11 @@ Add the following environment variables to your `.env` file:
 
 ```env
 # Payment Providers
-PAYSTACK_SECRET_KEY="sk_test_your_paystack_secret_key"
-FLUTTERWAVE_SECRET_KEY="FLWSECK_TEST_your_flutterwave_secret_key"
+PAYSTACK_SECRET_KEY="sk_live_98f75f62f6820bc965c76a580775c5cca80d7e34"
+PAYSTACK_PUBLIC_KEY="pk_live_724a3f810e189dba909ca21bec4f3a2d0b04b2d8"
+FLUTTERWAVE_SECRET_KEY="FLWSECK-aae73f4445dabe479bee62c0a76f0cee-1989803c0e3vt-X"
+FLUTTERWAVE_ENCRYPTION_KEY="aae73f4445dafd4c7a11aa60"
+FLUTTERWAVE_PUBLIC_KEY="FLWPUBK-c78096411d3d0415787155b94593e7ae-X"
 
 # Application
 BASE_URL="http://localhost:3000"

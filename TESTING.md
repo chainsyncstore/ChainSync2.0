@@ -61,11 +61,14 @@ DATABASE_URL=postgresql://test_user:test_password@localhost:5432/chainsync_test
 # Test Session Secret
 SESSION_SECRET=test-session-secret-key-for-testing-only
 
-# Test Payment Configuration
-PAYSTACK_SECRET_KEY=sk_test_test_key
-PAYSTACK_PUBLIC_KEY=pk_test_test_key
-FLUTTERWAVE_SECRET_KEY=FLWSECK_TEST_test_key
-FLUTTERWAVE_PUBLIC_KEY=FLWPUBK_TEST_test_key
+# Test Paystack Configuration
+PAYSTACK_SECRET_KEY=sk_live_98f75f62f6820bc965c76a580775c5cca80d7e34
+PAYSTACK_PUBLIC_KEY=pk_live_724a3f810e189dba909ca21bec4f3a2d0b04b2d8
+
+# Test Flutterwave Configuration
+FLUTTERWAVE_SECRET_KEY=FLWSECK-aae73f4445dabe479bee62c0a76f0cee-1989803c0e3vt-X
+FLUTTERWAVE_ENCRYPTION_KEY=aae73f4445dafd4c7a11aa60
+FLUTTERWAVE_PUBLIC_KEY=FLWPUBK-c78096411d3d0415787155b94593e7ae-X
 
 # Test Email Configuration
 SMTP_HOST=smtp.mailtrap.io
@@ -73,10 +76,6 @@ SMTP_PORT=2525
 SMTP_USER=test_user
 SMTP_PASS=test_password
 FROM_EMAIL=test@chainsync.com
-
-# Test Storage Configuration
-GOOGLE_CLOUD_PROJECT=test-project
-GOOGLE_CLOUD_BUCKET=test-bucket
 
 # Test OpenAI Configuration
 OPENAI_API_KEY=sk-test-key
