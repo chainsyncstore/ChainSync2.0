@@ -49,7 +49,7 @@ const pricingTiers: PricingTier[] = [
     ]
   },
   {
-    name: "pro",
+    name: "premium",
     price: {
       ngn: "₦100,000",
       usd: "$100"
@@ -119,6 +119,7 @@ export default function Signup() {
   }, [tierFromUrl, locationFromUrl]);
 
   const validateForm = (): boolean => {
+    console.log('Starting form validation');
     const newErrors: Partial<SignupForm> = {};
 
     // First name validation
@@ -185,6 +186,8 @@ export default function Signup() {
     }
 
     setErrors(newErrors);
+    console.log('Validation errors:', newErrors);
+    console.log('Validation result:', Object.keys(newErrors).length === 0);
     return Object.keys(newErrors).length === 0;
   };
 
@@ -198,35 +201,51 @@ export default function Signup() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    console.log('Form submission started');
+    console.log('Form data:', formData);
+    
     if (!validateForm()) {
+      console.log('Form validation failed');
       return;
     }
 
+    console.log('Form validation passed, proceeding with signup');
     setIsLoading(true);
     
     try {
+      const signupData = {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        phone: formData.phone,
+        companyName: formData.companyName,
+        password: formData.password,
+        tier: formData.tier,
+        location: formData.location
+      };
+      
+      console.log('Sending signup request with data:', signupData);
+      
       // First, create the user account
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-          phone: formData.phone,
-          companyName: formData.companyName,
-          password: formData.password,
-          tier: formData.tier,
-          location: formData.location
-        }),
+        body: JSON.stringify(signupData),
       });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Signup failed with error:', errorData);
         throw new Error(errorData.message || 'Signup failed');
       }
+
+      const responseData = await response.json();
+      console.log('Signup successful:', responseData);
 
       // Move to payment step
       setStep('payment');
