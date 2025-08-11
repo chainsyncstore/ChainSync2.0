@@ -9,6 +9,7 @@ export default function PaymentCallback() {
   const [, setLocation] = useLocation();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
+  const [errorDetails, setErrorDetails] = useState<string>('');
 
   useEffect(() => {
     const handlePaymentCallback = async () => {
@@ -37,13 +38,14 @@ export default function PaymentCallback() {
           console.error('No payment reference found in URL parameters');
           setStatus('error');
           setMessage('Payment reference not found');
+          setErrorDetails('No payment reference found in URL parameters. Please check the payment link.');
           return;
         }
 
         console.log('Processing payment callback with reference:', paymentReference);
 
         // Verify payment with backend
-        const data = await apiClient.post('/payment/verify', {
+        const data = await apiClient.post<{ success: boolean; message?: string }>('/payment/verify', {
           reference: paymentReference,
           status: status
         });
@@ -56,21 +58,46 @@ export default function PaymentCallback() {
           
           // Redirect to analytics page after 3 seconds (default admin view)
           setTimeout(() => {
+            console.log('Redirecting to analytics page...');
             setLocation('/analytics');
           }, 3000);
         } else {
           setStatus('error');
           setMessage('Payment verification failed. Please contact support.');
+          setErrorDetails(`Payment verification returned: ${JSON.stringify(data)}`);
         }
       } catch (error) {
         console.error('Payment callback error:', error);
-        handleApiError(error);
+        
+        // Handle different types of errors
+        let errorMessage = 'An error occurred while processing your payment.';
+        let details = '';
+        
+        if (error instanceof Error) {
+          errorMessage = error.message;
+          details = error.stack || '';
+        } else if (typeof error === 'object' && error !== null) {
+          errorMessage = (error as any).message || 'Unknown error occurred';
+          details = JSON.stringify(error);
+        }
+        
         setStatus('error');
-        setMessage('An error occurred while processing your payment.');
+        setMessage(errorMessage);
+        setErrorDetails(details);
+        
+        // Try to handle API errors
+        try {
+          handleApiError(error);
+        } catch (handleError) {
+          console.error('Error handling API error:', handleError);
+        }
       }
     };
 
-    handlePaymentCallback();
+    // Add a small delay to ensure the component is fully mounted
+    const timer = setTimeout(handlePaymentCallback, 100);
+    
+    return () => clearTimeout(timer);
   }, [setLocation]);
 
   return (
@@ -128,6 +155,16 @@ export default function PaymentCallback() {
               <p className="text-sm text-red-700">
                 If you believe this is an error, please contact our support team with your payment reference.
               </p>
+              {errorDetails && (
+                <details className="mt-3">
+                  <summary className="text-sm text-red-600 cursor-pointer hover:text-red-700">
+                    Technical Details
+                  </summary>
+                  <pre className="text-xs text-red-600 mt-2 whitespace-pre-wrap break-words bg-red-100 p-2 rounded">
+                    {errorDetails}
+                  </pre>
+                </details>
+              )}
             </div>
           )}
           

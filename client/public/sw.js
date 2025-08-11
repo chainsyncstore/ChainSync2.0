@@ -1,8 +1,18 @@
 // ChainSync Service Worker for Offline Capabilities
 // Phase 8 - Future Enhancements
 
+// Skip service worker in development mode
+if (self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1' || self.location.hostname.includes('replit')) {
+  console.log('Service Worker disabled in development mode');
+  // Unregister self in development
+  self.addEventListener('install', () => self.skipWaiting());
+  self.addEventListener('activate', () => self.registration?.unregister());
+  return;
+}
+
 const CACHE_NAME = 'chainsync-v1.0.0';
 const OFFLINE_CACHE = 'chainsync-offline-v1.0.0';
+let isDisabled = false;
 
 // Essential resources to cache for offline use
 const ESSENTIAL_RESOURCES = [
@@ -62,6 +72,11 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - handle offline requests
 self.addEventListener('fetch', (event) => {
+  // Skip if service worker is disabled
+  if (isDisabled) {
+    return;
+  }
+
   const { request } = event;
   const url = new URL(request.url);
 
@@ -118,7 +133,16 @@ async function handleApiRequest(request) {
       return createOfflineResponse(request);
     }
     
-    throw error;
+    // Don't throw error, just return a fallback response
+    console.warn('API request failed, returning fallback:', request.url);
+    return new Response(JSON.stringify({
+      status: 'error',
+      message: 'Service temporarily unavailable',
+      data: null
+    }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
 
@@ -141,7 +165,11 @@ async function handleStaticResource(request) {
     return response;
   } catch (error) {
     console.error('Static resource fetch failed:', error);
-    throw error;
+    // Return a fallback response instead of throwing
+    return new Response('Resource not available', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain' }
+    });
   }
 }
 
@@ -160,7 +188,11 @@ async function handleNavigation(request) {
       return cachedResponse;
     }
     
-    throw error;
+    // Return a fallback response instead of throwing
+    return new Response('Page not available offline', {
+      status: 503,
+      headers: { 'Content-Type': 'text/html' }
+    });
   }
 }
 
@@ -378,6 +410,12 @@ self.addEventListener('message', (event) => {
       clearCache().then(() => {
         event.ports[0].postMessage({ success: true });
       });
+      break;
+    case 'DISABLE':
+      isDisabled = true;
+      console.log('Service Worker disabled');
+      // Clear all caches when disabled
+      clearCache();
       break;
     default:
       console.log('Unknown message type:', type);
