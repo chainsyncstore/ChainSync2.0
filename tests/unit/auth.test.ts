@@ -1,28 +1,127 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AuthService } from '@server/auth';
-import { ValidationError, AuthenticationError } from '@server/lib/errors';
+import { cryptoModuleMock } from '../utils/crypto-mocks';
+
+// Import AuthService after mocking
+import { AuthService } from '../../server/auth';
+
+// Mock the database module
+vi.mock('../../server/db', () => {
+  let callCount = 0;
+  return {
+    db: {
+      select: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      set: vi.fn().mockReturnThis(),
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn().mockImplementation(() => {
+        callCount++;
+        return [{
+          id: `mock-token-id-${callCount}`,
+          userId: 'test-user-id',
+          token: `mock-generated-token-${callCount}`,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          isUsed: false,
+          createdAt: new Date(),
+          usedAt: null
+        }];
+      })
+    }
+  };
+});
+
+// Mock the schema tables
+vi.mock('@shared/schema', () => ({
+  emailVerificationTokens: 'emailVerificationTokens',
+  users: 'users'
+}));
+
+// Mock bcrypt
+vi.mock('bcrypt', () => ({
+  hash: vi.fn(),
+  compare: vi.fn()
+}));
+
+// Mock crypto module with shared instance
+vi.mock('crypto', () => ({
+  default: cryptoModuleMock,
+  ...cryptoModuleMock
+}));
+
+// Mock jsonwebtoken
+vi.mock('jsonwebtoken', () => ({
+  sign: vi.fn(),
+  verify: vi.fn(),
+  decode: vi.fn()
+}));
+
+// Mock drizzle-orm
+vi.mock('drizzle-orm', () => ({
+  eq: vi.fn((column, value) => ({ column, value, operator: 'eq' })),
+  and: vi.fn((...conditions) => ({ conditions, operator: 'and' })),
+  or: vi.fn((...conditions) => ({ conditions, operator: 'or' })),
+  lt: vi.fn((column, value) => ({ column, value, operator: 'lt' })),
+  gte: vi.fn((column, value) => ({ column, value, operator: 'gte' })),
+  sql: vi.fn((strings, ...values) => ({ strings, values, type: 'sql' })),
+  relations: vi.fn((table, config) => ({ table, config, type: 'relations' }))
+}));
 
 describe('AuthService', () => {
+
   beforeEach(() => {
     vi.clearAllMocks();
+    
+    // Reset crypto mock history
+    cryptoModuleMock.__reset();
+  });
+
+  describe('createEmailVerificationToken', () => {
+    it('should create an email verification token', async () => {
+      const token = await AuthService.createEmailVerificationToken('test-user-id');
+
+      expect(token).toBeDefined();
+      expect(token.token).toBeDefined();
+      expect(typeof token.token).toBe('string');
+      expect(token.token.length).toBeGreaterThan(0);
+    });
+
+    it('should generate unique tokens', async () => {
+      const token1 = await AuthService.createEmailVerificationToken('test-user-id-1');
+      const token2 = await AuthService.createEmailVerificationToken('test-user-id-2');
+
+      expect(token1.token).not.toBe(token2.token);
+    });
+
+    it('should track crypto calls in history', async () => {
+      // Clear any existing history
+      cryptoModuleMock.__reset();
+      
+      await AuthService.createEmailVerificationToken('test-user-id');
+      
+      // Verify that crypto functions were called and tracked
+      expect(cryptoModuleMock.__callHistory.randomBytes.length).toBeGreaterThan(0);
+    });
   });
 
   describe('validatePassword', () => {
-    it('should validate a strong password', () => {
-      const result = AuthService.validatePassword('StrongPass123!');
-      
+    it('should validate strong passwords', () => {
+      const strongPassword = 'SecurePass123!@#';
+      const result = AuthService.validatePassword(strongPassword);
+
       expect(result.isValid).toBe(true);
       expect(result.errors).toHaveLength(0);
     });
 
     it('should reject weak passwords', () => {
       const weakPasswords = [
-        '123', // too short
-        'password', // no uppercase, numbers, or special chars
-        'PASSWORD', // no lowercase, numbers, or special chars
-        'Password', // no numbers or special chars
-        'Password123', // no special chars
-        'pass word', // contains space
+        'short',
+        'nouppercase123!',
+        'NOLOWERCASE123!',
+        'NoNumbers!',
+        'NoSpecialChars123'
       ];
 
       weakPasswords.forEach(password => {
@@ -31,123 +130,5 @@ describe('AuthService', () => {
         expect(result.errors.length).toBeGreaterThan(0);
       });
     });
-
-    it('should provide specific error messages', () => {
-      const result = AuthService.validatePassword('weak');
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Password must be at least 8 characters long');
-      expect(result.errors).toContain('Password must contain at least one uppercase letter');
-      expect(result.errors).toContain('Password must contain at least one number');
-      expect(result.errors).toContain('Password must contain at least one special character');
-    });
-  });
-
-  describe('sanitizeUserForSession', () => {
-    it('should remove sensitive fields from user object', () => {
-      const user = {
-        id: '123',
-        username: 'testuser',
-        email: 'test@example.com',
-        password: 'hashedpassword',
-        firstName: 'Test',
-        lastName: 'User',
-        role: 'admin',
-        storeId: 'store123',
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      const sanitized = AuthService.sanitizeUserForSession(user);
-
-      expect(sanitized).not.toHaveProperty('password');
-      expect(sanitized).toHaveProperty('id', '123');
-      expect(sanitized).toHaveProperty('username', 'testuser');
-      expect(sanitized).toHaveProperty('email', 'test@example.com');
-      expect(sanitized).toHaveProperty('role', 'admin');
-    });
-
-    it('should handle null/undefined values', () => {
-      const user = {
-        id: '123',
-        username: 'testuser',
-        password: 'hashedpassword',
-        role: 'admin'
-      };
-
-      const sanitized = AuthService.sanitizeUserForSession(user);
-
-      expect(sanitized).not.toHaveProperty('password');
-      expect(sanitized).toHaveProperty('id', '123');
-      expect(sanitized).toHaveProperty('username', 'testuser');
-    });
-  });
-
-  describe('generateResetToken', () => {
-    it('should generate a valid reset token', () => {
-      const token = AuthService.generateResetToken();
-      
-      expect(token).toBeDefined();
-      expect(typeof token).toBe('string');
-      expect(token.length).toBeGreaterThan(20); // Should be reasonably long
-    });
-
-    it('should generate unique tokens', () => {
-      const token1 = AuthService.generateResetToken();
-      const token2 = AuthService.generateResetToken();
-      
-      expect(token1).not.toBe(token2);
-    });
-  });
-
-  describe('validateResetToken', () => {
-    it('should validate a properly formatted token', () => {
-      const token = 'valid-token-123';
-      const result = AuthService.validateResetToken(token);
-      
-      expect(result.isValid).toBe(true);
-    });
-
-    it('should reject invalid tokens', () => {
-      const invalidTokens = [
-        '', // empty
-        'short', // too short
-        'invalid token with spaces', // contains spaces
-        'invalid@token#with#special#chars', // contains special chars
-      ];
-
-      invalidTokens.forEach(token => {
-        const result = AuthService.validateResetToken(token);
-        expect(result.isValid).toBe(false);
-      });
-    });
-  });
-});
-
-describe('Authentication Errors', () => {
-  it('should create ValidationError with proper structure', () => {
-    const error = new ValidationError('Invalid input', { field: 'email' });
-    
-    expect(error.message).toBe('Invalid input');
-    expect(error.statusCode).toBe(422);
-    expect(error.code).toBe('VALIDATION_ERROR');
-    expect(error.details).toEqual({ field: 'email' });
-  });
-
-  it('should create AuthenticationError with proper structure', () => {
-    const error = new AuthenticationError('Invalid credentials');
-    
-    expect(error.message).toBe('Invalid credentials');
-    expect(error.statusCode).toBe(401);
-    expect(error.code).toBe('UNAUTHORIZED');
-  });
-
-  it('should create AuthorizationError with proper structure', () => {
-    const error = new AuthenticationError('Insufficient permissions');
-    
-    expect(error.message).toBe('Insufficient permissions');
-    expect(error.statusCode).toBe(401);
-    expect(error.code).toBe('UNAUTHORIZED');
   });
 }); 

@@ -8,6 +8,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PasswordStrength } from "@/components/ui/password-strength";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { apiClient } from "@/lib/api-client";
 
 interface SignupForm {
   firstName: string;
@@ -119,7 +122,6 @@ export default function Signup() {
   }, [tierFromUrl, locationFromUrl]);
 
   const validateForm = (): boolean => {
-    console.log('Starting form validation');
     const newErrors: Partial<SignupForm> = {};
 
     // First name validation
@@ -149,11 +151,11 @@ export default function Signup() {
       newErrors.email = "Email must be less than 255 characters";
     }
 
-    // Phone validation
+    // Phone validation - simplified, backend will handle detailed validation
     if (!formData.phone.trim()) {
       newErrors.phone = "Phone number is required";
-    } else if (!/^[\+]?[1-9][\d]{9,15}$/.test(formData.phone.replace(/\s/g, ''))) {
-      newErrors.phone = "Invalid phone number format";
+    } else if (formData.phone.length < 10) {
+      newErrors.phone = "Phone number must be at least 10 digits";
     }
 
     // Company name validation
@@ -163,21 +165,13 @@ export default function Signup() {
       newErrors.companyName = "Company name must be less than 255 characters";
     }
 
-    // Password validation
+    // Password validation - simplified, backend handles detailed validation
     if (!formData.password) {
       newErrors.password = "Password is required";
     } else if (formData.password.length < 8) {
       newErrors.password = "Password must be at least 8 characters";
     } else if (formData.password.length > 128) {
       newErrors.password = "Password must be less than 128 characters";
-    } else if (!/[A-Z]/.test(formData.password)) {
-      newErrors.password = "Password must contain at least one uppercase letter";
-    } else if (!/[a-z]/.test(formData.password)) {
-      newErrors.password = "Password must contain at least one lowercase letter";
-    } else if (!/\d/.test(formData.password)) {
-      newErrors.password = "Password must contain at least one number";
-    } else if (!/[!@#$%^&*(),.?":{}|<>]/.test(formData.password)) {
-      newErrors.password = "Password must contain at least one special character";
     }
 
     // Confirm password validation
@@ -186,8 +180,6 @@ export default function Signup() {
     }
 
     setErrors(newErrors);
-    console.log('Validation errors:', newErrors);
-    console.log('Validation result:', Object.keys(newErrors).length === 0);
     return Object.keys(newErrors).length === 0;
   };
 
@@ -201,15 +193,10 @@ export default function Signup() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    console.log('Form submission started');
-    console.log('Form data:', formData);
-    
     if (!validateForm()) {
-      console.log('Form validation failed');
       return;
     }
 
-    console.log('Form validation passed, proceeding with signup');
     setIsLoading(true);
     
     try {
@@ -224,34 +211,14 @@ export default function Signup() {
         location: formData.location
       };
       
-      console.log('Sending signup request with data:', signupData);
-      
-      // First, create the user account
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(signupData),
-      });
-
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Signup failed with error:', errorData);
-        throw new Error(errorData.message || 'Signup failed');
-      }
-
-      const responseData = await response.json();
-      console.log('Signup successful:', responseData);
+      // First, create the user account using API client (includes CSRF token)
+      const responseData = await apiClient.post('/auth/signup', signupData);
 
       // Move to payment step
       setStep('payment');
     } catch (error) {
-      console.error('Signup error:', error);
-      setErrors({ email: error instanceof Error ? error.message : 'Signup failed' });
+      // Generic error message for security
+      setErrors({ email: 'Account creation failed. Please try again or contact support.' });
     } finally {
       setIsLoading(false);
     }
@@ -267,31 +234,19 @@ export default function Signup() {
         ? selectedTier?.price.ngn.replace('₦', '').replace(',', '')
         : selectedTier?.price.usd.replace('$', '');
 
-      const response = await fetch('/api/payment/initialize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: formData.email,
-          amount: amount,
-          currency: formData.location === 'nigeria' ? 'NGN' : 'USD',
-          provider: paymentProvider,
-          tier: formData.tier,
-          metadata: {
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            companyName: formData.companyName,
-            phone: formData.phone
-          }
-        }),
+      const paymentData = await apiClient.post('/payment/initialize', {
+        email: formData.email,
+        amount: amount,
+        currency: formData.location === 'nigeria' ? 'NGN' : 'USD',
+        provider: paymentProvider,
+        tier: formData.tier,
+        metadata: {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          companyName: formData.companyName,
+          phone: formData.phone
+        }
       });
-
-      if (!response.ok) {
-        throw new Error('Payment initialization failed');
-      }
-
-      const paymentData = await response.json();
       
       // Redirect to payment gateway
       if (paymentProvider === 'paystack') {
@@ -301,8 +256,7 @@ export default function Signup() {
         window.location.href = paymentData.link;
       }
     } catch (error) {
-      console.error('Payment error:', error);
-      setErrors({ email: 'Payment initialization failed' });
+      setErrors({ email: 'Payment initialization failed. Please try again.' });
     } finally {
       setIsLoading(false);
     }
@@ -458,13 +412,12 @@ export default function Signup() {
 
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number *</Label>
-              <Input
+              <PhoneInput
                 id="phone"
-                type="tel"
                 value={formData.phone}
-                onChange={(e) => handleInputChange('phone', e.target.value)}
-                required
+                onChange={(value) => handleInputChange('phone', value)}
                 disabled={isLoading}
+                required
               />
               {errors.phone && (
                 <p className="text-sm text-red-500">{errors.phone}</p>
@@ -559,6 +512,7 @@ export default function Signup() {
                 {errors.password && (
                   <p className="text-sm text-red-500">{errors.password}</p>
                 )}
+                <PasswordStrength password={formData.password} />
               </div>
               
               <div className="space-y-2">

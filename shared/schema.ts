@@ -36,6 +36,13 @@ export const users = pgTable("users", {
   role: userRoleEnum("role").notNull().default("cashier"),
   storeId: uuid("store_id"),
   isActive: boolean("is_active").default(true),
+  emailVerified: boolean("email_verified").default(false),
+  phoneVerified: boolean("phone_verified").default(false),
+  failedLoginAttempts: integer("failed_login_attempts").default(0),
+  lockedUntil: timestamp("locked_until"),
+  lastFailedLogin: timestamp("last_failed_login"),
+  verificationToken: varchar("verification_token", { length: 255 }),
+  verificationTokenExpires: timestamp("verification_token_expires"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -687,6 +694,78 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   tokenIdx: index("password_reset_tokens_token_idx").on(table.token),
 }));
 
+// Email Verification Tokens table
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull(),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  isUsed: boolean("is_used").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  usedAt: timestamp("used_at"),
+}, (table) => ({
+  userIdIdx: index("email_verification_tokens_user_id_idx").on(table.userId),
+  tokenIdx: index("email_verification_tokens_token_idx").on(table.token),
+  expiresAtIdx: index("email_verification_tokens_expires_at_idx").on(table.expiresAt),
+}));
+
+// Phone Verification OTP table
+export const phoneVerificationOTP = pgTable("phone_verification_otp", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull(),
+  phone: varchar("phone", { length: 50 }).notNull(),
+  otpHash: varchar("otp_hash", { length: 255 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  attempts: integer("attempts").default(0),
+  maxAttempts: integer("max_attempts").default(3),
+  createdAt: timestamp("created_at").defaultNow(),
+  verifiedAt: timestamp("verified_at"),
+  isVerified: boolean("is_verified").default(false),
+}, (table) => ({
+  userIdIdx: index("phone_verification_otp_user_id_idx").on(table.userId),
+  phoneIdx: index("phone_verification_otp_phone_idx").on(table.phone),
+  expiresAtIdx: index("phone_verification_otp_expires_at_idx").on(table.expiresAt),
+}));
+
+// Account Lockout Logs table
+export const accountLockoutLogs = pgTable("account_lockout_logs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id"),
+  username: varchar("username", { length: 255 }).notNull(),
+  ipAddress: varchar("ip_address", { length: 45 }).notNull(), // IPv6 compatible
+  action: varchar("action", { length: 50 }).notNull(),
+  success: boolean("success").notNull(),
+  reason: text("reason"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userIdIdx: index("account_lockout_logs_user_id_idx").on(table.userId),
+  ipAddressIdx: index("account_lockout_logs_ip_address_idx").on(table.ipAddress),
+  createdAtIdx: index("account_lockout_logs_created_at_idx").on(table.createdAt),
+  actionIdx: index("account_lockout_logs_action_idx").on(table.action),
+}));
+
+// User Sessions table for JWT token management
+export const userSessions = pgTable("user_sessions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull(),
+  sessionToken: varchar("session_token", { length: 255 }).notNull().unique(),
+  refreshToken: varchar("refresh_token", { length: 255 }).notNull().unique(),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  expiresAt: timestamp("expires_at").notNull(),
+  refreshExpiresAt: timestamp("refresh_expires_at").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at").defaultNow(),
+}, (table) => ({
+  userIdIdx: index("user_sessions_user_id_idx").on(table.userId),
+  sessionTokenIdx: index("user_sessions_session_token_idx").on(table.sessionToken),
+  refreshTokenIdx: index("user_sessions_refresh_token_idx").on(table.refreshToken),
+  expiresAtIdx: index("user_sessions_expires_at_idx").on(table.expiresAt),
+  isActiveIdx: index("user_sessions_is_active_idx").on(table.isActive),
+}));
+
 // AI Demand Forecasting Tables
 export const forecastModels = pgTable("forecast_models", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -852,6 +931,38 @@ export const passwordResetTokensRelations = relations(passwordResetTokens, ({ on
   }),
 }));
 
+// Email Verification Token Relations
+export const emailVerificationTokensRelations = relations(emailVerificationTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [emailVerificationTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+// Phone Verification OTP Relations
+export const phoneVerificationOTPRelations = relations(phoneVerificationOTP, ({ one }) => ({
+  user: one(users, {
+    fields: [phoneVerificationOTP.userId],
+    references: [users.id],
+  }),
+}));
+
+// Account Lockout Log Relations
+export const accountLockoutLogsRelations = relations(accountLockoutLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [accountLockoutLogs.userId],
+    references: [users.id],
+  }),
+}));
+
+// User Session Relations
+export const userSessionsRelations = relations(userSessions, ({ one }) => ({
+  user: one(users, {
+    fields: [userSessions.userId],
+    references: [users.id],
+  }),
+}));
+
 // AI Insert Schemas
 export const insertForecastModelSchema = createInsertSchema(forecastModels).omit({
   id: true,
@@ -898,6 +1009,30 @@ export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTo
   createdAt: true,
 });
 
+// Email Verification Token Insert Schema
+export const insertEmailVerificationTokenSchema = createInsertSchema(emailVerificationTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Phone Verification OTP Insert Schema
+export const insertPhoneVerificationOTPSchema = createInsertSchema(phoneVerificationOTP).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Account Lockout Log Insert Schema
+export const insertAccountLockoutLogSchema = createInsertSchema(accountLockoutLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+// User Session Insert Schema
+export const insertUserSessionSchema = createInsertSchema(userSessions).omit({
+  id: true,
+  createdAt: true,
+});
+
 // IP Whitelist Types
 export type IpWhitelist = typeof ipWhitelists.$inferSelect;
 export type InsertIpWhitelist = z.infer<typeof insertIpWhitelistSchema>;
@@ -908,3 +1043,19 @@ export type InsertIpWhitelistLog = z.infer<typeof insertIpWhitelistLogSchema>;
 // Password Reset Token Types
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
+
+// Email Verification Token Types
+export type EmailVerificationToken = typeof emailVerificationTokens.$inferSelect;
+export type InsertEmailVerificationToken = z.infer<typeof insertEmailVerificationTokenSchema>;
+
+// Phone Verification OTP Types
+export type PhoneVerificationOTP = typeof phoneVerificationOTP.$inferSelect;
+export type InsertPhoneVerificationOTP = z.infer<typeof insertPhoneVerificationOTPSchema>;
+
+// Account Lockout Log Types
+export type AccountLockoutLog = typeof accountLockoutLogs.$inferSelect;
+export type InsertAccountLockoutLog = z.infer<typeof insertAccountLockoutLogSchema>;
+
+// User Session Types
+export type UserSession = typeof userSessions.$inferSelect;
+export type InsertUserSession = z.infer<typeof insertUserSessionSchema>;

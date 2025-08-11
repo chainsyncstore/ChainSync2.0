@@ -1,0 +1,105 @@
+import { z } from "zod";
+
+// E.164 phone format validation (7-16 digits)
+const phoneRegex = /^\+?[1-9]\d{6,15}$/;
+
+// Email validation with max 254 characters
+const emailSchema = z
+  .string({ required_error: "Email is required" })
+  .min(1, "Email is required")
+  .max(254, "Email must be 254 characters or less")
+  .email("Invalid email format");
+
+// Password validation (8-128 characters)
+const passwordSchema = z
+  .string({ required_error: "Password is required" })
+  .min(8, "Password must be at least 8 characters")
+  .max(128, "Password must be 128 characters or less")
+  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, "Password must contain at least one lowercase letter, one uppercase letter, and one number");
+
+// Phone validation (E.164 format, 7-16 digits)
+const phoneSchema = z
+  .string({ required_error: "Phone number is required" })
+  .min(1, "Phone number is required")
+  .regex(phoneRegex, "Phone number must be in E.164 format (e.g., +1234567890)");
+
+// Name validation (trimmed, max 100 characters)
+const nameSchema = z
+  .string({ required_error: "Name is required" })
+  .min(1, "Name is required")
+  .max(100, "Name must be 100 characters or less")
+  .refine(val => val.trim().length > 0, "Name is required")
+  .transform(val => val.trim());
+
+// Company name validation (trimmed, max 100 characters)
+const companyNameSchema = z
+  .string({ required_error: "Company name is required" })
+  .min(1, "Company name is required")
+  .max(100, "Company name must be 100 characters or less")
+  .refine(val => val.trim().length > 0, "Company name is required")
+  .transform(val => val.trim());
+
+// Tier validation - only accept specific values
+const tierSchema = z.enum(["basic", "premium", "enterprise"], {
+  errorMap: () => ({ message: "Tier must be one of: basic, premium, enterprise" })
+});
+
+// Location validation (trimmed, max 50 characters)
+const locationSchema = z
+  .string({ required_error: "Location is required" })
+  .min(1, "Location is required")
+  .max(50, "Location must be 50 characters or less")
+  .refine(val => val.trim().length > 0, "Location is required")
+  .transform(val => val.trim());
+
+// Main signup schema
+export const SignupSchema = z.object({
+  firstName: nameSchema,
+  lastName: nameSchema,
+  email: emailSchema,
+  phone: phoneSchema,
+  companyName: companyNameSchema,
+  password: passwordSchema,
+  tier: tierSchema,
+  location: locationSchema
+});
+
+// Login schema
+export const LoginSchema = z.object({
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(1, "Password is required")
+});
+
+// Password reset schema
+export const PasswordResetSchema = z.object({
+  email: emailSchema
+});
+
+// Password reset confirm schema
+export const PasswordResetConfirmSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+  password: passwordSchema
+});
+
+// Change password schema
+export const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: passwordSchema
+});
+
+// Profile update schema
+export const ProfileUpdateSchema = z.object({
+  firstName: nameSchema.optional(),
+  lastName: nameSchema.optional(),
+  phone: phoneSchema.optional(),
+  companyName: companyNameSchema.optional(),
+  location: locationSchema.optional()
+});
+
+// Export types
+export type SignupInput = z.infer<typeof SignupSchema>;
+export type LoginInput = z.infer<typeof LoginSchema>;
+export type PasswordResetInput = z.infer<typeof PasswordResetSchema>;
+export type PasswordResetConfirmInput = z.infer<typeof PasswordResetConfirmSchema>;
+export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
+export type ProfileUpdateInput = z.infer<typeof ProfileUpdateSchema>;

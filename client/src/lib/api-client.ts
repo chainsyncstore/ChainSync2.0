@@ -21,9 +21,33 @@ export interface ApiResponse<T = any> {
 
 class ApiClient {
   private baseURL: string;
+  private csrfToken: string | null = null;
 
   constructor() {
     this.baseURL = '/api';
+  }
+
+  private async ensureCsrfToken(): Promise<string> {
+    if (!this.csrfToken) {
+      try {
+        const response = await fetch(`${this.baseURL}/auth/csrf-token`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          this.csrfToken = data.csrfToken;
+        } else {
+          console.warn('Failed to fetch CSRF token');
+          this.csrfToken = '';
+        }
+      } catch (error) {
+        console.warn('Error fetching CSRF token:', error);
+        this.csrfToken = '';
+      }
+    }
+    return this.csrfToken || '';
   }
 
   private async request<T>(
@@ -32,9 +56,16 @@ class ApiClient {
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
     
+    // Get CSRF token for non-GET requests
+    let csrfToken = '';
+    if (options.method && options.method !== 'GET') {
+      csrfToken = await this.ensureCsrfToken();
+    }
+    
     const defaultOptions: RequestInit = {
       headers: {
         'Content-Type': 'application/json',
+        ...(csrfToken && { 'X-CSRF-Token': csrfToken }),
         ...options.headers,
       },
       credentials: 'include', // Include cookies for session management

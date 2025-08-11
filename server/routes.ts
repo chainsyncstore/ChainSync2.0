@@ -38,6 +38,9 @@ import {
 } from "./lib/performance";
 import { logger, extractLogContext } from "./lib/logger";
 import { monitoringService } from "./lib/monitoring";
+import { validateBody } from "./middleware/validation";
+import { SignupSchema, LoginSchema } from "./schemas/auth";
+import { authRateLimit } from "./middleware/security";
 
 // Extend the session interface
 declare module "express-session" {
@@ -88,13 +91,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   // Authentication routes
-  app.post("/api/auth/login", handleAsyncError(async (req, res) => {
-    const { username, password } = req.body;
-    
-    // Validate input
-    if (!username || !password) {
-      throw new ValidationError("Username and password are required");
-    }
+  app.post("/api/auth/login", 
+    authRateLimit,
+    validateBody(LoginSchema),
+    handleAsyncError(async (req, res) => {
+      const { username, password } = req.body;
+      
+      // Input validation is now handled by the Zod schema
     
     const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
     const logContext = extractLogContext(req, { ipAddress });
@@ -149,24 +152,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Signup route
-  app.post("/api/auth/signup", async (req, res) => {
-    try {
-      const { firstName, lastName, email, phone, companyName, password, tier, location } = req.body;
-      
-      // Validate required fields
-      if (!firstName || !lastName || !email || !phone || !companyName || !password || !tier || !location) {
-        return res.status(400).json({ message: "All fields are required" });
-      }
-
-      // Validate password strength
-      const passwordValidation = AuthService.validatePassword(password);
-      if (!passwordValidation.isValid) {
-        return res.status(400).json({ 
-          message: "Password does not meet security requirements",
-          errors: passwordValidation.errors 
-        });
-      }
+  // Signup route with validation and rate limiting
+  app.post("/api/auth/signup", 
+    authRateLimit,
+    validateBody(SignupSchema),
+    async (req, res) => {
+      try {
+        const { firstName, lastName, email, phone, companyName, password, tier, location } = req.body;
+        
+        // Password strength validation is now handled by the Zod schema
+        // Additional password strength check if needed
+        const passwordValidation = AuthService.validatePassword(password);
+        if (!passwordValidation.isValid) {
+          return res.status(400).json({ 
+            message: "Password does not meet security requirements",
+            errors: passwordValidation.errors 
+          });
+        }
 
       // Check if user already exists
       const existingUser = await storage.getUserByEmail(email);
@@ -339,6 +341,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Validate token error:", error);
       res.status(500).json({ message: "Failed to validate token" });
+    }
+  });
+
+  // CSRF token endpoint
+  app.get("/api/auth/csrf-token", (req: any, res) => {
+    try {
+      // The CSRF token is automatically available in req.csrfToken() when csurf middleware is active
+      const csrfToken = req.csrfToken();
+      res.json({ 
+        csrfToken,
+        message: "CSRF token generated successfully"
+      });
+    } catch (error) {
+      console.error("CSRF token generation error:", error);
+      res.status(500).json({ message: "Failed to generate CSRF token" });
     }
   });
 
