@@ -29,16 +29,16 @@ app.use(securityLogging);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
-// CSRF protection (must come after body parsing and before routes)
-app.use(csrfProtection);
-app.use(csrfErrorHandler);
-
 // Add monitoring and logging middleware
 app.use(monitoringMiddleware);
 app.use(requestLogger);
 
 (async () => {
   const server = await registerRoutes(app);
+
+  // CSRF protection (must come after session middleware is set up in routes)
+  app.use(csrfProtection);
+  app.use(csrfErrorHandler);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     // Log the error with structured logging

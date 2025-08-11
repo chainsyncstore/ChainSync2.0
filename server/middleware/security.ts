@@ -88,16 +88,24 @@ export const authRateLimit = rateLimit({
 });
 
 // CSRF protection configuration
-export const csrfProtection = csrf({
-  cookie: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  },
-  ignoreMethods: ['GET', 'HEAD', 'OPTIONS'], // Don't check CSRF token for these methods
-  sessionKey: 'session' // Use session for CSRF token storage
-});
+export const csrfProtection = (req: Request, res: Response, next: NextFunction) => {
+  // Skip CSRF validation for static files and root path
+  if (req.path === '/' || 
+      req.path === '/favicon.ico' || 
+      req.path.startsWith('/static') || 
+      req.path.startsWith('/assets') ||
+      req.method === 'GET' || 
+      req.method === 'HEAD' || 
+      req.method === 'OPTIONS') {
+    return next();
+  }
+  
+  // Apply CSRF protection for other routes
+  return csrf({
+    ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
+    sessionKey: 'session'
+  })(req, res, next);
+};
 
 // CSRF error handler
 export const csrfErrorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
