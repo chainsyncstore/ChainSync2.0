@@ -573,6 +573,14 @@ export default function Signup() {
                   <p className="text-sm text-red-500">{errors.password}</p>
                 )}
                 <PasswordStrength password={formData.password} />
+                
+                {/* Test: Simple password strength display without zxcvbn */}
+                {/* {formData.password && (
+                  <div className="text-sm text-gray-600">
+                    <p>Password length: {formData.password.length} characters</p>
+                    <p>Strength: {formData.password.length >= 8 ? 'Good' : 'Too short'}</p>
+                  </div>
+                )} */}
               </div>
               
               <div className="space-y-2">
