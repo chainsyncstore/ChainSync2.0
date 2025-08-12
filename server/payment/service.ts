@@ -1,9 +1,10 @@
 import axios, { AxiosError } from 'axios';
 import { PaymentError } from '../lib/errors';
+import { TRUSTED_PAYMENT_PROVIDERS, ValidProvider } from '../lib/constants';
 
 export interface PaymentRequest {
   email: string;
-  amount: string;
+  amount: number; // Changed to number for server-side validation
   currency: string;
   reference: string;
   callback_url?: string;
@@ -36,6 +37,65 @@ export class PaymentService {
     }
   }
 
+  /**
+   * Validates that a payment URL is from a trusted provider domain
+   * @param url - The payment URL to validate
+   * @param provider - The expected payment provider
+   * @returns true if the URL is from a trusted domain, false otherwise
+   */
+  private validatePaymentUrl(url: string, provider: ValidProvider): boolean {
+    try {
+      const urlObj = new URL(url);
+      const trustedDomains = TRUSTED_PAYMENT_PROVIDERS[provider];
+      
+      // Check if the hostname matches any of the trusted domains
+      const isValidDomain = trustedDomains.some(domain => 
+        urlObj.hostname === domain || 
+        urlObj.hostname.endsWith(`.${domain}`)
+      );
+
+      if (!isValidDomain) {
+        console.error(`Payment URL validation failed: ${url} is not from trusted provider ${provider}`);
+        console.error(`Expected domains: ${trustedDomains.join(', ')}`);
+        console.error(`Actual hostname: ${urlObj.hostname}`);
+      }
+
+      return isValidDomain;
+    } catch (error) {
+      console.error('Invalid URL format during payment URL validation:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Safely extracts and validates payment URLs from provider responses
+   * @param response - The payment provider response
+   * @param provider - The payment provider
+   * @returns Validated payment URL or throws error if invalid
+   */
+  private extractAndValidatePaymentUrl(response: any, provider: ValidProvider): string {
+    let paymentUrl: string;
+
+    if (provider === 'paystack') {
+      paymentUrl = response.data?.authorization_url;
+    } else if (provider === 'flutterwave') {
+      paymentUrl = response.data?.link;
+    } else {
+      throw new Error(`Unsupported payment provider: ${provider}`);
+    }
+
+    if (!paymentUrl) {
+      throw new Error(`No payment URL received from ${provider}`);
+    }
+
+    // Validate the payment URL is from a trusted domain
+    if (!this.validatePaymentUrl(paymentUrl, provider)) {
+      throw new Error(`Payment URL validation failed for ${provider}: ${paymentUrl}`);
+    }
+
+    return paymentUrl;
+  }
+
   async initializePaystackPayment(request: PaymentRequest): Promise<PaymentResponse> {
     try {
       console.log(`Initializing Paystack payment with callback URL: ${request.callback_url}`);
@@ -59,7 +119,17 @@ export class PaymentService {
       );
 
       console.log('Paystack payment initialized successfully:', response.data);
-      return response.data;
+      
+      // Validate the payment URL before returning
+      const validatedUrl = this.extractAndValidatePaymentUrl(response.data, 'paystack');
+      
+      return {
+        ...response.data,
+        data: {
+          ...response.data.data,
+          authorization_url: validatedUrl // Use validated URL
+        }
+      };
     } catch (error) {
       console.error('Paystack payment initialization error:', error);
       if (axios.isAxiosError(error)) {
@@ -99,11 +169,15 @@ export class PaymentService {
       );
 
       console.log('Flutterwave payment initialized successfully:', response.data);
+      
+      // Validate the payment URL before returning
+      const validatedUrl = this.extractAndValidatePaymentUrl(response.data, 'flutterwave');
+      
       return {
         status: response.data.status === 'success',
         message: response.data.message,
         data: {
-          link: response.data.data.link,
+          link: validatedUrl, // Use validated URL
           reference: request.reference
         }
       };
@@ -237,11 +311,18 @@ export class PaymentService {
 
   // Mock payment methods for development/testing
   async mockPaystackPayment(request: PaymentRequest): Promise<PaymentResponse> {
+    const mockUrl = `https://checkout.paystack.com/${Math.random().toString(36).substring(2, 15)}`;
+    
+    // Validate mock URL (should always pass for trusted domains)
+    if (!this.validatePaymentUrl(mockUrl, 'paystack')) {
+      throw new Error('Mock Paystack URL validation failed');
+    }
+    
     return {
       status: true,
       message: "Authorization URL created",
       data: {
-        authorization_url: `https://checkout.paystack.com/${Math.random().toString(36).substring(2, 15)}`,
+        authorization_url: mockUrl,
         access_code: Math.random().toString(36).substring(2, 15),
         reference: request.reference
       }
@@ -249,11 +330,18 @@ export class PaymentService {
   }
 
   async mockFlutterwavePayment(request: PaymentRequest): Promise<PaymentResponse> {
+    const mockUrl = `https://checkout.flutterwave.com/v3/hosted/pay/${Math.random().toString(36).substring(2, 15)}`;
+    
+    // Validate mock URL (should always pass for trusted domains)
+    if (!this.validatePaymentUrl(mockUrl, 'flutterwave')) {
+      throw new Error('Mock Flutterwave URL validation failed');
+    }
+    
     return {
       status: true,
       message: "Payment link generated",
       data: {
-        link: `https://checkout.flutterwave.com/v3/hosted/pay/${Math.random().toString(36).substring(2, 15)}`,
+        link: mockUrl,
         reference: request.reference
       }
     };

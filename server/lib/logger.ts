@@ -120,7 +120,7 @@ class Logger {
   }
 
   // Specialized logging methods for key events
-  logAuthEvent(event: 'login' | 'logout' | 'login_failed' | 'password_reset', context: LogContext): void {
+  logAuthEvent(event: 'login' | 'logout' | 'login_failed' | 'password_reset' | 'signup_attempt' | 'signup_duplicate' | 'verification_failed' | 'verification_success' | 'suspicious_activity', context: LogContext): void {
     this.info(`Authentication event: ${event}`, context);
   }
 
@@ -136,8 +136,48 @@ class Logger {
     this.info(`Payment event: ${event}`, context);
   }
 
-  logSecurityEvent(event: 'ip_blocked' | 'unauthorized_access' | 'suspicious_activity', context: LogContext): void {
+  logSecurityEvent(event: 'ip_blocked' | 'unauthorized_access' | 'suspicious_activity' | 'csrf_failed' | 'duplicate_signup' | 'failed_verification' | 'suspicious_redirect' | 'rate_limit_exceeded' | 'bot_detected', context: LogContext): void {
     this.warn(`Security event: ${event}`, context);
+  }
+
+  // Enhanced security logging for specific auth scenarios
+  logDuplicateSignupAttempt(email: string, ipAddress: string, userAgent?: string): void {
+    this.logSecurityEvent('duplicate_signup', {
+      email,
+      ipAddress,
+      userAgent,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  logFailedVerification(userId: string, verificationType: 'email' | 'phone', reason: string, ipAddress?: string): void {
+    this.logSecurityEvent('failed_verification', {
+      userId,
+      verificationType,
+      reason,
+      ipAddress,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  logSuspiciousRedirect(url: string, ipAddress: string, userAgent?: string, userId?: string): void {
+    this.logSecurityEvent('suspicious_redirect', {
+      url,
+      ipAddress,
+      userAgent,
+      userId,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  logFailedCSRFCheck(ipAddress: string, path: string, userAgent?: string, userId?: string): void {
+    this.logSecurityEvent('csrf_failed', {
+      ipAddress,
+      path,
+      userAgent,
+      userId,
+      timestamp: new Date().toISOString()
+    });
   }
 
   // Request logging middleware

@@ -8,21 +8,43 @@ import { logger } from "../lib/logger";
 // CORS configuration for API routes only
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // Allow requests with no origin (like mobile apps, curl requests, or server-to-server)
-    if (!origin) return callback(null, true);
+    // In production, never allow requests with no origin
+    if (process.env.NODE_ENV === 'production' && !origin) {
+      logger.warn('CORS blocked request with no origin in production', { 
+        environment: process.env.NODE_ENV 
+      });
+      return callback(new Error('Origin required in production'));
+    }
     
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+    // In development, allow requests with no origin for testing
+    if (process.env.NODE_ENV === 'development' && !origin) {
+      return callback(null, true);
+    }
+    
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').filter(Boolean) || [
       'http://localhost:5173', // Vite dev server
       'http://localhost:3000', // Alternative dev port
       'http://localhost:5000', // Server port
-      'https://chainsync.store', // Production domain
-      'https://www.chainsync.store' // Production www subdomain
     ];
     
-    if (allowedOrigins.includes(origin)) {
+    // Add production domains only if they are explicitly configured
+    if (process.env.NODE_ENV === 'production') {
+      if (process.env.PRODUCTION_DOMAIN) {
+        allowedOrigins.push(process.env.PRODUCTION_DOMAIN);
+      }
+      if (process.env.PRODUCTION_WWW_DOMAIN) {
+        allowedOrigins.push(process.env.PRODUCTION_WWW_DOMAIN);
+      }
+    }
+    
+    if (allowedOrigins.includes(origin!)) {
       callback(null, true);
     } else {
-      logger.warn('CORS blocked request from unauthorized origin', { origin });
+      logger.warn('CORS blocked request from unauthorized origin', { 
+        origin, 
+        allowedOrigins,
+        environment: process.env.NODE_ENV 
+      });
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -88,6 +110,56 @@ export const authRateLimit = rateLimit({
   skipSuccessfulRequests: true
 });
 
+// Sensitive endpoints rate limiting (5 requests per minute)
+export const sensitiveEndpointRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // limit each IP to 5 requests per minute
+  message: {
+    error: 'Too many requests to sensitive endpoint, please try again later.',
+    retryAfter: Math.ceil(60 / 60) // minutes
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req: Request, res: Response) => {
+    logger.warn('Sensitive endpoint rate limit exceeded', {
+      ip: req.ip,
+      path: req.path,
+      userAgent: req.get('User-Agent')
+    });
+    res.status(429).json({
+      error: 'Too many requests to sensitive endpoint, please try again later.',
+      retryAfter: Math.ceil(60 / 60)
+    });
+  },
+  // Don't skip successful requests for sensitive endpoints
+  skipSuccessfulRequests: false
+});
+
+// Payment-specific rate limiting (3 requests per minute)
+export const paymentRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 3, // limit each IP to 3 payment requests per minute
+  message: {
+    error: 'Too many payment attempts, please try again later.',
+    retryAfter: Math.ceil(60 / 60) // minutes
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req: Request, res: Response) => {
+    logger.warn('Payment rate limit exceeded', {
+      ip: req.ip,
+      path: req.path,
+      userAgent: req.get('User-Agent')
+    });
+    res.status(429).json({
+      error: 'Too many payment attempts, please try again later.',
+      retryAfter: Math.ceil(60 / 60)
+    });
+  },
+  // Don't skip successful requests for payment endpoints
+  skipSuccessfulRequests: false
+});
+
 // CSRF protection configuration
 export const csrfProtection = (req: Request, res: Response, next: NextFunction) => {
   // Skip CSRF validation for static files and root path
@@ -111,11 +183,11 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
 // CSRF error handler
 export const csrfErrorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
   if (err.code === 'EBADCSRFTOKEN') {
-    logger.warn('CSRF token validation failed', {
-      ip: req.ip,
-      path: req.path,
-      userAgent: req.get('User-Agent')
-    });
+    const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+    const userId = (req.session as any)?.user?.id;
+    
+    logger.logFailedCSRFCheck(ipAddress!, req.path, userAgent, userId);
     
     return res.status(403).json({
       error: 'CSRF token validation failed',
@@ -220,6 +292,38 @@ export const securityLogging = (req: Request, res: Response, next: NextFunction)
       ip: req.ip
     });
   });
+  
+  next();
+};
+
+// Middleware to detect and log suspicious redirect URLs
+export const redirectSecurityCheck = (req: Request, res: Response, next: NextFunction) => {
+  const redirectUrl = req.query.redirect || req.query.returnTo || req.query.next;
+  
+  if (redirectUrl && typeof redirectUrl === 'string') {
+    const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+    const userId = (req.session as any)?.user?.id;
+    
+    // Check if redirect URL is suspicious (external domains, javascript: protocol, etc.)
+    try {
+      const url = new URL(redirectUrl, process.env.BASE_URL || 'http://localhost:3000');
+      
+      // Log suspicious redirects
+      if (url.protocol === 'javascript:' || 
+          url.protocol === 'data:' ||
+          url.protocol === 'vbscript:' ||
+          !url.hostname.includes('chainsync.store') && 
+          !url.hostname.includes('localhost') &&
+          !url.hostname.includes('127.0.0.1')) {
+        
+        logger.logSuspiciousRedirect(redirectUrl, ipAddress!, userAgent, userId);
+      }
+    } catch (error) {
+      // Invalid URL format - log as suspicious
+      logger.logSuspiciousRedirect(redirectUrl, ipAddress!, userAgent, userId);
+    }
+  }
   
   next();
 };

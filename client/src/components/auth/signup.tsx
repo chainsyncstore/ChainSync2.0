@@ -228,7 +228,6 @@ function SignupForm() {
 
       const paymentData = await apiClient.post('/payment/initialize', {
         email: data.email,
-        amount: amount,
         currency: data.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
         tier: data.tier,

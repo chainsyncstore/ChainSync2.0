@@ -11,6 +11,7 @@ import {
   accountLockoutLogs, 
   userSessions 
 } from '@shared/schema';
+import { logger } from './lib/logger';
 
 export interface AuthConfig {
   saltRounds: number;
@@ -298,7 +299,7 @@ export class AuthService {
       return { success: true, user: userData };
 
     } catch (error) {
-      console.error('Authentication error:', error);
+      logger.error('Authentication error:', error);
       return { success: false, error: 'Authentication failed' };
     }
   }
@@ -408,7 +409,7 @@ export class AuthService {
       return { success: true, accessToken: newAccessToken };
 
     } catch (error) {
-      console.error('Token refresh error:', error);
+      logger.error('Token refresh error:', error);
       return { success: false, error: 'Token refresh failed' };
     }
   }
@@ -489,7 +490,7 @@ export class AuthService {
       return { success: true, message: 'Email verified successfully' };
 
     } catch (error) {
-      console.error('Email verification error:', error);
+      logger.error('Email verification error:', error);
       return { success: false, message: 'Email verification failed', error: error.message };
     }
   }
@@ -530,7 +531,7 @@ export class AuthService {
       return { success: true, message: `OTP sent to ${phone}` };
 
     } catch (error) {
-      console.error('Phone verification OTP creation error:', error);
+      logger.error('Phone verification OTP creation error:', error);
       return { success: false, message: 'Failed to create OTP', error: error.message };
     }
   }
@@ -592,7 +593,7 @@ export class AuthService {
       return { success: true, message: 'Phone number verified successfully' };
 
     } catch (error) {
-      console.error('Phone OTP verification error:', error);
+      logger.error('Phone OTP verification error:', error);
       return { success: false, message: 'Phone verification failed', error: error.message };
     }
   }
@@ -671,7 +672,7 @@ export class AuthService {
         .where(lt(accountLockoutLogs.createdAt, thirtyDaysAgo));
 
     } catch (error) {
-      console.error('Cleanup error:', error);
+      logger.error('Cleanup error:', error);
     }
   }
 } 

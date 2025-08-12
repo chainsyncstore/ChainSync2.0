@@ -30,7 +30,8 @@ import {
   AuthenticationError,
   NotFoundError,
   ConflictError,
-  PaymentError
+  PaymentError,
+  AuthError
 } from "./lib/errors";
 import { 
   performanceMiddleware, 
@@ -41,8 +42,10 @@ import { logger, extractLogContext } from "./lib/logger";
 import { monitoringService } from "./lib/monitoring";
 import { validateBody } from "./middleware/validation";
 import { SignupSchema, LoginSchema } from "./schemas/auth";
-import { authRateLimit } from "./middleware/security";
+import { authRateLimit, sensitiveEndpointRateLimit, paymentRateLimit } from "./middleware/security";
+import { signupBotPrevention, paymentBotPrevention, emailVerificationBotPrevention } from "./middleware/bot-prevention";
 import { SecureCookieManager } from "./lib/cookies";
+import { sendEmail, generateEmailVerificationEmail } from "./email";
 import crypto from "crypto";
 
 // Extend the session interface
@@ -110,36 +113,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Input validation is now handled by the Zod schema
     
-    const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
-    const logContext = extractLogContext(req, { ipAddress });
-    
-    try {
-      const user = await storage.authenticateUser(username, password, ipAddress);
+      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+      const logContext = extractLogContext(req, { ipAddress });
       
-      if (user) {
-        // Sanitize user data before storing in session
-        const sanitizedUser = AuthService.sanitizeUserForSession(user);
-        req.session.user = sanitizedUser;
+      try {
+        const user = await storage.authenticateUser(username, password, ipAddress);
         
-        // Log successful login
-        logger.logAuthEvent('login', { ...logContext, userId: user.id, storeId: user.storeId });
-        monitoringService.recordAuthEvent('login', { ...logContext, userId: user.id, storeId: user.storeId });
-        
-        sendSuccessResponse(res, sanitizedUser, "Login successful");
-      } else {
+        if (user) {
+          // Check if email is verified before allowing login
+          if (!user.emailVerified) {
+            logger.logAuthEvent('login_blocked_email_not_verified', { 
+              ...logContext, 
+              userId: user.id, 
+              storeId: user.storeId 
+            });
+            
+            throw new AuthError("Please verify your email address before logging in");
+          }
+          
+          // Sanitize user data before storing in session
+          const sanitizedUser = AuthService.sanitizeUserForSession(user);
+          req.session.user = sanitizedUser;
+          
+          // Log successful login
+          logger.logAuthEvent('login', { ...logContext, userId: user.id, storeId: user.storeId });
+          monitoringService.recordAuthEvent('login', { ...logContext, userId: user.id, storeId: user.storeId });
+          
+          sendSuccessResponse(res, sanitizedUser, "Login successful");
+        } else {
+          // Log failed login attempt
+          logger.logAuthEvent('login_failed', logContext);
+          monitoringService.recordAuthEvent('login_failed', logContext);
+          
+          throw new AuthError("Invalid credentials");
+        }
+      } catch (error) {
         // Log failed login attempt
         logger.logAuthEvent('login_failed', logContext);
         monitoringService.recordAuthEvent('login_failed', logContext);
-        
-        throw new AuthenticationError("Invalid credentials or IP not whitelisted");
+        throw error;
       }
-    } catch (error) {
-      // Log failed login attempt
-      logger.logAuthEvent('login_failed', logContext);
-      monitoringService.recordAuthEvent('login_failed', logContext);
-      throw error;
-    }
-  }));
+    }));
 
   app.get("/api/auth/me", (req: any, res) => {
     if (req.session.user) {
@@ -165,7 +179,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Signup route with validation and rate limiting
   app.post("/api/auth/signup", 
-    authRateLimit,
+    sensitiveEndpointRateLimit,
+    signupBotPrevention,
     validateBody(SignupSchema),
     async (req, res) => {
       try {
@@ -176,82 +191,237 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const passwordValidation = AuthService.validatePassword(password);
         if (!passwordValidation.isValid) {
           return res.status(400).json({ 
-            message: "Password does not meet security requirements",
-            errors: passwordValidation.errors 
+            message: "Unable to complete signup. Please check your details."
           });
         }
 
-      // Check if user already exists and signup is completed
-      const existingUser = await storage.getUserByEmail(email);
-      if (existingUser && existingUser.signupCompleted) {
-        return res.status(400).json({ message: "User with this email already exists" });
+        // Tier and location validation (already handled by Zod schema, but double-check)
+        const validTiers = ["basic", "premium", "enterprise"];
+        const validLocations = ["nigeria", "international"];
+        
+        if (!validTiers.includes(tier)) {
+          return res.status(400).json({ 
+            message: "Unable to complete signup. Please check your details."
+          });
+        }
+        
+        if (!validLocations.includes(location)) {
+          return res.status(400).json({ 
+            message: "Unable to complete signup. Please check your details."
+          });
+        }
+
+        // Check if user already exists and signup is completed
+        const existingUser = await storage.getUserByEmail(email);
+        if (existingUser && existingUser.signupCompleted) {
+          // Log the duplicate signup attempt for security monitoring
+          const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+          const userAgent = req.get('User-Agent');
+          logger.logDuplicateSignupAttempt(email, ipAddress!, userAgent);
+          
+          // Return generic error to prevent email enumeration
+          throw new AuthError("Unable to complete signup. Please check your details.");
+        }
+
+        // Check if there's an incomplete signup
+        const incompleteUser = await storage.getIncompleteUserByEmail(email);
+        if (incompleteUser) {
+          // Update signup attempts and allow retry
+          await storage.updateUserSignupAttempts(incompleteUser.id);
+          
+          // Return the existing incomplete user data
+          return res.status(200).json({ 
+            message: "Resuming incomplete signup",
+            user: {
+              id: incompleteUser.id,
+              email: incompleteUser.email,
+              firstName: incompleteUser.firstName,
+              lastName: incompleteUser.lastName,
+              tier: incompleteUser.tier,
+              signupAttempts: incompleteUser.signupAttempts + 1
+            },
+            isResume: true
+          });
+        }
+
+        // Create user account with hashed password (not active until email verified)
+        const user = await storage.createUser({
+          username: email,
+          password: password, // Will be hashed in storage.createUser
+          email,
+          firstName,
+          lastName,
+          phone,
+          companyName,
+          role: "admin", // Default role for new signups
+          tier,
+          location,
+          isActive: false // Account not active until email verified
+        });
+
+        // Create default store for the user
+        const store = await storage.createStore({
+          name: companyName,
+          ownerId: user.id,
+          address: "",
+          phone: phone,
+          email: email,
+          isActive: true
+        });
+
+        // Generate email verification token
+        const verificationToken = await AuthService.createEmailVerificationToken(user.id);
+        
+        // Send verification email
+        const emailOptions = generateEmailVerificationEmail(
+          email, 
+          verificationToken.token, 
+          firstName
+        );
+        
+        const emailSent = await sendEmail(emailOptions);
+        if (!emailSent) {
+          logger.error("Failed to send verification email", { 
+            userId: user.id, 
+            email 
+          });
+        }
+
+        res.status(201).json({ 
+          message: "Account created successfully. Please verify your email to activate your account.",
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            tier: user.tier,
+            emailVerified: false
+          },
+          store: {
+            id: store.id,
+            name: store.name
+          }
+        });
+      } catch (error) {
+        console.error("Signup error:", error);
+        
+        // Log the specific error internally for debugging
+        logger.error("Signup error", { 
+          error: error.message, 
+          stack: error.stack,
+          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+        });
+        
+        // Return generic error to prevent information leakage
+        res.status(500).json({ 
+          message: "Unable to complete signup. Please try again later." 
+        });
+      }
+    });
+
+  // Email verification endpoint
+  app.post("/api/auth/verify-email", 
+    sensitiveEndpointRateLimit,
+    emailVerificationBotPrevention,
+    handleAsyncError(async (req, res) => {
+      const { token } = req.body;
+      
+      if (!token) {
+        throw new AuthError("Verification token is required");
       }
 
-      // Check if there's an incomplete signup
-      const incompleteUser = await storage.getIncompleteUserByEmail(email);
-      if (incompleteUser) {
-        // Update signup attempts and allow retry
-        await storage.updateUserSignupAttempts(incompleteUser.id);
+      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+      const logContext = extractLogContext(req, { ipAddress });
+
+      // Verify the token
+      const verificationResult = await AuthService.verifyEmailToken(token);
+      
+      if (verificationResult.success) {
+        // Mark email as verified and activate account
+        await storage.markEmailVerified(verificationResult.userId!);
         
-        // Return the existing incomplete user data
-        return res.status(200).json({ 
-          message: "Resuming incomplete signup",
-          user: {
-            id: incompleteUser.id,
-            email: incompleteUser.email,
-            firstName: incompleteUser.firstName,
-            lastName: incompleteUser.lastName,
-            tier: incompleteUser.tier,
-            signupAttempts: incompleteUser.signupAttempts + 1
-          },
-          isResume: true
+        logger.logAuthEvent('verification_success', { 
+          ...logContext, 
+          verificationType: 'email' 
+        });
+        
+        res.json({ 
+          success: true,
+          message: "Email verified successfully. Your account is now active." 
+        });
+      } else {
+        // Log failed verification for security monitoring
+        logger.logFailedVerification('unknown', 'email', verificationResult.error || 'Invalid token', ipAddress);
+        
+        throw new AuthError("Invalid or expired verification token");
+      }
+    }));
+
+  // Resend verification email endpoint
+  app.post("/api/auth/resend-verification", 
+    sensitiveEndpointRateLimit,
+    emailVerificationBotPrevention,
+    handleAsyncError(async (req, res) => {
+      const { email } = req.body;
+      
+      if (!email) {
+        throw new AuthError("Email address is required");
+      }
+
+      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+      const logContext = extractLogContext(req, { ipAddress });
+
+      // Check if user exists and needs verification
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        // Log attempt for non-existent user for security monitoring
+        logger.logSecurityEvent('suspicious_activity', {
+          ...logContext,
+          activity: 'verification_resend_attempt',
+          email
+        });
+        
+        // Return generic message to prevent email enumeration
+        return res.json({ 
+          success: true,
+          message: "If an account with this email exists, a verification email has been sent." 
         });
       }
 
-      // Create user account with hashed password
-      const user = await storage.createUser({
-        username: email,
-        password: password, // Will be hashed in storage.createUser
-        email,
-        firstName,
-        lastName,
-        phone,
-        companyName,
-        role: "admin", // Default role for new signups
-        tier,
-        location,
-        isActive: true
-      });
+      if (user.emailVerified) {
+        throw new AuthError("Email is already verified");
+      }
 
-      // Create default store for the user
-      const store = await storage.createStore({
-        name: companyName,
-        ownerId: user.id,
-        address: "",
-        phone: phone,
-        email: email,
-        isActive: true
+      // Generate new verification token
+      const verificationToken = await AuthService.createEmailVerificationToken(user.id);
+      
+      // Send verification email
+      const emailOptions = generateEmailVerificationEmail(
+        email, 
+        verificationToken.token, 
+        user.firstName || "User"
+      );
+      
+      const emailSent = await sendEmail(emailOptions);
+      if (!emailSent) {
+        logger.error("Failed to send verification email", { 
+          userId: user.id, 
+          email 
+        });
+        throw new AuthError("Failed to send verification email. Please try again later.");
+      }
+      
+      logger.logAuthEvent('verification_sent', { 
+        ...logContext, 
+        userId: user.id,
+        verificationType: 'email' 
       });
-
-      res.status(201).json({ 
-        message: "Account created successfully",
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          tier: user.tier
-        },
-        store: {
-          id: store.id,
-          name: store.name
-        }
+      
+      res.json({ 
+        success: true,
+        message: "Verification email sent successfully. Please check your inbox." 
       });
-    } catch (error) {
-      console.error("Signup error:", error);
-      res.status(500).json({ message: "Failed to create account" });
-    }
-  });
+    }));
 
   // Complete signup route (called after successful payment)
   app.post("/api/auth/complete-signup", async (req, res) => {
@@ -290,17 +460,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Forgot password route
-  app.post("/api/auth/forgot-password", async (req, res) => {
-    try {
+  app.post("/api/auth/forgot-password", 
+    sensitiveEndpointRateLimit,
+    handleAsyncError(async (req, res) => {
       const { email } = req.body;
       
       if (!email) {
-        return res.status(400).json({ message: "Email is required" });
+        throw new AuthError("Email is required");
       }
+
+      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+      const logContext = extractLogContext(req, { ipAddress });
 
       // Check if user exists
       const user = await storage.getUserByEmail(email);
       if (!user) {
+        // Log attempt for non-existent user for security monitoring
+        logger.logSecurityEvent('suspicious_activity', {
+          ...logContext,
+          activity: 'password_reset_attempt',
+          email
+        });
+        
         // Don't reveal if user exists or not for security
         return res.json({ message: "If an account with that email exists, a password reset link has been sent." });
       }
@@ -319,45 +500,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const emailSent = await sendEmail(emailOptions);
       
       if (emailSent) {
+        logger.logAuthEvent('password_reset', { 
+          ...logContext, 
+          userId: user.id 
+        });
         res.json({ message: "If an account with that email exists, a password reset link has been sent." });
       } else {
-        res.status(500).json({ message: "Failed to send password reset email" });
+        throw new AuthError("Failed to send password reset email");
       }
-    } catch (error) {
-      console.error("Forgot password error:", error);
-      res.status(500).json({ message: "Failed to process password reset request" });
-    }
-  });
+    }));
 
   // Reset password route
-  app.post("/api/auth/reset-password", async (req, res) => {
-    try {
+  app.post("/api/auth/reset-password", 
+    sensitiveEndpointRateLimit,
+    handleAsyncError(async (req, res) => {
       const { token, newPassword } = req.body;
       
       if (!token || !newPassword) {
-        return res.status(400).json({ message: "Token and new password are required" });
+        throw new AuthError("Token and new password are required");
       }
+
+      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+      const logContext = extractLogContext(req, { ipAddress });
 
       // Validate password strength
       if (newPassword.length < 8) {
-        return res.status(400).json({ message: "Password must be at least 8 characters long" });
+        throw new AuthError("Password must be at least 8 characters long");
       }
 
       // Get reset token
       const resetToken = await storage.getPasswordResetToken(token);
       if (!resetToken) {
-        return res.status(400).json({ message: "Invalid or expired reset token" });
+        logger.logSecurityEvent('suspicious_activity', {
+          ...logContext,
+          activity: 'invalid_reset_token',
+          token: token.substring(0, 8) + '...' // Log partial token for security
+        });
+        throw new AuthError("Invalid or expired reset token");
       }
 
       // Check if token is expired
       if (new Date() > resetToken.expiresAt) {
         await storage.invalidatePasswordResetToken(token);
-        return res.status(400).json({ message: "Reset token has expired" });
+        logger.logSecurityEvent('suspicious_activity', {
+          ...logContext,
+          activity: 'expired_reset_token',
+          token: token.substring(0, 8) + '...'
+        });
+        throw new AuthError("Reset token has expired");
       }
 
       // Check if token has been used
       if (resetToken.isUsed) {
-        return res.status(400).json({ message: "Reset token has already been used" });
+        logger.logSecurityEvent('suspicious_activity', {
+          ...logContext,
+          activity: 'reused_reset_token',
+          token: token.substring(0, 8) + '...'
+        });
+        throw new AuthError("Reset token has already been used");
       }
 
       // Update user password
@@ -375,12 +575,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       await sendEmail(emailOptions);
       
+      logger.logAuthEvent('password_reset', { 
+        ...logContext, 
+        userId: user.id 
+      });
+      
       res.json({ message: "Password has been successfully reset" });
-    } catch (error) {
-      console.error("Reset password error:", error);
-      res.status(500).json({ message: "Failed to reset password" });
-    }
-  });
+    }));
 
   // Validate reset token route
   app.get("/api/auth/validate-reset-token/:token", async (req, res) => {
@@ -454,15 +655,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payment initialization route
-  app.post("/api/payment/initialize", async (req, res) => {
+  app.post("/api/payment/initialize", 
+    paymentRateLimit,
+    paymentBotPrevention,
+    async (req, res) => {
     try {
-      const { email, amount, currency, provider, tier, metadata } = req.body;
-      const logContext = extractLogContext(req, { email, amount, provider, tier });
+      const { email, currency, provider, tier, metadata } = req.body;
+      const logContext = extractLogContext(req, { email, provider, tier });
       
-      if (!email || !amount || !currency || !provider || !tier) {
+      if (!email || !currency || !provider || !tier) {
         return res.status(400).json({ message: "Missing required payment parameters" });
       }
 
+      // Import server-side constants for security validation
+      const { PRICING_TIERS, VALID_TIERS, VALID_CURRENCIES, CURRENCY_PROVIDER_MAP } = await import('./lib/constants');
+      
+      // Validate tier and currency
+      if (!VALID_TIERS.includes(tier)) {
+        return res.status(400).json({ message: "Invalid subscription tier" });
+      }
+      
+      if (!VALID_CURRENCIES.includes(currency)) {
+        return res.status(400).json({ message: "Invalid currency" });
+      }
+      
+      // Validate provider matches currency
+      const expectedProvider = CURRENCY_PROVIDER_MAP[currency];
+      if (provider !== expectedProvider) {
+        console.error(`Provider mismatch: expected ${expectedProvider} for ${currency}, got ${provider}`);
+        return res.status(400).json({ message: "Payment provider does not match currency" });
+      }
+      
+      // Determine amount server-side based on tier and currency (security: no frontend parsing)
+      const amount = PRICING_TIERS[tier][currency === 'NGN' ? 'ngn' : 'usd'];
+      if (!amount) {
+        console.error(`No pricing found for tier ${tier} and currency ${currency}`);
+        return res.status(400).json({ message: "Invalid pricing configuration" });
+      }
+      
+      console.log(`Server-side amount calculation: ${tier} tier, ${currency} currency = ${amount} ${currency === 'NGN' ? 'kobo' : 'cents'}`);
+      
       const paymentService = new PaymentService();
       const reference = paymentService.generateReference(provider as 'paystack' | 'flutterwave');
       
@@ -474,7 +706,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const paymentRequest = {
         email,
-        amount,
+        amount, // Server-calculated amount in smallest unit
         currency,
         reference,
         callback_url: callbackUrl,
@@ -505,9 +737,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Unsupported payment provider" });
       }
 
-      // Log payment initiation
-      logger.logPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl });
-      monitoringService.recordPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl });
+      // Log payment initiation with server-calculated amount
+      logger.logPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl, serverCalculatedAmount: true });
+      monitoringService.recordPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl, serverCalculatedAmount: true });
 
       // Set secure cookie for pending signup user ID if provided
       if (req.body.userId) {

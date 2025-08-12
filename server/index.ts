@@ -10,7 +10,8 @@ import {
   globalRateLimit, 
   securityHeaders, 
   ipWhitelistCheck, 
-  securityLogging
+  securityLogging,
+  redirectSecurityCheck
 } from "./middleware/security";
 
 const app = express();
@@ -21,6 +22,7 @@ app.use(globalRateLimit);
 app.use(securityHeaders);
 app.use(ipWhitelistCheck);
 app.use(securityLogging);
+app.use(redirectSecurityCheck);
 
 // CORS middleware - apply after other security middleware but before routes
 app.use(corsMiddleware);

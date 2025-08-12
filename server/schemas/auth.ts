@@ -10,12 +10,12 @@ const emailSchema = z
   .max(254, "Email must be 254 characters or less")
   .email("Invalid email format");
 
-// Password validation (8-128 characters)
+// Password validation (8-128 characters) with strong policy
 const passwordSchema = z
   .string({ required_error: "Password is required" })
   .min(8, "Password must be at least 8 characters")
   .max(128, "Password must be 128 characters or less")
-  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, "Password must contain at least one lowercase letter, one uppercase letter, and one number");
+  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character");
 
 // Phone validation (E.164 format, 7-16 digits)
 const phoneSchema = z
@@ -44,13 +44,10 @@ const tierSchema = z.enum(["basic", "premium", "enterprise"], {
   errorMap: () => ({ message: "Tier must be one of: basic, premium, enterprise" })
 });
 
-// Location validation (trimmed, max 50 characters)
-const locationSchema = z
-  .string({ required_error: "Location is required" })
-  .min(1, "Location is required")
-  .max(50, "Location must be 50 characters or less")
-  .refine(val => val.trim().length > 0, "Location is required")
-  .transform(val => val.trim());
+// Location validation - only accept specific values
+const locationSchema = z.enum(["nigeria", "international"], {
+  errorMap: () => ({ message: "Location must be one of: nigeria, international" })
+});
 
 // Main signup schema
 export const SignupSchema = z.object({

@@ -39,6 +39,83 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
   }
 }
 
+export function generateEmailVerificationEmail(userEmail: string, verificationToken: string, userName: string): EmailOptions {
+  const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
+  
+  return {
+    to: userEmail,
+    subject: 'ChainSync - Verify Your Email Address',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">ChainSync</h1>
+        </div>
+        
+        <div style="padding: 30px; background: #f9f9f9;">
+          <h2 style="color: #333; margin-bottom: 20px;">Verify Your Email Address</h2>
+          
+          <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
+            Hello ${userName},
+          </p>
+          
+          <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
+            Thank you for signing up for ChainSync! To complete your account setup, 
+            please verify your email address by clicking the button below.
+          </p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${verificationUrl}" 
+               style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                      color: white; 
+                      padding: 15px 30px; 
+                      text-decoration: none; 
+                      border-radius: 5px; 
+                      display: inline-block; 
+                      font-weight: bold;">
+              Verify Email Address
+            </a>
+          </div>
+          
+          <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
+            This verification link will expire in 24 hours for security reasons.
+          </p>
+          
+          <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
+            If the button above doesn't work, you can copy and paste this link into your browser:
+          </p>
+          
+          <p style="color: #667eea; word-break: break-all; margin-bottom: 20px;">
+            ${verificationUrl}
+          </p>
+          
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+          
+          <p style="color: #999; font-size: 12px; text-align: center;">
+            This is an automated message from ChainSync. Please do not reply to this email.
+          </p>
+        </div>
+      </div>
+    `,
+    text: `
+      ChainSync - Email Verification
+      
+      Hello ${userName},
+      
+      Thank you for signing up for ChainSync! To complete your account setup, 
+      please verify your email address by visiting this link:
+      
+      ${verificationUrl}
+      
+      This verification link will expire in 24 hours for security reasons.
+      
+      If you didn't create this account, you can safely ignore this email.
+      
+      Best regards,
+      The ChainSync Team
+    `
+  };
+}
+
 export function generatePasswordResetEmail(userEmail: string, resetToken: string, userName: string): EmailOptions {
   const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
   

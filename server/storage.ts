@@ -225,6 +225,15 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId));
   }
 
+  async markEmailVerified(userId: string): Promise<void> {
+    await db.update(users)
+      .set({ 
+        emailVerified: true,
+        isActive: true
+      })
+      .where(eq(users.id, userId));
+  }
+
   async cleanupAbandonedSignups(): Promise<number> {
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
     
@@ -368,8 +377,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    // Hash password if provided
+    // CRITICAL: Always hash passwords before storage for security
     if (insertUser.password) {
+      // Validate password strength before hashing
+      const validation = AuthService.validatePassword(insertUser.password);
+      if (!validation.isValid) {
+        throw new Error(`Password validation failed: ${validation.errors.join(', ')}`);
+      }
+      
       const hashedPassword = await AuthService.hashPassword(insertUser.password);
       insertUser.password = hashedPassword;
     }

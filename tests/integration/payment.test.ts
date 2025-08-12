@@ -95,10 +95,9 @@ describe('Payment Integration Tests', () => {
     it('should initialize Paystack payment successfully', async () => {
       const paymentData = {
         email: 'paymentuser@example.com',
-        amount: 5000, // Amount in kobo (50 NGN)
         currency: 'NGN',
         provider: 'paystack',
-        tier: 'premium',
+        tier: 'basic', // Changed to valid tier
         metadata: {
           userId: testUser.id,
           storeId: testStore.id
@@ -119,10 +118,9 @@ describe('Payment Integration Tests', () => {
     it('should initialize Flutterwave payment successfully', async () => {
       const paymentData = {
         email: 'paymentuser@example.com',
-        amount: 5000, // Amount in kobo (50 NGN)
-        currency: 'NGN',
+        currency: 'USD', // Changed to USD for Flutterwave
         provider: 'flutterwave',
-        tier: 'premium',
+        tier: 'basic', // Changed to valid tier
         metadata: {
           userId: testUser.id,
           storeId: testStore.id
@@ -143,7 +141,7 @@ describe('Payment Integration Tests', () => {
     it('should reject missing required parameters', async () => {
       const invalidData = {
         email: 'paymentuser@example.com',
-        // Missing amount, currency, provider, tier
+        // Missing currency, provider, tier
       };
 
       const response = await request(app)
@@ -157,10 +155,9 @@ describe('Payment Integration Tests', () => {
     it('should reject unsupported payment provider', async () => {
       const paymentData = {
         email: 'paymentuser@example.com',
-        amount: 5000,
         currency: 'NGN',
         provider: 'unsupported_provider',
-        tier: 'premium'
+        tier: 'basic'
       };
 
       const response = await request(app)
@@ -174,10 +171,9 @@ describe('Payment Integration Tests', () => {
     it('should include metadata in payment request', async () => {
       const paymentData = {
         email: 'paymentuser@example.com',
-        amount: 5000,
         currency: 'NGN',
         provider: 'paystack',
-        tier: 'premium',
+        tier: 'basic',
         metadata: {
           userId: testUser.id,
           storeId: testStore.id,
@@ -353,10 +349,9 @@ describe('Payment Integration Tests', () => {
 
       const paymentData = {
         email: 'paymentuser@example.com',
-        amount: 5000,
         currency: 'NGN',
         provider: 'paystack',
-        tier: 'premium'
+        tier: 'basic'
       };
 
       const response = await request(app)
@@ -389,13 +384,12 @@ describe('Payment Integration Tests', () => {
   });
 
   describe('Payment Security', () => {
-    it('should validate payment amounts', async () => {
+    it('should validate invalid tier values', async () => {
       const paymentData = {
         email: 'paymentuser@example.com',
-        amount: -1000, // Negative amount
         currency: 'NGN',
         provider: 'paystack',
-        tier: 'premium'
+        tier: 'invalid_tier'
       };
 
       const response = await request(app)
@@ -403,16 +397,15 @@ describe('Payment Integration Tests', () => {
         .send(paymentData)
         .expect(400);
 
-      expect(response.body.message).toBe('Invalid payment amount');
+      expect(response.body.message).toBe('Invalid subscription tier');
     });
 
     it('should validate email format', async () => {
       const paymentData = {
         email: 'invalid-email',
-        amount: 5000,
         currency: 'NGN',
         provider: 'paystack',
-        tier: 'premium'
+        tier: 'basic'
       };
 
       const response = await request(app)
@@ -426,10 +419,9 @@ describe('Payment Integration Tests', () => {
     it('should validate supported currencies', async () => {
       const paymentData = {
         email: 'paymentuser@example.com',
-        amount: 5000,
         currency: 'INVALID_CURRENCY',
         provider: 'paystack',
-        tier: 'premium'
+        tier: 'basic'
       };
 
       const response = await request(app)
@@ -437,7 +429,23 @@ describe('Payment Integration Tests', () => {
         .send(paymentData)
         .expect(400);
 
-      expect(response.body.message).toBe('Unsupported currency');
+      expect(response.body.message).toBe('Invalid currency');
+    });
+
+    it('should validate provider-currency mismatch', async () => {
+      const paymentData = {
+        email: 'paymentuser@example.com',
+        currency: 'USD',
+        provider: 'paystack', // Paystack only supports NGN
+        tier: 'basic'
+      };
+
+      const response = await request(app)
+        .post('/api/payment/initialize')
+        .send(paymentData)
+        .expect(400);
+
+      expect(response.body.message).toBe('Payment provider does not match currency');
     });
   });
 }); 

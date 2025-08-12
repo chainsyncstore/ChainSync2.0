@@ -20,6 +20,7 @@ export class AppError extends Error {
   public statusCode: number;
   public code: string;
   public isOperational: boolean;
+  public details?: any;
 
   constructor(message: string, statusCode: number = 500, code?: string, isOperational: boolean = true) {
     super(message);
@@ -91,10 +92,29 @@ export class PaymentError extends AppError {
   }
 }
 
+export class AuthError extends AppError {
+  constructor(message: string = 'Authentication failed') {
+    super(message, 400, 'AUTH_ERROR');
+  }
+}
+
 export function sendErrorResponse(res: Response, error: AppError | Error, path?: string): void {
   let apiError: ApiErrorResponse;
 
   if (error instanceof AppError) {
+    // For auth-related errors, always return 400 with generic message
+    if (error instanceof AuthError || error instanceof AuthenticationError) {
+      apiError = {
+        status: 'error',
+        message: 'Authentication failed. Please check your credentials and try again.',
+        code: 'AUTH_ERROR',
+        timestamp: new Date().toISOString(),
+        path
+      };
+      res.status(400).json(apiError);
+      return;
+    }
+
     apiError = {
       status: 'error',
       message: error.message,
@@ -104,9 +124,10 @@ export function sendErrorResponse(res: Response, error: AppError | Error, path?:
       path
     };
   } else {
+    // For any other errors, return generic message to avoid exposing internal details
     apiError = {
       status: 'error',
-      message: error.message || 'Internal Server Error',
+      message: 'An error occurred. Please try again later.',
       code: 'INTERNAL_SERVER_ERROR',
       timestamp: new Date().toISOString(),
       path

@@ -178,8 +178,9 @@ async function testFlutterwavePaymentInitialization() {
   try {
     const paymentData = {
       email: 'test@example.com',
-      amount: '5000',
-      currency: 'NGN',
+      currency: 'USD', // Flutterwave supports USD
+      provider: 'flutterwave',
+      tier: 'basic',
       reference: TEST_CONFIG.flutterwaveReference,
       callback_url: `http://${TEST_CONFIG.host}:${TEST_CONFIG.port}/payment/callback`
     };
