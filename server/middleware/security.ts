@@ -5,17 +5,18 @@ import rateLimit from "express-rate-limit";
 import csrf from "csurf";
 import { logger } from "../lib/logger";
 
-// CORS configuration
+// CORS configuration for API routes only
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (like mobile apps, curl requests, or server-to-server)
     if (!origin) return callback(null, true);
     
     const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
-      'http://localhost:3000',
-      'http://localhost:5000',
-      'https://chainsync.app',
-      'https://www.chainsync.app'
+      'http://localhost:5173', // Vite dev server
+      'http://localhost:3000', // Alternative dev port
+      'http://localhost:5000', // Server port
+      'https://chainsync.store', // Production domain
+      'https://www.chainsync.store' // Production www subdomain
     ];
     
     if (allowedOrigins.includes(origin)) {
@@ -149,8 +150,19 @@ export const helmetConfig = helmet({
   xssFilter: true
 });
 
-// CORS middleware
-export const corsMiddleware = cors(corsOptions);
+// CORS middleware - only apply to API routes
+export const corsMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  // Skip CORS for static files and non-API routes
+  if (req.path.startsWith('/assets/') || 
+      req.path.startsWith('/static/') || 
+      req.path.includes('.') || 
+      !req.path.startsWith('/api/')) {
+    return next();
+  }
+  
+  // Apply CORS only to API routes
+  return cors(corsOptions)(req, res, next);
+};
 
 // Security headers middleware
 export const securityHeaders = (req: Request, res: Response, next: NextFunction) => {

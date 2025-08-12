@@ -87,45 +87,11 @@ export function serveStatic(app: Express) {
     files: fs.readdirSync(distPath)
   });
 
-  // Serve static files with proper MIME types and error handling
-  app.use(express.static(distPath, {
-    setHeaders: (res, filePath) => {
-      if (filePath.endsWith('.css')) {
-        res.setHeader('Content-Type', 'text/css');
-      } else if (filePath.endsWith('.js')) {
-        res.setHeader('Content-Type', 'application/javascript');
-      } else if (filePath.endsWith('.html')) {
-        res.setHeader('Content-Type', 'text/html');
-      } else if (filePath.endsWith('.json')) {
-        res.setHeader('Content-Type', 'application/json');
-      }
-    },
-    // Add error handling for missing files
-    fallthrough: false
-  }));
+  // Serve static files from /dist/public
+  app.use(express.static(distPath));
 
-  // Handle 404s for static assets more gracefully
-  app.use('/assets/*', (req, res) => {
-    logger.warn('Static asset not found', { 
-      path: req.path,
-      userAgent: req.get('User-Agent'),
-      referer: req.get('Referer')
-    });
-    res.status(404).json({ 
-      error: 'Asset not found',
-      path: req.path 
-    });
-  });
-
-  // fall through to index.html for SPA routing
-  app.use("*", (req, res) => {
-    // Only serve index.html for routes that look like pages, not assets
-    if (req.path.startsWith('/assets/') || req.path.includes('.')) {
-      return res.status(404).json({ error: 'Not found' });
-    }
-    
-    // Log SPA fallback
-    logger.debug('Serving SPA fallback', { path: req.path });
-    res.sendFile(path.resolve(distPath, "index.html"));
+  // Catch-all route to serve index.html for SPA routing
+  app.get("*", (_, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
   });
 }

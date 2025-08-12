@@ -17,11 +17,13 @@ const app = express();
 
 // Security middleware (order is important)
 app.use(helmetConfig);
-app.use(corsMiddleware);
 app.use(globalRateLimit);
 app.use(securityHeaders);
 app.use(ipWhitelistCheck);
 app.use(securityLogging);
+
+// CORS middleware - apply after other security middleware but before routes
+app.use(corsMiddleware);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -78,7 +80,6 @@ app.use(requestLogger);
   server.listen({
     port,
     host: "0.0.0.0",
-    reusePort: true,
   }, () => {
     logger.info(`Server started successfully`, {
       port,
