@@ -215,7 +215,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: "admin", // Default role for new signups
         tier,
         location,
-        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 2 weeks trial
         isActive: true
       });
 
@@ -236,8 +235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          tier: user.tier,
-          trialEndsAt: user.trialEndsAt
+          tier: user.tier
         },
         store: {
           id: store.id,

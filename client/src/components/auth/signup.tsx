@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -106,6 +106,7 @@ export default function Signup() {
   const [errors, setErrors] = useState<Partial<SignupForm>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'payment'>('form');
+  const [userData, setUserData] = useState<any>(null);
 
   // Get URL parameters
   const urlParams = new URLSearchParams(window.location.search);
@@ -229,11 +230,20 @@ export default function Signup() {
         // You could also show a toast notification here
       }
 
+      // Store user data for payment step
+      setUserData(responseData.user);
+
       // Move to payment step
       setStep('payment');
     } catch (error: any) {
+      console.error('Signup error:', error);
+      
       if (error.response?.status === 400 && error.response?.data?.message === "User with this email already exists") {
         setErrors({ email: 'An account with this email already exists. Please try logging in instead.' });
+      } else if (error.response?.status === 500) {
+        setErrors({ email: 'Server error. Please try again later or contact support.' });
+      } else if (error.message) {
+        setErrors({ email: error.message });
       } else {
         // Generic error message for security
         setErrors({ email: 'Account creation failed. Please try again or contact support.' });
@@ -259,7 +269,7 @@ export default function Signup() {
         currency: formData.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
         tier: formData.tier,
-        userId: responseData.user.id, // Pass user ID for signup completion tracking
+        userId: userData?.id, // Pass user ID for signup completion tracking
         metadata: {
           firstName: formData.firstName,
           lastName: formData.lastName,
@@ -269,8 +279,8 @@ export default function Signup() {
       });
       
       // Store user ID for signup completion
-      if (paymentData.user?.id) {
-        localStorage.setItem('pendingSignupUserId', paymentData.user.id);
+      if (userData?.id) {
+        localStorage.setItem('pendingSignupUserId', userData.id);
       }
       
       // Redirect to payment gateway
