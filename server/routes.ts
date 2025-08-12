@@ -405,11 +405,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // CSRF token endpoint
   app.get("/api/auth/csrf-token", (req: any, res) => {
     try {
-      // Generate a simple CSRF token using crypto
-      const csrfToken = crypto.randomBytes(32).toString('hex');
-      
-      // Store the token in the session for validation
-      req.session.csrfToken = csrfToken;
+      // Use the csurf library's token generation
+      const csrfToken = req.csrfToken();
       
       res.json({ 
         csrfToken,

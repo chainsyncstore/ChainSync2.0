@@ -104,7 +104,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   // Apply CSRF protection for other routes
   return csrf({
     ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
-    sessionKey: 'session'
+    sessionKey: 'chainsync.sid'
   })(req, res, next);
 };
 
