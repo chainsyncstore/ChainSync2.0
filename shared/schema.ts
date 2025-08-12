@@ -43,12 +43,17 @@ export const users = pgTable("users", {
   lastFailedLogin: timestamp("last_failed_login"),
   verificationToken: varchar("verification_token", { length: 255 }),
   verificationTokenExpires: timestamp("verification_token_expires"),
+  signupCompleted: boolean("signup_completed").default(false),
+  signupStartedAt: timestamp("signup_started_at"),
+  signupCompletedAt: timestamp("signup_completed_at"),
+  signupAttempts: integer("signup_attempts").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   storeIdIdx: index("users_store_id_idx").on(table.storeId),
   isActiveIdx: index("users_is_active_idx").on(table.isActive),
   createdAtIdx: index("users_created_at_idx").on(table.createdAt),
+  incompleteSignupsIdx: index("users_incomplete_signups_idx").on(table.signupCompleted, table.signupStartedAt),
 }));
 
 // Stores table
@@ -322,6 +327,10 @@ export const enhancedUserSchema = z.object({
   }).default("cashier"),
   storeId: z.string().uuid("Invalid store ID").optional(),
   isActive: z.boolean().default(true),
+  signupCompleted: z.boolean().default(false),
+  signupStartedAt: z.date().optional(),
+  signupCompletedAt: z.date().optional(),
+  signupAttempts: z.number().int().min(0).default(0),
 });
 
 export const enhancedProductSchema = z.object({

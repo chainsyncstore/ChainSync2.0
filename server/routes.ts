@@ -176,10 +176,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
-      // Check if user already exists
+      // Check if user already exists and signup is completed
       const existingUser = await storage.getUserByEmail(email);
-      if (existingUser) {
+      if (existingUser && existingUser.signupCompleted) {
         return res.status(400).json({ message: "User with this email already exists" });
+      }
+
+      // Check if there's an incomplete signup
+      const incompleteUser = await storage.getIncompleteUserByEmail(email);
+      if (incompleteUser) {
+        // Update signup attempts and allow retry
+        await storage.updateUserSignupAttempts(incompleteUser.id);
+        
+        // Return the existing incomplete user data
+        return res.status(200).json({ 
+          message: "Resuming incomplete signup",
+          user: {
+            id: incompleteUser.id,
+            email: incompleteUser.email,
+            firstName: incompleteUser.firstName,
+            lastName: incompleteUser.lastName,
+            tier: incompleteUser.tier,
+            signupAttempts: incompleteUser.signupAttempts + 1
+          },
+          isResume: true
+        });
       }
 
       // Create user account with hashed password
@@ -226,6 +247,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Signup error:", error);
       res.status(500).json({ message: "Failed to create account" });
+    }
+  });
+
+  // Complete signup route (called after successful payment)
+  app.post("/api/auth/complete-signup", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ message: "User ID is required" });
+      }
+
+      // Mark signup as completed
+      await storage.markSignupCompleted(userId);
+      
+      res.json({ message: "Signup completed successfully" });
+    } catch (error) {
+      console.error("Complete signup error:", error);
+      res.status(500).json({ message: "Failed to complete signup" });
+    }
+  });
+
+  // Cleanup abandoned incomplete signups (admin route)
+  app.post("/api/auth/cleanup-abandoned-signups", async (req, res) => {
+    try {
+      const deletedCount = await storage.cleanupAbandonedSignups();
+      res.json({ 
+        message: `Cleaned up ${deletedCount} abandoned incomplete signups`,
+        deletedCount 
+      });
+    } catch (error) {
+      console.error("Cleanup error:", error);
+      res.status(500).json({ message: "Failed to cleanup abandoned signups" });
     }
   });
 
@@ -425,7 +479,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       logger.logPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl });
       monitoringService.recordPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl });
 
-      res.json(paymentResponse.data);
+      // Include user ID in response for signup completion tracking
+      const responseData = {
+        ...paymentResponse.data,
+        user: {
+          id: req.body.userId || null // This will be set by the signup process
+        }
+      };
+
+      res.json(responseData);
     } catch (error) {
       logger.error("Payment initialization error", extractLogContext(req), error);
       res.status(500).json({ message: "Failed to initialize payment" });
@@ -468,12 +530,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     if (isPaymentSuccessful) {
-      // Update user subscription status
+      // Update user subscription status and mark signup as completed
       // In production, you would update the user's subscription status in the database
       logger.logPaymentEvent('completed', undefined, { ...logContext, provider });
       monitoringService.recordPaymentEvent('completed', undefined, { ...logContext, provider });
       
       console.log(`Payment completed successfully for ${provider} reference: ${reference}`);
+      
+      // Try to complete signup if user ID is provided in metadata
+      try {
+        const { userId } = req.body;
+        if (userId) {
+          await storage.markSignupCompleted(userId);
+          console.log(`Signup marked as completed for user: ${userId}`);
+        }
+      } catch (signupError) {
+        console.error('Failed to mark signup as completed:', signupError);
+        // Don't fail the payment verification if signup completion fails
+      }
+      
       sendSuccessResponse(res, { success: true }, "Payment verified successfully");
     } else {
       logger.logPaymentEvent('failed', undefined, { ...logContext, provider });

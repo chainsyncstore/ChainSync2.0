@@ -214,11 +214,30 @@ export default function Signup() {
       // First, create the user account using API client (includes CSRF token)
       const responseData = await apiClient.post('/auth/signup', signupData);
 
+      // Check if this is resuming an incomplete signup
+      if (responseData.isResume) {
+        // Pre-fill the form with existing data
+        setFormData(prev => ({
+          ...prev,
+          firstName: responseData.user.firstName || prev.firstName,
+          lastName: responseData.user.lastName || prev.lastName,
+          tier: responseData.user.tier || prev.tier
+        }));
+        
+        // Show success message
+        setErrors({});
+        // You could also show a toast notification here
+      }
+
       // Move to payment step
       setStep('payment');
-    } catch (error) {
-      // Generic error message for security
-      setErrors({ email: 'Account creation failed. Please try again or contact support.' });
+    } catch (error: any) {
+      if (error.response?.status === 400 && error.response?.data?.message === "User with this email already exists") {
+        setErrors({ email: 'An account with this email already exists. Please try logging in instead.' });
+      } else {
+        // Generic error message for security
+        setErrors({ email: 'Account creation failed. Please try again or contact support.' });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -240,6 +259,7 @@ export default function Signup() {
         currency: formData.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
         tier: formData.tier,
+        userId: responseData.user.id, // Pass user ID for signup completion tracking
         metadata: {
           firstName: formData.firstName,
           lastName: formData.lastName,
@@ -247,6 +267,11 @@ export default function Signup() {
           phone: formData.phone
         }
       });
+      
+      // Store user ID for signup completion
+      if (paymentData.user?.id) {
+        localStorage.setItem('pendingSignupUserId', paymentData.user.id);
+      }
       
       // Redirect to payment gateway
       if (paymentProvider === 'paystack') {
@@ -270,6 +295,28 @@ export default function Signup() {
   const getPaymentProvider = () => {
     return formData.location === 'nigeria' ? 'Paystack' : 'Flutterwave';
   };
+
+  // Function to complete signup after successful payment
+  const completeSignup = async (userId: string) => {
+    try {
+      await apiClient.post('/auth/complete-signup', { userId });
+      localStorage.removeItem('pendingSignupUserId');
+      // Redirect to success page or dashboard
+      window.location.href = '/dashboard';
+    } catch (error) {
+      console.error('Failed to complete signup:', error);
+      // Handle error - maybe show a message to contact support
+    }
+  };
+
+  // Check for pending signup completion on component mount
+  React.useEffect(() => {
+    const pendingUserId = localStorage.getItem('pendingSignupUserId');
+    if (pendingUserId) {
+      // Complete the signup
+      completeSignup(pendingUserId);
+    }
+  }, []);
 
   if (step === 'payment') {
     return (
@@ -419,6 +466,9 @@ export default function Signup() {
                 disabled={isLoading}
                 required
               />
+              <p className="text-sm text-gray-500">
+                Include your country code (e.g., +234 801 234 5678 for Nigeria)
+              </p>
               {errors.phone && (
                 <p className="text-sm text-red-500">{errors.phone}</p>
               )}

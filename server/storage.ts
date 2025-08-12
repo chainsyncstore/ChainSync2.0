@@ -197,6 +197,48 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
+  async getIncompleteUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(
+      and(
+        eq(users.email, email),
+        eq(users.signupCompleted, false)
+      )
+    );
+    return user || undefined;
+  }
+
+  async updateUserSignupAttempts(userId: string): Promise<void> {
+    await db.update(users)
+      .set({ 
+        signupAttempts: sql`${users.signupAttempts} + 1`,
+        signupStartedAt: new Date()
+      })
+      .where(eq(users.id, userId));
+  }
+
+  async markSignupCompleted(userId: string): Promise<void> {
+    await db.update(users)
+      .set({ 
+        signupCompleted: true,
+        signupCompletedAt: new Date()
+      })
+      .where(eq(users.id, userId));
+  }
+
+  async cleanupAbandonedSignups(): Promise<number> {
+    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
+    
+    const result = await db.delete(users)
+      .where(
+        and(
+          eq(users.signupCompleted, false),
+          lt(users.signupStartedAt, cutoffTime)
+        )
+      );
+    
+    return result.rowCount || 0;
+  }
+
   async authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null> {
     try {
       const user = await this.getUserByUsername(username);
@@ -332,7 +374,15 @@ export class DatabaseStorage implements IStorage {
       insertUser.password = hashedPassword;
     }
     
-    const [user] = await db.insert(users).values(insertUser).returning();
+    // Set signup tracking fields
+    const userData = {
+      ...insertUser,
+      signupStartedAt: new Date(),
+      signupCompleted: false,
+      signupAttempts: 1
+    };
+    
+    const [user] = await db.insert(users).values(userData).returning();
     return user;
   }
 

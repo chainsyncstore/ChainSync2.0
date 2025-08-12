@@ -15,7 +15,7 @@ interface PhoneInputProps {
 export function PhoneInput({ 
   value, 
   onChange, 
-  placeholder = "Phone number", 
+  placeholder = "+234 801 234 5678", 
   className,
   disabled = false,
   required = false,
@@ -28,10 +28,29 @@ export function PhoneInput({
   }, [value]);
 
   const formatPhoneNumber = (phone: string): string => {
-    // Remove all non-digit characters
+    // Handle country code format: +234 801 234 5678
+    if (phone.startsWith('+')) {
+      const parts = phone.split(' ');
+      if (parts.length >= 2) {
+        const countryCode = parts[0];
+        const number = parts.slice(1).join('').replace(/\D/g, '');
+        
+        if (number.length <= 3) {
+          return `${countryCode} ${number}`;
+        } else if (number.length <= 6) {
+          return `${countryCode} ${number.slice(0, 3)} ${number.slice(3)}`;
+        } else if (number.length <= 9) {
+          return `${countryCode} ${number.slice(0, 3)} ${number.slice(3, 6)} ${number.slice(6)}`;
+        } else {
+          return `${countryCode} ${number.slice(0, 3)} ${number.slice(3, 6)} ${number.slice(6, 9)}`;
+        }
+      }
+      return phone;
+    }
+    
+    // Fallback to original formatting for numbers without country code
     const cleaned = phone.replace(/\D/g, '');
     
-    // Format based on length
     if (cleaned.length <= 3) {
       return cleaned;
     } else if (cleaned.length <= 6) {
@@ -46,13 +65,20 @@ export function PhoneInput({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
     
-    // Remove all non-digit characters for storage
-    const cleaned = input.replace(/\D/g, '');
-    
-    // Limit to 15 digits (international standard)
-    if (cleaned.length <= 15) {
-      onChange(cleaned);
-      setDisplayValue(formatPhoneNumber(cleaned));
+    // Handle country code format
+    if (input.startsWith('+')) {
+      // Allow plus sign and spaces for country code format
+      onChange(input);
+      setDisplayValue(formatPhoneNumber(input));
+    } else {
+      // Fallback to original behavior for numbers without country code
+      const cleaned = input.replace(/\D/g, '');
+      
+      // Limit to 15 digits (international standard)
+      if (cleaned.length <= 15) {
+        onChange(cleaned);
+        setDisplayValue(formatPhoneNumber(cleaned));
+      }
     }
   };
 
@@ -72,6 +98,16 @@ export function PhoneInput({
       return;
     }
     
+    // Allow plus sign (+) for country code
+    if (e.keyCode === 187 && e.shiftKey) { // Shift + = (produces +)
+      return;
+    }
+    
+    // Allow space for formatting
+    if (e.keyCode === 32) {
+      return;
+    }
+    
     // Allow only digits
     if ((e.keyCode >= 48 && e.keyCode <= 57) || (e.keyCode >= 96 && e.keyCode <= 105)) {
       return;
@@ -84,11 +120,19 @@ export function PhoneInput({
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     const pastedText = e.clipboardData.getData('text');
-    const cleaned = pastedText.replace(/\D/g, '');
     
-    if (cleaned.length <= 15) {
-      onChange(cleaned);
-      setDisplayValue(formatPhoneNumber(cleaned));
+    // Handle country code format
+    if (pastedText.startsWith('+')) {
+      onChange(pastedText);
+      setDisplayValue(formatPhoneNumber(pastedText));
+    } else {
+      // Fallback to original behavior
+      const cleaned = pastedText.replace(/\D/g, '');
+      
+      if (cleaned.length <= 15) {
+        onChange(cleaned);
+        setDisplayValue(formatPhoneNumber(cleaned));
+      }
     }
   };
 
@@ -104,7 +148,7 @@ export function PhoneInput({
       className={cn('font-mono', className)}
       disabled={disabled}
       required={required}
-      maxLength={17} // 3-3-4 format + 2 hyphens = 17 characters
+      maxLength={20} // Allow for country code format: +234 801 234 5678 (20 characters)
     />
   );
 }
