@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,18 +14,44 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PasswordStrength } from "@/components/ui/password-strength";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { apiClient } from "@/lib/api-client";
+import { ErrorBoundary } from "@/components/error-boundary";
 
-interface SignupForm {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  companyName: string;
-  password: string;
-  confirmPassword: string;
-  tier: string;
-  location: 'nigeria' | 'international';
-}
+// Zod schema for form validation
+const signupSchema = z.object({
+  firstName: z.string()
+    .min(1, "First name is required")
+    .max(100, "First name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "First name can only contain letters, spaces, hyphens, and apostrophes"),
+  lastName: z.string()
+    .min(1, "Last name is required")
+    .max(100, "Last name must be less than 100 characters")
+    .regex(/^[a-zA-Z\s'-]+$/, "Last name can only contain letters, spaces, hyphens, and apostrophes"),
+  email: z.string()
+    .min(1, "Email is required")
+    .email("Invalid email format")
+    .max(255, "Email must be less than 255 characters"),
+  phone: z.string()
+    .min(1, "Phone number is required")
+    .regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format (e.g., +1234567890)"),
+  companyName: z.string()
+    .min(1, "Company name is required")
+    .max(255, "Company name must be less than 255 characters"),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be less than 128 characters"),
+  confirmPassword: z.string()
+    .min(1, "Please confirm your password"),
+  tier: z.enum(["basic", "pro", "enterprise"]),
+  location: z.enum(["nigeria", "international"])
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"]
+});
+
+type SignupFormData = z.infer<typeof signupSchema>;
+
+import { PRICING_TIERS, VALID_TIERS, VALID_LOCATIONS, PHONE_REGEX } from '../../lib/constants';
+import { validatePaymentUrl, generateRecaptchaToken } from '../../lib/security';
 
 interface PricingTier {
   name: string;
@@ -34,6 +63,7 @@ interface PricingTier {
   features: string[];
 }
 
+// Convert numeric pricing to display format
 const pricingTiers: PricingTier[] = [
   {
     name: "basic",
@@ -42,32 +72,16 @@ const pricingTiers: PricingTier[] = [
       usd: "$30"
     },
     stores: "1 store only",
-    features: [
-      "1 Store Management",
-      "Basic POS System",
-      "Inventory Tracking",
-      "Sales Reports",
-      "Customer Management",
-      "Email Support"
-    ]
+    features: PRICING_TIERS.basic.features
   },
   {
-    name: "premium",
+    name: "pro",
     price: {
       ngn: "₦100,000",
       usd: "$100"
     },
     stores: "Max 10 stores",
-    features: [
-      "Up to 10 Stores",
-      "Advanced POS Features",
-      "Real-time Analytics",
-      "AI-powered Insights",
-      "Multi-location Support",
-      "Priority Support",
-      "Custom Branding",
-      "Advanced Reporting"
-    ]
+    features: PRICING_TIERS.pro.features
   },
   {
     name: "enterprise",
@@ -76,158 +90,106 @@ const pricingTiers: PricingTier[] = [
       usd: "$500"
     },
     stores: "10+ stores",
-    features: [
-      "Unlimited Stores",
-      "Custom Integrations",
-      "Dedicated Account Manager",
-      "White-label Solutions",
-      "API Access",
-      "24/7 Phone Support",
-      "Custom Training",
-      "Advanced Security"
-    ]
+    features: PRICING_TIERS.enterprise.features
   }
 ];
 
-export default function Signup() {
+function SignupForm() {
   const [, setLocation] = useLocation();
-  const [formData, setFormData] = useState<SignupForm>({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    companyName: "",
-    password: "",
-    confirmPassword: "",
-    tier: "basic",
-    location: "international"
-  });
-  
-  const [errors, setErrors] = useState<Partial<SignupForm>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'payment'>('form');
   const [userData, setUserData] = useState<any>(null);
+  const [generalError, setGeneralError] = useState<string>('');
 
-  // Get URL parameters
+  // Get URL parameters and validate them before setting form defaults
   const urlParams = new URLSearchParams(window.location.search);
   const tierFromUrl = urlParams.get('tier');
   const locationFromUrl = urlParams.get('location');
 
-  useEffect(() => {
-    if (tierFromUrl) {
-      setFormData(prev => ({ ...prev, tier: tierFromUrl }));
+  // Initialize form with react-hook-form
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isValid, isDirty },
+    setValue,
+    watch,
+    trigger,
+    clearErrors,
+    setError,
+    getValues
+  } = useForm<SignupFormData>({
+    resolver: zodResolver(signupSchema),
+    mode: "onChange", // Validate on change for better UX
+    defaultValues: {
+      firstName: "",
+      lastName: "",
+      email: "",
+      phone: "",
+      companyName: "",
+      password: "",
+      confirmPassword: "",
+      tier: (tierFromUrl && VALID_TIERS.includes(tierFromUrl)) ? tierFromUrl as "basic" | "pro" | "enterprise" : "basic",
+      location: (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international')) 
+        ? locationFromUrl as 'nigeria' | 'international' 
+        : 'international'
     }
-    if (locationFromUrl) {
-      setFormData(prev => ({ ...prev, location: locationFromUrl as 'nigeria' | 'international' }));
-    }
-  }, [tierFromUrl, locationFromUrl]);
+  });
 
-  const validateForm = (): boolean => {
-    const newErrors: Partial<SignupForm> = {};
+  // Watch form values for real-time updates
+  const watchedValues = watch();
 
-    // First name validation
-    if (!formData.firstName.trim()) {
-      newErrors.firstName = "First name is required";
-    } else if (formData.firstName.length > 100) {
-      newErrors.firstName = "First name must be less than 100 characters";
-    } else if (!/^[a-zA-Z\s'-]+$/.test(formData.firstName)) {
-      newErrors.firstName = "First name can only contain letters, spaces, hyphens, and apostrophes";
-    }
-
-    // Last name validation
-    if (!formData.lastName.trim()) {
-      newErrors.lastName = "Last name is required";
-    } else if (formData.lastName.length > 100) {
-      newErrors.lastName = "Last name must be less than 100 characters";
-    } else if (!/^[a-zA-Z\s'-]+$/.test(formData.lastName)) {
-      newErrors.lastName = "Last name can only contain letters, spaces, hyphens, and apostrophes";
-    }
-
-    // Email validation
-    if (!formData.email.trim()) {
-      newErrors.email = "Email is required";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = "Invalid email format";
-    } else if (formData.email.length > 255) {
-      newErrors.email = "Email must be less than 255 characters";
-    }
-
-    // Phone validation - simplified, backend will handle detailed validation
-    if (!formData.phone.trim()) {
-      newErrors.phone = "Phone number is required";
-    } else if (formData.phone.length < 10) {
-      newErrors.phone = "Phone number must be at least 10 digits";
-    }
-
-    // Company name validation
-    if (!formData.companyName.trim()) {
-      newErrors.companyName = "Company name is required";
-    } else if (formData.companyName.length > 255) {
-      newErrors.companyName = "Company name must be less than 255 characters";
-    }
-
-    // Password validation - simplified, backend handles detailed validation
-    if (!formData.password) {
-      newErrors.password = "Password is required";
-    } else if (formData.password.length < 8) {
-      newErrors.password = "Password must be at least 8 characters";
-    } else if (formData.password.length > 128) {
-      newErrors.password = "Password must be less than 128 characters";
-    }
-
-    // Confirm password validation
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords do not match";
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleInputChange = (field: keyof SignupForm, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (errors[field]) {
-      setErrors(prev => ({ ...prev, [field]: undefined }));
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handle input changes with proper error clearing
+  const handleInputChange = async (field: keyof SignupFormData, value: string) => {
+    setValue(field, value, { shouldValidate: false }); // Set value without immediate validation
     
-    if (!validateForm()) {
+    // Clear error for this field only after setting the value
+    if (errors[field]) {
+      clearErrors(field);
+    }
+    
+    // Trigger validation for this field after a short delay to prevent race conditions
+    setTimeout(() => {
+      trigger(field);
+    }, 100);
+  };
+
+  // Handle form submission
+  const onSubmit = async (data: SignupFormData) => {
+    if (!isValid) {
       return;
     }
 
     setIsLoading(true);
+    setGeneralError('');
     
     try {
+      // Generate reCAPTCHA token for bot protection
+      const recaptchaToken = await generateRecaptchaToken();
+      
       const signupData = {
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
-        phone: formData.phone,
-        companyName: formData.companyName,
-        password: formData.password,
-        tier: formData.tier,
-        location: formData.location
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        companyName: data.companyName,
+        password: data.password,
+        tier: data.tier,
+        location: data.location,
+        recaptchaToken
       };
       
-      // First, create the user account using API client (includes CSRF token)
+      // Create the user account using API client (includes CSRF token)
       const responseData = await apiClient.post('/auth/signup', signupData);
 
       // Check if this is resuming an incomplete signup
       if (responseData.isResume) {
         // Pre-fill the form with existing data
-        setFormData(prev => ({
-          ...prev,
-          firstName: responseData.user.firstName || prev.firstName,
-          lastName: responseData.user.lastName || prev.lastName,
-          tier: responseData.user.tier || prev.tier
-        }));
+        setValue('firstName', responseData.user.firstName || data.firstName);
+        setValue('lastName', responseData.user.lastName || data.lastName);
+        setValue('tier', responseData.user.tier || data.tier);
         
-        // Show success message
-        setErrors({});
-        // You could also show a toast notification here
+        // Clear any existing errors
+        clearErrors();
       }
 
       // Store user data for payment step
@@ -238,79 +200,85 @@ export default function Signup() {
     } catch (error: any) {
       console.error('Signup error:', error);
       
-      if (error.response?.status === 400 && error.response?.data?.message === "User with this email already exists") {
-        setErrors({ email: 'An account with this email already exists. Please try logging in instead.' });
-      } else if (error.response?.status === 500) {
-        setErrors({ email: 'Server error. Please try again later or contact support.' });
-      } else if (error.message) {
-        setErrors({ email: error.message });
-      } else {
-        // Generic error message for security
-        setErrors({ email: 'Account creation failed. Please try again or contact support.' });
-      }
+      // Email enumeration prevention: Always show generic message
+      // Preserve original error in console for debugging
+      setGeneralError('If the email is already registered, we\'ll let you know.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handlePayment = async () => {
+    const data = getValues();
     setIsLoading(true);
+    setGeneralError('');
     
     try {
-      const paymentProvider = formData.location === 'nigeria' ? 'paystack' : 'flutterwave';
-      const selectedTier = pricingTiers.find(t => t.name === formData.tier);
-      const amount = formData.location === 'nigeria' 
-        ? selectedTier?.price.ngn.replace('₦', '').replace(',', '')
-        : selectedTier?.price.usd.replace('$', '');
+      const paymentProvider = data.location === 'nigeria' ? 'paystack' : 'flutterwave';
+      const selectedTier = pricingTiers.find(t => t.name === data.tier);
+      
+      // Use numeric pricing from constants instead of parsing strings
+      const amount = data.location === 'nigeria' 
+        ? PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.ngn
+        : PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.usd;
+
+      if (!amount) {
+        throw new Error('Invalid pricing tier selected');
+      }
 
       const paymentData = await apiClient.post('/payment/initialize', {
-        email: formData.email,
+        email: data.email,
         amount: amount,
-        currency: formData.location === 'nigeria' ? 'NGN' : 'USD',
+        currency: data.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
-        tier: formData.tier,
-        userId: userData?.id, // Pass user ID for signup completion tracking
+        tier: data.tier,
+        userId: userData?.id,
         metadata: {
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          companyName: formData.companyName,
-          phone: formData.phone
+          firstName: data.firstName,
+          lastName: data.lastName,
+          companyName: data.companyName,
+          phone: data.phone
         }
       });
       
-      // Store user ID for signup completion
-      if (userData?.id) {
-        localStorage.setItem('pendingSignupUserId', userData.id);
+      // Validate payment URL before redirecting for security
+      let paymentUrl: string;
+      if (paymentProvider === 'paystack') {
+        paymentUrl = paymentData.authorization_url;
+      } else {
+        // Flutterwave
+        paymentUrl = paymentData.link;
+      }
+
+      // Security: Validate that the payment URL is from an expected provider domain
+      if (!validatePaymentUrl(paymentUrl, paymentProvider)) {
+        throw new Error('Invalid payment provider URL detected');
       }
       
       // Redirect to payment gateway
-      if (paymentProvider === 'paystack') {
-        window.location.href = paymentData.authorization_url;
-      } else {
-        // Flutterwave
-        window.location.href = paymentData.link;
-      }
+      window.location.href = paymentUrl;
     } catch (error) {
-      setErrors({ email: 'Payment initialization failed. Please try again.' });
+      console.error('Payment error:', error);
+      setGeneralError('Payment initialization failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const selectedTier = pricingTiers.find(t => t.name === formData.tier);
+  const selectedTier = pricingTiers.find(t => t.name === watchedValues.tier);
   const getPrice = () => {
-    return formData.location === 'nigeria' ? selectedTier?.price.ngn : selectedTier?.price.usd;
+    return watchedValues.location === 'nigeria' ? selectedTier?.price.ngn : selectedTier?.price.usd;
   };
 
   const getPaymentProvider = () => {
-    return formData.location === 'nigeria' ? 'Paystack' : 'Flutterwave';
+    return watchedValues.location === 'nigeria' ? 'Paystack' : 'Flutterwave';
   };
 
   // Function to complete signup after successful payment
   const completeSignup = async (userId: string) => {
     try {
       await apiClient.post('/auth/complete-signup', { userId });
-      localStorage.removeItem('pendingSignupUserId');
+      // Cookie is automatically cleared by the server
       // Redirect to success page or dashboard
       window.location.href = '/dashboard';
     } catch (error) {
@@ -321,11 +289,20 @@ export default function Signup() {
 
   // Check for pending signup completion on component mount
   React.useEffect(() => {
-    const pendingUserId = localStorage.getItem('pendingSignupUserId');
-    if (pendingUserId) {
-      // Complete the signup
-      completeSignup(pendingUserId);
-    }
+    const checkPendingSignup = async () => {
+      try {
+        const response = await apiClient.get('/auth/pending-signup');
+        if (response.pendingUserId) {
+          // Complete the signup
+          completeSignup(response.pendingUserId);
+        }
+      } catch (error) {
+        console.error('Failed to check pending signup:', error);
+        // Continue with normal signup flow
+      }
+    };
+    
+    checkPendingSignup();
   }, []);
 
   if (step === 'payment') {
@@ -346,7 +323,7 @@ export default function Signup() {
             <div className="bg-gray-50 rounded-lg p-4">
               <div className="flex justify-between items-center mb-2">
                 <span className="font-medium">Plan:</span>
-                <span className="text-primary font-semibold capitalize">{formData.tier}</span>
+                <span className="text-primary font-semibold capitalize">{watchedValues.tier}</span>
               </div>
               <div className="flex justify-between items-center mb-2">
                 <span className="font-medium">Price:</span>
@@ -411,14 +388,14 @@ export default function Signup() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {errors.email && (
+          {generalError && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{errors.email}</AlertDescription>
+              <AlertDescription>{generalError}</AlertDescription>
             </Alert>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {/* Personal Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -426,13 +403,13 @@ export default function Signup() {
                 <Input
                   id="firstName"
                   type="text"
-                  value={formData.firstName}
+                  {...register('firstName')}
                   onChange={(e) => handleInputChange('firstName', e.target.value)}
                   required
                   disabled={isLoading}
                 />
                 {errors.firstName && (
-                  <p className="text-sm text-red-500">{errors.firstName}</p>
+                  <p className="text-sm text-red-500">{errors.firstName.message}</p>
                 )}
               </div>
               
@@ -441,13 +418,13 @@ export default function Signup() {
                 <Input
                   id="lastName"
                   type="text"
-                  value={formData.lastName}
+                  {...register('lastName')}
                   onChange={(e) => handleInputChange('lastName', e.target.value)}
                   required
                   disabled={isLoading}
                 />
                 {errors.lastName && (
-                  <p className="text-sm text-red-500">{errors.lastName}</p>
+                  <p className="text-sm text-red-500">{errors.lastName.message}</p>
                 )}
               </div>
             </div>
@@ -457,13 +434,13 @@ export default function Signup() {
               <Input
                 id="email"
                 type="email"
-                value={formData.email}
+                {...register('email')}
                 onChange={(e) => handleInputChange('email', e.target.value)}
                 required
                 disabled={isLoading}
               />
               {errors.email && (
-                <p className="text-sm text-red-500">{errors.email}</p>
+                <p className="text-sm text-red-500">{errors.email.message}</p>
               )}
             </div>
 
@@ -471,7 +448,7 @@ export default function Signup() {
               <Label htmlFor="phone">Phone Number *</Label>
               <PhoneInput
                 id="phone"
-                value={formData.phone}
+                value={watchedValues.phone}
                 onChange={(value) => handleInputChange('phone', value)}
                 disabled={isLoading}
                 required
@@ -480,7 +457,7 @@ export default function Signup() {
                 Include your country code (e.g., +234 801 234 5678 for Nigeria)
               </p>
               {errors.phone && (
-                <p className="text-sm text-red-500">{errors.phone}</p>
+                <p className="text-sm text-red-500">{errors.phone.message}</p>
               )}
             </div>
 
@@ -489,13 +466,13 @@ export default function Signup() {
               <Input
                 id="companyName"
                 type="text"
-                value={formData.companyName}
+                {...register('companyName')}
                 onChange={(e) => handleInputChange('companyName', e.target.value)}
                 required
                 disabled={isLoading}
               />
               {errors.companyName && (
-                <p className="text-sm text-red-500">{errors.companyName}</p>
+                <p className="text-sm text-red-500">{errors.companyName.message}</p>
               )}
             </div>
 
@@ -507,7 +484,7 @@ export default function Signup() {
                   <div
                     key={tier.name}
                     className={`border rounded-lg p-3 cursor-pointer transition-colors ${
-                      formData.tier === tier.name
+                      watchedValues.tier === tier.name
                         ? 'border-primary bg-primary/5'
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
@@ -515,12 +492,12 @@ export default function Signup() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium capitalize">{tier.name}</span>
-                      {formData.tier === tier.name && (
+                      {watchedValues.tier === tier.name && (
                         <Check className="h-4 w-4 text-primary" />
                       )}
                     </div>
                     <div className="text-sm text-gray-600 mb-1">
-                      {formData.location === 'nigeria' ? tier.price.ngn : tier.price.usd}/month
+                      {watchedValues.location === 'nigeria' ? tier.price.ngn : tier.price.usd}/month
                     </div>
                     <div className="text-xs text-gray-500">{tier.stores}</div>
                   </div>
@@ -536,7 +513,7 @@ export default function Signup() {
                   type="button"
                   onClick={() => handleInputChange('location', 'nigeria')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    formData.location === 'nigeria'
+                    watchedValues.location === 'nigeria'
                       ? 'bg-white text-gray-900 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
@@ -547,7 +524,7 @@ export default function Signup() {
                   type="button"
                   onClick={() => handleInputChange('location', 'international')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    formData.location === 'international'
+                    watchedValues.location === 'international'
                       ? 'bg-white text-gray-900 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
@@ -564,23 +541,15 @@ export default function Signup() {
                 <Input
                   id="password"
                   type="password"
-                  value={formData.password}
+                  {...register('password')}
                   onChange={(e) => handleInputChange('password', e.target.value)}
                   required
                   disabled={isLoading}
                 />
                 {errors.password && (
-                  <p className="text-sm text-red-500">{errors.password}</p>
+                  <p className="text-sm text-red-500">{errors.password.message}</p>
                 )}
-                <PasswordStrength password={formData.password} />
-                
-                {/* Test: Simple password strength display without zxcvbn */}
-                {/* {formData.password && (
-                  <div className="text-sm text-gray-600">
-                    <p>Password length: {formData.password.length} characters</p>
-                    <p>Strength: {formData.password.length >= 8 ? 'Good' : 'Too short'}</p>
-                  </div>
-                )} */}
+                <PasswordStrength password={watchedValues.password} />
               </div>
               
               <div className="space-y-2">
@@ -588,13 +557,13 @@ export default function Signup() {
                 <Input
                   id="confirmPassword"
                   type="password"
-                  value={formData.confirmPassword}
+                  {...register('confirmPassword')}
                   onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                   required
                   disabled={isLoading}
                 />
                 {errors.confirmPassword && (
-                  <p className="text-sm text-red-500">{errors.confirmPassword}</p>
+                  <p className="text-sm text-red-500">{errors.confirmPassword.message}</p>
                 )}
               </div>
             </div>
@@ -602,7 +571,7 @@ export default function Signup() {
             <Button
               type="submit"
               className="w-full"
-              disabled={isLoading}
+              disabled={isLoading || !isValid}
             >
               {isLoading ? "Creating Account..." : "Create Account & Continue"}
             </Button>
@@ -620,5 +589,50 @@ export default function Signup() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// Wrap the component with error boundary
+export default function Signup() {
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-slate-50 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="h-8 w-8 text-red-600" />
+              </div>
+              <CardTitle className="text-xl font-semibold text-gray-900">
+                Something went wrong
+              </CardTitle>
+              <CardDescription className="text-gray-600">
+                We encountered an unexpected error while loading the signup form. Please refresh the page or try again later.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-3">
+                <Button 
+                  onClick={() => window.location.reload()}
+                  className="flex-1"
+                  variant="default"
+                >
+                  Refresh Page
+                </Button>
+                <Button 
+                  onClick={() => window.location.href = '/'}
+                  className="flex-1"
+                  variant="outline"
+                >
+                  Go Home
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <SignupForm />
+    </ErrorBoundary>
   );
 } 

@@ -15,6 +15,7 @@ import {
 import { z } from "zod";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
+import cookieParser from "cookie-parser";
 import { eq, desc } from "drizzle-orm";
 import { forecastModels } from "@shared/schema";
 import { db } from "./db";
@@ -41,6 +42,7 @@ import { monitoringService } from "./lib/monitoring";
 import { validateBody } from "./middleware/validation";
 import { SignupSchema, LoginSchema } from "./schemas/auth";
 import { authRateLimit } from "./middleware/security";
+import { SecureCookieManager } from "./lib/cookies";
 import crypto from "crypto";
 
 // Extend the session interface
@@ -81,6 +83,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
     name: 'chainsync.sid', // Custom session name
   }));
+
+  // Cookie parser middleware (must come after session middleware)
+  app.use(cookieParser());
 
   // CSRF protection (must come after session middleware)
   const { csrfProtection, csrfErrorHandler } = await import('./middleware/security');
@@ -260,6 +265,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Mark signup as completed
       await storage.markSignupCompleted(userId);
       
+      // Clear the pending signup cookie
+      SecureCookieManager.clearPendingSignupUserId(res);
+      
       res.json({ message: "Signup completed successfully" });
     } catch (error) {
       console.error("Complete signup error:", error);
@@ -408,6 +416,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Use the csurf library's token generation
       const csrfToken = req.csrfToken();
       
+      // Set secure CSRF token cookie for client-side access
+      SecureCookieManager.setCsrfToken(res, csrfToken);
+      
       res.json({ 
         csrfToken,
         message: "CSRF token generated successfully"
@@ -415,6 +426,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("CSRF token generation error:", error);
       res.status(500).json({ message: "Failed to generate CSRF token" });
+    }
+  });
+
+  // Get pending signup user ID from secure cookie
+  app.get("/api/auth/pending-signup", (req: any, res) => {
+    try {
+      const pendingUserId = SecureCookieManager.getPendingSignupUserId(req);
+      
+      if (pendingUserId) {
+        res.json({
+          status: "success",
+          pendingUserId,
+          message: "Pending signup user ID found"
+        });
+      } else {
+        res.json({
+          status: "success",
+          pendingUserId: null,
+          message: "No pending signup found"
+        });
+      }
+    } catch (error) {
+      console.error("Get pending signup error:", error);
+      res.status(500).json({ message: "Failed to get pending signup" });
     }
   });
 
@@ -473,6 +508,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log payment initiation
       logger.logPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl });
       monitoringService.recordPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl });
+
+      // Set secure cookie for pending signup user ID if provided
+      if (req.body.userId) {
+        SecureCookieManager.setPendingSignupUserId(res, req.body.userId);
+      }
 
       // Include user ID in response for signup completion tracking
       const responseData = {

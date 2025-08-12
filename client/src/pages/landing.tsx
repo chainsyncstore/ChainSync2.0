@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Check, Star, Zap, Shield, Users, Store, ArrowRight, Globe, CreditCard } from "lucide-react";
 import { useLocation } from "wouter";
+import { PRICING_TIERS } from "@/lib/constants";
 
 interface PricingTier {
   name: string;
@@ -23,14 +24,7 @@ const pricingTiers: PricingTier[] = [
       ngn: "₦30,000",
       usd: "$30"
     },
-    features: [
-      "1 Store Management",
-      "Basic POS System",
-      "Inventory Tracking",
-      "Sales Reports",
-      "Customer Management",
-      "Email Support"
-    ],
+    features: PRICING_TIERS.basic.features,
     stores: "1 store only"
   },
   {
@@ -39,16 +33,7 @@ const pricingTiers: PricingTier[] = [
       ngn: "₦100,000",
       usd: "$100"
     },
-    features: [
-      "Up to 10 Stores",
-      "Advanced POS Features",
-      "Real-time Analytics",
-      "AI-powered Insights",
-      "Multi-location Support",
-      "Priority Support",
-      "Custom Branding",
-      "Advanced Reporting"
-    ],
+    features: PRICING_TIERS.pro.features,
     stores: "Max 10 stores",
     popular: true
   },
@@ -58,16 +43,7 @@ const pricingTiers: PricingTier[] = [
       ngn: "₦500,000",
       usd: "$500"
     },
-    features: [
-      "Unlimited Stores",
-      "Custom Integrations",
-      "Dedicated Account Manager",
-      "White-label Solutions",
-      "API Access",
-      "24/7 Phone Support",
-      "Custom Training",
-      "Advanced Security"
-    ],
+    features: PRICING_TIERS.enterprise.features,
     stores: "10+ stores"
   }
 ];

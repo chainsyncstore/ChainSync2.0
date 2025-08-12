@@ -50,16 +50,30 @@ class ApiClient {
     return this.csrfToken || '';
   }
 
+  /**
+   * Get CSRF token from secure cookie (set by server)
+   */
+  private getCsrfTokenFromCookie(): string | null {
+    // The server sets the CSRF token in a secure httpOnly cookie
+    // We need to fetch it from the server endpoint
+    return null; // Will be fetched via ensureCsrfToken
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
     
-    // Get CSRF token for non-GET requests
+    // Always get CSRF token for non-GET requests to ensure security
     let csrfToken = '';
     if (options.method && options.method !== 'GET') {
       csrfToken = await this.ensureCsrfToken();
+      
+      // If CSRF token fetch fails, throw an error for security
+      if (!csrfToken) {
+        throw new Error('CSRF token is required for this request but could not be obtained');
+      }
     }
     
     const defaultOptions: RequestInit = {

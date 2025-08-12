@@ -4,8 +4,12 @@ import { cn } from '@/lib/utils';
 // Import zxcvbn with error handling
 let zxcvbn: any = null;
 try {
-  // Try to import zxcvbn
-  zxcvbn = require('zxcvbn');
+  // Try to import zxcvbn using dynamic import
+  import('zxcvbn').then(module => {
+    zxcvbn = module.default || module;
+  }).catch(error => {
+    console.warn('zxcvbn library not available, using fallback:', error);
+  });
 } catch (error) {
   console.warn('zxcvbn library not available, using fallback:', error);
 }

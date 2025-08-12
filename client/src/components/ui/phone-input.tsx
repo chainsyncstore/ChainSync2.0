@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Input } from './input';
 import { cn } from '@/lib/utils';
 
+// E.164 phone validation regex (same as backend)
+const PHONE_REGEX = /^\+?[1-9]\d{6,15}$/;
+
 interface PhoneInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -22,9 +25,11 @@ export function PhoneInput({
   id
 }: PhoneInputProps) {
   const [displayValue, setDisplayValue] = useState('');
+  const [isValid, setIsValid] = useState(true);
 
   useEffect(() => {
     setDisplayValue(formatPhoneNumber(value));
+    setIsValid(!value || PHONE_REGEX.test(value));
   }, [value]);
 
   const formatPhoneNumber = (phone: string): string => {
@@ -70,6 +75,7 @@ export function PhoneInput({
       // Allow plus sign and spaces for country code format
       onChange(input);
       setDisplayValue(formatPhoneNumber(input));
+      setIsValid(!input || PHONE_REGEX.test(input));
     } else {
       // Fallback to original behavior for numbers without country code
       const cleaned = input.replace(/\D/g, '');
@@ -78,6 +84,7 @@ export function PhoneInput({
       if (cleaned.length <= 15) {
         onChange(cleaned);
         setDisplayValue(formatPhoneNumber(cleaned));
+        setIsValid(!cleaned || PHONE_REGEX.test(cleaned));
       }
     }
   };
@@ -125,6 +132,7 @@ export function PhoneInput({
     if (pastedText.startsWith('+')) {
       onChange(pastedText);
       setDisplayValue(formatPhoneNumber(pastedText));
+      setIsValid(!pastedText || PHONE_REGEX.test(pastedText));
     } else {
       // Fallback to original behavior
       const cleaned = pastedText.replace(/\D/g, '');
@@ -132,23 +140,31 @@ export function PhoneInput({
       if (cleaned.length <= 15) {
         onChange(cleaned);
         setDisplayValue(formatPhoneNumber(cleaned));
+        setIsValid(!cleaned || PHONE_REGEX.test(cleaned));
       }
     }
   };
 
   return (
-    <Input
-      id={id}
-      type="tel"
-      value={displayValue}
-      onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      onPaste={handlePaste}
-      placeholder={placeholder}
-      className={cn('font-mono', className)}
-      disabled={disabled}
-      required={required}
-      maxLength={20} // Allow for country code format: +234 801 234 5678 (20 characters)
-    />
+    <div className="space-y-1">
+      <Input
+        id={id}
+        type="tel"
+        value={displayValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        placeholder={placeholder}
+        className={cn('font-mono', className, !isValid && 'border-red-500 focus:border-red-500')}
+        disabled={disabled}
+        required={required}
+        maxLength={20} // Allow for country code format: +234 801 234 5678 (20 characters)
+      />
+      {!isValid && value && (
+        <p className="text-sm text-red-500">
+          Phone number must be in E.164 format (e.g., +1234567890)
+        </p>
+      )}
+    </div>
   );
 }
