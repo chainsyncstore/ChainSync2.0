@@ -65,6 +65,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
     // Ensure proper source maps
     sourcemap: process.env.NODE_ENV === 'development',
+    // Production optimizations
+    target: 'es2015',
+    cssCodeSplit: true,
+    reportCompressedSize: false,
+    // Ensure assets are properly handled
+    assetsInlineLimit: 4096,
   },
   server: {
     fs: {

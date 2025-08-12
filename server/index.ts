@@ -43,6 +43,15 @@ app.use(requestLogger);
       code: err.code
     }, err);
 
+    // Handle static asset errors more gracefully
+    if (_req.path.startsWith('/assets/')) {
+      return res.status(404).json({
+        error: 'Asset not found',
+        path: _req.path,
+        message: 'The requested asset could not be found'
+      });
+    }
+
     // Send standardized error response
     sendErrorResponse(res, err, _req.path);
 

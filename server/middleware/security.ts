@@ -132,7 +132,7 @@ export const helmetConfig = helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'", "https://replit.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://replit.com"],
       connectSrc: ["'self'", "https://api.openai.com"],
       frameSrc: ["'none'"],
       objectSrc: ["'none'"]

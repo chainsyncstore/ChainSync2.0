@@ -5,6 +5,7 @@ import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
+import { logger } from "./lib/logger";
 
 const viteLogger = createLogger();
 
@@ -79,7 +80,14 @@ export function serveStatic(app: Express) {
     );
   }
 
-  // Serve static files with proper MIME types
+  // Log the static serving setup
+  logger.info('Setting up static file serving', { 
+    distPath,
+    exists: fs.existsSync(distPath),
+    files: fs.readdirSync(distPath)
+  });
+
+  // Serve static files with proper MIME types and error handling
   app.use(express.static(distPath, {
     setHeaders: (res, filePath) => {
       if (filePath.endsWith('.css')) {
@@ -88,12 +96,36 @@ export function serveStatic(app: Express) {
         res.setHeader('Content-Type', 'application/javascript');
       } else if (filePath.endsWith('.html')) {
         res.setHeader('Content-Type', 'text/html');
+      } else if (filePath.endsWith('.json')) {
+        res.setHeader('Content-Type', 'application/json');
       }
-    }
+    },
+    // Add error handling for missing files
+    fallthrough: false
   }));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  // Handle 404s for static assets more gracefully
+  app.use('/assets/*', (req, res) => {
+    logger.warn('Static asset not found', { 
+      path: req.path,
+      userAgent: req.get('User-Agent'),
+      referer: req.get('Referer')
+    });
+    res.status(404).json({ 
+      error: 'Asset not found',
+      path: req.path 
+    });
+  });
+
+  // fall through to index.html for SPA routing
+  app.use("*", (req, res) => {
+    // Only serve index.html for routes that look like pages, not assets
+    if (req.path.startsWith('/assets/') || req.path.includes('.')) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    
+    // Log SPA fallback
+    logger.debug('Serving SPA fallback', { path: req.path });
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
