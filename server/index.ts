@@ -10,9 +10,7 @@ import {
   globalRateLimit, 
   securityHeaders, 
   ipWhitelistCheck, 
-  securityLogging,
-  csrfProtection,
-  csrfErrorHandler
+  securityLogging
 } from "./middleware/security";
 
 const app = express();
@@ -35,10 +33,6 @@ app.use(requestLogger);
 
 (async () => {
   const server = await registerRoutes(app);
-
-  // CSRF protection (must come after session middleware is set up in routes)
-  app.use(csrfProtection);
-  app.use(csrfErrorHandler);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     // Log the error with structured logging

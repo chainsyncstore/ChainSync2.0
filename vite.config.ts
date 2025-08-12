@@ -25,7 +25,7 @@ export default defineConfig({
   },
   root: path.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: path.resolve(import.meta.dirname, "dist", "public"),
     emptyOutDir: true,
     rollupOptions: {
       output: {
@@ -37,6 +37,20 @@ export default defineConfig({
           forms: ['react-hook-form', '@hookform/resolvers'],
           utils: ['date-fns', 'clsx', 'tailwind-merge'],
         },
+        // Ensure proper asset handling
+        assetFileNames: (assetInfo) => {
+          const info = assetInfo.name?.split('.') || [];
+          const ext = info[info.length - 1];
+          if (/\.(css)$/.test(assetInfo.name || '')) {
+            return `assets/[name]-[hash].css`;
+          }
+          if (/\.(js)$/.test(assetInfo.name || '')) {
+            return `assets/[name]-[hash].js`;
+          }
+          return `assets/[name]-[hash].[ext]`;
+        },
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
       },
     },
     // Enable tree shaking and minification
@@ -49,6 +63,8 @@ export default defineConfig({
     },
     // Optimize chunk size
     chunkSizeWarningLimit: 1000,
+    // Ensure proper source maps
+    sourcemap: process.env.NODE_ENV === 'development',
   },
   server: {
     fs: {

@@ -41,6 +41,7 @@ import { monitoringService } from "./lib/monitoring";
 import { validateBody } from "./middleware/validation";
 import { SignupSchema, LoginSchema } from "./schemas/auth";
 import { authRateLimit } from "./middleware/security";
+import crypto from "crypto";
 
 // Extend the session interface
 declare module "express-session" {
@@ -80,6 +81,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
     name: 'chainsync.sid', // Custom session name
   }));
+
+  // CSRF protection (must come after session middleware)
+  const { csrfProtection, csrfErrorHandler } = await import('./middleware/security');
+  app.use(csrfProtection);
+  app.use(csrfErrorHandler);
 
   // Authentication middleware
   const authenticateUser = (req: any, res: any, next: any) => {
@@ -347,8 +353,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // CSRF token endpoint
   app.get("/api/auth/csrf-token", (req: any, res) => {
     try {
-      // The CSRF token is automatically available in req.csrfToken() when csurf middleware is active
-      const csrfToken = req.csrfToken();
+      // Generate a simple CSRF token using crypto
+      const csrfToken = crypto.randomBytes(32).toString('hex');
+      
+      // Store the token in the session for validation
+      req.session.csrfToken = csrfToken;
+      
       res.json({ 
         csrfToken,
         message: "CSRF token generated successfully"
