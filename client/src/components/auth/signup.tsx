@@ -412,6 +412,7 @@ function SignupForm() {
                 <Input
                   id="firstName"
                   type="text"
+                  autoComplete="given-name"
                   {...register('firstName')}
                   onChange={(e) => handleInputChange('firstName', e.target.value)}
                   required
@@ -427,6 +428,7 @@ function SignupForm() {
                 <Input
                   id="lastName"
                   type="text"
+                  autoComplete="family-name"
                   {...register('lastName')}
                   onChange={(e) => handleInputChange('lastName', e.target.value)}
                   required
@@ -443,6 +445,7 @@ function SignupForm() {
               <Input
                 id="email"
                 type="email"
+                autoComplete="email"
                 {...register('email')}
                 onChange={(e) => handleInputChange('email', e.target.value)}
                 required
@@ -461,6 +464,7 @@ function SignupForm() {
                 onChange={(value) => handleInputChange('phone', value)}
                 disabled={isLoading}
                 required
+                autoComplete="tel"
               />
               <p className="text-sm text-gray-500">
                 Include your country code (e.g., +234 801 234 5678 for Nigeria)
@@ -475,6 +479,7 @@ function SignupForm() {
               <Input
                 id="companyName"
                 type="text"
+                autoComplete="organization"
                 {...register('companyName')}
                 onChange={(e) => handleInputChange('companyName', e.target.value)}
                 required
@@ -550,6 +555,7 @@ function SignupForm() {
                 <Input
                   id="password"
                   type="password"
+                  autoComplete="new-password"
                   {...register('password')}
                   onChange={(e) => handleInputChange('password', e.target.value)}
                   required
@@ -566,6 +572,7 @@ function SignupForm() {
                 <Input
                   id="confirmPassword"
                   type="password"
+                  autoComplete="new-password"
                   {...register('confirmPassword')}
                   onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                   required

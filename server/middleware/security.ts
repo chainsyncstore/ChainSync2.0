@@ -35,11 +35,36 @@ const corsOptions = {
       if (process.env.PRODUCTION_WWW_DOMAIN) {
         allowedOrigins.push(process.env.PRODUCTION_WWW_DOMAIN);
       }
+      
+      // Add Render-specific domains for deployment
+      if (process.env.RENDER_EXTERNAL_HOSTNAME) {
+        allowedOrigins.push(`https://${process.env.RENDER_EXTERNAL_HOSTNAME}`);
+      }
+      if (process.env.RENDER_EXTERNAL_URL) {
+        allowedOrigins.push(process.env.RENDER_EXTERNAL_URL);
+      }
+      
+      // Add common Render deployment patterns
+      allowedOrigins.push('https://*.onrender.com');
+      allowedOrigins.push('https://*.render.com');
+      
+      // Add the current request origin if it's a Render domain
+      if (origin && (origin.includes('onrender.com') || origin.includes('render.com'))) {
+        allowedOrigins.push(origin);
+      }
     }
     
+    // Check if origin is allowed
     if (allowedOrigins.includes(origin!)) {
       callback(null, true);
     } else {
+      // Special handling for Render deployments
+      if (process.env.NODE_ENV === 'production' && origin && 
+          (origin.includes('onrender.com') || origin.includes('render.com'))) {
+        logger.info('Allowing Render deployment origin', { origin });
+        return callback(null, true);
+      }
+      
       logger.warn('CORS blocked request from unauthorized origin', { 
         origin, 
         allowedOrigins,

@@ -98,12 +98,60 @@ export function serveStatic(app: Express) {
       files: fs.readdirSync(distPath)
     });
 
-    // Serve static files from /dist/public
-    app.use(express.static(distPath));
+    // Serve static files from /dist/public with proper MIME types
+    app.use(express.static(distPath, {
+      setHeaders: (res, path) => {
+        // Set proper MIME types for different file types
+        if (path.endsWith('.css')) {
+          res.setHeader('Content-Type', 'text/css');
+        } else if (path.endsWith('.js')) {
+          res.setHeader('Content-Type', 'application/javascript');
+        } else if (path.endsWith('.html')) {
+          res.setHeader('Content-Type', 'text/html');
+        } else if (path.endsWith('.json')) {
+          res.setHeader('Content-Type', 'application/json');
+        } else if (path.endsWith('.png')) {
+          res.setHeader('Content-Type', 'image/png');
+        } else if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
+          res.setHeader('Content-Type', 'image/jpeg');
+        } else if (path.endsWith('.svg')) {
+          res.setHeader('Content-Type', 'image/svg+xml');
+        } else if (path.endsWith('.ico')) {
+          res.setHeader('Content-Type', 'image/x-icon');
+        }
+        
+        // Add cache control headers
+        if (path.endsWith('.css') || path.endsWith('.js')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
+        } else if (path.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      }
+    }));
 
     // Catch-all route to serve index.html for SPA routing
-    app.get("*", (_, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+    app.get("*", (req, res) => {
+      // Skip API routes
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({
+          error: 'API endpoint not found',
+          path: req.path,
+          message: 'The requested API endpoint could not be found'
+        });
+      }
+      
+      // Serve index.html for all other routes (SPA routing)
+      const indexPath = path.join(distPath, "index.html");
+      
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).json({
+          error: 'Page not found',
+          path: req.path,
+          message: 'The requested page could not be found'
+        });
+      }
     });
   } catch (error) {
     logger.error('Failed to setup static file serving', { 

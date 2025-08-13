@@ -58,13 +58,32 @@ export default function Landing() {
     // Detect user location (simplified - in production, use a proper geolocation service)
     const detectLocation = async () => {
       try {
-        const response = await fetch('https://ipapi.co/json/');
-        const data = await response.json();
-        if (data.country_code === 'NG') {
-          setUserLocation('nigeria');
+        // Use browser's built-in geolocation API instead of external service
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              // For now, default to international since we can't easily determine country from coordinates
+              // In production, you could use a reverse geocoding service that's allowed in your CSP
+              setUserLocation('international');
+            },
+            (error) => {
+              console.log('Geolocation failed, defaulting to international:', error.message);
+              setUserLocation('international');
+            },
+            { timeout: 5000, enableHighAccuracy: false }
+          );
+        } else {
+          // Fallback: try to detect from timezone (less accurate but no external API needed)
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          if (timezone && timezone.includes('Africa/Lagos')) {
+            setUserLocation('nigeria');
+          } else {
+            setUserLocation('international');
+          }
         }
       } catch (error) {
         console.log('Could not detect location, defaulting to international');
+        setUserLocation('international');
       }
     };
     

@@ -1,7 +1,16 @@
-import type { Express } from "express";
-import { createServer, type Server } from "http";
+import express, { Express } from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import { session } from "express-session";
+import connectPg from "connect-pg-simple";
+import cookieParser from "cookie-parser";
+import { z } from "zod";
+import { eq, desc } from "drizzle-orm";
+import crypto from "crypto";
+
+// Database and storage
+import { db, checkDatabaseHealth } from "./db";
 import { storage } from "./storage";
-import { AuthService } from "./auth";
 import { 
   insertProductSchema, 
   insertTransactionSchema, 
@@ -10,43 +19,52 @@ import {
   insertCustomerSchema,
   insertLoyaltyTransactionSchema,
   insertUserSchema,
-  type User
+  type User,
+  forecastModels
 } from "@shared/schema";
-import { z } from "zod";
-import session from "express-session";
-import connectPg from "connect-pg-simple";
-import cookieParser from "cookie-parser";
-import { eq, desc } from "drizzle-orm";
-import { forecastModels } from "@shared/schema";
-import { db } from "./db";
+
+// Services
+import { AuthService } from "./auth";
+import { sendEmail, generateEmailVerificationEmail } from "./email";
 import { OpenAIService } from "./openai/service";
 import { PaymentService } from "./payment/service";
+
+// Utilities and middleware
 import { 
-  sendErrorResponse, 
   sendSuccessResponse, 
-  handleAsyncError,
-  AppError,
-  ValidationError,
+  sendErrorResponse, 
+  AppError, 
+  AuthError, 
   AuthenticationError,
+  ValidationError,
   NotFoundError,
   ConflictError,
-  PaymentError,
-  AuthError
+  PaymentError
 } from "./lib/errors";
+import { logger } from "./lib/logger";
+import { monitoringService, getPerformanceMetrics, clearPerformanceMetrics } from "./lib/monitoring";
+import { performanceMiddleware } from "./lib/performance";
 import { 
-  performanceMiddleware, 
-  getPerformanceMetrics, 
-  clearPerformanceMetrics 
-} from "./lib/performance";
-import { logger, extractLogContext } from "./lib/logger";
-import { monitoringService } from "./lib/monitoring";
-import { validateBody } from "./middleware/validation";
-import { SignupSchema, LoginSchema } from "./schemas/auth";
-import { authRateLimit, sensitiveEndpointRateLimit, paymentRateLimit } from "./middleware/security";
-import { signupBotPrevention, paymentBotPrevention, emailVerificationBotPrevention } from "./middleware/bot-prevention";
+  validateBody, 
+  handleAsyncError, 
+  extractLogContext 
+} from "./middleware/validation";
+import { 
+  authRateLimit, 
+  sensitiveEndpointRateLimit,
+  signupBotPrevention,
+  emailVerificationBotPrevention,
+  paymentRateLimit
+} from "./middleware/security";
+import { 
+  signupBotPrevention as signupBotPreventionImport,
+  paymentBotPrevention, 
+  emailVerificationBotPrevention as emailVerificationBotPreventionImport
+} from "./middleware/bot-prevention";
 import { SecureCookieManager } from "./lib/cookies";
-import { sendEmail, generateEmailVerificationEmail } from "./email";
-import crypto from "crypto";
+
+// Schemas
+import { SignupSchema, LoginSchema } from "./schemas/auth";
 
 // Extend the session interface
 declare module "express-session" {
@@ -67,6 +85,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Add performance monitoring middleware
   app.use(performanceMiddleware);
+
+  // Health check endpoint for deployment monitoring
+  app.get("/api/health", async (req, res) => {
+    try {
+      // Check database connection
+      const dbHealthy = await checkDatabaseHealth();
+      
+      const healthStatus = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV,
+        database: dbHealthy ? 'connected' : 'disconnected',
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        version: process.version
+      };
+      
+      if (dbHealthy) {
+        res.status(200).json(healthStatus);
+      } else {
+        res.status(503).json({
+          ...healthStatus,
+          status: 'unhealthy',
+          message: 'Database connection failed'
+        });
+      }
+    } catch (error) {
+      res.status(500).json({
+        status: 'error',
+        message: 'Health check failed',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
 
   // Session configuration
   const pgSession = connectPg(session);
@@ -180,10 +233,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Signup route with validation and rate limiting
   app.post("/api/auth/signup", 
     sensitiveEndpointRateLimit,
-    signupBotPrevention,
+    signupBotPreventionImport,
     validateBody(SignupSchema),
     async (req, res) => {
       try {
+        // First check database health
+        const dbHealthy = await checkDatabaseHealth();
+        if (!dbHealthy) {
+          logger.error("Signup failed - database connection unhealthy", {
+            ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+          });
+          return res.status(503).json({ 
+            status: 'error',
+            message: "Service temporarily unavailable. Please try again in a moment.",
+            code: 'SERVICE_UNAVAILABLE',
+            timestamp: new Date().toISOString(),
+            path: req.path
+          });
+        }
+
         const { firstName, lastName, email, phone, companyName, password, tier, location } = req.body;
         
         // Password strength validation is now handled by the Zod schema
@@ -323,12 +391,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error) {
         console.error("Signup error:", error);
         
-        // Log the specific error internally for debugging
-        logger.error("Signup error", { 
+        // Enhanced error logging for debugging
+        const errorContext = {
           error: error.message, 
           stack: error.stack,
-          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
-        });
+          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress,
+          userAgent: req.get('User-Agent'),
+          timestamp: new Date().toISOString(),
+          environment: process.env.NODE_ENV
+        };
+        
+        logger.error("Signup error", errorContext);
+        
+        // Handle specific database connection errors
+        if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || 
+            error.message?.includes('connection') || error.message?.includes('timeout')) {
+          return res.status(503).json({ 
+            status: 'error',
+            message: "Service temporarily unavailable. Please try again in a moment.",
+            code: 'SERVICE_UNAVAILABLE',
+            timestamp: new Date().toISOString(),
+            path: req.path
+          });
+        }
+        
+        // Handle database-specific errors
+        if (error.code === '23505') { // Unique constraint violation
+          return res.status(409).json({ 
+            status: 'error',
+            message: "Email is already registered, please check details and try again.",
+            code: 'DUPLICATE_EMAIL',
+            timestamp: new Date().toISOString(),
+            path: req.path
+          });
+        }
         
         // Return appropriate error based on error type
         if (error.name === 'AuthError') {
@@ -355,7 +451,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Email verification endpoint
   app.post("/api/auth/verify-email", 
     sensitiveEndpointRateLimit,
-    emailVerificationBotPrevention,
+    emailVerificationBotPreventionImport,
     handleAsyncError(async (req, res) => {
       const { token } = req.body;
       
@@ -393,7 +489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Resend verification email endpoint
   app.post("/api/auth/resend-verification", 
     sensitiveEndpointRateLimit,
-    emailVerificationBotPrevention,
+    emailVerificationBotPreventionImport,
     handleAsyncError(async (req, res) => {
       const { email } = req.body;
       
@@ -647,43 +743,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // CSRF token endpoint
   app.get("/api/auth/csrf-token", (req: any, res) => {
     try {
-      // Use the csurf library's token generation
-      const csrfToken = req.csrfToken();
-      
-      // Set secure CSRF token cookie for client-side access
-      SecureCookieManager.setCsrfToken(res, csrfToken);
-      
-      res.json({ 
-        csrfToken,
-        message: "CSRF token generated successfully"
+      // Check if CSRF secret is configured
+      if (!process.env.CSRF_SECRET) {
+        logger.error("CSRF_SECRET environment variable not configured", {
+          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+        });
+        return res.status(500).json({ 
+          status: 'error',
+          message: "CSRF protection not configured",
+          code: 'CONFIGURATION_ERROR',
+          timestamp: new Date().toISOString(),
+          path: req.path
+        });
+      }
+
+      // Check database health before proceeding
+      checkDatabaseHealth().then(isHealthy => {
+        if (!isHealthy) {
+          logger.error("CSRF token generation failed - database unhealthy", {
+            ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+          });
+          return res.status(503).json({ 
+            status: 'error',
+            message: "Service temporarily unavailable",
+            code: 'SERVICE_UNAVAILABLE',
+            timestamp: new Date().toISOString(),
+            path: req.path
+          });
+        }
+
+        // Generate CSRF token
+        const csrfToken = crypto.randomBytes(32).toString('hex');
+        
+        // Set CSRF token in secure cookie
+        res.cookie('csrf-token', csrfToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict',
+          maxAge: 60 * 60 * 1000 // 1 hour
+        });
+
+        res.json({ csrfToken });
+      }).catch(error => {
+        logger.error("CSRF token generation failed", { 
+          error: error.message,
+          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+        });
+        res.status(500).json({ 
+          status: 'error',
+          message: "Failed to generate CSRF token",
+          code: 'TOKEN_GENERATION_ERROR',
+          timestamp: new Date().toISOString(),
+          path: req.path
+        });
       });
     } catch (error) {
-      console.error("CSRF token generation error:", error);
-      res.status(500).json({ message: "Failed to generate CSRF token" });
+      logger.error("CSRF token endpoint error", { 
+        error: error.message,
+        ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+      });
+      res.status(500).json({ 
+        status: 'error',
+        message: "Internal server error",
+        code: 'INTERNAL_ERROR',
+        timestamp: new Date().toISOString(),
+        path: req.path
+      });
     }
   });
 
-  // Get pending signup user ID from secure cookie
+  // Pending signup endpoint
   app.get("/api/auth/pending-signup", (req: any, res) => {
     try {
-      const pendingUserId = SecureCookieManager.getPendingSignupUserId(req);
-      
-      if (pendingUserId) {
-        res.json({
-          status: "success",
-          pendingUserId,
-          message: "Pending signup user ID found"
+      // Check if required environment variables are set
+      if (!process.env.SESSION_SECRET) {
+        logger.error("SESSION_SECRET environment variable not configured", {
+          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
         });
-      } else {
-        res.json({
-          status: "success",
-          pendingUserId: null,
-          message: "No pending signup found"
+        return res.status(500).json({ 
+          status: 'error',
+          message: "Session configuration error",
+          code: 'CONFIGURATION_ERROR',
+          timestamp: new Date().toISOString(),
+          path: req.path
         });
       }
+
+      // Check database health
+      checkDatabaseHealth().then(isHealthy => {
+        if (!isHealthy) {
+          logger.error("Pending signup check failed - database unhealthy", {
+            ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+          });
+          return res.status(503).json({ 
+            status: 'error',
+            message: "Service temporarily unavailable",
+            code: 'SERVICE_UNAVAILABLE',
+            timestamp: new Date().toISOString(),
+            path: req.path
+          });
+        }
+
+        // Check for pending signup in secure cookie
+        const pendingSignupId = req.cookies['pending-signup-id'];
+        
+        if (pendingSignupId) {
+          // Return the pending signup ID
+          res.json({ 
+            pendingSignupId,
+            hasPendingSignup: true
+          });
+        } else {
+          res.json({ 
+            hasPendingSignup: false
+          });
+        }
+      }).catch(error => {
+        logger.error("Pending signup check failed", { 
+          error: error.message,
+          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+        });
+        res.status(500).json({ 
+          status: 'error',
+          message: "Failed to check pending signup",
+          code: 'CHECK_FAILED_ERROR',
+          timestamp: new Date().toISOString(),
+          path: req.path
+        });
+      });
     } catch (error) {
-      console.error("Get pending signup error:", error);
-      res.status(500).json({ message: "Failed to get pending signup" });
+      logger.error("Pending signup endpoint error", { 
+        error: error.message,
+        ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+      });
+      res.status(500).json({ 
+        status: 'error',
+        message: "Internal server error",
+        code: 'INTERNAL_ERROR',
+        timestamp: new Date().toISOString(),
+        path: req.path
+      });
     }
   });
 
