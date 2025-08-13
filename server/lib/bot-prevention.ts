@@ -15,6 +15,14 @@ export class BotPreventionService {
   constructor() {
     this.recaptchaSecretKey = process.env.RECAPTCHA_SECRET_KEY || '';
     this.hcaptchaSecretKey = process.env.HCAPTCHA_SECRET_KEY || '';
+    
+    // Debug logging
+    logger.info('BotPreventionService initialized', {
+      recaptchaConfigured: !!this.recaptchaSecretKey,
+      hcaptchaConfigured: !!this.hcaptchaSecretKey,
+      recaptchaKeyLength: this.recaptchaSecretKey.length,
+      hcaptchaKeyLength: this.hcaptchaSecretKey.length
+    });
   }
 
   /**
@@ -132,17 +140,28 @@ export class BotPreventionService {
    * Verifies either reCAPTCHA or hCaptcha token based on the token format
    */
   async verifyCaptcha(token: string, expectedAction: string = 'signup'): Promise<CaptchaVerificationResult> {
-    // Try to determine which type of captcha this is
-    // reCAPTCHA tokens are typically longer and contain dots
-    // hCaptcha tokens are typically shorter
+    logger.info('verifyCaptcha called', {
+      tokenLength: token.length,
+      tokenContainsDot: token.includes('.'),
+      recaptchaConfigured: !!this.recaptchaSecretKey,
+      hcaptchaConfigured: !!this.hcaptchaSecretKey
+    });
     
-    if (token.includes('.') && token.length > 100) {
-      // Likely a reCAPTCHA token
+    // Prioritize reCAPTCHA if it's configured
+    if (this.recaptchaSecretKey) {
+      logger.info('Using reCAPTCHA verification');
       return this.verifyRecaptcha(token, expectedAction);
-    } else {
-      // Likely an hCaptcha token
+    }
+    
+    // Fall back to hCaptcha if reCAPTCHA is not configured
+    if (this.hcaptchaSecretKey) {
+      logger.info('Using hCaptcha verification');
       return this.verifyHcaptcha(token);
     }
+    
+    // If neither is configured, return an error
+    logger.warn('No captcha service configured');
+    return { success: false, error: 'No captcha service configured' };
   }
 
   /**
