@@ -28,6 +28,7 @@ const Alerts = lazy(() => import("@/pages/alerts"));
 const DataImport = lazy(() => import("@/pages/data-import"));
 const MultiStore = lazy(() => import("@/pages/multi-store"));
 const Settings = lazy(() => import("@/pages/settings"));
+const DebugCsrf = lazy(() => import("@/pages/debug-csrf"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading component for lazy-loaded pages
@@ -58,6 +59,7 @@ function Dashboard({ userRole }: { userRole: string }) {
             <Route path="/multi-store" component={MultiStore} />
             <Route path="/settings" component={Settings} />
             <Route path="/pos" component={POS} />
+            <Route path="/debug-csrf" component={DebugCsrf} />
             <Route component={NotFound} />
           </Switch>
         </Suspense>

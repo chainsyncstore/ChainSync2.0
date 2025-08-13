@@ -27,9 +27,32 @@ class ApiClient {
     this.baseURL = '/api';
   }
 
+  /**
+   * Get CSRF token from cookie if available, otherwise fetch from server
+   */
+  private getCsrfTokenFromCookie(): string | null {
+    try {
+      // Check if we can access the cookie (it should be httpOnly: false for CSRF)
+      const cookies = document.cookie.split(';');
+      for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrf-token' && value) {
+          return value;
+        }
+      }
+    } catch (error) {
+      console.warn('Error reading CSRF cookie:', error);
+    }
+    return null;
+  }
+
   private async ensureCsrfToken(): Promise<string> {
-    if (!this.csrfToken) {
+    // First try to get from cookie
+    let token = this.getCsrfTokenFromCookie();
+    
+    if (!token) {
       try {
+        console.log('Fetching CSRF token from server...');
         const response = await fetch(`${this.baseURL}/auth/csrf-token`, {
           method: 'GET',
           credentials: 'include',
@@ -37,26 +60,35 @@ class ApiClient {
         
         if (response.ok) {
           const data = await response.json();
-          this.csrfToken = data.csrfToken;
+          token = data.csrfToken;
+          
+          // Verify the cookie was set
+          const cookieToken = this.getCsrfTokenFromCookie();
+          if (cookieToken && cookieToken === token) {
+            console.log('CSRF token and cookie set successfully');
+            this.csrfToken = token;
+          } else {
+            console.warn('CSRF token received but cookie not properly set');
+            // Still use the token from response for this request
+          }
         } else {
-          console.warn('Failed to fetch CSRF token');
-          this.csrfToken = '';
+          console.error('Failed to fetch CSRF token:', response.status, response.statusText);
+          throw new Error(`Failed to fetch CSRF token: ${response.status}`);
         }
       } catch (error) {
-        console.warn('Error fetching CSRF token:', error);
-        this.csrfToken = '';
+        console.error('Error fetching CSRF token:', error);
+        throw new Error('CSRF token is required but could not be obtained');
       }
+    } else {
+      console.log('Using CSRF token from cookie');
+      this.csrfToken = token;
     }
-    return this.csrfToken || '';
-  }
-
-  /**
-   * Get CSRF token from secure cookie (set by server)
-   */
-  private getCsrfTokenFromCookie(): string | null {
-    // The server sets the CSRF token in a secure httpOnly cookie
-    // We need to fetch it from the server endpoint
-    return null; // Will be fetched via ensureCsrfToken
+    
+    if (!token) {
+      throw new Error('CSRF token is required but could not be obtained');
+    }
+    
+    return token;
   }
 
   private async request<T>(
@@ -68,11 +100,11 @@ class ApiClient {
     // Always get CSRF token for non-GET requests to ensure security
     let csrfToken = '';
     if (options.method && options.method !== 'GET') {
-      csrfToken = await this.ensureCsrfToken();
-      
-      // If CSRF token fetch fails, throw an error for security
-      if (!csrfToken) {
-        throw new Error('CSRF token is required for this request but could not be obtained');
+      try {
+        csrfToken = await this.ensureCsrfToken();
+      } catch (error) {
+        console.error('CSRF token error:', error);
+        throw error;
       }
     }
     
@@ -88,7 +120,22 @@ class ApiClient {
     const config = { ...defaultOptions, ...options };
 
     try {
+      console.log('Making request:', {
+        url,
+        method: config.method,
+        hasCsrfToken: !!csrfToken,
+        credentials: config.credentials
+      });
+
       const response = await fetch(url, config);
+      
+      // Log response details for debugging
+      console.log('Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+
       const data: ApiResponse<T> = await response.json();
 
       if (!response.ok) {

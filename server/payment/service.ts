@@ -32,8 +32,25 @@ export class PaymentService {
     this.paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
     this.flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY || '';
     
-    if (!this.paystackSecretKey || !this.flutterwaveSecretKey) {
-      throw new Error('Payment service keys are required. Please set PAYSTACK_SECRET_KEY and FLUTTERWAVE_SECRET_KEY in environment variables.');
+    // Log the keys for debugging (without exposing full keys)
+    console.log('PaymentService initialization:', {
+      paystackKeyPresent: !!this.paystackSecretKey,
+      flutterwaveKeyPresent: !!this.flutterwaveSecretKey,
+      environment: process.env.NODE_ENV,
+      baseUrl: process.env.BASE_URL
+    });
+    
+    // In development mode, allow missing keys and use mock services
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Development mode: PaymentService initialized with mock support');
+      if (!this.paystackSecretKey && !this.flutterwaveSecretKey) {
+        console.warn('No payment keys found in development mode - will use mock services');
+      }
+    } else {
+      // In production, require at least one key
+      if (!this.paystackSecretKey && !this.flutterwaveSecretKey) {
+        throw new Error('At least one payment service key is required. Please set PAYSTACK_SECRET_KEY or FLUTTERWAVE_SECRET_KEY in environment variables.');
+      }
     }
   }
 

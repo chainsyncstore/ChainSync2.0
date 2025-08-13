@@ -112,3 +112,90 @@ export function clearCart() {
     return false;
   }
 }
+
+/**
+ * Debug utility for cookies and CSRF tokens
+ */
+export const debugCookies = () => {
+  try {
+    console.log('🍪 Cookie Debug Information:');
+    console.log('Document cookies:', document.cookie);
+    
+    const cookies = document.cookie.split(';');
+    console.log('Parsed cookies:', cookies.map(c => c.trim()));
+    
+    // Check for CSRF token specifically
+    const csrfCookie = cookies.find(c => c.trim().startsWith('csrf-token='));
+    if (csrfCookie) {
+      const [, value] = csrfCookie.split('=');
+      console.log('CSRF token found in cookie:', value);
+    } else {
+      console.log('❌ No CSRF token cookie found');
+    }
+    
+    // Check for other important cookies
+    const sessionCookie = cookies.find(c => c.trim().startsWith('chainsync.sid='));
+    if (sessionCookie) {
+      console.log('✅ Session cookie found');
+    } else {
+      console.log('❌ No session cookie found');
+    }
+    
+  } catch (error) {
+    console.error('Error debugging cookies:', error);
+  }
+};
+
+/**
+ * Test CSRF token functionality
+ */
+export const testCsrfToken = async () => {
+  try {
+    console.log('🧪 Testing CSRF token functionality...');
+    
+    // Step 1: Check current cookies
+    debugCookies();
+    
+    // Step 2: Fetch CSRF token
+    console.log('📡 Fetching CSRF token...');
+    const response = await fetch('/api/auth/csrf-token', {
+      method: 'GET',
+      credentials: 'include',
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log('✅ CSRF token response:', data);
+      
+      // Step 3: Check cookies after fetch
+      console.log('🍪 Cookies after CSRF fetch:');
+      debugCookies();
+      
+      // Step 4: Test a simple POST request
+      console.log('📡 Testing POST request with CSRF token...');
+      const testResponse = await fetch('/api/auth/me', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': data.csrfToken,
+        },
+        credentials: 'include',
+      });
+      
+      console.log('📊 Test POST response status:', testResponse.status);
+      
+      if (testResponse.ok) {
+        console.log('✅ CSRF token validation passed');
+      } else {
+        const errorData = await testResponse.text();
+        console.log('❌ CSRF token validation failed:', errorData);
+      }
+      
+    } else {
+      console.error('❌ Failed to fetch CSRF token:', response.status);
+    }
+    
+  } catch (error) {
+    console.error('❌ CSRF token test failed:', error);
+  }
+};

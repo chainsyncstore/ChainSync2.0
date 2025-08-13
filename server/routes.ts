@@ -171,7 +171,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }));
 
   // Cookie parser middleware (must come after session middleware)
-  app.use(cookieParser());
+  app.use(cookieParser(process.env.SESSION_SECRET)); // Add secret for signed cookies if needed
+  
+  // Debug middleware to log cookie information
+  app.use((req: any, res: any, next: any) => {
+    console.log('🍪 Cookie Debug:', {
+      path: req.path,
+      method: req.method,
+      cookies: req.cookies,
+      hasCsrfCookie: !!req.cookies['csrf-token'],
+      csrfCookieValue: req.cookies['csrf-token']?.substring(0, 8) + '...' || 'none'
+    });
+    next();
+  });
 
   // CSRF protection (must come after session middleware)
   const { csrfProtection, csrfErrorHandler } = await import('./middleware/security');
@@ -834,12 +846,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate CSRF token
       const csrfToken = crypto.randomBytes(32).toString('hex');
       
-      // Set CSRF token in secure cookie
+      // Set CSRF token in secure cookie with consistent naming
       res.cookie('csrf-token', csrfToken, {
-        httpOnly: true,
+        httpOnly: false, // Allow JavaScript access for CSRF token
         secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-        maxAge: 60 * 60 * 1000 // 1 hour
+        sameSite: 'lax', // More permissive for development
+        maxAge: 60 * 60 * 1000, // 1 hour
+        path: '/' // Ensure cookie is available for all paths
       });
 
       res.json({ csrfToken });
@@ -974,7 +987,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`Server-side upfront fee calculation: ${tier} tier, ${currency} currency = ${upfrontFee} ${currency === 'NGN' ? 'kobo' : 'cents'}`);
       
-      const paymentService = new PaymentService();
+      // Create PaymentService with error handling
+      let paymentService;
+      try {
+        console.log('Creating PaymentService instance...');
+        paymentService = new PaymentService();
+        console.log('PaymentService created successfully');
+      } catch (error) {
+        console.error('Failed to create PaymentService:', error);
+        return res.status(500).json({ 
+          message: "Payment service initialization failed",
+          error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+      }
+      
       const reference = paymentService.generateReference(provider as 'paystack' | 'flutterwave');
       
       // Ensure callback URL is properly set for both development and production
@@ -1037,8 +1063,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(responseData);
     } catch (error) {
+      console.error('Payment initialization error details:', {
+        error: error.message,
+        stack: error.stack,
+        environment: process.env.NODE_ENV,
+        paystackKey: process.env.PAYSTACK_SECRET_KEY ? 'SET' : 'NOT SET',
+        flutterwaveKey: process.env.FLUTTERWAVE_SECRET_KEY ? 'SET' : 'NOT SET',
+        baseUrl: process.env.BASE_URL
+      });
+      
       logger.error("Payment initialization error", extractLogContext(req), error);
-      res.status(500).json({ message: "Failed to initialize payment" });
+      
+      // Provide more specific error messages
+      let errorMessage = "Failed to initialize payment";
+      if (error.message?.includes('Payment service keys are required')) {
+        errorMessage = "Payment service configuration error. Please contact support.";
+      } else if (error.message?.includes('Failed to initialize')) {
+        errorMessage = "Payment gateway error. Please try again or contact support.";
+      }
+      
+      res.status(500).json({ 
+        message: errorMessage,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 

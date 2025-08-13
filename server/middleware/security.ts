@@ -256,25 +256,54 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
     return next();
   }
   
-  // Custom CSRF validation
-  const csrfToken = req.headers['x-csrf-token'] as string;
-  const cookieToken = req.cookies['csrf-token'];
+  // Custom CSRF validation with consistent cookie naming
+  const csrfToken = req.headers['x-csrf-token'] || req.headers['X-CSRF-Token'] as string;
+  const cookieToken = req.cookies['csrf-token']; // Use consistent cookie name
+  
+  // Log CSRF validation details for debugging
+  console.log('CSRF Validation:', {
+    path: req.path,
+    method: req.method,
+    hasHeaderToken: !!csrfToken,
+    hasCookieToken: !!cookieToken,
+    headerTokenLength: csrfToken?.length || 0,
+    cookieTokenLength: cookieToken?.length || 0
+  });
   
   if (!csrfToken || !cookieToken) {
+    console.warn('CSRF validation failed - missing tokens:', {
+      path: req.path,
+      hasHeaderToken: !!csrfToken,
+      hasCookieToken: !!cookieToken
+    });
     return res.status(403).json({
       error: 'CSRF token missing',
-      message: 'CSRF token is required for this request'
+      message: 'CSRF token is required for this request',
+      details: {
+        hasHeaderToken: !!csrfToken,
+        hasCookieToken: !!cookieToken
+      }
     });
   }
   
   if (csrfToken !== cookieToken) {
+    console.warn('CSRF validation failed - token mismatch:', {
+      path: req.path,
+      headerToken: csrfToken?.substring(0, 8) + '...',
+      cookieToken: cookieToken?.substring(0, 8) + '...'
+    });
     return res.status(403).json({
       error: 'CSRF token invalid',
-      message: 'CSRF token validation failed'
+      message: 'CSRF token validation failed',
+      details: {
+        headerTokenLength: csrfToken?.length || 0,
+        cookieTokenLength: cookieToken?.length || 0
+      }
     });
   }
   
   // CSRF validation passed
+  console.log('CSRF validation passed for:', req.path);
   next();
 };
 
