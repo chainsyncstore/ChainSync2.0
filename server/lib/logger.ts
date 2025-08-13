@@ -50,7 +50,10 @@ class Logger {
       timestamp: new Date().toISOString(),
       level,
       message,
-      context,
+      context: {
+        requestId: (context?.requestId as string) || undefined,
+        ...context
+      },
       error: error ? {
         name: error.name,
         message: error.message,
@@ -190,7 +193,8 @@ class Logger {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       userId: (req.session as any)?.user?.id,
-      storeId: (req.session as any)?.user?.storeId
+      storeId: (req.session as any)?.user?.storeId,
+      requestId: (req as any).requestId
     };
 
     if (res.statusCode >= 400) {

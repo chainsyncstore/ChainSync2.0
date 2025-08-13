@@ -6,6 +6,7 @@ export interface CookieOptions {
   sameSite: 'strict' | 'lax' | 'none';
   maxAge: number;
   path: string;
+  domain?: string;
 }
 
 export const defaultCookieOptions: CookieOptions = {
@@ -13,7 +14,8 @@ export const defaultCookieOptions: CookieOptions = {
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'strict',
   maxAge: 24 * 60 * 60 * 1000, // 24 hours
-  path: '/'
+  path: '/',
+  domain: process.env.COOKIE_DOMAIN || undefined
 };
 
 export class SecureCookieManager {

@@ -302,7 +302,18 @@ function SignupForm() {
       } else if (error.code === 'NETWORK_ERROR' || error.message?.includes('Connection failed')) {
         setGeneralError('Connection failed. Please check your internet connection and try again.');
       } else if (error.code === 'VALIDATION_ERROR') {
-        setGeneralError('Please check your input details and try again.');
+        if (Array.isArray(error.details)) {
+          const passwordErrors = error.details
+            .filter((d: any) => d.field === 'password' && typeof d.message === 'string')
+            .map((d: any) => d.message);
+          if (passwordErrors.length) {
+            setGeneralError(`Password requirements: ${passwordErrors.join('; ')}`);
+          } else {
+            setGeneralError('Please check your input details and try again.');
+          }
+        } else {
+          setGeneralError('Please check your input details and try again.');
+        }
       } else if (error.code === 'RATE_LIMIT_EXCEEDED') {
         setGeneralError('Too many signup attempts. Please wait a moment and try again.');
       } else {
@@ -524,6 +535,12 @@ function SignupForm() {
                   </li>
                 ))}
               </ul>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+              <p className="text-sm text-yellow-900">
+                Verify your email to activate your account and log in.
+              </p>
             </div>
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">

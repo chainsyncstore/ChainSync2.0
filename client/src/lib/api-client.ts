@@ -211,6 +211,15 @@ class ApiClient {
         userMessage = 'The requested resource was not found.';
         break;
       case 'VALIDATION_ERROR':
+        if (Array.isArray(error.details) && error.details.length > 0) {
+          const passwordErrors = error.details
+            .filter((d: any) => d.field === 'password' && typeof d.message === 'string')
+            .map((d: any) => d.message);
+          if (passwordErrors.length > 0) {
+            userMessage = `Password requirements: ${passwordErrors.join('; ')}`;
+            break;
+          }
+        }
         userMessage = 'Please check your input and try again.';
         break;
       case 'DUPLICATE_EMAIL':

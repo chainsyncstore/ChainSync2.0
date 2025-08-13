@@ -12,7 +12,7 @@ describe('SignupSchema - Behavior Tests', () => {
         companyName: 'Acme Corp',
         password: 'SecurePass123',
         tier: 'basic',
-        location: 'New York'
+        location: 'international'
       };
 
       const result = SignupSchema.safeParse(validPayload);
@@ -37,7 +37,7 @@ describe('SignupSchema - Behavior Tests', () => {
           companyName: 'Tech Solutions',
           password: 'StrongPwd456',
           tier: tier,
-          location: 'San Francisco'
+          location: 'international'
         };
 
         const result = SignupSchema.safeParse(validPayload);
@@ -55,7 +55,7 @@ describe('SignupSchema - Behavior Tests', () => {
         companyName: 'Acme Corp',
         password: 'SecurePass123',
         tier: 'basic',
-        location: 'New York'
+        location: 'international'
       };
 
       const result = SignupSchema.safeParse(invalidPayload);
@@ -70,7 +70,7 @@ describe('SignupSchema - Behavior Tests', () => {
         companyName: 'Acme Corp',
         password: 'SecurePass123',
         tier: 'basic',
-        location: 'New York'
+        location: 'international'
       };
 
       const result = SignupSchema.safeParse(invalidPayload);
@@ -91,7 +91,7 @@ describe('SignupSchema - Behavior Tests', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -111,7 +111,7 @@ describe('SignupSchema - Behavior Tests', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const result = SignupSchema.safeParse(validPayload);
@@ -133,7 +133,7 @@ describe('SignupSchema - Behavior Tests', () => {
           companyName: 'Acme Corp',
           password: password,
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -153,7 +153,7 @@ describe('SignupSchema - Behavior Tests', () => {
           companyName: 'Acme Corp',
           password: password,
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const result = SignupSchema.safeParse(validPayload);
@@ -182,7 +182,7 @@ describe('SignupSchema - Behavior Tests', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -208,7 +208,7 @@ describe('SignupSchema - Behavior Tests', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const result = SignupSchema.safeParse(validPayload);

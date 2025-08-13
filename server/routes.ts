@@ -165,7 +165,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       secure: process.env.NODE_ENV === 'production', // Secure in production
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      domain: process.env.COOKIE_DOMAIN || undefined,
+      path: '/'
     },
     name: 'chainsync.sid', // Custom session name
   }));
@@ -279,11 +281,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateBody(SignupSchema),
     async (req, res) => {
       try {
+        const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+        const requestId = (req as any).requestId;
         logger.info('Signup request received', {
-          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress,
+          ipAddress,
           userAgent: req.get('User-Agent'),
-          email: req.body.email
+          email: req.body.email,
+          requestId
         });
+        try {
+          monitoringService.recordSignupEvent('attempt', {
+            ipAddress,
+            userAgent: req.get('User-Agent'),
+            path: req.path,
+            requestId
+          });
+        } catch {}
         
         // First check database health with timeout
         const dbHealthPromise = checkDatabaseHealth();
@@ -291,11 +304,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           setTimeout(() => reject(new Error('Database health check timeout')), 10000);
         });
         
-        const dbHealthy = await Promise.race([dbHealthPromise, timeoutPromise]);
+        let dbHealthy = false;
+        try {
+          dbHealthy = await Promise.race([dbHealthPromise, timeoutPromise]);
+        } catch (e) {
+          monitoringService.recordDbHealthTimeout({
+            path: req.path,
+            userAgent: req.get('User-Agent'),
+            requestId
+          });
+        }
         
         if (!dbHealthy) {
           logger.error("Signup failed - database connection unhealthy", {
-            ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+            ipAddress,
+            requestId
           });
           return res.status(503).json({ 
             status: 'error',
@@ -316,10 +339,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Additional password strength check if needed
         const passwordValidation = AuthService.validatePassword(password);
         if (!passwordValidation.isValid) {
-          return res.status(400).json({ 
+          return res.status(422).json({ 
             status: 'error',
-            message: "Password does not meet security requirements. Please check your details.",
+            message: "Password must be 8-128 characters and include at least one uppercase letter, one lowercase letter, one number, and one special character.",
             code: 'VALIDATION_ERROR',
+            details: passwordValidation.errors.map(msg => ({ field: 'password', message: msg, code: 'invalid_string' })),
             timestamp: new Date().toISOString(),
             path: req.path
           });
@@ -353,9 +377,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const existingUser = await storage.getUserByEmail(email);
         if (existingUser && existingUser.signupCompleted) {
           // Log the duplicate signup attempt for security monitoring
-          const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
           const userAgent = req.get('User-Agent');
           logger.logDuplicateSignupAttempt(email, ipAddress!, userAgent);
+          try {
+            monitoringService.recordSignupEvent('duplicate', {
+              ipAddress,
+              userAgent,
+              path: req.path,
+              requestId
+            });
+          } catch {}
           
           // Return specific error for duplicate email
           return res.status(409).json({ 
@@ -444,6 +475,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         });
 
+        try {
+          monitoringService.recordSignupEvent('success', {
+            ipAddress,
+            userAgent: req.get('User-Agent'),
+            path: req.path,
+            requestId
+          });
+        } catch {}
         res.status(201).json({ 
           message: "Account created successfully. Please verify your email to activate your account.",
           user: {
@@ -472,7 +511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           environment: process.env.NODE_ENV
         };
         
-        logger.error("Signup error", errorContext);
+        logger.error("Signup error", { ...errorContext, requestId: (req as any).requestId });
         
         // Handle specific database connection errors
         if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || 
@@ -850,9 +889,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.cookie('csrf-token', csrfToken, {
         httpOnly: false, // Allow JavaScript access for CSRF token
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax', // More permissive for development
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 60 * 60 * 1000, // 1 hour
-        path: '/' // Ensure cookie is available for all paths
+        path: '/',
+        domain: process.env.COOKIE_DOMAIN || undefined
       });
 
       res.json({ csrfToken });

@@ -40,7 +40,7 @@ describe('POS Transaction Integration Tests', () => {
       companyName: 'POS Test Company',
       role: 'cashier',
       tier: 'basic',
-      location: 'Test Location',
+      location: 'international',
       isActive: true
     });
 

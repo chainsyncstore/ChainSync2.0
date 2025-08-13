@@ -14,11 +14,21 @@ import {
   securityLogging,
   redirectSecurityCheck
 } from "./middleware/security";
+import { scheduleAbandonedSignupCleanup } from "./jobs/cleanup";
 
 const app = express();
 
 // Trust proxy for proper IP handling behind load balancers (important for Render)
 app.set('trust proxy', true);
+
+// Request ID middleware for log correlation
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const existing = (req.headers['x-request-id'] as string) || (req as any).id;
+  const requestId = existing || Math.random().toString(36).slice(2) + Date.now().toString(36);
+  (req as any).requestId = requestId;
+  res.setHeader('X-Request-ID', requestId);
+  next();
+});
 
 // Security middleware (order is important)
 app.use(helmetConfig);
@@ -97,6 +107,9 @@ app.use(requestLogger);
     
     logger.info('Starting server on port...', { port });
     
+    // Schedule daily cleanup of abandoned signups
+    scheduleAbandonedSignupCleanup();
+
     server.listen({
       port,
       host: "0.0.0.0",

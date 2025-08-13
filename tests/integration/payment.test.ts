@@ -63,7 +63,7 @@ describe('Payment Integration Tests', () => {
       companyName: 'Payment Test Company',
       role: 'admin',
       tier: 'basic',
-      location: 'Test Location',
+      location: 'international',
       isActive: true
     });
 

@@ -31,7 +31,7 @@ describe('Auth Validation Integration Tests', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const response = await request(server)
@@ -53,7 +53,7 @@ describe('Auth Validation Integration Tests', () => {
           companyName: 'Tech Solutions',
           password: 'StrongPwd456',
           tier: 'pro',
-          location: 'San Francisco'
+          location: 'international'
         };
 
         const response = await request(server)
@@ -73,7 +73,7 @@ describe('Auth Validation Integration Tests', () => {
           companyName: 'Enterprise Inc',
           password: 'EnterprisePass789',
           tier: 'enterprise',
-          location: 'Chicago'
+          location: 'international'
         };
 
         const response = await request(server)
@@ -95,7 +95,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'SecurePass123',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -115,7 +115,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'SecurePass123',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -135,7 +135,7 @@ describe('Auth Validation Integration Tests', () => {
             phone: '+1234567890',
             companyName: 'Acme Corp',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -158,7 +158,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'SecurePass123',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -180,7 +180,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'SecurePass123',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -203,7 +203,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'Short',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -224,7 +224,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'onlylowercase',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -247,7 +247,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'SecurePass123',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -268,7 +268,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'SecurePass123',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -291,7 +291,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'SecurePass123',
             tier: 'invalid-tier',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -315,7 +315,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: 'Acme Corp',
             password: 'SecurePass123',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -337,7 +337,7 @@ describe('Auth Validation Integration Tests', () => {
             companyName: longCompany,
             password: 'SecurePass123',
             tier: 'basic',
-            location: 'New York'
+            location: 'international'
           };
 
           const response = await request(server)
@@ -361,7 +361,7 @@ describe('Auth Validation Integration Tests', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const response = await request(server)
@@ -382,7 +382,7 @@ describe('Auth Validation Integration Tests', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const response = await request(server)
@@ -403,7 +403,7 @@ describe('Auth Validation Integration Tests', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+          location: 'international'
         };
 
         const response = await request(server)

@@ -9,89 +9,55 @@ const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
     // In production, allow requests with no origin for certain cases (like service workers, direct API calls)
     if (process.env.NODE_ENV === 'production' && !origin) {
-      logger.info('Allowing request with no origin in production (likely service worker or direct API call)', { 
-        environment: process.env.NODE_ENV 
+      logger.info('Allowing request with no origin in production (likely service worker or direct API call)', {
+        environment: process.env.NODE_ENV
       });
       return callback(null, true);
     }
-    
+
     // In development, allow requests with no origin for testing
     if (process.env.NODE_ENV === 'development' && !origin) {
       return callback(null, true);
     }
-    
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').filter(Boolean) || [
-      'http://localhost:5173', // Vite dev server
-      'http://localhost:3000', // Alternative dev port
-      'http://localhost:5000', // Server port
+
+    let allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean) || [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://localhost:5000',
     ];
-    
-    // Add production domains only if they are explicitly configured
+
+    // In production, lock origins strictly to env-configured production domains
     if (process.env.NODE_ENV === 'production') {
+      const prodOrigins: string[] = [];
+      if (process.env.ALLOWED_ORIGINS) {
+        prodOrigins.push(...process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean));
+      }
       if (process.env.PRODUCTION_DOMAIN) {
-        allowedOrigins.push(process.env.PRODUCTION_DOMAIN);
+        prodOrigins.push(process.env.PRODUCTION_DOMAIN);
       }
       if (process.env.PRODUCTION_WWW_DOMAIN) {
-        allowedOrigins.push(process.env.PRODUCTION_WWW_DOMAIN);
+        prodOrigins.push(process.env.PRODUCTION_WWW_DOMAIN);
       }
-      
-      // Add Render-specific domains for deployment
-      if (process.env.RENDER_EXTERNAL_HOSTNAME) {
-        allowedOrigins.push(`https://${process.env.RENDER_EXTERNAL_HOSTNAME}`);
-      }
-      if (process.env.RENDER_EXTERNAL_URL) {
-        allowedOrigins.push(process.env.RENDER_EXTERNAL_URL);
-      }
-      
-      // Add common Render deployment patterns
-      allowedOrigins.push('https://*.onrender.com');
-      allowedOrigins.push('https://*.render.com');
-      
-      // Add the current request origin if it's a Render domain
-      if (origin && (origin.includes('onrender.com') || origin.includes('render.com'))) {
-        allowedOrigins.push(origin);
-      }
-      
-      // Always allow requests from chainsync.store domain (hardcoded for reliability)
-      allowedOrigins.push('https://chainsync.store');
-      allowedOrigins.push('https://www.chainsync.store');
-      
-      // Always allow requests from the same domain (for same-origin requests)
-      if (origin && origin.includes('chainsync.store')) {
-        allowedOrigins.push(origin);
-      }
+      // If nothing configured, default to primary domain to avoid accidental wide-open CORS
+      allowedOrigins = prodOrigins.length > 0 ? prodOrigins : ['https://chainsync.store', 'https://www.chainsync.store'];
     }
-    
-    // Check if origin is allowed
-    if (allowedOrigins.includes(origin!)) {
-      callback(null, true);
-    } else {
-      // Special handling for Render deployments
-      if (process.env.NODE_ENV === 'production' && origin && 
-          (origin.includes('onrender.com') || origin.includes('render.com'))) {
-        logger.info('Allowing Render deployment origin', { origin });
-        return callback(null, true);
-      }
-      
-      // Special handling for chainsync.store domain
-      if (process.env.NODE_ENV === 'production' && origin && origin.includes('chainsync.store')) {
-        logger.info('Allowing chainsync.store domain origin', { origin });
-        return callback(null, true);
-      }
-      
-      logger.warn('CORS blocked request from unauthorized origin', { 
-        origin, 
-        allowedOrigins,
-        environment: process.env.NODE_ENV 
-      });
-      callback(new Error('Not allowed by CORS'));
+
+    if (origin && allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+
+    logger.warn('CORS blocked request from unauthorized origin', {
+      origin,
+      allowedOrigins,
+      environment: process.env.NODE_ENV
+    });
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true, // Allow cookies and authentication headers
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
+    'Content-Type',
+    'Authorization',
     'X-Requested-With',
     'X-CSRF-Token',
     'Accept',
@@ -129,8 +95,12 @@ export const globalRateLimit = rateLimit({
       userAgent: req.get('User-Agent')
     });
     res.status(429).json({
-      error: 'Too many requests from this IP, please try again later.',
-      retryAfter: Math.ceil(15 * 60 / 60)
+      status: 'error',
+      message: 'Too many requests from this IP, please try again later.',
+      code: 'RATE_LIMIT_EXCEEDED',
+      details: { retryAfter: Math.ceil(15 * 60 / 60) },
+      timestamp: new Date().toISOString(),
+      path: req.path
     });
   }
 });
@@ -163,8 +133,12 @@ export const authRateLimit = rateLimit({
       userAgent: req.get('User-Agent')
     });
     res.status(429).json({
-      error: 'Too many authentication attempts, please try again later.',
-      retryAfter: Math.ceil(10 * 60 / 60)
+      status: 'error',
+      message: 'Too many authentication attempts, please try again later.',
+      code: 'RATE_LIMIT_EXCEEDED',
+      details: { retryAfter: Math.ceil(10 * 60 / 60) },
+      timestamp: new Date().toISOString(),
+      path: req.path
     });
   },
   // Skip rate limiting for successful logins
@@ -199,8 +173,12 @@ export const sensitiveEndpointRateLimit = rateLimit({
       userAgent: req.get('User-Agent')
     });
     res.status(429).json({
-      error: 'Too many requests to sensitive endpoint, please try again later.',
-      retryAfter: Math.ceil(60 / 60)
+      status: 'error',
+      message: 'Too many requests to sensitive endpoint, please try again later.',
+      code: 'RATE_LIMIT_EXCEEDED',
+      details: { retryAfter: Math.ceil(60 / 60) },
+      timestamp: new Date().toISOString(),
+      path: req.path
     });
   },
   // Don't skip successful requests for sensitive endpoints
@@ -235,8 +213,12 @@ export const paymentRateLimit = rateLimit({
       userAgent: req.get('User-Agent')
     });
     res.status(429).json({
-      error: 'Too many payment attempts, please try again later.',
-      retryAfter: Math.ceil(60 / 60)
+      status: 'error',
+      message: 'Too many payment attempts, please try again later.',
+      code: 'RATE_LIMIT_EXCEEDED',
+      details: { retryAfter: Math.ceil(60 / 60) },
+      timestamp: new Date().toISOString(),
+      path: req.path
     });
   },
   // Don't skip successful requests for payment endpoints
@@ -276,6 +258,15 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
       hasHeaderToken: !!csrfToken,
       hasCookieToken: !!cookieToken
     });
+    try {
+      const { monitoringService } = await import('../lib/monitoring');
+      monitoringService.recordCsrfFailure({
+        ipAddress: req.ip || (req as any).connection?.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        path: req.path,
+        requestId: (req as any).requestId
+      });
+    } catch {}
     return res.status(403).json({
       error: 'CSRF token missing',
       message: 'CSRF token is required for this request',
@@ -292,6 +283,15 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
       headerToken: csrfToken?.substring(0, 8) + '...',
       cookieToken: cookieToken?.substring(0, 8) + '...'
     });
+    try {
+      const { monitoringService } = await import('../lib/monitoring');
+      monitoringService.recordCsrfFailure({
+        ipAddress: req.ip || (req as any).connection?.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        path: req.path,
+        requestId: (req as any).requestId
+      });
+    } catch {}
     return res.status(403).json({
       error: 'CSRF token invalid',
       message: 'CSRF token validation failed',
@@ -323,8 +323,32 @@ export const helmetConfig = helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
       scriptSrc: ["'self'", "'unsafe-inline'", "https://replit.com", "https://www.google.com", "https://www.gstatic.com", "https://www.recaptcha.net"],
-      connectSrc: ["'self'", "https://api.openai.com", "https://www.google.com", "https://www.gstatic.com", "https://www.recaptcha.net", "https://www.google.com/recaptcha/api2/clr"],
-      frameSrc: ["'self'", "https://www.google.com", "https://www.gstatic.com", "https://www.recaptcha.net"],
+      connectSrc: [
+        "'self'",
+        "https://api.openai.com",
+        "https://www.google.com",
+        "https://www.gstatic.com",
+        "https://www.recaptcha.net",
+        "https://www.google.com/recaptcha/api2/clr",
+        // Payment APIs for client-side callbacks if needed
+        "https://api.paystack.co",
+        "https://api.flutterwave.com"
+      ],
+      frameSrc: [
+        "'self'",
+        "https://www.google.com",
+        "https://www.gstatic.com",
+        "https://www.recaptcha.net",
+        // Allow payment provider hosted pages/popups if embedded
+        "https://*.paystack.com",
+        "https://*.flutterwave.com"
+      ],
+      formAction: [
+        "'self'",
+        // Allow forms to post to payment providers during redirects if used
+        "https://*.paystack.com",
+        "https://*.flutterwave.com"
+      ],
       workerSrc: ["'self'", "blob:"],
       objectSrc: ["'none'"]
     }

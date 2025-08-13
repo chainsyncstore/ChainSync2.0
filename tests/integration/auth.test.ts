@@ -37,7 +37,7 @@ describe('Authentication Integration Tests', () => {
         companyName: 'Test Company',
         password: 'StrongPass123!',
         tier: 'basic',
-        location: 'Test Location'
+        location: 'international'
       };
 
       const response = await request(app)
@@ -62,7 +62,7 @@ describe('Authentication Integration Tests', () => {
         companyName: 'Test Company',
         password: 'weak',
         tier: 'basic',
-        location: 'Test Location'
+        location: 'international'
       };
 
       const response = await request(app)
@@ -83,7 +83,7 @@ describe('Authentication Integration Tests', () => {
         companyName: 'Test Company',
         password: 'StrongPass123!',
         tier: 'basic',
-        location: 'Test Location'
+        location: 'international'
       };
 
       // Create first user
@@ -126,7 +126,7 @@ describe('Authentication Integration Tests', () => {
         companyName: 'Test Company',
         role: 'admin',
         tier: 'basic',
-        location: 'Test Location',
+        location: 'international',
         isActive: true
       });
 
@@ -219,7 +219,7 @@ describe('Authentication Integration Tests', () => {
         companyName: 'Test Company',
         role: 'admin',
         tier: 'basic',
-        location: 'Test Location',
+        location: 'international',
         isActive: true
       });
 
@@ -269,7 +269,7 @@ describe('Authentication Integration Tests', () => {
         companyName: 'Test Company',
         role: 'admin',
         tier: 'basic',
-        location: 'Test Location',
+        location: 'international',
         isActive: true
       });
     });

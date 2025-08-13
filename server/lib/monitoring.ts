@@ -27,6 +27,11 @@ export interface BusinessMetrics {
   lowStockAlerts: number;
   failedPayments: number;
   securityEvents: number;
+  signupAttempts: number;
+  signupSuccess: number;
+  signupDuplicates: number;
+  captchaFailures: number;
+  csrfFailures: number;
 }
 
 class MonitoringService {
@@ -59,7 +64,14 @@ class MonitoringService {
       'inventory_low_stock_alerts',
       'payments_total',
       'payments_failed',
-      'security_events_total'
+      'security_events_total',
+      // Signup and security-specific metrics
+      'signup_attempts_total',
+      'signup_success_total',
+      'signup_duplicate_total',
+      'captcha_failures_total',
+      'csrf_failures_total',
+      'db_health_timeouts_total'
     ];
 
     metricNames.forEach(name => {
@@ -84,6 +96,20 @@ class MonitoringService {
     }
 
     this.metrics.set(name, existingMetrics);
+  }
+
+  private getRecentCount(name: string, windowMs: number): number {
+    const now = Date.now();
+    const metrics = this.metrics.get(name) || [];
+    return metrics.filter(m => new Date(m.timestamp).getTime() > now - windowMs).length;
+  }
+
+  private alertIfSpike(name: string, thresholdEnvKey: string, defaultThreshold: number, details: Record<string, string> = {}): void {
+    const threshold = Number(process.env[thresholdEnvKey]) || defaultThreshold;
+    const count = this.getRecentCount(name, 60 * 1000);
+    if (count >= threshold) {
+      logger.warn('Spike detected in metric', { metric: name, count, threshold, ...details });
+    }
   }
 
   private resetMetrics(): void {
@@ -130,6 +156,54 @@ class MonitoringService {
     } else if (event === 'login_failed') {
       this.addMetric('auth_logins_failed', 1, tags);
     }
+  }
+
+  // Signup Monitoring
+  recordSignupEvent(event: 'attempt' | 'success' | 'duplicate', context?: LogContext): void {
+    const tags: Record<string, string> = {
+      event,
+      ip_address: context?.ipAddress || 'unknown',
+      user_agent: context?.userAgent || 'unknown'
+    };
+
+    if (event === 'attempt') {
+      this.addMetric('signup_attempts_total', 1, tags);
+      this.alertIfSpike('signup_attempts_total', 'ALERT_THRESHOLD_SIGNUP_ATTEMPTS_PER_MINUTE', 100);
+    } else if (event === 'success') {
+      this.addMetric('signup_success_total', 1, tags);
+    } else if (event === 'duplicate') {
+      this.addMetric('signup_duplicate_total', 1, tags);
+      this.alertIfSpike('signup_duplicate_total', 'ALERT_THRESHOLD_DUPLICATE_SIGNUPS_PER_MINUTE', 10);
+    }
+  }
+
+  recordCaptchaFailure(context?: LogContext): void {
+    const tags: Record<string, string> = {
+      ip_address: context?.ipAddress || 'unknown',
+      path: context?.path || 'unknown',
+      user_agent: context?.userAgent || 'unknown'
+    };
+    this.addMetric('captcha_failures_total', 1, tags);
+    this.alertIfSpike('captcha_failures_total', 'ALERT_THRESHOLD_CAPTCHA_FAILURES_PER_MINUTE', 20);
+  }
+
+  recordCsrfFailure(context?: LogContext): void {
+    const tags: Record<string, string> = {
+      ip_address: context?.ipAddress || 'unknown',
+      path: context?.path || 'unknown',
+      user_agent: context?.userAgent || 'unknown'
+    };
+    this.addMetric('csrf_failures_total', 1, tags);
+    this.alertIfSpike('csrf_failures_total', 'ALERT_THRESHOLD_CSRF_FAILURES_PER_MINUTE', 10);
+  }
+
+  recordDbHealthTimeout(context?: LogContext): void {
+    const tags: Record<string, string> = {
+      path: context?.path || 'unknown',
+      user_agent: context?.userAgent || 'unknown'
+    };
+    this.addMetric('db_health_timeouts_total', 1, tags);
+    this.alertIfSpike('db_health_timeouts_total', 'ALERT_THRESHOLD_DB_TIMEOUTS_PER_MINUTE', 5);
   }
 
   // Transaction Monitoring
@@ -254,7 +328,13 @@ class MonitoringService {
       totalProducts: getMetricCount('inventory_updates_total'),
       lowStockAlerts: getMetricCount('inventory_low_stock_alerts'),
       failedPayments: getMetricCount('payments_failed'),
-      securityEvents: getMetricCount('security_events_total')
+      securityEvents: getMetricCount('security_events_total'),
+      // Extended business/security metrics
+      signupAttempts: getMetricCount('signup_attempts_total'),
+      signupSuccess: getMetricCount('signup_success_total'),
+      signupDuplicates: getMetricCount('signup_duplicate_total'),
+      captchaFailures: getMetricCount('captcha_failures_total'),
+      csrfFailures: getMetricCount('csrf_failures_total')
     };
   }
 

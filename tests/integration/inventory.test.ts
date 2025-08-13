@@ -40,7 +40,7 @@ describe('Inventory Management Integration Tests', () => {
       companyName: 'Inventory Test Company',
       role: 'manager',
       tier: 'basic',
-      location: 'Test Location',
+      location: 'international',
       isActive: true
     });
 

@@ -20,8 +20,21 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
 
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const isProduction = process.env.NODE_ENV === 'production';
+
       // Skip if bot prevention is not configured and we're allowed to skip
       if (!botPreventionService.isConfigured()) {
+        if (isProduction) {
+          logger.error('Bot prevention required in production but not configured', {
+            path: req.path,
+            ip: req.ip
+          });
+          return res.status(500).json({
+            error: 'Bot prevention not configured',
+            message: 'Captcha verification is required in production'
+          });
+        }
+
         if (skipIfNotConfigured) {
           logger.info('Bot prevention not configured, skipping validation', {
             path: req.path,
@@ -44,14 +57,34 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
 
       if (!captchaToken) {
         if (required) {
-          logger.warn('Captcha token missing, but allowing request to continue for development', {
-            path: req.path,
-            ip: req.ip,
-            userAgent: req.get('User-Agent')
-          });
-          // For now, allow requests without captcha tokens to prevent signup failures
-          // In production, you should enforce this more strictly
-          return next();
+          if (isProduction) {
+            logger.warn('Captcha token missing in production, rejecting request', {
+              path: req.path,
+              ip: req.ip,
+              userAgent: req.get('User-Agent')
+            });
+            try {
+              const { monitoringService } = await import('../lib/monitoring');
+              monitoringService.recordCaptchaFailure({
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+                path: req.path,
+                requestId: (req as any).requestId
+              });
+            } catch {}
+            return res.status(400).json({
+              error: 'Captcha token required',
+              message: 'Please complete the captcha verification'
+            });
+          } else {
+            logger.warn('Captcha token missing, but allowing request to continue for development', {
+              path: req.path,
+              ip: req.ip,
+              userAgent: req.get('User-Agent')
+            });
+            // Allow requests without captcha tokens in development to prevent signup failures
+            return next();
+          }
         } else {
           // Not required, continue without validation
           return next();
@@ -68,6 +101,15 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
           userAgent: req.get('User-Agent'),
           error: verificationResult.error
         });
+        try {
+          const { monitoringService } = await import('../lib/monitoring');
+          monitoringService.recordCaptchaFailure({
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            path: req.path,
+            requestId: (req as any).requestId
+          });
+        } catch {}
 
         return res.status(400).json({
           error: 'Captcha verification failed',

@@ -12,7 +12,7 @@ describe('SignupSchema Validation', () => {
         companyName: 'Acme Corp',
         password: 'SecurePass123',
         tier: 'basic',
-        location: 'New York'
+         location: 'international'
       };
 
       const result = SignupSchema.safeParse(validPayload);
@@ -39,7 +39,7 @@ describe('SignupSchema Validation', () => {
         companyName: 'Tech Solutions',
         password: 'StrongPwd456',
         tier: 'pro',
-        location: 'San Francisco'
+         location: 'international'
       };
 
       const result = SignupSchema.safeParse(validPayload);
@@ -59,7 +59,7 @@ describe('SignupSchema Validation', () => {
         companyName: 'Enterprise Inc',
         password: 'EnterprisePass789',
         tier: 'enterprise',
-        location: 'Chicago'
+         location: 'international'
       };
 
       const result = SignupSchema.safeParse(validPayload);
@@ -79,7 +79,7 @@ describe('SignupSchema Validation', () => {
         companyName: '  Clean Corp  ',
         password: 'CleanPass123',
         tier: 'basic',
-        location: '  Los Angeles  '
+         location: 'international'
       };
 
       const result = SignupSchema.safeParse(validPayload);
@@ -104,7 +104,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -126,7 +126,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -150,7 +150,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -173,7 +173,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -197,7 +197,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'Short',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -221,7 +221,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: longPassword,
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -244,7 +244,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'UPPERCASE123',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -266,7 +266,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'lowercase123',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -288,7 +288,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'NoNumbers',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -312,7 +312,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+           location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -334,7 +334,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+         location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -356,7 +356,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+         location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -381,7 +381,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+         location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -404,7 +404,7 @@ describe('SignupSchema Validation', () => {
           companyName: longCompany,
           password: 'SecurePass123',
           tier: 'basic',
-          location: 'New York'
+         location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -451,7 +451,7 @@ describe('SignupSchema Validation', () => {
           companyName: 'Acme Corp',
           password: 'SecurePass123',
           tier: 'invalid-tier',
-          location: 'New York'
+         location: 'international'
         };
 
         const result = SignupSchema.safeParse(invalidPayload);
@@ -476,7 +476,7 @@ describe('SignupSchema Validation', () => {
         companyName: 'Acme Corp',
         password: 'SecurePass123',
         tier: 'basic',
-        location: 'New York'
+         location: 'international'
       };
 
       const result = SignupSchema.safeParse(invalidPayload);
@@ -499,7 +499,7 @@ describe('SignupSchema Validation', () => {
         companyName: 'Acme Corp',
         password: 'SecurePass123',
         tier: 'basic',
-        location: 'New York'
+         location: 'international'
       };
 
       const result = SignupSchema.safeParse(invalidPayload);
@@ -522,7 +522,7 @@ describe('SignupSchema Validation', () => {
         companyName: 'Acme Corp',
         password: 'SecurePass123',
         tier: 'basic',
-        location: 'New York'
+         location: 'international'
       };
 
       const result = SignupSchema.safeParse(invalidPayload);
