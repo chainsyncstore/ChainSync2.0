@@ -16,6 +16,9 @@ import {
 
 const app = express();
 
+// Trust proxy for proper IP handling behind load balancers (important for Render)
+app.set('trust proxy', true);
+
 // Security middleware (order is important)
 app.use(helmetConfig);
 app.use(globalRateLimit);

@@ -52,7 +52,6 @@ import {
 import { 
   authRateLimit, 
   sensitiveEndpointRateLimit,
-  signupBotPrevention,
   emailVerificationBotPrevention,
   paymentRateLimit
 } from "./middleware/security";

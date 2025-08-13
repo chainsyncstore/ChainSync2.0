@@ -2,7 +2,7 @@ const fetch = require('node-fetch');
 
 async function testSignup() {
   try {
-    console.log('🧪 Testing signup endpoint with corrected schema...');
+    console.log('🧪 Testing signup endpoint with fixes applied...');
     
     const signupData = {
       firstName: "Test",
@@ -12,7 +12,8 @@ async function testSignup() {
       companyName: "Test Company",
       password: "TestPass123!",
       tier: "pro", // This should now work with the corrected schema
-      location: "international"
+      location: "international",
+      recaptchaToken: "test-token" // Add a test captcha token
     };
     
     console.log('📤 Sending signup request with data:', {
