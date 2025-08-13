@@ -17,14 +17,6 @@ import MainLayout from "@/components/layout/main-layout";
 import { useState } from "react";
 import { RECAPTCHA_SITE_KEY } from './lib/constants';
 
-// Debug: Log reCAPTCHA site key
-console.log('App loading, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
-console.log('Environment variables:', {
-  VITE_RECAPTCHA_SITE_KEY: import.meta.env.VITE_RECAPTCHA_SITE_KEY,
-  NODE_ENV: import.meta.env.NODE_ENV,
-  MODE: import.meta.env.MODE
-});
-
 // Lazy load pages for better performance
 const Landing = lazy(() => import("@/pages/landing"));
 const PaymentCallback = lazy(() => import("@/pages/payment-callback"));
@@ -99,109 +91,27 @@ function Dashboard({ userRole }: { userRole: string }) {
     <MainLayout userRole={role}>
       <Suspense fallback={<PageLoader />}>
         <Switch>
-          <Route path="/" component={POS} />
+          <Route path="/" component={POS} /> {/* Cashier sees POS as default */}
           <Route path="/login" component={POS} /> {/* Redirect login to default */}
           <Route path="/pos" component={POS} />
-          <Route path="/inventory" component={Inventory} />
-          <Route path="/analytics" component={Analytics} />
-          <Route path="/loyalty" component={Loyalty} />
-          <Route path="/alerts" component={Alerts} />
-          <Route path="/data-import" component={DataImport} />
-          <Route path="/settings" component={Settings} />
-          <Route component={POS} /> {/* All other routes redirect to POS */}
+          <Route component={NotFound} />
         </Switch>
       </Suspense>
     </MainLayout>
   );
 }
 
-function Router() {
-  const { user, isLoading, isAuthenticated, login, logout, error } = useAuth();
+function App() {
+  const { user, login, isAuthenticated, isLoading, error } = useAuth();
   const [showForgotPassword, setShowForgotPassword] = useState(false);
 
-  if (isLoading) {
-    return <PageLoading />;
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <Suspense fallback={<PageLoader />}>
-        <Switch>
-          <Route path="/" component={Landing} />
-          <Route path="/login" component={() => 
-            showForgotPassword ? (
-              <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
-            ) : (
-              <Login 
-                onLogin={login} 
-                onForgotPassword={() => setShowForgotPassword(true)}
-                isLoading={isLoading} 
-                error={error} 
-              />
-            )
-          } />
-          <Route path="/signup" component={Signup} />
-          <Route path="/reset-password" component={({ params }: any) => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const token = urlParams.get('token');
-            return token ? (
-              <ResetPassword 
-                token={token} 
-                onSuccess={() => window.location.href = '/login'} 
-              />
-            ) : (
-              <Login 
-                onLogin={login} 
-                onForgotPassword={() => setShowForgotPassword(true)}
-                isLoading={isLoading} 
-                error={error} 
-              />
-            );
-          }} />
-          <Route path="/payment/callback" component={PaymentCallback} />
-          <Route component={() => 
-            showForgotPassword ? (
-              <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
-            ) : (
-              <Login 
-                onLogin={login} 
-                onForgotPassword={() => setShowForgotPassword(true)}
-                isLoading={isLoading} 
-                error={error} 
-              />
-            )
-          } />
-        </Switch>
-      </Suspense>
-    );
-  }
-
-  // Ensure we have a valid user role, default to "cashier" if undefined
-  const userRole = user?.role || "cashier";
-  console.log("User role:", userRole, "User:", user); // Debug logging
-  console.log("Current URL:", window.location.href);
-  console.log("Current pathname:", window.location.pathname);
-  
-  return <Dashboard userRole={userRole} />;
-}
-
-function App() {
-  const { toast } = useToast();
-  const { initializeNotifications } = useNotifications();
-  const { user, loading: authLoading } = useAuth();
-  const { isMobile } = useMobile();
-  const { isWhitelisted, loading: whitelistLoading } = useIPWhitelist();
-  const { isAIChatEnabled } = useAIChat();
-
   // Debug: Log reCAPTCHA site key
-  useEffect(() => {
-    console.log('App loaded, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
-    console.log('Environment variables:', {
-      VITE_RECAPTCHA_SITE_KEY: import.meta.env.VITE_RECAPTCHA_SITE_KEY,
-      NODE_ENV: import.meta.env.NODE_ENV,
-      MODE: import.meta.env.MODE
-    });
-  }, []);
+  console.log('App loaded, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
+  console.log('Environment variables:', {
+    VITE_RECAPTCHA_SITE_KEY: import.meta.env.VITE_RECAPTCHA_SITE_KEY,
+    NODE_ENV: import.meta.env.NODE_ENV,
+    MODE: import.meta.env.MODE
+  });
 
   return (
     <ErrorBoundary>
@@ -210,7 +120,58 @@ function App() {
           <ScannerProvider>
             <TooltipProvider>
               <Toaster />
-              <Router />
+              {!isAuthenticated ? (
+                <Suspense fallback={<PageLoader />}>
+                  <Switch>
+                    <Route path="/" component={Landing} />
+                    <Route path="/login" component={() => 
+                      showForgotPassword ? (
+                        <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
+                      ) : (
+                        <Login 
+                          onLogin={login} 
+                          onForgotPassword={() => setShowForgotPassword(true)}
+                          isLoading={isLoading} 
+                          error={error} 
+                        />
+                      )
+                    } />
+                    <Route path="/signup" component={Signup} />
+                    <Route path="/reset-password" component={({ params }: any) => {
+                      const urlParams = new URLSearchParams(window.location.search);
+                      const token = urlParams.get('token');
+                      return token ? (
+                        <ResetPassword 
+                          token={token} 
+                          onSuccess={() => window.location.href = '/login'} 
+                        />
+                      ) : (
+                        <Login 
+                          onLogin={login} 
+                          onForgotPassword={() => setShowForgotPassword(true)}
+                          isLoading={isLoading} 
+                          error={error} 
+                        />
+                      );
+                    }} />
+                    <Route path="/payment/callback" component={PaymentCallback} />
+                    <Route component={() => 
+                      showForgotPassword ? (
+                        <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
+                      ) : (
+                        <Login 
+                          onLogin={login} 
+                          onForgotPassword={() => setShowForgotPassword(true)}
+                          isLoading={isLoading} 
+                          error={error} 
+                        />
+                      )
+                    } />
+                  </Switch>
+                </Suspense>
+              ) : (
+                <Dashboard userRole={user?.role || "cashier"} />
+              )}
             </TooltipProvider>
           </ScannerProvider>
         </AIChatProvider>
