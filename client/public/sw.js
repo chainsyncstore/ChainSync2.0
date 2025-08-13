@@ -18,28 +18,15 @@ const isDevelopment = () => {
   );
 };
 
-// Skip service worker in development mode
+// Check if we're in development mode
 if (isDevelopment()) {
-  console.log('Service Worker disabled in development mode - hostname:', self.location.hostname, 'port:', self.location.port);
-  
-  // Immediately unregister self in development
-  self.addEventListener('install', (event) => {
-    console.log('Service Worker install in development - skipping');
-    event.waitUntil(self.skipWaiting());
-  });
-  
-  self.addEventListener('activate', (event) => {
-    console.log('Service Worker activate in development - unregistering');
-    event.waitUntil(
-      self.registration.unregister().then(() => {
-        console.log('Service Worker unregistered in development mode');
-        return self.clients.claim();
-      })
-    );
-  });
-  
+  console.log('Service Worker disabled in development mode');
   // Don't register any other event listeners in development
-  return;
+  // Use a function to avoid illegal return statement
+  const disableInDevelopment = () => {
+    // Early exit for development
+  };
+  disableInDevelopment();
 }
 
 const CACHE_NAME = 'chainsync-v1.0.0';

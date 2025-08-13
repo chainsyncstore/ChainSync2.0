@@ -46,11 +46,7 @@ const dbConfig = {
   retryDelay: 1000,
   maxRetries: 3,
   // Additional production settings
-  allowExitOnIdle: false,
-  // Handle connection timeouts better
-  connectionTimeoutMillis: 15000,
-  idleTimeoutMillis: 30000,
-  maxUses: 7500
+  allowExitOnIdle: false
 };
 
 export const pool = new Pool(dbConfig);

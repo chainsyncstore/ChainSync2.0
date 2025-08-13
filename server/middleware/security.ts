@@ -8,12 +8,12 @@ import { logger } from "../lib/logger";
 // CORS configuration for API routes only
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // In production, never allow requests with no origin
+    // In production, allow requests with no origin for certain cases (like service workers, direct API calls)
     if (process.env.NODE_ENV === 'production' && !origin) {
-      logger.warn('CORS blocked request with no origin in production', { 
+      logger.info('Allowing request with no origin in production (likely service worker or direct API call)', { 
         environment: process.env.NODE_ENV 
       });
-      return callback(new Error('Origin required in production'));
+      return callback(null, true);
     }
     
     // In development, allow requests with no origin for testing
@@ -52,6 +52,15 @@ const corsOptions = {
       if (origin && (origin.includes('onrender.com') || origin.includes('render.com'))) {
         allowedOrigins.push(origin);
       }
+      
+      // Always allow requests from chainsync.store domain (hardcoded for reliability)
+      allowedOrigins.push('https://chainsync.store');
+      allowedOrigins.push('https://www.chainsync.store');
+      
+      // Always allow requests from the same domain (for same-origin requests)
+      if (origin && origin.includes('chainsync.store')) {
+        allowedOrigins.push(origin);
+      }
     }
     
     // Check if origin is allowed
@@ -62,6 +71,12 @@ const corsOptions = {
       if (process.env.NODE_ENV === 'production' && origin && 
           (origin.includes('onrender.com') || origin.includes('render.com'))) {
         logger.info('Allowing Render deployment origin', { origin });
+        return callback(null, true);
+      }
+      
+      // Special handling for chainsync.store domain
+      if (process.env.NODE_ENV === 'production' && origin && origin.includes('chainsync.store')) {
+        logger.info('Allowing chainsync.store domain origin', { origin });
         return callback(null, true);
       }
       
