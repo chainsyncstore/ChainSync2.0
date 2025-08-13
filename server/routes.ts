@@ -838,7 +838,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.cookie('csrf-token', csrfToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
         maxAge: 60 * 60 * 1000 // 1 hour
       });
 
