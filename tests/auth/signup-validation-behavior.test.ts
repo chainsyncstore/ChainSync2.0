@@ -26,7 +26,7 @@ describe('SignupSchema - Behavior Tests', () => {
     });
 
     it('should accept different tier values', () => {
-      const tiers = ['basic', 'premium', 'enterprise'];
+      const tiers = ['basic', 'pro', 'enterprise'];
       
       tiers.forEach(tier => {
         const validPayload = {

@@ -315,7 +315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Tier and location validation (already handled by Zod schema, but double-check)
-        const validTiers = ["basic", "premium", "enterprise"];
+        const validTiers = ["basic", "pro", "enterprise"];
         const validLocations = ["nigeria", "international"];
         
         if (!validTiers.includes(tier)) {

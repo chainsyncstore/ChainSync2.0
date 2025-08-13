@@ -44,15 +44,15 @@ describe('Auth Validation Integration Tests', () => {
         expect(response.body).toHaveProperty('store');
       });
 
-      it('should accept signup with premium tier', async () => {
+      it('should accept signup with pro tier', async () => {
         const validPayload = {
           firstName: 'Jane',
           lastName: 'Smith',
-          email: 'jane.smith@company.com',
+          email: 'jane.pro@company.com',
           phone: '+9876543210',
           companyName: 'Tech Solutions',
           password: 'StrongPwd456',
-          tier: 'premium',
+          tier: 'pro',
           location: 'San Francisco'
         };
 
@@ -61,7 +61,7 @@ describe('Auth Validation Integration Tests', () => {
           .send(validPayload)
           .expect(201);
 
-        expect(response.body.user.tier).toBe('premium');
+        expect(response.body.user.tier).toBe('pro');
       });
 
       it('should accept signup with enterprise tier', async () => {

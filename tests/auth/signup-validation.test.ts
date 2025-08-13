@@ -30,7 +30,7 @@ describe('SignupSchema Validation', () => {
       }
     });
 
-    it('should validate with premium tier', () => {
+    it('should validate with pro tier', () => {
       const validPayload = {
         firstName: 'Jane',
         lastName: 'Smith',
@@ -38,7 +38,7 @@ describe('SignupSchema Validation', () => {
         phone: '+9876543210',
         companyName: 'Tech Solutions',
         password: 'StrongPwd456',
-        tier: 'premium',
+        tier: 'pro',
         location: 'San Francisco'
       };
 
@@ -46,7 +46,7 @@ describe('SignupSchema Validation', () => {
       expect(result.success).toBe(true);
       
       if (result.success) {
-        expect(result.data.tier).toBe('premium');
+        expect(result.data.tier).toBe('pro');
       }
     });
 
@@ -460,7 +460,7 @@ describe('SignupSchema Validation', () => {
         if (!result.success) {
           expect(result.error.issues).toHaveLength(1);
           expect(result.error.issues[0].path).toEqual(['tier']);
-          expect(result.error.issues[0].message).toBe('Tier must be one of: basic, premium, enterprise');
+          expect(result.error.issues[0].message).toBe('Tier must be one of: basic, pro, enterprise');
         }
       });
     });

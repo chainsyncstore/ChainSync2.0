@@ -40,8 +40,8 @@ const companyNameSchema = z
   .transform(val => val.trim());
 
 // Tier validation - only accept specific values
-const tierSchema = z.enum(["basic", "premium", "enterprise"], {
-  errorMap: () => ({ message: "Tier must be one of: basic, premium, enterprise" })
+const tierSchema = z.enum(["basic", "pro", "enterprise"], {
+  errorMap: () => ({ message: "Tier must be one of: basic, pro, enterprise" })
 });
 
 // Location validation - only accept specific values

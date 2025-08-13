@@ -316,7 +316,7 @@ export const enhancedUserSchema = z.object({
   companyName: z.string()
     .min(1, "Company name is required")
     .max(255, "Company name must be less than 255 characters"),
-  tier: z.enum(["basic", "premium", "enterprise"], {
+  tier: z.enum(["basic", "pro", "enterprise"], {
     errorMap: () => ({ message: "Invalid tier selection" })
   }),
   location: z.enum(["nigeria", "international"], {
