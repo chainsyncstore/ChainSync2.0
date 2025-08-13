@@ -72,7 +72,14 @@ const pricingTiers: PricingTier[] = [
       usd: "$30"
     },
     stores: "1 store only",
-    features: PRICING_TIERS.basic.features
+    features: [
+      "1 Store Management",
+      "Basic POS System",
+      "Inventory Tracking",
+      "Sales Reports",
+      "Customer Management",
+      "Email Support"
+    ]
   },
   {
     name: "pro",
@@ -81,7 +88,16 @@ const pricingTiers: PricingTier[] = [
       usd: "$100"
     },
     stores: "Max 10 stores",
-    features: PRICING_TIERS.pro.features
+    features: [
+      "Up to 10 Stores",
+      "Advanced POS Features",
+      "Real-time Analytics",
+      "AI-powered Insights",
+      "Multi-location Support",
+      "Priority Support",
+      "Custom Branding",
+      "Advanced Reporting"
+    ]
   },
   {
     name: "enterprise",
@@ -90,7 +106,16 @@ const pricingTiers: PricingTier[] = [
       usd: "$500"
     },
     stores: "10+ stores",
-    features: PRICING_TIERS.enterprise.features
+    features: [
+      "Unlimited Stores",
+      "Custom Integrations",
+      "Dedicated Account Manager",
+      "White-label Solutions",
+      "API Access",
+      "24/7 Phone Support",
+      "Custom Training",
+      "Advanced Security"
+    ]
   }
 ];
 
@@ -137,6 +162,13 @@ function SignupForm() {
 
   // Watch form values for real-time updates
   const watchedValues = watch();
+
+  // Debug form values on mount and changes
+  React.useEffect(() => {
+    console.log('Form values changed:', watchedValues);
+    console.log('Current tier:', watchedValues.tier);
+    console.log('Current location:', watchedValues.location);
+  }, [watchedValues]);
 
   // Handle input changes with proper error clearing
   const handleInputChange = async (field: keyof SignupFormData, value: string) => {
@@ -249,6 +281,7 @@ function SignupForm() {
 
       const paymentRequest = {
         email: data.email,
+        amount: amount, // Add the amount field
         currency: data.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
         tier: data.tier,
@@ -318,8 +351,12 @@ function SignupForm() {
   };
 
   const selectedTier = pricingTiers.find(t => t.name === watchedValues.tier);
+  console.log('Selected tier:', selectedTier, 'for watchedValues.tier:', watchedValues.tier);
+  
   const getPrice = () => {
-    return watchedValues.location === 'nigeria' ? selectedTier?.price.ngn : selectedTier?.price.usd;
+    const price = watchedValues.location === 'nigeria' ? selectedTier?.price.ngn : selectedTier?.price.usd;
+    console.log('getPrice() called:', { location: watchedValues.location, selectedTier: selectedTier?.name, price });
+    return price;
   };
 
   const getPaymentProvider = () => {
@@ -379,7 +416,13 @@ function SignupForm() {
               </div>
               <div className="flex justify-between items-center mb-2">
                 <span className="font-medium">Price:</span>
-                <span className="font-semibold">{getPrice()}/month</span>
+                <span className="font-semibold">
+                  {(() => {
+                    const price = getPrice();
+                    console.log('Display price:', price, 'for tier:', watchedValues.tier, 'location:', watchedValues.location);
+                    return price ? `${price}/month` : 'Price not available';
+                  })()}
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="font-medium">Payment:</span>
@@ -559,7 +602,10 @@ function SignupForm() {
                         ? 'border-primary bg-primary/5'
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
-                    onClick={() => handleInputChange('tier', tier.name)}
+                    onClick={() => {
+                      console.log('Setting tier to:', tier.name);
+                      handleInputChange('tier', tier.name);
+                    }}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium capitalize">{tier.name}</span>
@@ -574,6 +620,8 @@ function SignupForm() {
                   </div>
                 ))}
               </div>
+              {/* Hidden input for form validation */}
+              <input type="hidden" {...register('tier')} />
             </div>
 
             {/* Location Selection */}
@@ -582,7 +630,10 @@ function SignupForm() {
               <div className="flex bg-gray-100 rounded-lg p-1 w-fit">
                 <button
                   type="button"
-                  onClick={() => handleInputChange('location', 'nigeria')}
+                  onClick={() => {
+                    console.log('Setting location to: nigeria');
+                    handleInputChange('location', 'nigeria');
+                  }}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     watchedValues.location === 'nigeria'
                       ? 'bg-white text-gray-900 shadow-sm'
@@ -593,7 +644,10 @@ function SignupForm() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleInputChange('location', 'international')}
+                  onClick={() => {
+                    console.log('Setting location to: international');
+                    handleInputChange('location', 'international');
+                  }}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     watchedValues.location === 'international'
                       ? 'bg-white text-gray-900 shadow-sm'
@@ -603,6 +657,8 @@ function SignupForm() {
                   International
                 </button>
               </div>
+              {/* Hidden input for form validation */}
+              <input type="hidden" {...register('location')} />
             </div>
 
             {/* Password */}
