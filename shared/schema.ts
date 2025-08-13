@@ -9,7 +9,8 @@ import {
   boolean, 
   uuid,
   pgEnum,
-  index
+  index,
+  jsonb
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -19,6 +20,9 @@ import { z } from "zod";
 export const userRoleEnum = pgEnum("user_role", ["cashier", "manager", "admin"]);
 export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "voided", "held"]);
 export const paymentMethodEnum = pgEnum("payment_method", ["cash", "card", "digital"]);
+
+// Subscription Status Enum
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["trial", "active", "past_due", "cancelled", "suspended"]);
 
 // Users table
 export const users = pgTable("users", {
@@ -49,11 +53,13 @@ export const users = pgTable("users", {
   signupAttempts: integer("signup_attempts").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  subscriptionId: uuid("subscription_id").references(() => subscriptions.id),
 }, (table) => ({
   storeIdIdx: index("users_store_id_idx").on(table.storeId),
   isActiveIdx: index("users_is_active_idx").on(table.isActive),
   createdAtIdx: index("users_created_at_idx").on(table.createdAt),
   incompleteSignupsIdx: index("users_incomplete_signups_idx").on(table.signupCompleted, table.signupStartedAt),
+  subscriptionIdIdx: index("users_subscription_id_idx").on(table.subscriptionId),
 }));
 
 // Stores table
@@ -225,6 +231,10 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     references: [stores.id],
   }),
   transactions: many(transactions),
+  subscription: one(subscriptions, {
+    fields: [users.subscriptionId],
+    references: [subscriptions.id],
+  }),
 }));
 
 export const storesRelations = relations(stores, ({ many }) => ({
@@ -972,6 +982,66 @@ export const userSessionsRelations = relations(userSessions, ({ one }) => ({
   }),
 }));
 
+// Subscription Status Enum
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["trial", "active", "past_due", "cancelled", "suspended"]);
+
+// Subscriptions table
+export const subscriptions = pgTable("subscriptions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tier: varchar("tier", { length: 50 }).notNull(),
+  status: subscriptionStatusEnum("status").notNull().default("trial"),
+  upfrontFeePaid: decimal("upfront_fee_paid", { precision: 10, scale: 2 }).notNull(),
+  upfrontFeeCurrency: varchar("upfront_fee_currency", { length: 3 }).notNull(),
+  monthlyAmount: decimal("monthly_amount", { precision: 10, scale: 2 }).notNull(),
+  monthlyCurrency: varchar("monthly_currency", { length: 3 }).notNull(),
+  trialStartDate: timestamp("trial_start_date").notNull().defaultNow(),
+  trialEndDate: timestamp("trial_end_date").notNull(),
+  nextBillingDate: timestamp("next_billing_date"),
+  upfrontFeeCredited: boolean("upfront_fee_credited").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdIdx: index("subscriptions_user_id_idx").on(table.userId),
+  statusIdx: index("subscriptions_status_idx").on(table.status),
+  trialEndDateIdx: index("subscriptions_trial_end_date_idx").on(table.trialEndDate),
+}));
+
+// Subscription Payments table
+export const subscriptionPayments = pgTable("subscription_payments", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  subscriptionId: uuid("subscription_id").notNull().references(() => subscriptions.id, { onDelete: "cascade" }),
+  paymentReference: varchar("payment_reference", { length: 255 }).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull(),
+  paymentType: varchar("payment_type", { length: 50 }).notNull(), // 'upfront_fee', 'monthly_billing'
+  status: varchar("status", { length: 50 }).notNull(), // 'pending', 'completed', 'failed'
+  provider: varchar("provider", { length: 50 }).notNull(), // 'paystack', 'flutterwave'
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  subscriptionIdIdx: index("subscription_payments_subscription_id_idx").on(table.subscriptionId),
+  paymentReferenceIdx: index("subscription_payments_reference_idx").on(table.paymentReference),
+  statusIdx: index("subscription_payments_status_idx").on(table.status),
+}));
+
+// Add subscription relations to existing tables
+export const subscriptionsRelations = relations(subscriptions, ({ one, many }) => ({
+  user: one(users, {
+    fields: [subscriptions.userId],
+    references: [users.id],
+  }),
+  payments: many(subscriptionPayments),
+}));
+
+export const subscriptionPaymentsRelations = relations(subscriptionPayments, ({ one }) => ({
+  subscription: one(subscriptions, {
+    fields: [subscriptionPayments.subscriptionId],
+    references: [subscriptions.id],
+  }),
+}));
+
 // AI Insert Schemas
 export const insertForecastModelSchema = createInsertSchema(forecastModels).omit({
   id: true,
@@ -1068,3 +1138,23 @@ export type InsertAccountLockoutLog = z.infer<typeof insertAccountLockoutLogSche
 // User Session Types
 export type UserSession = typeof userSessions.$inferSelect;
 export type InsertUserSession = z.infer<typeof insertUserSessionSchema>;
+
+// Subscription Insert Schemas
+export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertSubscriptionPaymentSchema = createInsertSchema(subscriptionPayments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Subscription Types
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+
+export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
+export type InsertSubscriptionPayment = z.infer<typeof insertSubscriptionPaymentSchema>;

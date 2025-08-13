@@ -12,6 +12,10 @@ interface PricingTier {
     ngn: string;
     usd: string;
   };
+  upfrontFee: {
+    ngn: string;
+    usd: string;
+  };
   features: string[];
   stores: string;
   popular?: boolean;
@@ -24,6 +28,10 @@ const pricingTiers: PricingTier[] = [
       ngn: "₦30,000",
       usd: "$30"
     },
+    upfrontFee: {
+      ngn: "₦1,000",
+      usd: "$1"
+    },
     features: PRICING_TIERS.basic.features,
     stores: "1 store only"
   },
@@ -32,6 +40,10 @@ const pricingTiers: PricingTier[] = [
     price: {
       ngn: "₦100,000",
       usd: "$100"
+    },
+    upfrontFee: {
+      ngn: "₦1,000",
+      usd: "$1"
     },
     features: PRICING_TIERS.pro.features,
     stores: "Max 10 stores",
@@ -42,6 +54,10 @@ const pricingTiers: PricingTier[] = [
     price: {
       ngn: "₦500,000",
       usd: "$500"
+    },
+    upfrontFee: {
+      ngn: "₦1,000",
+      usd: "$1"
     },
     features: PRICING_TIERS.enterprise.features,
     stores: "10+ stores"
@@ -211,7 +227,7 @@ export default function Landing() {
               Simple, Transparent Pricing
             </h2>
             <p className="text-xl text-gray-600 mb-8">
-              2-week free trial • No credit card required
+              2-week free trial • Small upfront fee • Credited to first month
             </p>
             
             {/* Location Toggle */}
@@ -265,11 +281,15 @@ export default function Landing() {
                 <CardHeader className="text-center">
                   <CardTitle className="text-2xl">{tier.name}</CardTitle>
                   <div className="mt-4">
-                    <span className="text-4xl font-bold">{getPrice(tier)}</span>
-                    <span className="text-gray-600">/month</span>
+                    <div className="text-2xl font-bold text-primary">
+                      {userLocation === 'nigeria' ? tier.upfrontFee.ngn : tier.upfrontFee.usd} upfront
+                    </div>
+                    <div className="text-lg text-gray-600">
+                      <span className="font-semibold">{getPrice(tier)}</span>/month after trial
+                    </div>
                   </div>
                   <CardDescription className="text-sm">
-                    {tier.stores}
+                    {tier.stores} • 2-week free trial
                   </CardDescription>
                 </CardHeader>
                 

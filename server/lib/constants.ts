@@ -5,14 +5,26 @@ export const PRICING_TIERS = {
   basic: {
     ngn: 3000000, // ₦30,000 in kobo
     usd: 3000,    // $30 in cents
+    upfrontFee: {
+      ngn: 100000,  // ₦1,000 upfront fee for Nigeria
+      usd: 100      // $1 upfront fee for international
+    }
   },
   pro: {
     ngn: 10000000, // ₦100,000 in kobo
     usd: 10000,    // $100 in cents
+    upfrontFee: {
+      ngn: 100000,  // ₦1,000 upfront fee for Nigeria
+      usd: 100      // $1 upfront fee for international
+    }
   },
   enterprise: {
     ngn: 50000000, // ₦500,000 in kobo
     usd: 50000,    // $500 in cents
+    upfrontFee: {
+      ngn: 100000,  // ₦1,000 upfront fee for Nigeria
+      usd: 100      // $1 upfront fee for international
+    }
   }
 } as const;
 

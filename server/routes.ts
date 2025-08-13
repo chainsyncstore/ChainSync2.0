@@ -965,14 +965,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Payment provider does not match currency" });
       }
       
-      // Determine amount server-side based on tier and currency (security: no frontend parsing)
-      const amount = PRICING_TIERS[tier][currency === 'NGN' ? 'ngn' : 'usd'];
-      if (!amount) {
-        console.error(`No pricing found for tier ${tier} and currency ${currency}`);
+      // Determine upfront fee server-side based on tier and currency (security: no frontend parsing)
+      const upfrontFee = PRICING_TIERS[tier].upfrontFee[currency === 'NGN' ? 'ngn' : 'usd'];
+      if (!upfrontFee) {
+        console.error(`No upfront fee found for tier ${tier} and currency ${currency}`);
         return res.status(400).json({ message: "Invalid pricing configuration" });
       }
       
-      console.log(`Server-side amount calculation: ${tier} tier, ${currency} currency = ${amount} ${currency === 'NGN' ? 'kobo' : 'cents'}`);
+      console.log(`Server-side upfront fee calculation: ${tier} tier, ${currency} currency = ${upfrontFee} ${currency === 'NGN' ? 'kobo' : 'cents'}`);
       
       const paymentService = new PaymentService();
       const reference = paymentService.generateReference(provider as 'paystack' | 'flutterwave');
@@ -985,14 +985,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const paymentRequest = {
         email,
-        amount, // Server-calculated amount in smallest unit
+        amount: upfrontFee, // Server-calculated upfront fee in smallest unit
         currency,
         reference,
         callback_url: callbackUrl,
         metadata: {
           ...metadata,
           tier,
-          provider
+          provider,
+          paymentType: 'upfront_fee',
+          monthlyAmount: PRICING_TIERS[tier][currency === 'NGN' ? 'ngn' : 'usd'] // Store monthly amount for future billing
         }
       };
 
@@ -1016,9 +1018,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Unsupported payment provider" });
       }
 
-      // Log payment initiation with server-calculated amount
-      logger.logPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl, serverCalculatedAmount: true });
-      monitoringService.recordPaymentEvent('initiated', amount, { ...logContext, reference, callbackUrl, serverCalculatedAmount: true });
+      // Log payment initiation with server-calculated upfront fee
+      logger.logPaymentEvent('initiated', upfrontFee, { ...logContext, reference, callbackUrl, serverCalculatedAmount: true, paymentType: 'upfront_fee' });
+      monitoringService.recordPaymentEvent('initiated', upfrontFee, { ...logContext, reference, callbackUrl, serverCalculatedAmount: true, paymentType: 'upfront_fee' });
 
       // Set secure cookie for pending signup user ID if provided
       if (req.body.userId) {
@@ -1052,6 +1054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log(`Payment verification requested for reference: ${reference}, status: ${status}`);
     
     const paymentService = new PaymentService();
+    const subscriptionService = new (await import('./subscription/service')).SubscriptionService();
     
     // Determine provider from reference
     const provider = reference.startsWith('PAYSTACK') ? 'paystack' : 'flutterwave';
@@ -1083,15 +1086,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`Payment completed successfully for ${provider} reference: ${reference}`);
       
-      // Try to complete signup if user ID is provided in metadata
+      // Try to complete signup and create subscription if user ID is provided
       try {
-        const { userId } = req.body;
-        if (userId) {
+        const { userId, tier, location } = req.body;
+        if (userId && tier && location) {
+          // Mark signup as completed
           await storage.markSignupCompleted(userId);
           console.log(`Signup marked as completed for user: ${userId}`);
+          
+          // Create subscription for the user
+          const { PRICING_TIERS } = await import('./lib/constants');
+          const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
+          const monthlyAmount = PRICING_TIERS[tier][location === 'nigeria' : 'ngn' : 'usd'];
+          const currency = location === 'nigeria' ? 'NGN' : 'USD';
+          
+          const subscription = await subscriptionService.createSubscription(
+            userId,
+            tier,
+            upfrontFee,
+            currency,
+            monthlyAmount,
+            currency
+          );
+          
+          // Record the upfront fee payment
+          await subscriptionService.recordPayment(
+            subscription.id,
+            reference,
+            upfrontFee,
+            currency,
+            'upfront_fee',
+            'completed',
+            provider,
+            { tier, location }
+          );
+          
+          console.log(`Subscription created for user: ${userId}, tier: ${tier}`);
         }
       } catch (signupError) {
-        console.error('Failed to mark signup as completed:', signupError);
+        console.error('Failed to complete signup or create subscription:', signupError);
         // Don't fail the payment verification if signup completion fails
       }
       

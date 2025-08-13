@@ -3,6 +3,10 @@ export const PRICING_TIERS = {
   basic: {
     ngn: 3000000, // ₦30,000 in kobo (cents)
     usd: 3000,    // $30 in cents
+    upfrontFee: {
+      ngn: 100000,  // ₦1,000 upfront fee for Nigeria
+      usd: 100      // $1 upfront fee for international
+    },
     stores: "1 store only",
     features: [
       "1 Store Management",
@@ -16,6 +20,10 @@ export const PRICING_TIERS = {
   pro: {
     ngn: 10000000, // ₦100,000 in kobo (cents)
     usd: 10000,    // $100 in cents
+    upfrontFee: {
+      ngn: 100000,  // ₦1,000 upfront fee for Nigeria
+      usd: 100      // $1 upfront fee for international
+    },
     stores: "Max 10 stores",
     features: [
       "Up to 10 Stores",
@@ -31,6 +39,10 @@ export const PRICING_TIERS = {
   enterprise: {
     ngn: 50000000, // ₦500,000 in kobo (cents)
     usd: 50000,    // $500 in cents
+    upfrontFee: {
+      ngn: 100000,  // ₦1,000 upfront fee for Nigeria
+      usd: 100      // $1 upfront fee for international
+    },
     stores: "10+ stores",
     features: [
       "Unlimited Stores",

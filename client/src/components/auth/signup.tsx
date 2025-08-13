@@ -59,17 +59,25 @@ interface PricingTier {
     ngn: string;
     usd: string;
   };
+  upfrontFee: {
+    ngn: string;
+    usd: string;
+  };
   stores: string;
   features: string[];
 }
 
-// Convert numeric pricing to display format
+// Convert numeric pricing to display format with upfront fees
 const pricingTiers: PricingTier[] = [
   {
     name: "basic",
     price: {
       ngn: "₦30,000",
       usd: "$30"
+    },
+    upfrontFee: {
+      ngn: "₦1,000",
+      usd: "$1"
     },
     stores: "1 store only",
     features: [
@@ -86,6 +94,10 @@ const pricingTiers: PricingTier[] = [
     price: {
       ngn: "₦100,000",
       usd: "$100"
+    },
+    upfrontFee: {
+      ngn: "₦1,000",
+      usd: "$1"
     },
     stores: "Max 10 stores",
     features: [
@@ -104,6 +116,10 @@ const pricingTiers: PricingTier[] = [
     price: {
       ngn: "₦500,000",
       usd: "$500"
+    },
+    upfrontFee: {
+      ngn: "₦1,000",
+      usd: "$1"
     },
     stores: "10+ stores",
     features: [
@@ -299,20 +315,20 @@ function SignupForm() {
       console.log('Tier from data:', data.tier);
       console.log('Location from data:', data.location);
       
-      // Use numeric pricing from constants instead of parsing strings
-      const amount = data.location === 'nigeria' 
-        ? PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.ngn
-        : PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.usd;
+      // Use upfront fee from constants instead of monthly amount
+      const upfrontFee = data.location === 'nigeria' 
+        ? PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.upfrontFee.ngn
+        : PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.upfrontFee.usd;
 
-      console.log('Payment amount:', amount);
+      console.log('Upfront fee amount:', upfrontFee);
 
-      if (!amount) {
+      if (!upfrontFee) {
         throw new Error('Invalid pricing tier selected');
       }
 
       const paymentRequest = {
         email: data.email,
-        amount: amount, // Add the amount field
+        amount: upfrontFee, // Use upfront fee instead of monthly amount
         currency: data.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
         tier: data.tier,
@@ -458,9 +474,15 @@ function SignupForm() {
                 <span className="text-primary font-semibold capitalize">{watchedValues.tier}</span>
               </div>
               <div className="flex justify-between items-center mb-2">
-                <span className="font-medium">Price:</span>
+                <span className="font-medium">Upfront Fee:</span>
+                <span className="font-semibold text-primary">
+                  {selectedTier ? (watchedValues.location === 'nigeria' ? selectedTier.upfrontFee.ngn : selectedTier.upfrontFee.usd) : 'Fee not available'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-medium">Monthly Price:</span>
                 <span className="font-semibold">
-                  {getPrice() ? `${getPrice()}/month` : 'Price not available'}
+                  {selectedTier ? (watchedValues.location === 'nigeria' ? selectedTier.price.ngn : selectedTier.price.usd) : 'Price not available'}/month
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -484,7 +506,7 @@ function SignupForm() {
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-sm text-blue-800">
-                <strong>Free Trial:</strong> Start with a 2-week free trial. No charges until your trial ends.
+                <strong>Free Trial:</strong> Start with a 2-week free trial. Pay a small upfront fee to access your trial. This fee will be credited toward your first month's subscription.
               </p>
             </div>
 
@@ -532,7 +554,7 @@ function SignupForm() {
           </div>
           <CardTitle className="text-2xl font-bold">Create Your ChainSync Account</CardTitle>
           <CardDescription>
-            Start your 2-week free trial. No credit card required to start.
+            Start your 2-week free trial. Small upfront fee required to access your trial.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -650,7 +672,12 @@ function SignupForm() {
                       )}
                     </div>
                     <div className="text-sm text-gray-600 mb-1">
-                      {watchedValues.location === 'nigeria' ? tier.price.ngn : tier.price.usd}/month
+                      <div className="font-semibold text-primary">
+                        {watchedValues.location === 'nigeria' ? tier.upfrontFee.ngn : tier.upfrontFee.usd} upfront
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {watchedValues.location === 'nigeria' ? tier.price.ngn : tier.price.usd}/month after trial
+                      </div>
                     </div>
                     <div className="text-xs text-gray-500">{tier.stores}</div>
                   </div>

@@ -21,6 +21,7 @@
     "check": "tsc",
     "check:env": "node scripts/check-deployment-env.js",
     "test:payment": "node scripts/test-payment-endpoint.js",
+    "test:upfront-fee": "node scripts/test-upfront-fee.js",
     "fix:payment": "node scripts/fix-payment-issues.js",
     "db:push": "drizzle-kit push",
     "seed:secure": "tsx scripts/seed-secure-users.ts",
