@@ -116,6 +116,11 @@ class ApiClient {
         return data as T;
       }
 
+      // Handle responses with data directly (like signup responses)
+      if (data.user || data.message) {
+        return data as T;
+      }
+
       throw new Error('Invalid response format');
     } catch (error) {
       if (error instanceof Error && 'status' in error) {
@@ -161,6 +166,9 @@ class ApiClient {
       case 'VALIDATION_ERROR':
         userMessage = 'Please check your input and try again.';
         break;
+      case 'DUPLICATE_EMAIL':
+        userMessage = 'Email is already registered, please check details and try again.';
+        break;
       case 'RATE_LIMIT_EXCEEDED':
         userMessage = 'Too many requests. Please wait a moment and try again.';
         break;
@@ -168,11 +176,16 @@ class ApiClient {
         userMessage = 'Payment processing failed. Please try again or contact support.';
         break;
       case 'NETWORK_ERROR':
-        userMessage = 'Connection failed. Please check your internet and try again.';
+        userMessage = 'Connection failed. Please check your internet connection and try again.';
+        break;
+      case 'SERVER_ERROR':
+        userMessage = 'Server error. Please try again later.';
         break;
       default:
         if (error.code?.startsWith('HTTP_5')) {
           userMessage = 'Server error. Please try again later.';
+        } else if (error.code?.startsWith('HTTP_4')) {
+          userMessage = 'Request error. Please check your input and try again.';
         }
     }
 

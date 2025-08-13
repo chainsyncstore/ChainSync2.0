@@ -191,7 +191,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const passwordValidation = AuthService.validatePassword(password);
         if (!passwordValidation.isValid) {
           return res.status(400).json({ 
-            message: "Unable to complete signup. Please check your details."
+            status: 'error',
+            message: "Password does not meet security requirements. Please check your details.",
+            code: 'VALIDATION_ERROR',
+            timestamp: new Date().toISOString(),
+            path: req.path
           });
         }
 
@@ -201,13 +205,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (!validTiers.includes(tier)) {
           return res.status(400).json({ 
-            message: "Unable to complete signup. Please check your details."
+            status: 'error',
+            message: "Invalid subscription tier selected. Please check your details.",
+            code: 'VALIDATION_ERROR',
+            timestamp: new Date().toISOString(),
+            path: req.path
           });
         }
         
         if (!validLocations.includes(location)) {
           return res.status(400).json({ 
-            message: "Unable to complete signup. Please check your details."
+            status: 'error',
+            message: "Invalid location selected. Please check your details.",
+            code: 'VALIDATION_ERROR',
+            timestamp: new Date().toISOString(),
+            path: req.path
           });
         }
 
@@ -219,8 +231,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const userAgent = req.get('User-Agent');
           logger.logDuplicateSignupAttempt(email, ipAddress!, userAgent);
           
-          // Return generic error to prevent email enumeration
-          throw new AuthError("Unable to complete signup. Please check your details.");
+          // Return specific error for duplicate email
+          return res.status(409).json({ 
+            status: 'error',
+            message: "Email is already registered, please check details and try again.",
+            code: 'DUPLICATE_EMAIL',
+            timestamp: new Date().toISOString(),
+            path: req.path
+          });
         }
 
         // Check if there's an incomplete signup
@@ -312,9 +330,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
         });
         
-        // Return generic error to prevent information leakage
+        // Return appropriate error based on error type
+        if (error.name === 'AuthError') {
+          return res.status(400).json({ 
+            status: 'error',
+            message: error.message || "Unable to complete signup. Please check your details.",
+            code: 'VALIDATION_ERROR',
+            timestamp: new Date().toISOString(),
+            path: req.path
+          });
+        }
+        
+        // Return generic error for other cases
         res.status(500).json({ 
-          message: "Unable to complete signup. Please try again later." 
+          status: 'error',
+          message: "Unable to complete signup. Please try again later.",
+          code: 'SERVER_ERROR',
+          timestamp: new Date().toISOString(),
+          path: req.path
         });
       }
     });

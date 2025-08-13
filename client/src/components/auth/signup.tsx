@@ -200,9 +200,19 @@ function SignupForm() {
     } catch (error: any) {
       console.error('Signup error:', error);
       
-      // Email enumeration prevention: Always show generic message
-      // Preserve original error in console for debugging
-      setGeneralError('If the email is already registered, we\'ll let you know.');
+      // Handle specific error cases
+      if (error.code === 'DUPLICATE_EMAIL' || error.message?.includes('already registered')) {
+        setGeneralError('Email is already registered, please check details and try again.');
+      } else if (error.code === 'NETWORK_ERROR' || error.message?.includes('Connection failed')) {
+        setGeneralError('Connection failed. Please check your internet connection and try again.');
+      } else if (error.code === 'VALIDATION_ERROR') {
+        setGeneralError('Please check your input details and try again.');
+      } else if (error.code === 'RATE_LIMIT_EXCEEDED') {
+        setGeneralError('Too many signup attempts. Please wait a moment and try again.');
+      } else {
+        // Generic error for other cases
+        setGeneralError('Signup failed. Please try again or contact support if the problem persists.');
+      }
     } finally {
       setIsLoading(false);
     }
