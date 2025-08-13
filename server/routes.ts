@@ -1097,7 +1097,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Create subscription for the user
           const { PRICING_TIERS } = await import('./lib/constants');
           const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
-          const monthlyAmount = PRICING_TIERS[tier][location === 'nigeria' : 'ngn' : 'usd'];
+          const monthlyAmount = PRICING_TIERS[tier][location === 'nigeria' ? 'ngn' : 'usd'];
           const currency = location === 'nigeria' ? 'NGN' : 'USD';
           
           const subscription = await subscriptionService.createSubscription(

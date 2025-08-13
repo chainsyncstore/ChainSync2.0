@@ -982,9 +982,6 @@ export const userSessionsRelations = relations(userSessions, ({ one }) => ({
   }),
 }));
 
-// Subscription Status Enum
-export const subscriptionStatusEnum = pgEnum("subscription_status", ["trial", "active", "past_due", "cancelled", "suspended"]);
-
 // Subscriptions table
 export const subscriptions = pgTable("subscriptions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
