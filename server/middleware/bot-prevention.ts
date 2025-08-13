@@ -23,7 +23,7 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
       // Skip if bot prevention is not configured and we're allowed to skip
       if (!botPreventionService.isConfigured()) {
         if (skipIfNotConfigured) {
-          logger.warn('Bot prevention not configured, skipping validation', {
+          logger.info('Bot prevention not configured, skipping validation', {
             path: req.path,
             ip: req.ip
           });
@@ -99,7 +99,12 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
         });
       } else {
         // Not required, continue without validation
-        next();
+        logger.warn('Bot prevention error occurred but continuing without validation', {
+          path: req.path,
+          ip: req.ip,
+          error: error.message
+        });
+        return next();
       }
     }
   };

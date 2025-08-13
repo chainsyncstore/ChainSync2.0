@@ -268,8 +268,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateBody(SignupSchema),
     async (req, res) => {
       try {
-        // First check database health
-        const dbHealthy = await checkDatabaseHealth();
+        logger.info('Signup request received', {
+          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress,
+          userAgent: req.get('User-Agent'),
+          email: req.body.email
+        });
+        
+        // First check database health with timeout
+        const dbHealthPromise = checkDatabaseHealth();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Database health check timeout')), 10000);
+        });
+        
+        const dbHealthy = await Promise.race([dbHealthPromise, timeoutPromise]);
+        
         if (!dbHealthy) {
           logger.error("Signup failed - database connection unhealthy", {
             ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
@@ -282,6 +294,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             path: req.path
           });
         }
+        
+        logger.info('Database health check passed, proceeding with signup', {
+          email: req.body.email
+        });
 
         const { firstName, lastName, email, phone, companyName, password, tier, location } = req.body;
         
@@ -389,20 +405,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Generate email verification token
         const verificationToken = await AuthService.createEmailVerificationToken(user.id);
         
-        // Send verification email
+        // Send verification email (non-blocking)
         const emailOptions = generateEmailVerificationEmail(
           email, 
           verificationToken.token, 
           firstName
         );
         
-        const emailSent = await sendEmail(emailOptions);
-        if (!emailSent) {
-          logger.error("Failed to send verification email", { 
+        // Send email in background without blocking the response
+        sendEmail(emailOptions).then(emailSent => {
+          if (emailSent) {
+            logger.info("Verification email sent successfully", { 
+              userId: user.id, 
+              email 
+            });
+          } else {
+            logger.error("Failed to send verification email", { 
+              userId: user.id, 
+              email 
+            });
+          }
+        }).catch(error => {
+          logger.error("Email sending error", { 
             userId: user.id, 
-            email 
+            email,
+            error: error.message 
           });
-        }
+        });
 
         res.status(201).json({ 
           message: "Account created successfully. Please verify your email to activate your account.",
