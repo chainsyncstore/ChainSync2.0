@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
-import csrf from "csurf";
 import { logger } from "../lib/logger";
 
 // CORS configuration for API routes only
@@ -213,27 +212,32 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
     return next();
   }
   
-  // Apply CSRF protection for other routes
-  return csrf({
-    ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
-    sessionKey: 'chainsync.sid'
-  })(req, res, next);
+  // Custom CSRF validation
+  const csrfToken = req.headers['x-csrf-token'] as string;
+  const cookieToken = req.cookies['csrf-token'];
+  
+  if (!csrfToken || !cookieToken) {
+    return res.status(403).json({
+      error: 'CSRF token missing',
+      message: 'CSRF token is required for this request'
+    });
+  }
+  
+  if (csrfToken !== cookieToken) {
+    return res.status(403).json({
+      error: 'CSRF token invalid',
+      message: 'CSRF token validation failed'
+    });
+  }
+  
+  // CSRF validation passed
+  next();
 };
 
 // CSRF error handler
 export const csrfErrorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
-  if (err.code === 'EBADCSRFTOKEN') {
-    const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
-    const userAgent = req.get('User-Agent');
-    const userId = (req.session as any)?.user?.id;
-    
-    logger.logFailedCSRFCheck(ipAddress!, req.path, userAgent, userId);
-    
-    return res.status(403).json({
-      error: 'CSRF token validation failed',
-      message: 'Invalid or missing CSRF token'
-    });
-  }
+  // This is now handled by the custom CSRF validation middleware
+  // Keep for backward compatibility but it should not be called
   next(err);
 };
 

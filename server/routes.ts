@@ -803,20 +803,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // CSRF token endpoint
   app.get("/api/auth/csrf-token", async (req: any, res) => {
     try {
-      // Check if CSRF secret is configured
-      if (!process.env.CSRF_SECRET) {
-        logger.error("CSRF_SECRET environment variable not configured", {
-          ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
-        });
-        return res.status(500).json({ 
-          status: 'error',
-          message: "CSRF protection not configured",
-          code: 'CONFIGURATION_ERROR',
-          timestamp: new Date().toISOString(),
-          path: req.path
-        });
-      }
-
       // Check database health before proceeding
       try {
         const isHealthy = await checkDatabaseHealth();
