@@ -1,7 +1,22 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { fileURLToPath } from "url";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Utility function to safely resolve paths
+function safePathResolve(...paths: string[]): string {
+  try {
+    return path.resolve(__dirname, ...paths);
+  } catch (error) {
+    console.error('Failed to resolve path:', paths, error);
+    throw new Error(`Path resolution failed: ${paths.join('/')}`);
+  }
+}
 
 export default defineConfig({
   plugins: [
@@ -18,14 +33,14 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      "@": safePathResolve("client", "src"),
+      "@shared": safePathResolve("shared"),
+      "@assets": safePathResolve("attached_assets"),
     },
   },
-  root: path.resolve(import.meta.dirname, "client"),
+  root: safePathResolve("client"),
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist", "public"),
+    outDir: safePathResolve("dist", "public"),
     emptyOutDir: true,
     rollupOptions: {
       output: {
