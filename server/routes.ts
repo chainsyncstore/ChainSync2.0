@@ -1,7 +1,7 @@
 import express, { Express } from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { session } from "express-session";
+import session from "express-session";
 import connectPg from "connect-pg-simple";
 import cookieParser from "cookie-parser";
 import { z } from "zod";

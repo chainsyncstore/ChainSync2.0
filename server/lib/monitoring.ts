@@ -271,6 +271,10 @@ class MonitoringService {
 
 export const monitoringService = new MonitoringService();
 
+// Export the functions that are being imported in routes.ts
+export const getPerformanceMetrics = () => monitoringService.getPerformanceMetrics();
+export const clearPerformanceMetrics = () => monitoringService.clearMetrics();
+
 // Middleware for automatic request monitoring
 export const monitoringMiddleware = (req: Request, res: Response, next: () => void): void => {
   const start = Date.now();

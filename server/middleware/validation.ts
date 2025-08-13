@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { z, ZodError } from "zod";
 import { sendErrorResponse } from "../lib/errors";
 import { ValidationError } from "../lib/errors";
+import { LogContext } from "../lib/logger";
 
 /**
  * Middleware to validate request body against a Zod schema
@@ -163,5 +164,32 @@ export function validateRequest<T>(
         sendErrorResponse(res, unexpectedError, req.path);
       }
     }
+  };
+}
+
+/**
+ * Wrapper for async route handlers to catch errors
+ * @param fn - Async function to wrap
+ * @returns Express middleware function
+ */
+export function handleAsyncError(fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
+/**
+ * Extract logging context from request
+ * @param req - Express request object
+ * @returns LogContext object
+ */
+export function extractLogContext(req: Request) {
+  return {
+    ipAddress: req.ip || req.connection.remoteAddress,
+    userAgent: req.get('User-Agent'),
+    path: req.path,
+    method: req.method,
+    userId: (req.session as any)?.user?.id,
+    storeId: (req.session as any)?.user?.storeId
   };
 }
