@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { post } from "@/lib/api-client";
 import { User } from "@shared/schema";
 import { saveSession, loadSession, clearSession, refreshSession } from "@/lib/utils";
 
@@ -97,43 +98,30 @@ export function useAuth(): AuthState & AuthActions {
     setError(null);
     
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (response.ok) {
-        const userData = await response.json();
-        console.log("Login successful, user data:", userData);
-        setUser(userData);
-        setError(null);
-        
-        // Save session for manager/cashier roles
-        if (userData.role === "manager" || userData.role === "cashier") {
-          saveSession(userData);
-        }
-        
-        // Redirect to appropriate default page based on role
-        const role = userData.role || "cashier";
-        let defaultPath = "/";
-        if (role === "admin") {
-          defaultPath = "/analytics";
-        } else if (role === "manager") {
-          defaultPath = "/inventory";
-        } else {
-          defaultPath = "/pos";
-        }
-        
-        console.log("Redirecting to default path after login:", defaultPath);
-        window.location.href = defaultPath;
-      } else {
-        const errorData = await response.json();
-        console.log("Login failed:", errorData);
-        setError(errorData.message || "Login failed");
+      // Use centralized API client which automatically handles CSRF tokens and cookies
+      const userData = await post<User>("/auth/login", { username, password });
+      console.log("Login successful, user data:", userData);
+      setUser(userData);
+      setError(null);
+      
+      // Save session for manager/cashier roles
+      if (userData.role === "manager" || userData.role === "cashier") {
+        saveSession(userData);
       }
+      
+      // Redirect to appropriate default page based on role
+      const role = userData.role || "cashier";
+      let defaultPath = "/";
+      if (role === "admin") {
+        defaultPath = "/analytics";
+      } else if (role === "manager") {
+        defaultPath = "/inventory";
+      } else {
+        defaultPath = "/pos";
+      }
+      
+      console.log("Redirecting to default path after login:", defaultPath);
+      window.location.href = defaultPath;
     } catch (err) {
       setError("Network error. Please try again.");
     } finally {
@@ -143,7 +131,8 @@ export function useAuth(): AuthState & AuthActions {
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      // Ensure CSRF token is included on logout request as well
+      await post("/auth/logout");
     } catch (err) {
       console.error("Logout error:", err);
     } finally {
