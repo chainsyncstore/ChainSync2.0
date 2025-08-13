@@ -224,19 +224,26 @@ function SignupForm() {
     setGeneralError('');
     
     try {
+      console.log('Starting payment process...', { data });
+      
       const paymentProvider = data.location === 'nigeria' ? 'paystack' : 'flutterwave';
       const selectedTier = pricingTiers.find(t => t.name === data.tier);
+      
+      console.log('Payment provider:', paymentProvider);
+      console.log('Selected tier:', selectedTier);
       
       // Use numeric pricing from constants instead of parsing strings
       const amount = data.location === 'nigeria' 
         ? PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.ngn
         : PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.usd;
 
+      console.log('Payment amount:', amount);
+
       if (!amount) {
         throw new Error('Invalid pricing tier selected');
       }
 
-      const paymentData = await apiClient.post('/payment/initialize', {
+      const paymentRequest = {
         email: data.email,
         currency: data.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
@@ -248,15 +255,27 @@ function SignupForm() {
           companyName: data.companyName,
           phone: data.phone
         }
-      });
+      };
+
+      console.log('Sending payment request:', paymentRequest);
+
+      const paymentData = await apiClient.post('/payment/initialize', paymentRequest);
+      
+      console.log('Payment response received:', paymentData);
       
       // Validate payment URL before redirecting for security
       let paymentUrl: string;
       if (paymentProvider === 'paystack') {
         paymentUrl = paymentData.authorization_url;
+        console.log('Paystack payment URL:', paymentUrl);
       } else {
         // Flutterwave
         paymentUrl = paymentData.link;
+        console.log('Flutterwave payment URL:', paymentUrl);
+      }
+
+      if (!paymentUrl) {
+        throw new Error(`No payment URL received from ${paymentProvider}`);
       }
 
       // Security: Validate that the payment URL is from an expected provider domain
@@ -264,11 +283,31 @@ function SignupForm() {
         throw new Error('Invalid payment provider URL detected');
       }
       
+      console.log('Redirecting to payment gateway:', paymentUrl);
+      
       // Redirect to payment gateway
       window.location.href = paymentUrl;
-    } catch (error) {
-      console.error('Payment error:', error);
-      setGeneralError('Payment initialization failed. Please try again.');
+    } catch (error: any) {
+      console.error('Payment error details:', {
+        error,
+        message: error.message,
+        stack: error.stack,
+        response: error.response
+      });
+      
+      let errorMessage = 'Payment initialization failed. Please try again.';
+      
+      if (error.response?.status === 500) {
+        errorMessage = 'Server error during payment initialization. Please contact support.';
+      } else if (error.response?.status === 400) {
+        errorMessage = error.response.data?.message || 'Invalid payment request. Please check your details.';
+      } else if (error.message?.includes('CSRF token')) {
+        errorMessage = 'Security token expired. Please refresh the page and try again.';
+      } else if (error.message?.includes('Network')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      }
+      
+      setGeneralError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -368,8 +407,22 @@ function SignupForm() {
               className="w-full"
               disabled={isLoading}
             >
-              {isLoading ? "Processing..." : `Pay with ${getPaymentProvider()}`}
+              {isLoading ? (
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Processing Payment...</span>
+                </div>
+              ) : (
+                `Pay with ${getPaymentProvider()}`
+              )}
             </Button>
+
+            {generalError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{generalError}</AlertDescription>
+              </Alert>
+            )}
 
             <Button
               variant="outline"
