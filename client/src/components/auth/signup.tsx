@@ -38,6 +38,7 @@ const signupSchema = z.object({
     .max(255, "Company name must be less than 255 characters"),
   password: z.string()
     .min(8, "Password must be at least 8 characters")
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character")
     .max(128, "Password must be less than 128 characters"),
   confirmPassword: z.string()
     .min(1, "Please confirm your password"),
@@ -440,9 +441,9 @@ function SignupForm() {
     const checkPendingSignup = async () => {
       try {
         const response = await apiClient.get('/auth/pending-signup');
-        if (response.pendingUserId) {
+        if (response.pendingSignupId) {
           // Complete the signup
-          completeSignup(response.pendingUserId);
+          completeSignup(response.pendingSignupId);
         }
       } catch (error) {
         console.error('Failed to check pending signup:', error);
