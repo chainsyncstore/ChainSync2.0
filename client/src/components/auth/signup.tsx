@@ -201,7 +201,11 @@ function SignupForm() {
       console.error('Signup error:', error);
       
       // Handle specific error cases
-      if (error.code === 'DUPLICATE_EMAIL' || error.message?.includes('already registered')) {
+      if (error.message?.includes('reCAPTCHA site key not configured')) {
+        setGeneralError('Security verification is not properly configured. Please contact support.');
+      } else if (error.message?.includes('Failed to load reCAPTCHA')) {
+        setGeneralError('Security verification failed to load. Please refresh the page and try again.');
+      } else if (error.code === 'DUPLICATE_EMAIL' || error.message?.includes('already registered')) {
         setGeneralError('Email is already registered, please check details and try again.');
       } else if (error.code === 'NETWORK_ERROR' || error.message?.includes('Connection failed')) {
         setGeneralError('Connection failed. Please check your internet connection and try again.');

@@ -78,22 +78,84 @@ export async function verifyHcaptcha(token: string): Promise<boolean> {
  * @returns Promise<string> - The reCAPTCHA token
  */
 export async function generateRecaptchaToken(): Promise<string> {
+  console.log('generateRecaptchaToken called, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
+  
+  // Check if the site key is configured
+  if (!RECAPTCHA_SITE_KEY || RECAPTCHA_SITE_KEY === '6Lc_your_recaptcha_site_key_here') {
+    console.error('reCAPTCHA site key not configured or using placeholder value');
+    throw new Error('reCAPTCHA site key not configured. Please set VITE_RECAPTCHA_SITE_KEY in your environment variables.');
+  }
+  
   return new Promise((resolve, reject) => {
-    if (typeof window !== 'undefined' && window.grecaptcha) {
+    const loadRecaptchaScript = () => {
+      return new Promise<void>((resolveScript, rejectScript) => {
+        // Check if script is already loaded
+        if (document.querySelector('script[src*="recaptcha/api.js"]')) {
+          console.log('reCAPTCHA script already loaded');
+          resolveScript();
+          return;
+        }
+
+        console.log('Loading reCAPTCHA script...');
+        const script = document.createElement('script');
+        script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
+        script.onload = () => {
+          console.log('reCAPTCHA script loaded successfully');
+          resolveScript();
+        };
+        script.onerror = () => {
+          console.error('Failed to load reCAPTCHA script');
+          rejectScript(new Error('Failed to load reCAPTCHA script'));
+        };
+        document.head.appendChild(script);
+      });
+    };
+
+    const generateToken = async () => {
       try {
-        window.grecaptcha.ready(() => {
-          window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: 'signup' })
-            .then((token: string) => resolve(token))
-            .catch((error: any) => reject(error));
+        console.log('Waiting for reCAPTCHA to be ready...');
+        // Wait for reCAPTCHA to be ready
+        await new Promise<void>((resolveReady) => {
+          if (typeof window !== 'undefined' && window.grecaptcha) {
+            console.log('grecaptcha available, calling ready()');
+            window.grecaptcha.ready(resolveReady);
+          } else {
+            // If grecaptcha is not available, wait a bit and try again
+            console.log('grecaptcha not available, waiting...');
+            setTimeout(() => {
+              if (window.grecaptcha) {
+                console.log('grecaptcha now available, calling ready()');
+                window.grecaptcha.ready(resolveReady);
+              } else {
+                reject(new Error('reCAPTCHA failed to load'));
+              }
+            }, 1000);
+          }
         });
+
+        console.log('reCAPTCHA ready, executing...');
+        // Generate the token
+        const token = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: 'signup' });
+        console.log('reCAPTCHA token generated successfully, length:', token.length);
+        resolve(token);
       } catch (error) {
+        console.error('Error generating reCAPTCHA token:', error);
         reject(error);
       }
-    } else {
-      // Fallback for development or when reCAPTCHA is not loaded
-      console.warn('reCAPTCHA not available - using fallback token');
-      resolve('dev-token-' + Date.now());
-    }
+    };
+
+    // Load reCAPTCHA script if needed, then generate token
+    loadRecaptchaScript()
+      .then(() => {
+        // Wait a bit for the script to initialize
+        console.log('Waiting for script initialization...');
+        setTimeout(generateToken, 500);
+      })
+      .catch((error) => {
+        console.error('Failed to load reCAPTCHA:', error);
+        // Don't use fallback token in production - throw error instead
+        reject(new Error(`Failed to load reCAPTCHA: ${error.message}`));
+      });
   });
 }
 

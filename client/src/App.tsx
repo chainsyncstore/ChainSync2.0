@@ -15,6 +15,15 @@ import ForgotPassword from "@/components/auth/forgot-password";
 import ResetPassword from "@/components/auth/reset-password";
 import MainLayout from "@/components/layout/main-layout";
 import { useState } from "react";
+import { RECAPTCHA_SITE_KEY } from './lib/constants';
+
+// Debug: Log reCAPTCHA site key
+console.log('App loading, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
+console.log('Environment variables:', {
+  VITE_RECAPTCHA_SITE_KEY: import.meta.env.VITE_RECAPTCHA_SITE_KEY,
+  NODE_ENV: import.meta.env.NODE_ENV,
+  MODE: import.meta.env.MODE
+});
 
 // Lazy load pages for better performance
 const Landing = lazy(() => import("@/pages/landing"));
@@ -177,6 +186,23 @@ function Router() {
 }
 
 function App() {
+  const { toast } = useToast();
+  const { initializeNotifications } = useNotifications();
+  const { user, loading: authLoading } = useAuth();
+  const { isMobile } = useMobile();
+  const { isWhitelisted, loading: whitelistLoading } = useIPWhitelist();
+  const { isAIChatEnabled } = useAIChat();
+
+  // Debug: Log reCAPTCHA site key
+  useEffect(() => {
+    console.log('App loaded, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
+    console.log('Environment variables:', {
+      VITE_RECAPTCHA_SITE_KEY: import.meta.env.VITE_RECAPTCHA_SITE_KEY,
+      NODE_ENV: import.meta.env.NODE_ENV,
+      MODE: import.meta.env.MODE
+    });
+  }, []);
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
