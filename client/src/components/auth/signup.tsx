@@ -68,6 +68,14 @@ interface PricingTier {
   features: string[];
 }
 
+// Normalize incoming tier names (handles legacy values like "premium")
+function normalizeTier(tier: string | undefined | null): "basic" | "pro" | "enterprise" {
+  const value = (tier || "").toString().toLowerCase();
+  if (value === "premium") return "pro"; // legacy mapping
+  if (value === "basic" || value === "pro" || value === "enterprise") return value;
+  return "basic";
+}
+
 // Convert numeric pricing to display format with upfront fees
 const pricingTiers: PricingTier[] = [
   {
@@ -170,7 +178,7 @@ function SignupForm() {
       companyName: "",
       password: "",
       confirmPassword: "",
-      tier: (tierFromUrl && VALID_TIERS.includes(tierFromUrl)) ? tierFromUrl as "basic" | "pro" | "enterprise" : "basic",
+      tier: normalizeTier(tierFromUrl),
       location: (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international')) 
         ? locationFromUrl as 'nigeria' | 'international' 
         : 'international'
@@ -194,9 +202,16 @@ function SignupForm() {
     
     // Set default values if they're not already set
     if (!watchedValues.tier) {
-      const defaultTier = (tierFromUrl && VALID_TIERS.includes(tierFromUrl)) ? tierFromUrl : 'basic';
+      const defaultTier = normalizeTier(tierFromUrl);
       console.log('Setting default tier to:', defaultTier);
       setValue('tier', defaultTier);
+    } else {
+      // Normalize any legacy tier already present (e.g., from resumed signup)
+      const normalized = normalizeTier(watchedValues.tier);
+      if (normalized !== watchedValues.tier) {
+        console.log('Normalizing legacy tier value:', watchedValues.tier, '->', normalized);
+        setValue('tier', normalized);
+      }
     }
     
     if (!watchedValues.location) {
@@ -262,7 +277,7 @@ function SignupForm() {
         // Pre-fill the form with existing data
         setValue('firstName', responseData.user.firstName || data.firstName);
         setValue('lastName', responseData.user.lastName || data.lastName);
-        setValue('tier', responseData.user.tier || data.tier);
+        setValue('tier', normalizeTier(responseData.user.tier || data.tier));
         
         // Clear any existing errors
         clearErrors();
@@ -309,7 +324,8 @@ function SignupForm() {
       console.log('Starting payment process...', { data });
       
       const paymentProvider = data.location === 'nigeria' ? 'paystack' : 'flutterwave';
-      const selectedTier = pricingTiers.find(t => t.name === data.tier);
+      const normalizedTier = normalizeTier(data.tier);
+      const selectedTier = pricingTiers.find(t => t.name === normalizedTier);
       
       console.log('Payment provider:', paymentProvider);
       console.log('Selected tier:', selectedTier);
@@ -318,8 +334,8 @@ function SignupForm() {
       
       // Use upfront fee from constants instead of monthly amount
       const upfrontFee = data.location === 'nigeria' 
-        ? PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.upfrontFee.ngn
-        : PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.upfrontFee.usd;
+        ? PRICING_TIERS[normalizedTier as keyof typeof PRICING_TIERS]?.upfrontFee.ngn
+        : PRICING_TIERS[normalizedTier as keyof typeof PRICING_TIERS]?.upfrontFee.usd;
 
       console.log('Upfront fee amount:', upfrontFee);
 
@@ -332,7 +348,7 @@ function SignupForm() {
         amount: upfrontFee, // Use upfront fee instead of monthly amount
         currency: data.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
-        tier: data.tier,
+        tier: normalizedTier,
         userId: userData?.id,
         metadata: {
           firstName: data.firstName,
@@ -349,13 +365,17 @@ function SignupForm() {
       console.log('Payment response received:', paymentData);
       
       // Validate payment URL before redirecting for security
-      let paymentUrl: string;
+      // Extract redirect URL robustly for both providers and response shapes
+      let paymentUrl: string | undefined;
       if (paymentProvider === 'paystack') {
-        paymentUrl = paymentData.authorization_url;
+        paymentUrl = (paymentData as any)?.authorization_url
+          || (paymentData as any)?.data?.authorization_url
+          || (paymentData as any)?.data?.data?.authorization_url;
         console.log('Paystack payment URL:', paymentUrl);
       } else {
-        // Flutterwave
-        paymentUrl = paymentData.link;
+        paymentUrl = (paymentData as any)?.link
+          || (paymentData as any)?.data?.link
+          || (paymentData as any)?.data?.data?.link;
         console.log('Flutterwave payment URL:', paymentUrl);
       }
 
