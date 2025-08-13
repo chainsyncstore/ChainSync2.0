@@ -314,9 +314,10 @@ export const helmetConfig = helmet({
 // CORS middleware - only apply to API routes
 export const corsMiddleware = (req: Request, res: Response, next: NextFunction) => {
   // Skip CORS for static files and non-API routes
+  // Use more precise checks to avoid interfering with asset requests
   if (req.path.startsWith('/assets/') || 
       req.path.startsWith('/static/') || 
-      req.path.includes('.') || 
+      req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|json|xml|txt|pdf|zip|mp4|webm|ogg|mp3|wav)$/i) || 
       !req.path.startsWith('/api/')) {
     return next();
   }

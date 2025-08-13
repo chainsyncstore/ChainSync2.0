@@ -48,6 +48,19 @@ app.use(requestLogger);
 
     const server = await registerRoutes(app);
 
+    // importantly only setup vite in development and after
+    // setting up all the other routes so the catch-all route
+    // doesn't interfere with the other routes
+    if (app.get("env") === "development") {
+      logger.info('Setting up Vite development server...');
+      await setupVite(app, server);
+    } else {
+      logger.info('Setting up static file serving...');
+      serveStatic(app);
+    }
+
+    // Error handling middleware - set up AFTER static file serving
+    // to avoid interfering with static file requests
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       // Log the error with structured logging
       logger.error('Unhandled error occurred', {
@@ -74,17 +87,6 @@ app.use(requestLogger);
         throw err;
       }
     });
-
-    // importantly only setup vite in development and after
-    // setting up all the other routes so the catch-all route
-    // doesn't interfere with the other routes
-    if (app.get("env") === "development") {
-      logger.info('Setting up Vite development server...');
-      await setupVite(app, server);
-    } else {
-      logger.info('Setting up static file serving...');
-      serveStatic(app);
-    }
 
     // ALWAYS serve the app on the port specified in the environment variable PORT
     // Other ports are firewalled. Default to 5000 if not specified.

@@ -98,49 +98,127 @@ export function serveStatic(app: Express) {
       files: fs.readdirSync(distPath)
     });
 
+    // Add a fallback middleware to ensure JavaScript files always have correct MIME type
+    app.use((req, res, next) => {
+      const path = req.path;
+      
+      // Force correct MIME type for JavaScript files
+      if (path.endsWith('.js') || path.includes('.js')) {
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        logger.debug('Forced JavaScript MIME type for path', { path });
+      }
+      
+      // Log all requests to help with debugging
+      logger.debug('Request received in fallback middleware', { 
+        path, 
+        method: req.method,
+        userAgent: req.get('User-Agent')
+      });
+      
+      next();
+    });
+
     // Serve static files from /dist/public with proper MIME types
     app.use(express.static(distPath, {
-      setHeaders: (res, path) => {
-        // Set proper MIME types for different file types
-        if (path.endsWith('.css')) {
-          res.setHeader('Content-Type', 'text/css');
-        } else if (path.endsWith('.js')) {
-          res.setHeader('Content-Type', 'application/javascript');
-        } else if (path.endsWith('.html')) {
-          res.setHeader('Content-Type', 'text/html');
-        } else if (path.endsWith('.json')) {
-          res.setHeader('Content-Type', 'application/json');
-        } else if (path.endsWith('.png')) {
-          res.setHeader('Content-Type', 'image/png');
-        } else if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
-          res.setHeader('Content-Type', 'image/jpeg');
-        } else if (path.endsWith('.svg')) {
-          res.setHeader('Content-Type', 'image/svg+xml');
-        } else if (path.endsWith('.ico')) {
-          res.setHeader('Content-Type', 'image/x-icon');
+      setHeaders: (res, filePath) => {
+        // Get file extension for better MIME type detection
+        const ext = path.extname(filePath).toLowerCase();
+        
+        // Enhanced MIME type detection that handles edge cases
+        let contentType = null;
+        
+        // Check for JavaScript files first (most critical)
+        if (filePath.includes('.js') || filePath.endsWith('.js') || ext === '.js') {
+          contentType = 'application/javascript; charset=utf-8';
+        } else if (filePath.includes('.css') || filePath.endsWith('.css') || ext === '.css') {
+          contentType = 'text/css; charset=utf-8';
+        } else if (filePath.includes('.html') || filePath.endsWith('.html') || ext === '.html') {
+          contentType = 'text/html; charset=utf-8';
+        } else if (ext === '.json') {
+          contentType = 'application/json; charset=utf-8';
+        } else if (ext === '.png') {
+          contentType = 'image/png';
+        } else if (ext === '.jpg' || ext === '.jpeg') {
+          contentType = 'image/jpeg';
+        } else if (ext === '.svg') {
+          contentType = 'image/svg+xml';
+        } else if (ext === '.ico') {
+          contentType = 'image/x-icon';
+        } else if (ext === '.woff') {
+          contentType = 'font/woff';
+        } else if (ext === '.woff2') {
+          contentType = 'font/woff2';
+        } else if (ext === '.ttf') {
+          contentType = 'font/ttf';
+        } else if (ext === '.eot') {
+          contentType = 'application/vnd.ms-fontobject';
         }
         
-        // Add cache control headers
-        if (path.endsWith('.css') || path.endsWith('.js')) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
-        } else if (path.endsWith('.html')) {
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        // Set the content type if we determined one
+        if (contentType) {
+          res.setHeader('Content-Type', contentType);
+          
+          // Add cache control headers
+          if (contentType.includes('javascript') || contentType.includes('css')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
+          } else if (contentType.includes('html')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          } else if (contentType.includes('image/')) {
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day for images
+          }
         }
+        
+        // Log MIME type setting for debugging
+        logger.debug('Setting MIME type for file', {
+          filePath,
+          extension: ext,
+          contentType: contentType || 'not set (using Express default)',
+          finalContentType: res.getHeader('Content-Type')
+        });
       }
     }));
 
+    // Additional middleware to catch any JavaScript files that might have slipped through
+    // with incorrect MIME types and force the correct content type
+    app.use((req, res, next) => {
+      const path = req.path;
+      
+      // Force correct MIME type for any JavaScript files
+      if (path.includes('.js') || path.endsWith('.js')) {
+        // Override any existing Content-Type header
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        logger.debug('Forced JavaScript MIME type override for path', { path });
+      }
+      
+      next();
+    });
+
     // Catch-all route to serve index.html for SPA routing
+    // BUT exclude asset requests and API routes
     app.get("*", (req, res) => {
+      const path = req.path;
+      
       // Skip API routes
-      if (req.path.startsWith('/api/')) {
+      if (path.startsWith('/api/')) {
         return res.status(404).json({
           error: 'API endpoint not found',
-          path: req.path,
+          path: path,
           message: 'The requested API endpoint could not be found'
         });
       }
       
-      // Serve index.html for all other routes (SPA routing)
+      // Skip asset requests - these should be handled by static middleware above
+      // Use a more precise check for assets to avoid interfering with JS files
+      if (path.startsWith('/assets/') || 
+          path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|json|xml|txt|pdf|zip|mp4|webm|ogg|mp3|wav)$/i)) {
+        return res.status(404).json({
+          error: 'Asset not found',
+          path: path,
+          message: 'The requested asset could not be found'
+        });
+      }
+      
+      // Serve index.html for SPA routing (only for page routes)
       const indexPath = path.join(distPath, "index.html");
       
       if (fs.existsSync(indexPath)) {
@@ -148,7 +226,7 @@ export function serveStatic(app: Express) {
       } else {
         res.status(404).json({
           error: 'Page not found',
-          path: req.path,
+          path: path,
           message: 'The requested page could not be found'
         });
       }
