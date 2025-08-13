@@ -170,6 +170,29 @@ function SignupForm() {
     console.log('Current location:', watchedValues.location);
   }, [watchedValues]);
 
+  // Ensure form is properly initialized with default values
+  React.useEffect(() => {
+    console.log('Component mounted, setting default values...');
+    console.log('URL params - tier:', tierFromUrl, 'location:', locationFromUrl);
+    
+    // Always set default values to ensure they're registered
+    const defaultTier = (tierFromUrl && VALID_TIERS.includes(tierFromUrl)) ? tierFromUrl : 'basic';
+    const defaultLocation = (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international')) 
+      ? locationFromUrl as 'nigeria' | 'international' 
+      : 'international';
+    
+    console.log('Setting default tier to:', defaultTier);
+    console.log('Setting default location to:', defaultLocation);
+    
+    setValue('tier', defaultTier);
+    setValue('location', defaultLocation);
+    
+    // Force a re-render to update watchedValues
+    setTimeout(() => {
+      console.log('After setting defaults - tier:', watchedValues.tier, 'location:', watchedValues.location);
+    }, 100);
+  }, []); // Only run on mount
+
   // Handle input changes with proper error clearing
   const handleInputChange = async (field: keyof SignupFormData, value: string) => {
     setValue(field, value, { shouldValidate: false }); // Set value without immediate validation
@@ -187,7 +210,11 @@ function SignupForm() {
 
   // Handle form submission
   const onSubmit = async (data: SignupFormData) => {
+    console.log('Form submission started with data:', data);
+    console.log('Form validation state:', { isValid, errors });
+    
     if (!isValid) {
+      console.error('Form validation failed:', errors);
       return;
     }
 
@@ -209,6 +236,8 @@ function SignupForm() {
         location: data.location,
         recaptchaToken
       };
+      
+      console.log('Signup data prepared:', signupData);
       
       // Create the user account using API client (includes CSRF token)
       const responseData = await apiClient.post('/auth/signup', signupData);
@@ -256,6 +285,10 @@ function SignupForm() {
 
   const handlePayment = async () => {
     const data = getValues();
+    console.log('Payment process started with form data:', data);
+    console.log('Form values from getValues():', data);
+    console.log('Watched values:', watchedValues);
+    
     setIsLoading(true);
     setGeneralError('');
     
@@ -267,6 +300,8 @@ function SignupForm() {
       
       console.log('Payment provider:', paymentProvider);
       console.log('Selected tier:', selectedTier);
+      console.log('Tier from data:', data.tier, 'Type:', typeof data.tier);
+      console.log('Location from data:', data.location, 'Type:', typeof data.location);
       
       // Use numeric pricing from constants instead of parsing strings
       const amount = data.location === 'nigeria' 
@@ -274,6 +309,8 @@ function SignupForm() {
         : PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.usd;
 
       console.log('Payment amount:', amount);
+      console.log('PRICING_TIERS keys:', Object.keys(PRICING_TIERS));
+      console.log('PRICING_TIERS[data.tier]:', PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]);
 
       if (!amount) {
         throw new Error('Invalid pricing tier selected');
@@ -352,10 +389,24 @@ function SignupForm() {
 
   const selectedTier = pricingTiers.find(t => t.name === watchedValues.tier);
   console.log('Selected tier:', selectedTier, 'for watchedValues.tier:', watchedValues.tier);
+  console.log('Available pricing tiers:', pricingTiers.map(t => t.name));
+  console.log('Current form values:', watchedValues);
   
   const getPrice = () => {
-    const price = watchedValues.location === 'nigeria' ? selectedTier?.price.ngn : selectedTier?.price.usd;
-    console.log('getPrice() called:', { location: watchedValues.location, selectedTier: selectedTier?.name, price });
+    if (!selectedTier) {
+      console.error('No tier selected. Available tiers:', pricingTiers.map(t => t.name));
+      console.error('Current tier value:', watchedValues.tier);
+      return null;
+    }
+    
+    const price = watchedValues.location === 'nigeria' ? selectedTier.price.ngn : selectedTier.price.usd;
+    console.log('getPrice() called:', { 
+      location: watchedValues.location, 
+      selectedTier: selectedTier.name, 
+      price,
+      tierName: watchedValues.tier,
+      tierType: typeof watchedValues.tier
+    });
     return price;
   };
 
@@ -420,7 +471,14 @@ function SignupForm() {
                   {(() => {
                     const price = getPrice();
                     console.log('Display price:', price, 'for tier:', watchedValues.tier, 'location:', watchedValues.location);
-                    return price ? `${price}/month` : 'Price not available';
+                    if (!price) {
+                      return (
+                        <span className="text-red-500">
+                          Price not available (Tier: {watchedValues.tier || 'undefined'}, Location: {watchedValues.location || 'undefined'})
+                        </span>
+                      );
+                    }
+                    return `${price}/month`;
                   })()}
                 </span>
               </div>
@@ -621,7 +679,15 @@ function SignupForm() {
                 ))}
               </div>
               {/* Hidden input for form validation */}
-              <input type="hidden" {...register('tier')} />
+              <input 
+                type="hidden" 
+                {...register('tier')} 
+                value={watchedValues.tier || 'basic'}
+                onChange={(e) => {
+                  console.log('Tier hidden input changed:', e.target.value);
+                  setValue('tier', e.target.value);
+                }}
+              />
             </div>
 
             {/* Location Selection */}
@@ -658,7 +724,15 @@ function SignupForm() {
                 </button>
               </div>
               {/* Hidden input for form validation */}
-              <input type="hidden" {...register('location')} />
+              <input 
+                type="hidden" 
+                {...register('location')} 
+                value={watchedValues.location || 'international'}
+                onChange={(e) => {
+                  console.log('Location hidden input changed:', e.target.value);
+                  setValue('location', e.target.value);
+                }}
+              />
             </div>
 
             {/* Password */}
