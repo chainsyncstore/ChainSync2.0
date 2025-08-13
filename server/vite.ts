@@ -100,17 +100,17 @@ export function serveStatic(app: Express) {
 
     // Add a fallback middleware to ensure JavaScript files always have correct MIME type
     app.use((req, res, next) => {
-      const path = req.path;
+      const requestPath = req.path;
       
       // Force correct MIME type for JavaScript files
-      if (path.endsWith('.js') || path.includes('.js')) {
+      if (requestPath.endsWith('.js') || requestPath.includes('.js')) {
         res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-        logger.debug('Forced JavaScript MIME type for path', { path });
+        logger.debug('Forced JavaScript MIME type for path', { path: requestPath });
       }
       
       // Log all requests to help with debugging
       logger.debug('Request received in fallback middleware', { 
-        path, 
+        path: requestPath, 
         method: req.method,
         userAgent: req.get('User-Agent')
       });
@@ -181,13 +181,13 @@ export function serveStatic(app: Express) {
     // Additional middleware to catch any JavaScript files that might have slipped through
     // with incorrect MIME types and force the correct content type
     app.use((req, res, next) => {
-      const path = req.path;
+      const requestPath = req.path;
       
       // Force correct MIME type for any JavaScript files
-      if (path.includes('.js') || path.endsWith('.js')) {
+      if (requestPath.includes('.js') || requestPath.endsWith('.js')) {
         // Override any existing Content-Type header
         res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-        logger.debug('Forced JavaScript MIME type override for path', { path });
+        logger.debug('Forced JavaScript MIME type override for path', { path: requestPath });
       }
       
       next();
@@ -196,24 +196,24 @@ export function serveStatic(app: Express) {
     // Catch-all route to serve index.html for SPA routing
     // BUT exclude asset requests and API routes
     app.get("*", (req, res) => {
-      const path = req.path;
+      const requestPath = req.path;
       
       // Skip API routes
-      if (path.startsWith('/api/')) {
+      if (requestPath.startsWith('/api/')) {
         return res.status(404).json({
           error: 'API endpoint not found',
-          path: path,
+          path: requestPath,
           message: 'The requested API endpoint could not be found'
         });
       }
       
       // Skip asset requests - these should be handled by static middleware above
       // Use a more precise check for assets to avoid interfering with JS files
-      if (path.startsWith('/assets/') || 
-          path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|json|xml|txt|pdf|zip|mp4|webm|ogg|mp3|wav)$/i)) {
+      if (requestPath.startsWith('/assets/') || 
+          requestPath.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|json|xml|txt|pdf|zip|mp4|webm|ogg|mp3|wav)$/i)) {
         return res.status(404).json({
           error: 'Asset not found',
-          path: path,
+          path: requestPath,
           message: 'The requested asset could not be found'
         });
       }
@@ -226,7 +226,7 @@ export function serveStatic(app: Express) {
       } else {
         res.status(404).json({
           error: 'Page not found',
-          path: path,
+          path: requestPath,
           message: 'The requested page could not be found'
         });
       }

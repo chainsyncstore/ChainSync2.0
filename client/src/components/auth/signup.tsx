@@ -277,7 +277,8 @@ function SignupForm() {
         // Pre-fill the form with existing data
         setValue('firstName', responseData.user.firstName || data.firstName);
         setValue('lastName', responseData.user.lastName || data.lastName);
-        setValue('tier', normalizeTier(responseData.user.tier || data.tier));
+        // Preserve the tier the user just selected; fall back to server value only if missing
+        setValue('tier', normalizeTier(data.tier || responseData.user.tier));
         
         // Clear any existing errors
         clearErrors();
