@@ -89,11 +89,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint for deployment monitoring
   app.get("/api/health", async (req, res) => {
     try {
+      logger.info('Health check requested', {
+        ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress,
+        userAgent: req.get('User-Agent')
+      });
+      
       // Check database connection
-      const dbHealthy = await checkDatabaseHealth();
+      let dbHealthy = false;
+      let dbError = null;
+      
+      try {
+        dbHealthy = await checkDatabaseHealth();
+        logger.info('Database health check completed', { healthy: dbHealthy });
+      } catch (error) {
+        dbError = error;
+        logger.error('Database health check failed with error', { 
+          error: error.message,
+          code: error.code,
+          detail: error.detail
+        });
+      }
       
       const healthStatus = {
-        status: 'healthy',
+        status: dbHealthy ? 'healthy' : 'unhealthy',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV,
         database: dbHealthy ? 'connected' : 'disconnected',
@@ -101,6 +119,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         memory: process.memoryUsage(),
         version: process.version
       };
+      
+      if (dbError) {
+        healthStatus.databaseError = {
+          message: dbError.message,
+          code: dbError.code,
+          detail: dbError.detail
+        };
+      }
       
       if (dbHealthy) {
         res.status(200).json(healthStatus);
@@ -112,6 +138,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
     } catch (error) {
+      logger.error('Health check endpoint error', { 
+        error: error.message,
+        stack: error.stack
+      });
       res.status(500).json({
         status: 'error',
         message: 'Health check failed',
@@ -127,6 +157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     store: new pgSession({
       conString: process.env.DATABASE_URL,
       createTableIfMissing: true,
+      tableName: 'session', // Use the actual table name from migrations
     }),
     secret: process.env.SESSION_SECRET,
     resave: false,
@@ -741,7 +772,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // CSRF token endpoint
-  app.get("/api/auth/csrf-token", (req: any, res) => {
+  app.get("/api/auth/csrf-token", async (req: any, res) => {
     try {
       // Check if CSRF secret is configured
       if (!process.env.CSRF_SECRET) {
@@ -758,7 +789,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check database health before proceeding
-      checkDatabaseHealth().then(isHealthy => {
+      try {
+        const isHealthy = await checkDatabaseHealth();
         if (!isHealthy) {
           logger.error("CSRF token generation failed - database unhealthy", {
             ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
@@ -771,32 +803,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
             path: req.path
           });
         }
-
-        // Generate CSRF token
-        const csrfToken = crypto.randomBytes(32).toString('hex');
-        
-        // Set CSRF token in secure cookie
-        res.cookie('csrf-token', csrfToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'strict',
-          maxAge: 60 * 60 * 1000 // 1 hour
-        });
-
-        res.json({ csrfToken });
-      }).catch(error => {
-        logger.error("CSRF token generation failed", { 
-          error: error.message,
+      } catch (dbError) {
+        logger.error("Database health check failed during CSRF token generation", { 
+          error: dbError.message,
           ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
         });
-        res.status(500).json({ 
+        return res.status(503).json({ 
           status: 'error',
-          message: "Failed to generate CSRF token",
-          code: 'TOKEN_GENERATION_ERROR',
+          message: "Database connection failed",
+          code: 'DATABASE_CONNECTION_ERROR',
           timestamp: new Date().toISOString(),
           path: req.path
         });
+      }
+
+      // Generate CSRF token
+      const csrfToken = crypto.randomBytes(32).toString('hex');
+      
+      // Set CSRF token in secure cookie
+      res.cookie('csrf-token', csrfToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 60 * 60 * 1000 // 1 hour
       });
+
+      res.json({ csrfToken });
     } catch (error) {
       logger.error("CSRF token endpoint error", { 
         error: error.message,
@@ -813,7 +845,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pending signup endpoint
-  app.get("/api/auth/pending-signup", (req: any, res) => {
+  app.get("/api/auth/pending-signup", async (req: any, res) => {
     try {
       // Check if required environment variables are set
       if (!process.env.SESSION_SECRET) {
@@ -830,7 +862,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check database health
-      checkDatabaseHealth().then(isHealthy => {
+      try {
+        const isHealthy = await checkDatabaseHealth();
         if (!isHealthy) {
           logger.error("Pending signup check failed - database unhealthy", {
             ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
@@ -843,34 +876,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
             path: req.path
           });
         }
-
-        // Check for pending signup in secure cookie
-        const pendingSignupId = req.cookies['pending-signup-id'];
-        
-        if (pendingSignupId) {
-          // Return the pending signup ID
-          res.json({ 
-            pendingSignupId,
-            hasPendingSignup: true
-          });
-        } else {
-          res.json({ 
-            hasPendingSignup: false
-          });
-        }
-      }).catch(error => {
-        logger.error("Pending signup check failed", { 
-          error: error.message,
+      } catch (dbError) {
+        logger.error("Database health check failed during pending signup check", { 
+          error: dbError.message,
           ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress
         });
-        res.status(500).json({ 
+        return res.status(503).json({ 
           status: 'error',
-          message: "Failed to check pending signup",
-          code: 'CHECK_FAILED_ERROR',
+          message: "Database connection failed",
+          code: 'DATABASE_CONNECTION_ERROR',
           timestamp: new Date().toISOString(),
           path: req.path
         });
-      });
+      }
+
+      // Check for pending signup in secure cookie
+      const pendingSignupId = req.cookies['pending-signup-id'];
+      
+      if (pendingSignupId) {
+        // Return the pending signup ID
+        res.json({ 
+          pendingSignupId,
+          hasPendingSignup: true
+        });
+      } else {
+        res.json({ 
+          hasPendingSignup: false
+        });
+      }
     } catch (error) {
       logger.error("Pending signup endpoint error", { 
         error: error.message,

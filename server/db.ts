@@ -16,7 +16,7 @@ const dbConfig = {
   // Connection pooling settings for production
   max: 20, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection could not be established
+  connectionTimeoutMillis: 15000, // Increased timeout for production
   maxUses: 7500, // Close (and replace) a connection after it has been used 7500 times
   // SSL configuration for production databases
   ssl: process.env.NODE_ENV === 'production' ? {
@@ -31,10 +31,26 @@ const dbConfig = {
   },
   onError: (err: Error, client: any) => {
     console.error('🔴 Database connection error:', err.message);
+    // Log more details for debugging
+    if ((err as any).code) {
+      console.error('Error code:', (err as any).code);
+    }
+    if ((err as any).detail) {
+      console.error('Error detail:', (err as any).detail);
+    }
   },
   onRemove: (client: any) => {
     console.log('🟡 Database connection removed from pool');
-  }
+  },
+  // Add retry logic for failed connections
+  retryDelay: 1000,
+  maxRetries: 3,
+  // Additional production settings
+  allowExitOnIdle: false,
+  // Handle connection timeouts better
+  connectionTimeoutMillis: 15000,
+  idleTimeoutMillis: 30000,
+  maxUses: 7500
 };
 
 export const pool = new Pool(dbConfig);
@@ -74,12 +90,33 @@ export const db = drizzle({ client: pool, schema });
 // Health check function for database
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {
-    const client = await pool.connect();
-    await client.query('SELECT 1');
-    client.release();
+    // Add timeout to prevent hanging
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Database health check timeout')), 5000);
+    });
+    
+    const healthCheckPromise = (async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('SELECT 1');
+        return true;
+      } finally {
+        client.release();
+      }
+    })();
+    
+    // Race between timeout and health check
+    await Promise.race([healthCheckPromise, timeoutPromise]);
     return true;
   } catch (error) {
     console.error('🔴 Database health check failed:', error);
+    // Log more specific error information
+    if (error.code) {
+      console.error('Database error code:', error.code);
+    }
+    if (error.message) {
+      console.error('Database error message:', error.message);
+    }
     return false;
   }
 }
