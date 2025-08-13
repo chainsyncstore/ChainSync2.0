@@ -114,7 +114,7 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
 export const signupBotPrevention = botPreventionMiddleware({
   required: true,
   expectedAction: 'signup',
-  skipIfNotConfigured: false
+  skipIfNotConfigured: true // Allow signup to proceed even if bot prevention is not configured
 });
 
 /**

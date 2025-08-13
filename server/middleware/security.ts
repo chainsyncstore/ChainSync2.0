@@ -111,6 +111,17 @@ export const globalRateLimit = rateLimit({
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  // Fix trust proxy issue by using a custom key generator
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For header if available, otherwise use req.ip
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (forwardedFor) {
+      // X-Forwarded-For can contain multiple IPs, take the first one
+      const firstIP = forwardedFor.toString().split(',')[0].trim();
+      return firstIP || req.ip || req.connection.remoteAddress || 'unknown';
+    }
+    return req.ip || req.connection.remoteAddress || 'unknown';
+  },
   handler: (req: Request, res: Response) => {
     logger.warn('Rate limit exceeded', {
       ip: req.ip,
@@ -134,6 +145,17 @@ export const authRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Fix trust proxy issue by using a custom key generator
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For header if available, otherwise use req.ip
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (forwardedFor) {
+      // X-Forwarded-For can contain multiple IPs, take the first one
+      const firstIP = forwardedFor.toString().split(',')[0].trim();
+      return firstIP || req.ip || req.connection.remoteAddress || 'unknown';
+    }
+    return req.ip || req.connection.remoteAddress || 'unknown';
+  },
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
       ip: req.ip,
@@ -159,6 +181,17 @@ export const sensitiveEndpointRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Fix trust proxy issue by using a custom key generator
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For header if available, otherwise use req.ip
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (forwardedFor) {
+      // X-Forwarded-For can contain multiple IPs, take the first one
+      const firstIP = forwardedFor.toString().split(',')[0].trim();
+      return firstIP || req.ip || req.connection.remoteAddress || 'unknown';
+    }
+    return req.ip || req.connection.remoteAddress || 'unknown';
+  },
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
       ip: req.ip,
@@ -184,6 +217,17 @@ export const paymentRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Fix trust proxy issue by using a custom key generator
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For header if available, otherwise use req.ip
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (forwardedFor) {
+      // X-Forwarded-For can contain multiple IPs, take the first one
+      const firstIP = forwardedFor.toString().split(',')[0].trim();
+      return firstIP || req.ip || req.connection.remoteAddress || 'unknown';
+    }
+    return req.ip || req.connection.remoteAddress || 'unknown';
+  },
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {
       ip: req.ip,
@@ -249,7 +293,7 @@ export const helmetConfig = helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://replit.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://replit.com", "https://www.google.com"],
       connectSrc: ["'self'", "https://api.openai.com"],
       frameSrc: ["'none'"],
       objectSrc: ["'none'"]

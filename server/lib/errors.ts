@@ -102,7 +102,7 @@ export function sendErrorResponse(res: Response, error: AppError | Error, path?:
   let apiError: ApiErrorResponse;
 
   if (error instanceof AppError) {
-    // For auth-related errors, always return 400 with generic message
+    // For auth-related errors, return appropriate status codes
     if (error instanceof AuthError || error instanceof AuthenticationError) {
       apiError = {
         status: 'error',
@@ -111,7 +111,8 @@ export function sendErrorResponse(res: Response, error: AppError | Error, path?:
         timestamp: new Date().toISOString(),
         path
       };
-      res.status(400).json(apiError);
+      // Use the error's status code (401 for AuthenticationError, 400 for AuthError)
+      res.status(error.statusCode).json(apiError);
       return;
     }
 
