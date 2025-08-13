@@ -175,22 +175,20 @@ function SignupForm() {
     console.log('Component mounted, setting default values...');
     console.log('URL params - tier:', tierFromUrl, 'location:', locationFromUrl);
     
-    // Always set default values to ensure they're registered
-    const defaultTier = (tierFromUrl && VALID_TIERS.includes(tierFromUrl)) ? tierFromUrl : 'basic';
-    const defaultLocation = (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international')) 
-      ? locationFromUrl as 'nigeria' | 'international' 
-      : 'international';
+    // Set default values if they're not already set
+    if (!watchedValues.tier) {
+      const defaultTier = (tierFromUrl && VALID_TIERS.includes(tierFromUrl)) ? tierFromUrl : 'basic';
+      console.log('Setting default tier to:', defaultTier);
+      setValue('tier', defaultTier);
+    }
     
-    console.log('Setting default tier to:', defaultTier);
-    console.log('Setting default location to:', defaultLocation);
-    
-    setValue('tier', defaultTier);
-    setValue('location', defaultLocation);
-    
-    // Force a re-render to update watchedValues
-    setTimeout(() => {
-      console.log('After setting defaults - tier:', watchedValues.tier, 'location:', watchedValues.location);
-    }, 100);
+    if (!watchedValues.location) {
+      const defaultLocation = (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international')) 
+        ? locationFromUrl as 'nigeria' | 'international' 
+        : 'international';
+      console.log('Setting default location to:', defaultLocation);
+      setValue('location', defaultLocation);
+    }
   }, []); // Only run on mount
 
   // Handle input changes with proper error clearing
@@ -286,8 +284,6 @@ function SignupForm() {
   const handlePayment = async () => {
     const data = getValues();
     console.log('Payment process started with form data:', data);
-    console.log('Form values from getValues():', data);
-    console.log('Watched values:', watchedValues);
     
     setIsLoading(true);
     setGeneralError('');
@@ -300,8 +296,8 @@ function SignupForm() {
       
       console.log('Payment provider:', paymentProvider);
       console.log('Selected tier:', selectedTier);
-      console.log('Tier from data:', data.tier, 'Type:', typeof data.tier);
-      console.log('Location from data:', data.location, 'Type:', typeof data.location);
+      console.log('Tier from data:', data.tier);
+      console.log('Location from data:', data.location);
       
       // Use numeric pricing from constants instead of parsing strings
       const amount = data.location === 'nigeria' 
@@ -309,8 +305,6 @@ function SignupForm() {
         : PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]?.usd;
 
       console.log('Payment amount:', amount);
-      console.log('PRICING_TIERS keys:', Object.keys(PRICING_TIERS));
-      console.log('PRICING_TIERS[data.tier]:', PRICING_TIERS[data.tier as keyof typeof PRICING_TIERS]);
 
       if (!amount) {
         throw new Error('Invalid pricing tier selected');
@@ -403,9 +397,7 @@ function SignupForm() {
     console.log('getPrice() called:', { 
       location: watchedValues.location, 
       selectedTier: selectedTier.name, 
-      price,
-      tierName: watchedValues.tier,
-      tierType: typeof watchedValues.tier
+      price
     });
     return price;
   };
@@ -468,18 +460,7 @@ function SignupForm() {
               <div className="flex justify-between items-center mb-2">
                 <span className="font-medium">Price:</span>
                 <span className="font-semibold">
-                  {(() => {
-                    const price = getPrice();
-                    console.log('Display price:', price, 'for tier:', watchedValues.tier, 'location:', watchedValues.location);
-                    if (!price) {
-                      return (
-                        <span className="text-red-500">
-                          Price not available (Tier: {watchedValues.tier || 'undefined'}, Location: {watchedValues.location || 'undefined'})
-                        </span>
-                      );
-                    }
-                    return `${price}/month`;
-                  })()}
+                  {getPrice() ? `${getPrice()}/month` : 'Price not available'}
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -660,10 +641,7 @@ function SignupForm() {
                         ? 'border-primary bg-primary/5'
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
-                    onClick={() => {
-                      console.log('Setting tier to:', tier.name);
-                      handleInputChange('tier', tier.name);
-                    }}
+                    onClick={() => handleInputChange('tier', tier.name)}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium capitalize">{tier.name}</span>
@@ -679,15 +657,7 @@ function SignupForm() {
                 ))}
               </div>
               {/* Hidden input for form validation */}
-              <input 
-                type="hidden" 
-                {...register('tier')} 
-                value={watchedValues.tier || 'basic'}
-                onChange={(e) => {
-                  console.log('Tier hidden input changed:', e.target.value);
-                  setValue('tier', e.target.value);
-                }}
-              />
+              <input type="hidden" {...register('tier')} />
             </div>
 
             {/* Location Selection */}
@@ -696,10 +666,7 @@ function SignupForm() {
               <div className="flex bg-gray-100 rounded-lg p-1 w-fit">
                 <button
                   type="button"
-                  onClick={() => {
-                    console.log('Setting location to: nigeria');
-                    handleInputChange('location', 'nigeria');
-                  }}
+                  onClick={() => handleInputChange('location', 'nigeria')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     watchedValues.location === 'nigeria'
                       ? 'bg-white text-gray-900 shadow-sm'
@@ -710,10 +677,7 @@ function SignupForm() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    console.log('Setting location to: international');
-                    handleInputChange('location', 'international');
-                  }}
+                  onClick={() => handleInputChange('location', 'international')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     watchedValues.location === 'international'
                       ? 'bg-white text-gray-900 shadow-sm'
@@ -724,15 +688,7 @@ function SignupForm() {
                 </button>
               </div>
               {/* Hidden input for form validation */}
-              <input 
-                type="hidden" 
-                {...register('location')} 
-                value={watchedValues.location || 'international'}
-                onChange={(e) => {
-                  console.log('Location hidden input changed:', e.target.value);
-                  setValue('location', e.target.value);
-                }}
-              />
+              <input type="hidden" {...register('location')} />
             </div>
 
             {/* Password */}
