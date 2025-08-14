@@ -146,7 +146,7 @@ export class AuthService {
     if (userData.failedLoginAttempts >= authConfig.maxLoginAttempts) {
       const lockoutUntil = new Date(Date.now() + authConfig.lockoutDuration);
       await db.update(users)
-        .set({ lockedUntil: lockoutUntil })
+        .set({ lockedUntil: lockoutUntil } as any)
         .where(eq(users.id, userId));
       
       return { locked: true, lockoutUntil };
@@ -171,7 +171,7 @@ export class AuthService {
         success: false,
         reason,
         createdAt: new Date()
-      });
+      } as unknown as typeof accountLockoutLogs.$inferInsert);
       return;
     }
 
@@ -182,9 +182,9 @@ export class AuthService {
     // Update user's failed login attempts
     await db.update(users)
       .set({ 
-        failedLoginAttempts: newAttempts,
+        failedLoginAttempts: newAttempts as any,
         lastFailedLogin
-      })
+      } as any)
       .where(eq(users.id, userId));
 
     // Log the failed attempt
@@ -196,13 +196,13 @@ export class AuthService {
       success: false,
       reason,
       createdAt: new Date()
-    });
+    } as unknown as typeof accountLockoutLogs.$inferInsert);
 
     // Lock account if max attempts reached
     if (newAttempts >= authConfig.maxLoginAttempts) {
       const lockoutUntil = new Date(Date.now() + authConfig.lockoutDuration);
       await db.update(users)
-        .set({ lockedUntil: lockoutUntil })
+        .set({ lockedUntil: lockoutUntil } as any)
         .where(eq(users.id, userId));
     }
   }
@@ -213,10 +213,10 @@ export class AuthService {
   static async resetFailedLoginAttempts(userId: string): Promise<void> {
     await db.update(users)
       .set({ 
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        lastFailedLogin: null
-      })
+        failedLoginAttempts: 0 as any,
+        lockedUntil: null as any,
+        lastFailedLogin: null as any
+      } as any)
       .where(eq(users.id, userId));
   }
 
@@ -294,12 +294,12 @@ export class AuthService {
         success: true,
         reason: 'Login successful',
         createdAt: new Date()
-      });
+      } as unknown as typeof accountLockoutLogs.$inferInsert);
 
       return { success: true, user: userData };
 
     } catch (error) {
-      logger.error('Authentication error:', error);
+      logger.error('Authentication error:', undefined, error as Error);
       return { success: false, error: 'Authentication failed' };
     }
   }
@@ -357,7 +357,7 @@ export class AuthService {
       isActive: true,
       createdAt: new Date(),
       lastUsedAt: new Date()
-    }).returning();
+    } as unknown as typeof userSessions.$inferInsert).returning();
 
     return session[0];
   }
@@ -403,13 +403,13 @@ export class AuthService {
           sessionToken: newAccessToken,
           expiresAt: new Date(Date.now() + authConfig.jwtExpiry),
           lastUsedAt: new Date()
-        })
+        } as any)
         .where(eq(userSessions.id, session[0].id));
 
       return { success: true, accessToken: newAccessToken };
 
     } catch (error) {
-      logger.error('Token refresh error:', error);
+      logger.error('Token refresh error:', undefined, error as Error);
       return { success: false, error: 'Token refresh failed' };
     }
   }
@@ -419,7 +419,7 @@ export class AuthService {
    */
   static async invalidateSession(sessionId: string): Promise<void> {
     await db.update(userSessions)
-      .set({ isActive: false })
+      .set({ isActive: false } as any)
       .where(eq(userSessions.id, sessionId));
   }
 
@@ -428,7 +428,7 @@ export class AuthService {
    */
   static async invalidateAllUserSessions(userId: string): Promise<void> {
     await db.update(userSessions)
-      .set({ isActive: false })
+      .set({ isActive: false } as any)
       .where(eq(userSessions.userId, userId));
   }
 
@@ -441,7 +441,7 @@ export class AuthService {
 
     // Invalidate any existing tokens
     await db.update(emailVerificationTokens)
-      .set({ isUsed: true })
+      .set({ isUsed: true } as any)
       .where(eq(emailVerificationTokens.userId, userId));
 
     const verificationToken = await db.insert(emailVerificationTokens).values({
@@ -450,7 +450,7 @@ export class AuthService {
       expiresAt,
       isUsed: false,
       createdAt: new Date()
-    }).returning();
+    } as unknown as typeof emailVerificationTokens.$inferInsert).returning();
 
     return verificationToken[0];
   }
@@ -477,21 +477,22 @@ export class AuthService {
       // Mark token as used
       await db.update(emailVerificationTokens)
         .set({ 
-          isUsed: true,
+          isUsed: true as any,
           usedAt: new Date()
-        })
+        } as any)
         .where(eq(emailVerificationTokens.id, tokenData.id));
 
       // Mark user as verified
       await db.update(users)
-        .set({ emailVerified: true })
+        .set({ emailVerified: true } as any)
         .where(eq(users.id, tokenData.userId));
 
       return { success: true, message: 'Email verified successfully' };
 
     } catch (error) {
-      logger.error('Email verification error:', error);
-      return { success: false, message: 'Email verification failed', error: error.message };
+      logger.error('Email verification error:', undefined, error as Error);
+      const anyErr = error as any;
+      return { success: false, message: 'Email verification failed', error: anyErr?.message };
     }
   }
 
@@ -507,7 +508,7 @@ export class AuthService {
 
       // Invalidate any existing OTP for this user
       await db.update(phoneVerificationOTP)
-        .set({ isVerified: true })
+        .set({ isVerified: true } as any)
         .where(eq(phoneVerificationOTP.userId, userId));
 
       // Create new OTP
@@ -520,7 +521,7 @@ export class AuthService {
         maxAttempts: authConfig.otpMaxAttempts,
         isVerified: false,
         createdAt: new Date()
-      });
+      } as unknown as typeof phoneVerificationOTP.$inferInsert);
 
       // TODO: Send OTP via SMS service (Twilio, etc.)
       // For now, return the OTP in development
@@ -531,8 +532,9 @@ export class AuthService {
       return { success: true, message: `OTP sent to ${phone}` };
 
     } catch (error) {
-      logger.error('Phone verification OTP creation error:', error);
-      return { success: false, message: 'Failed to create OTP', error: error.message };
+      logger.error('Phone verification OTP creation error:', undefined, error as Error);
+      const anyErr = error as any;
+      return { success: false, message: 'Failed to create OTP', error: anyErr?.message };
     }
   }
 
@@ -557,7 +559,7 @@ export class AuthService {
       const otpData = otpRecord[0];
 
       // Check if max attempts reached
-      if (otpData.attempts >= otpData.maxAttempts) {
+      if ((otpData.attempts || 0) >= (otpData.maxAttempts || 0)) {
         return { success: false, message: 'Maximum OTP attempts reached' };
       }
 
@@ -567,10 +569,10 @@ export class AuthService {
       if (!isOtpValid) {
         // Increment attempts
         await db.update(phoneVerificationOTP)
-          .set({ attempts: otpData.attempts + 1 })
+          .set({ attempts: (otpData.attempts || 0) + 1 } as any)
           .where(eq(phoneVerificationOTP.id, otpData.id));
 
-        const remainingAttempts = otpData.maxAttempts - otpData.attempts - 1;
+        const remainingAttempts = (otpData.maxAttempts || 0) - (otpData.attempts || 0) - 1;
         return { 
           success: false, 
           message: `Invalid OTP. ${remainingAttempts} attempts remaining.` 
@@ -580,21 +582,22 @@ export class AuthService {
       // Mark OTP as verified
       await db.update(phoneVerificationOTP)
         .set({ 
-          isVerified: true,
+          isVerified: true as any,
           verifiedAt: new Date()
-        })
+        } as any)
         .where(eq(phoneVerificationOTP.id, otpData.id));
 
       // Mark user as phone verified
       await db.update(users)
-        .set({ phoneVerified: true })
+        .set({ phoneVerified: true } as any)
         .where(eq(users.id, userId));
 
       return { success: true, message: 'Phone number verified successfully' };
 
     } catch (error) {
-      logger.error('Phone OTP verification error:', error);
-      return { success: false, message: 'Phone verification failed', error: error.message };
+      logger.error('Phone OTP verification error:', undefined, error as Error);
+      const anyErr = error as any;
+      return { success: false, message: 'Phone verification failed', error: anyErr?.message };
     }
   }
 
@@ -672,7 +675,7 @@ export class AuthService {
         .where(lt(accountLockoutLogs.createdAt, thirtyDaysAgo));
 
     } catch (error) {
-      logger.error('Cleanup error:', error);
+      logger.error('Cleanup error:', undefined, error as Error);
     }
   }
 } 

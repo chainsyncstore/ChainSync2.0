@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import cors from "cors";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import rateLimit from "express-rate-limit";
 import { logger } from "../lib/logger";
 import { monitoringService } from "../lib/monitoring";
 
@@ -80,14 +80,12 @@ export const globalRateLimit = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   // Fix trust proxy issue by using the proper ipKeyGenerator helper for IPv6 support
   keyGenerator: (req) => {
-    // Use X-Forwarded-For header if available, otherwise use ipKeyGenerator
     const forwardedFor = req.headers['x-forwarded-for'];
     if (forwardedFor) {
-      // X-Forwarded-For can contain multiple IPs, take the first one
       const firstIP = forwardedFor.toString().split(',')[0].trim();
-      return firstIP || ipKeyGenerator(req) || 'unknown';
+      return firstIP || req.ip || 'unknown';
     }
-    return ipKeyGenerator(req) || 'unknown';
+    return req.ip || 'unknown';
   },
   handler: (req: Request, res: Response) => {
     logger.warn('Rate limit exceeded', {
@@ -118,14 +116,12 @@ export const authRateLimit = rateLimit({
   legacyHeaders: false,
   // Fix trust proxy issue by using the proper ipKeyGenerator helper for IPv6 support
   keyGenerator: (req) => {
-    // Use X-Forwarded-For header if available, otherwise use ipKeyGenerator
     const forwardedFor = req.headers['x-forwarded-for'];
     if (forwardedFor) {
-      // X-Forwarded-For can contain multiple IPs, take the first one
       const firstIP = forwardedFor.toString().split(',')[0].trim();
-      return firstIP || ipKeyGenerator(req) || 'unknown';
+      return firstIP || req.ip || 'unknown';
     }
-    return ipKeyGenerator(req) || 'unknown';
+    return req.ip || 'unknown';
   },
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
@@ -158,14 +154,12 @@ export const sensitiveEndpointRateLimit = rateLimit({
   legacyHeaders: false,
   // Fix trust proxy issue by using the proper ipKeyGenerator helper for IPv6 support
   keyGenerator: (req) => {
-    // Use X-Forwarded-For header if available, otherwise use ipKeyGenerator
     const forwardedFor = req.headers['x-forwarded-for'];
     if (forwardedFor) {
-      // X-Forwarded-For can contain multiple IPs, take the first one
       const firstIP = forwardedFor.toString().split(',')[0].trim();
-      return firstIP || ipKeyGenerator(req) || 'unknown';
+      return firstIP || req.ip || 'unknown';
     }
-    return ipKeyGenerator(req) || 'unknown';
+    return req.ip || 'unknown';
   },
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
@@ -198,14 +192,12 @@ export const paymentRateLimit = rateLimit({
   legacyHeaders: false,
   // Fix trust proxy issue by using the proper ipKeyGenerator helper for IPv6 support
   keyGenerator: (req) => {
-    // Use X-Forwarded-For header if available, otherwise use ipKeyGenerator
     const forwardedFor = req.headers['x-forwarded-for'];
     if (forwardedFor) {
-      // X-Forwarded-For can contain multiple IPs, take the first one
       const firstIP = forwardedFor.toString().split(',')[0].trim();
-      return firstIP || ipKeyGenerator(req) || 'unknown';
+      return firstIP || req.ip || 'unknown';
     }
-    return ipKeyGenerator(req) || 'unknown';
+    return req.ip || 'unknown';
   },
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {

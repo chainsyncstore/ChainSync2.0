@@ -124,7 +124,7 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
 
       next();
     } catch (error) {
-      logger.error('Bot prevention middleware error', error);
+      logger.error('Bot prevention middleware error', undefined, error as Error);
       
       if (required) {
         return res.status(500).json({
@@ -136,7 +136,7 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
         logger.warn('Bot prevention error occurred but continuing without validation', {
           path: req.path,
           ip: req.ip,
-          error: error.message
+          error: (error as any)?.message
         });
         return next();
       }

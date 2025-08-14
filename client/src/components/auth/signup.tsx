@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -189,14 +189,14 @@ function SignupForm() {
   const watchedValues = watch();
 
   // Debug form values on mount and changes
-  React.useEffect(() => {
+  useEffect(() => {
     console.log('Form values changed:', watchedValues);
     console.log('Current tier:', watchedValues.tier);
     console.log('Current location:', watchedValues.location);
   }, [watchedValues]);
 
   // Ensure form is properly initialized with default values
-  React.useEffect(() => {
+  useEffect(() => {
     console.log('Component mounted, setting default values...');
     console.log('URL params - tier:', tierFromUrl, 'location:', locationFromUrl);
     
@@ -270,7 +270,7 @@ function SignupForm() {
       console.log('Signup data prepared:', signupData);
       
       // Create the user account using API client (includes CSRF token)
-      const responseData = await apiClient.post('/auth/signup', signupData);
+      const responseData: any = await apiClient.post('/auth/signup', signupData);
 
       // Check if this is resuming an incomplete signup
       if (responseData.isResume) {
@@ -493,10 +493,10 @@ function SignupForm() {
   };
 
   // Check for pending signup completion on component mount
-  React.useEffect(() => {
+  useEffect(() => {
     const checkPendingSignup = async () => {
       try {
-        const response = await apiClient.get('/auth/pending-signup');
+        const response: any = await apiClient.get('/auth/pending-signup');
         if (response.pendingSignupId) {
           // Complete the signup
           completeSignup(response.pendingSignupId);
@@ -688,7 +688,6 @@ function SignupForm() {
                 onChange={(value) => handleInputChange('phone', value)}
                 disabled={isLoading}
                 required
-                autoComplete="tel"
               />
               <p className="text-sm text-gray-500">
                 Include your country code (e.g., +234 801 234 5678 for Nigeria)

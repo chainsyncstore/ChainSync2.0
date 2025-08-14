@@ -59,6 +59,21 @@ app.use(requestLogger);
 
     const server = await registerRoutes(app);
 
+    // Verify SMTP transporter in production to catch misconfiguration early
+    if (app.get("env") === "production") {
+      try {
+        const { verifyEmailTransporter } = await import('./email');
+        const ok = await verifyEmailTransporter();
+        if (!ok) {
+          logger.error('SMTP transporter verification failed. Emails will not be sent.');
+        } else {
+          logger.info('SMTP transporter verified successfully.');
+        }
+      } catch (e) {
+        logger.error('Failed to verify SMTP transporter', { error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
     // importantly only setup vite in development and after
     // setting up all the other routes so the catch-all route
     // doesn't interfere with the other routes

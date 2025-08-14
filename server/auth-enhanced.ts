@@ -91,7 +91,7 @@ export class EnhancedAuthService {
     if (userData.failedLoginAttempts >= authConfig.maxLoginAttempts) {
       const lockoutUntil = new Date(Date.now() + authConfig.lockoutDuration);
       await db.update(users)
-        .set({ lockedUntil: lockoutUntil })
+        .set({ lockedUntil: lockoutUntil } as any)
         .where(eq(users.id, userId));
       
       return { locked: true, lockoutUntil };
@@ -116,7 +116,7 @@ export class EnhancedAuthService {
         success: false,
         reason,
         createdAt: new Date()
-      });
+      } as unknown as typeof accountLockoutLogs.$inferInsert);
       return;
     }
 
@@ -127,9 +127,9 @@ export class EnhancedAuthService {
     // Update user's failed login attempts
     await db.update(users)
       .set({ 
-        failedLoginAttempts: newAttempts,
+        failedLoginAttempts: newAttempts as any,
         lastFailedLogin
-      })
+      } as any)
       .where(eq(users.id, userId));
 
     // Log the failed attempt
@@ -141,13 +141,13 @@ export class EnhancedAuthService {
       success: false,
       reason,
       createdAt: new Date()
-    });
+    } as unknown as typeof accountLockoutLogs.$inferInsert);
 
     // Lock account if max attempts reached
     if (newAttempts >= authConfig.maxLoginAttempts) {
       const lockoutUntil = new Date(Date.now() + authConfig.lockoutDuration);
       await db.update(users)
-        .set({ lockedUntil: lockoutUntil })
+        .set({ lockedUntil: lockoutUntil } as any)
         .where(eq(users.id, userId));
     }
   }
@@ -158,10 +158,10 @@ export class EnhancedAuthService {
   static async resetFailedLoginAttempts(userId: string): Promise<void> {
     await db.update(users)
       .set({ 
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        lastFailedLogin: null
-      })
+        failedLoginAttempts: 0 as unknown as number,
+        lockedUntil: null as any,
+        lastFailedLogin: null as any
+      } as any)
       .where(eq(users.id, userId));
   }
 
@@ -231,7 +231,7 @@ export class EnhancedAuthService {
       await this.resetFailedLoginAttempts(userData.id);
 
       // Log successful login
-      await db.insert(accountLockoutLogs).values({
+    await db.insert(accountLockoutLogs).values({
         userId: userData.id,
         username,
         ipAddress,
@@ -239,7 +239,7 @@ export class EnhancedAuthService {
         success: true,
         reason: 'Login successful',
         createdAt: new Date()
-      });
+    } as unknown as typeof accountLockoutLogs.$inferInsert);
 
       return { success: true, user: userData };
 
@@ -302,7 +302,7 @@ export class EnhancedAuthService {
       isActive: true,
       createdAt: new Date(),
       lastUsedAt: new Date()
-    }).returning();
+    } as unknown as typeof userSessions.$inferInsert).returning();
 
     return session[0];
   }
@@ -348,7 +348,7 @@ export class EnhancedAuthService {
           sessionToken: newAccessToken,
           expiresAt: new Date(Date.now() + authConfig.jwtExpiry),
           lastUsedAt: new Date()
-        })
+        } as any)
         .where(eq(userSessions.id, session[0].id));
 
       return { success: true, accessToken: newAccessToken };
@@ -364,7 +364,7 @@ export class EnhancedAuthService {
    */
   static async invalidateSession(sessionId: string): Promise<void> {
     await db.update(userSessions)
-      .set({ isActive: false })
+      .set({ isActive: false } as any)
       .where(eq(userSessions.id, sessionId));
   }
 
@@ -373,8 +373,8 @@ export class EnhancedAuthService {
    */
   static async invalidateAllUserSessions(userId: string): Promise<void> {
     await db.update(userSessions)
-      .set({ isActive: false })
-      .where(eq(userSessions.id, userId));
+      .set({ isActive: false } as any)
+      .where(eq(userSessions.userId, userId));
   }
 
   /**
@@ -386,7 +386,7 @@ export class EnhancedAuthService {
 
     // Invalidate any existing tokens
     await db.update(emailVerificationTokens)
-      .set({ isUsed: true })
+      .set({ isUsed: true } as any)
       .where(eq(emailVerificationTokens.userId, userId));
 
     const verificationToken = await db.insert(emailVerificationTokens).values({
@@ -395,7 +395,7 @@ export class EnhancedAuthService {
       expiresAt,
       isUsed: false,
       createdAt: new Date()
-    }).returning();
+    } as unknown as typeof emailVerificationTokens.$inferInsert).returning();
 
     return verificationToken[0];
   }
@@ -422,14 +422,14 @@ export class EnhancedAuthService {
       // Mark token as used
       await db.update(emailVerificationTokens)
         .set({ 
-          isUsed: true,
+          isUsed: true as any,
           usedAt: new Date()
-        })
+        } as any)
         .where(eq(emailVerificationTokens.id, tokenData.id));
 
       // Mark user as verified
       await db.update(users)
-        .set({ emailVerified: true })
+        .set({ emailVerified: true } as any)
         .where(eq(users.id, tokenData.userId));
 
       return { success: true, message: 'Email verified successfully' };
@@ -452,7 +452,7 @@ export class EnhancedAuthService {
 
       // Invalidate any existing OTP for this user
       await db.update(phoneVerificationOTP)
-        .set({ isVerified: true })
+        .set({ isVerified: true } as any)
         .where(eq(phoneVerificationOTP.userId, userId));
 
       // Create new OTP
@@ -465,7 +465,7 @@ export class EnhancedAuthService {
         maxAttempts: authConfig.otpMaxAttempts,
         isVerified: false,
         createdAt: new Date()
-      });
+      } as unknown as typeof phoneVerificationOTP.$inferInsert);
 
       // TODO: Send OTP via SMS service (Twilio, etc.)
       // For now, return the OTP in development
@@ -512,7 +512,7 @@ export class EnhancedAuthService {
       if (!isOtpValid) {
         // Increment attempts
         await db.update(phoneVerificationOTP)
-          .set({ attempts: otpData.attempts + 1 })
+          .set({ attempts: (otpData.attempts || 0) + 1 } as any)
           .where(eq(phoneVerificationOTP.id, otpData.id));
 
         const remainingAttempts = otpData.maxAttempts - otpData.attempts - 1;
@@ -525,14 +525,14 @@ export class EnhancedAuthService {
       // Mark OTP as verified
       await db.update(phoneVerificationOTP)
         .set({ 
-          isVerified: true,
+          isVerified: true as any,
           verifiedAt: new Date()
-        })
+        } as any)
         .where(eq(phoneVerificationOTP.id, otpData.id));
 
       // Mark user as phone verified
       await db.update(users)
-        .set({ phoneVerified: true })
+        .set({ phoneVerified: true } as any)
         .where(eq(users.id, userId));
 
       return { success: true, message: 'Phone number verified successfully' };

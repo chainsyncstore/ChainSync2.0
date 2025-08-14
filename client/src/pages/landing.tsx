@@ -16,7 +16,7 @@ interface PricingTier {
     ngn: string;
     usd: string;
   };
-  features: string[];
+  features: readonly string[];
   stores: string;
   popular?: boolean;
 }

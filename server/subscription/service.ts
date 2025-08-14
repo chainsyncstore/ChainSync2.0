@@ -23,20 +23,20 @@ export class SubscriptionService {
       userId,
       tier,
       status: 'trial',
-      upfrontFeePaid: upfrontFeeAmount / 100, // Convert from cents/kobo to currency units
+      upfrontFeePaid: (upfrontFeeAmount / 100).toFixed(2),
       upfrontFeeCurrency,
-      monthlyAmount: monthlyAmount / 100, // Convert from cents/kobo to currency units
+      monthlyAmount: (monthlyAmount / 100).toFixed(2),
       monthlyCurrency,
       trialStartDate,
       trialEndDate,
       upfrontFeeCredited: false,
     };
 
-    const [subscription] = await db.insert(subscriptions).values(subscriptionData).returning();
+    const [subscription] = await db.insert(subscriptions).values(subscriptionData as unknown as typeof subscriptions.$inferInsert).returning();
 
     // Update user with subscription ID
     await db.update(users)
-      .set({ subscriptionId: subscription.id })
+      .set({ subscriptionId: subscription.id } as any)
       .where(eq(users.id, userId));
 
     return subscription;
@@ -58,7 +58,7 @@ export class SubscriptionService {
     const paymentData: InsertSubscriptionPayment = {
       subscriptionId,
       paymentReference,
-      amount: amount / 100, // Convert from cents/kobo to currency units
+      amount: (amount / 100).toFixed(2),
       currency,
       paymentType,
       status,
@@ -66,7 +66,7 @@ export class SubscriptionService {
       metadata,
     };
 
-    const [payment] = await db.insert(subscriptionPayments).values(paymentData).returning();
+    const [payment] = await db.insert(subscriptionPayments).values(paymentData as unknown as typeof subscriptionPayments.$inferInsert).returning();
     return payment;
   }
 
@@ -103,9 +103,9 @@ export class SubscriptionService {
     const [subscription] = await db
       .update(subscriptions)
       .set({ 
-        status,
+        status: status as any,
         updatedAt: new Date()
-      })
+      } as any)
       .where(eq(subscriptions.id, subscriptionId))
       .returning();
 
@@ -119,9 +119,9 @@ export class SubscriptionService {
     const [subscription] = await db
       .update(subscriptions)
       .set({ 
-        upfrontFeeCredited: true,
+        upfrontFeeCredited: true as any,
         updatedAt: new Date()
-      })
+      } as any)
       .where(eq(subscriptions.id, subscriptionId))
       .returning();
 

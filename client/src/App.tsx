@@ -31,6 +31,7 @@ const MultiStore = lazy(() => import("@/pages/multi-store"));
 const Settings = lazy(() => import("@/pages/settings"));
 const DebugCsrf = lazy(() => import("@/pages/debug-csrf"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+const VerifyEmail = lazy(() => import("@/pages/verify-email"));
 
 // Loading component for lazy-loaded pages
 const PageLoader = () => (
@@ -158,6 +159,7 @@ function App() {
                       );
                     }} />
                     <Route path="/payment/callback" component={PaymentCallback} />
+                    <Route path="/verify-email" component={VerifyEmail} />
                     <Route path="/post-onboarding" component={PostOnboarding} />
                     <Route component={() => 
                       showForgotPassword ? (

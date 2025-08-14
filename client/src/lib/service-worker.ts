@@ -144,8 +144,8 @@ export class ServiceWorkerManager {
       });
 
       // Handle service worker errors
-      navigator.serviceWorker.addEventListener('error', (event) => {
-        console.error('Service Worker error:', event.error);
+      navigator.serviceWorker.addEventListener('error', (_event) => {
+        console.error('Service Worker error event');
       });
 
     } catch (error) {

@@ -53,7 +53,7 @@ export const users = pgTable("users", {
   signupAttempts: integer("signup_attempts").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  subscriptionId: uuid("subscription_id").references(() => subscriptions.id),
+  subscriptionId: uuid("subscription_id"),
 }, (table) => ({
   storeIdIdx: index("users_store_id_idx").on(table.storeId),
   isActiveIdx: index("users_is_active_idx").on(table.isActive),
@@ -146,6 +146,49 @@ export const transactionItems = pgTable("transaction_items", {
   transactionIdIdx: index("transaction_items_transaction_id_idx").on(table.transactionId),
   productIdIdx: index("transaction_items_product_id_idx").on(table.productId),
 }));
+
+// Realtime notifications table for websocket broadcasting
+export const notifications = pgTable("notifications", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull(),
+  userId: uuid("user_id"),
+  type: varchar("type", { length: 100 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message").notNull(),
+  data: jsonb("data"),
+  priority: varchar("priority", { length: 16 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Active websocket connections for tracking
+export const websocketConnections = pgTable("websocket_connections", {
+  connectionId: varchar("connection_id", { length: 255 }).primaryKey(),
+  userId: uuid("user_id").notNull(),
+  storeId: uuid("store_id").notNull(),
+  userAgent: text("user_agent"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  isActive: boolean("is_active").default(true),
+  connectedAt: timestamp("connected_at").defaultNow(),
+  lastActivity: timestamp("last_activity").defaultNow(),
+  disconnectedAt: timestamp("disconnected_at"),
+});
+
+// Offline sync queue table for background synchronization
+export const syncQueue = pgTable("sync_queue", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  entityType: varchar("entity_type", { length: 50 }).notNull(),
+  entityId: uuid("entity_id"),
+  action: varchar("action", { length: 50 }).notNull(),
+  data: jsonb("data"),
+  status: varchar("status", { length: 20 }).notNull().default('pending'),
+  retryCount: integer("retry_count").notNull().default(0),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  syncedAt: timestamp("synced_at"),
+});
 
 // Low Stock Alerts table
 export const lowStockAlerts = pgTable("low_stock_alerts", {
@@ -525,62 +568,26 @@ export const enhancedTransactionItemSchema = z.object({
 });
 
 // Enhanced insert schemas with validation
-export const insertUserSchema = enhancedUserSchema.omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertUserSchema = createInsertSchema(users);
 
-export const insertStoreSchema = createInsertSchema(stores).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertStoreSchema = createInsertSchema(stores);
 
-export const insertProductSchema = enhancedProductSchema.omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertProductSchema = createInsertSchema(products);
 
-export const insertInventorySchema = enhancedInventorySchema.omit({
-  id: true,
-  updatedAt: true,
-});
+export const insertInventorySchema = createInsertSchema(inventory);
 
-export const insertTransactionSchema = enhancedTransactionSchema.omit({
-  id: true,
-  createdAt: true,
-  completedAt: true,
-});
+export const insertTransactionSchema = createInsertSchema(transactions);
 
-export const insertTransactionItemSchema = enhancedTransactionItemSchema.omit({
-  id: true,
-});
+export const insertTransactionItemSchema = createInsertSchema(transactionItems);
 
-export const insertLowStockAlertSchema = createInsertSchema(lowStockAlerts).omit({
-  id: true,
-  createdAt: true,
-  resolvedAt: true,
-});
+export const insertLowStockAlertSchema = createInsertSchema(lowStockAlerts);
 
 // Loyalty Program Insert Schemas
-export const insertLoyaltyTierSchema = enhancedLoyaltyTierSchema.omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertLoyaltyTierSchema = createInsertSchema(loyaltyTiers);
 
-export const insertCustomerSchema = enhancedCustomerSchema.omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertCustomerSchema = createInsertSchema(customers);
 
-export const insertLoyaltyTransactionSchema = createInsertSchema(loyaltyTransactions).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertLoyaltyTransactionSchema = createInsertSchema(loyaltyTransactions);
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -600,6 +607,13 @@ export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 
 export type TransactionItem = typeof transactionItems.$inferSelect;
 export type InsertTransactionItem = z.infer<typeof insertTransactionItemSchema>;
+
+// Notification types
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;
+
+export type WebsocketConnection = typeof websocketConnections.$inferSelect;
+export type InsertWebsocketConnection = typeof websocketConnections.$inferInsert;
 
 export type LowStockAlert = typeof lowStockAlerts.$inferSelect;
 export type InsertLowStockAlert = z.infer<typeof insertLowStockAlertSchema>;
@@ -832,6 +846,8 @@ export const aiInsights = pgTable("ai_insights", {
   data: text("data"), // JSON string of insight data
   isRead: boolean("is_read").default(false),
   isActioned: boolean("is_actioned").default(false),
+  actionable: boolean("actionable").default(false),
+  confidenceScore: decimal("confidence_score", { precision: 5, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
   actionedAt: timestamp("actioned_at"),
 }, (table) => ({
@@ -1040,74 +1056,35 @@ export const subscriptionPaymentsRelations = relations(subscriptionPayments, ({ 
 }));
 
 // AI Insert Schemas
-export const insertForecastModelSchema = createInsertSchema(forecastModels).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertForecastModelSchema = createInsertSchema(forecastModels);
 
-export const insertDemandForecastSchema = createInsertSchema(demandForecasts).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertDemandForecastSchema = createInsertSchema(demandForecasts);
 
-export const insertAiInsightSchema = createInsertSchema(aiInsights).omit({
-  id: true,
-  createdAt: true,
-  actionedAt: true,
-});
+export const insertAiInsightSchema = createInsertSchema(aiInsights);
 
-export const insertSeasonalPatternSchema = createInsertSchema(seasonalPatterns).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertSeasonalPatternSchema = createInsertSchema(seasonalPatterns);
 
-export const insertExternalFactorSchema = createInsertSchema(externalFactors).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertExternalFactorSchema = createInsertSchema(externalFactors);
 
 // IP Whitelist Insert Schemas
-export const insertIpWhitelistSchema = createInsertSchema(ipWhitelists).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertIpWhitelistSchema = createInsertSchema(ipWhitelists);
 
-export const insertIpWhitelistLogSchema = createInsertSchema(ipWhitelistLogs).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertIpWhitelistLogSchema = createInsertSchema(ipWhitelistLogs);
 
 // Password Reset Token Insert Schema
-export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens);
 
 // Email Verification Token Insert Schema
-export const insertEmailVerificationTokenSchema = createInsertSchema(emailVerificationTokens).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertEmailVerificationTokenSchema = createInsertSchema(emailVerificationTokens);
 
 // Phone Verification OTP Insert Schema
-export const insertPhoneVerificationOTPSchema = createInsertSchema(phoneVerificationOTP).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertPhoneVerificationOTPSchema = createInsertSchema(phoneVerificationOTP);
 
 // Account Lockout Log Insert Schema
-export const insertAccountLockoutLogSchema = createInsertSchema(accountLockoutLogs).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertAccountLockoutLogSchema = createInsertSchema(accountLockoutLogs);
 
 // User Session Insert Schema
-export const insertUserSessionSchema = createInsertSchema(userSessions).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertUserSessionSchema = createInsertSchema(userSessions);
 
 // IP Whitelist Types
 export type IpWhitelist = typeof ipWhitelists.$inferSelect;
@@ -1137,17 +1114,9 @@ export type UserSession = typeof userSessions.$inferSelect;
 export type InsertUserSession = z.infer<typeof insertUserSessionSchema>;
 
 // Subscription Insert Schemas
-export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertSubscriptionSchema = createInsertSchema(subscriptions);
 
-export const insertSubscriptionPaymentSchema = createInsertSchema(subscriptionPayments).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertSubscriptionPaymentSchema = createInsertSchema(subscriptionPayments);
 
 // Subscription Types
 export type Subscription = typeof subscriptions.$inferSelect;

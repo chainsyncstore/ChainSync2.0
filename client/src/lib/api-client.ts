@@ -160,8 +160,8 @@ class ApiClient {
       }
 
       // Handle successful responses
-      if (data.status === 'success' && data.data !== undefined) {
-        return data.data;
+      if (data.status === 'success' && (data as any).data !== undefined) {
+        return (data as any).data as T;
       }
 
       // Handle legacy responses (without standardized format)
@@ -170,7 +170,7 @@ class ApiClient {
       }
 
       // Handle responses with data directly (like signup responses)
-      if (data.user || data.message) {
+      if ((data as any).user || (data as any).message) {
         return data as T;
       }
 

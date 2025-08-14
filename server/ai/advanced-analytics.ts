@@ -1,6 +1,6 @@
 import { db } from '../db';
-import { aiModels, aiInsights, transactions, transactionItems, products, inventory } from '@shared/schema';
-import { eq, and, gte, lte, desc, asc } from 'drizzle-orm';
+import { forecastModels as aiModels, aiInsights, transactions, transactionItems, products, inventory } from '@shared/schema';
+import { eq, and, gte, lte, desc, asc, sql } from 'drizzle-orm';
 import { logger } from '../lib/logger';
 import { OpenAIService } from '../openai/service';
 
@@ -92,10 +92,11 @@ export class AdvancedAnalyticsService {
 
       return ensembleForecast;
     } catch (error) {
+      const anyErr = error as any;
       logger.error('Error generating demand forecast', {
         storeId,
         productId,
-        error: error.message
+        error: anyErr?.message
       });
       throw error;
     }
@@ -129,9 +130,10 @@ export class AdvancedAnalyticsService {
 
       return anomalies;
     } catch (error) {
+      const anyErr = error as any;
       logger.error('Error detecting anomalies', {
         storeId,
-        error: error.message
+        error: anyErr?.message
       });
       throw error;
     }
@@ -167,9 +169,10 @@ export class AdvancedAnalyticsService {
 
       return insights;
     } catch (error) {
+      const anyErr = error as any;
       logger.error('Error generating insights', {
         storeId,
-        error: error.message
+        error: anyErr?.message
       });
       throw error;
     }
@@ -186,7 +189,7 @@ export class AdvancedAnalyticsService {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    let query = db.select({
+    let query: any = db.select({
       date: transactions.createdAt,
       total: transactions.total,
       items: transactionItems.quantity
@@ -204,17 +207,17 @@ export class AdvancedAnalyticsService {
       query = query.where(eq(transactionItems.productId, productId));
     }
 
-    const results = await query.orderBy(asc(transactions.createdAt));
+    const results = await (query as any).orderBy(asc(transactions.createdAt));
 
     // Aggregate daily sales
     const dailySales = new Map<string, { total: number; quantity: number; count: number }>();
     
-    results.forEach(row => {
-      const date = row.date.toISOString().split('T')[0];
+    results.forEach((row: any) => {
+      const date = (row.date as Date).toISOString().split('T')[0];
       const current = dailySales.get(date) || { total: 0, quantity: 0, count: 0 };
       
-      current.total += parseFloat(row.total || '0');
-      current.quantity += parseInt(row.items || '0');
+      current.total += parseFloat(String(row.total || '0'));
+      current.quantity += parseInt(String(row.items || '0'));
       current.count += 1;
       
       dailySales.set(date, current);
@@ -232,7 +235,7 @@ export class AdvancedAnalyticsService {
    * Get active forecasting models
    */
   private async getActiveModels(storeId: string, modelType?: string): Promise<ForecastingModel[]> {
-    let query = db.select()
+    let query: any = db.select()
       .from(aiModels)
       .where(
         and(
@@ -242,10 +245,10 @@ export class AdvancedAnalyticsService {
       );
 
     if (modelType) {
-      query = query.where(eq(aiModels.modelType, modelType));
+      query = (query as any).where(eq(aiModels.modelType, modelType));
     }
 
-    return await query.orderBy(desc(aiModels.accuracy));
+    return await (query as any).orderBy(desc(aiModels.accuracy));
   }
 
   /**
@@ -257,16 +260,12 @@ export class AdvancedAnalyticsService {
       name: 'Default Linear Model',
       description: 'Simple linear regression for basic forecasting',
       modelType: 'linear',
-      parameters: {
-        windowSize: 7,
-        seasonality: false
-      },
-      accuracy: 0.75,
+      parameters: JSON.stringify({ windowSize: 7, seasonality: false }),
+      accuracy: '0.75',
       isActive: true,
-      version: '1.0.0'
-    }).returning();
+    } as unknown as typeof aiModels.$inferInsert).returning();
 
-    return model[0];
+    return model[0] as unknown as ForecastingModel;
   }
 
   /**
@@ -480,7 +479,7 @@ export class AdvancedAnalyticsService {
     .where(eq(inventory.storeId, storeId));
 
     // Check for stockouts and overstock
-    inventoryData.forEach(item => {
+    inventoryData.forEach((item: any) => {
       if (item.quantity === 0) {
         anomalies.push({
           timestamp: new Date(),
@@ -491,13 +490,13 @@ export class AdvancedAnalyticsService {
           severity: 'critical',
           description: `Product ${item.productId} is out of stock`
         });
-      } else if (item.quantity > item.maxStockLevel * 1.5) {
+      } else if (item.maxStockLevel && item.quantity > item.maxStockLevel * 1.5) {
         anomalies.push({
           timestamp: new Date(),
           metric: 'inventory_overstock',
           value: item.quantity,
-          expectedValue: item.maxStockLevel,
-          deviation: (item.quantity - item.maxStockLevel) / item.maxStockLevel,
+          expectedValue: item.maxStockLevel as number,
+          deviation: item.maxStockLevel ? (item.quantity - item.maxStockLevel) / item.maxStockLevel : 0,
           severity: 'medium',
           description: `Product ${item.productId} is overstocked`
         });
@@ -517,7 +516,7 @@ export class AdvancedAnalyticsService {
     const productSales = await db.select({
       productId: transactionItems.productId,
       quantity: transactionItems.quantity,
-      price: transactionItems.price
+      price: transactionItems.totalPrice
     })
     .from(transactionItems)
     .leftJoin(transactions, eq(transactionItems.transactionId, transactions.id))
@@ -531,11 +530,11 @@ export class AdvancedAnalyticsService {
     // Group by product and analyze
     const productStats = new Map<string, { total: number; count: number; avgPrice: number }>();
     
-    productSales.forEach(sale => {
+    productSales.forEach((sale: any) => {
       const current = productStats.get(sale.productId) || { total: 0, count: 0, avgPrice: 0 };
-      current.total += parseInt(sale.quantity);
+      current.total += parseInt(String(sale.quantity));
       current.count += 1;
-      current.avgPrice = parseFloat(sale.price);
+      current.avgPrice = parseFloat(String(sale.price));
       productStats.set(sale.productId, current);
     });
 
@@ -638,8 +637,8 @@ export class AdvancedAnalyticsService {
     // Get top and bottom performing products
     const productPerformance = await db.select({
       productId: transactionItems.productId,
-      totalSales: db.fn.sum(transactionItems.quantity),
-      totalRevenue: db.fn.sum(db.fn.mul(transactionItems.quantity, transactionItems.price))
+      totalSales: sql`SUM(${transactionItems.quantity})`,
+      totalRevenue: sql`SUM(${transactionItems.quantity} * ${transactionItems.totalPrice})`
     })
     .from(transactionItems)
     .leftJoin(transactions, eq(transactionItems.transactionId, transactions.id))
@@ -650,7 +649,7 @@ export class AdvancedAnalyticsService {
       )
     )
     .groupBy(transactionItems.productId)
-    .orderBy(desc(db.fn.sum(transactionItems.quantity)));
+    .orderBy(desc(sql`SUM(${transactionItems.quantity})`));
 
     if (productPerformance.length > 0) {
       const topProduct = productPerformance[0];
@@ -679,8 +678,8 @@ export class AdvancedAnalyticsService {
 
     // Analyze transaction patterns
     const transactionPatterns = await db.select({
-      hour: db.fn.extract('hour', transactions.createdAt),
-      count: db.fn.count()
+      hour: sql`EXTRACT(HOUR FROM ${transactions.createdAt})`,
+      count: sql`COUNT(*)`
     })
     .from(transactions)
     .where(
@@ -689,8 +688,8 @@ export class AdvancedAnalyticsService {
         gte(transactions.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
       )
     )
-    .groupBy(db.fn.extract('hour', transactions.createdAt))
-    .orderBy(desc(db.fn.count()));
+    .groupBy(sql`EXTRACT(HOUR FROM ${transactions.createdAt})`)
+    .orderBy(desc(sql`COUNT(*)`));
 
     if (transactionPatterns.length > 0) {
       const peakHour = transactionPatterns[0];
@@ -756,10 +755,10 @@ export class AdvancedAnalyticsService {
       severity: insight.severity,
       title: insight.title,
       description: insight.description,
-      data: insight.data,
+      data: JSON.stringify(insight.data),
       actionable: insight.actionable,
-      confidenceScore: insight.confidence
-    });
+      confidenceScore: String(insight.confidence)
+    } as unknown as typeof aiInsights.$inferInsert);
   }
 
   // Utility methods

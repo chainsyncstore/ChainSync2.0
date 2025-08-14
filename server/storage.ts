@@ -210,27 +210,27 @@ export class DatabaseStorage implements IStorage {
   async updateUserSignupAttempts(userId: string): Promise<void> {
     await db.update(users)
       .set({ 
-        signupAttempts: sql`${users.signupAttempts} + 1`,
+        signupAttempts: sql`${users.signupAttempts} + 1` as any,
         signupStartedAt: new Date()
-      })
+      } as any)
       .where(eq(users.id, userId));
   }
 
   async markSignupCompleted(userId: string): Promise<void> {
     await db.update(users)
       .set({ 
-        signupCompleted: true,
+        signupCompleted: true as any,
         signupCompletedAt: new Date()
-      })
+      } as any)
       .where(eq(users.id, userId));
   }
 
   async markEmailVerified(userId: string): Promise<void> {
     await db.update(users)
       .set({ 
-        emailVerified: true,
-        isActive: true
-      })
+        emailVerified: true as any,
+        isActive: true as any
+      } as any)
       .where(eq(users.id, userId));
   }
 
@@ -371,22 +371,22 @@ export class DatabaseStorage implements IStorage {
       userId,
       storeId,
       grantedBy,
-    }).returning();
+    } as unknown as typeof userStorePermissions.$inferInsert).returning();
     
     return permission;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
     // CRITICAL: Always hash passwords before storage for security
-    if (insertUser.password) {
+    if ((insertUser as any).password) {
       // Validate password strength before hashing
-      const validation = AuthService.validatePassword(insertUser.password);
+      const validation = AuthService.validatePassword((insertUser as any).password);
       if (!validation.isValid) {
         throw new Error(`Password validation failed: ${validation.errors.join(', ')}`);
       }
       
-      const hashedPassword = await AuthService.hashPassword(insertUser.password);
-      insertUser.password = hashedPassword;
+      const hashedPassword = await AuthService.hashPassword((insertUser as any).password);
+      (insertUser as any).password = hashedPassword;
     }
     
     // Set signup tracking fields
@@ -397,7 +397,7 @@ export class DatabaseStorage implements IStorage {
       signupAttempts: 1
     };
     
-    const [user] = await db.insert(users).values(userData).returning();
+    const [user] = await db.insert(users).values(userData as unknown as typeof users.$inferInsert).returning();
     return user;
   }
 
@@ -434,7 +434,7 @@ export class DatabaseStorage implements IStorage {
     
     const hashedPassword = await AuthService.hashPassword(newPassword);
     const [user] = await db.update(users)
-      .set({ password: hashedPassword, updatedAt: new Date() })
+      .set({ password: hashedPassword, updatedAt: new Date() } as any)
       .where(eq(users.id, userId))
       .returning();
     return user;
@@ -451,14 +451,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createStore(insertStore: InsertStore): Promise<Store> {
-    const [store] = await db.insert(stores).values(insertStore).returning();
+    const [store] = await db.insert(stores).values(insertStore as unknown as typeof stores.$inferInsert).returning();
     return store;
   }
 
   async updateStore(id: string, updateStore: Partial<InsertStore>): Promise<Store> {
     const [store] = await db
       .update(stores)
-      .set({ ...updateStore, updatedAt: new Date() })
+      .set({ ...updateStore, updatedAt: new Date() } as any)
       .where(eq(stores.id, id))
       .returning();
     return store;
@@ -494,7 +494,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createProduct(insertProduct: InsertProduct): Promise<Product> {
-    const [product] = await db.insert(products).values(insertProduct).returning();
+    const [product] = await db.insert(products).values(insertProduct as unknown as typeof products.$inferInsert).returning();
     
     // Invalidate related caches
     cache.delete('product_categories');
@@ -506,7 +506,7 @@ export class DatabaseStorage implements IStorage {
   async updateProduct(id: string, updateProduct: Partial<InsertProduct>): Promise<Product> {
     const [product] = await db
       .update(products)
-      .set(updateProduct)
+      .set(updateProduct as any)
       .where(eq(products.id, id))
       .returning();
     
@@ -611,7 +611,7 @@ export class DatabaseStorage implements IStorage {
   async updateInventory(productId: string, storeId: string, updateInventory: Partial<InsertInventory>): Promise<Inventory> {
     const [item] = await db
       .update(inventory)
-      .set({ ...updateInventory, updatedAt: new Date() })
+      .set({ ...(updateInventory as any), updatedAt: new Date() } as any)
       .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)))
       .returning();
     return item;
@@ -621,9 +621,9 @@ export class DatabaseStorage implements IStorage {
     const [item] = await db
       .update(inventory)
       .set({ 
-        quantity: sql`${inventory.quantity} + ${quantityChange}`,
+        quantity: sql`${inventory.quantity} + ${quantityChange}` as any,
         updatedAt: new Date()
-      })
+      } as any)
       .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)))
       .returning();
     return item;
@@ -643,12 +643,12 @@ export class DatabaseStorage implements IStorage {
 
   // Transaction operations
   async createTransaction(insertTransaction: InsertTransaction): Promise<Transaction> {
-    const [transaction] = await db.insert(transactions).values(insertTransaction).returning();
+    const [transaction] = await db.insert(transactions).values(insertTransaction as unknown as typeof transactions.$inferInsert).returning();
     return transaction;
   }
 
   async addTransactionItem(insertItem: InsertTransactionItem): Promise<TransactionItem> {
-    const [item] = await db.insert(transactionItems).values(insertItem).returning();
+    const [item] = await db.insert(transactionItems).values(insertItem as unknown as typeof transactionItems.$inferInsert).returning();
     return item;
   }
 
@@ -684,7 +684,7 @@ export class DatabaseStorage implements IStorage {
   async updateTransaction(id: string, updateTransaction: Partial<Transaction>): Promise<Transaction> {
     const [transaction] = await db
       .update(transactions)
-      .set(updateTransaction)
+      .set(updateTransaction as any)
       .where(eq(transactions.id, id))
       .returning();
     return transaction;
@@ -868,7 +868,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateUser(id: string, userData: Partial<InsertUser>): Promise<User> {
     const [user] = await db.update(users)
-      .set({ ...userData, updatedAt: new Date() })
+      .set({ ...(userData as any), updatedAt: new Date() } as any)
       .where(eq(users.id, id))
       .returning();
     
@@ -908,7 +908,7 @@ export class DatabaseStorage implements IStorage {
 
   // Alert operations
   async createLowStockAlert(insertAlert: InsertLowStockAlert): Promise<LowStockAlert> {
-    const [alert] = await db.insert(lowStockAlerts).values(insertAlert).returning();
+    const [alert] = await db.insert(lowStockAlerts).values(insertAlert as unknown as typeof lowStockAlerts.$inferInsert).returning();
     return alert;
   }
 
@@ -923,7 +923,7 @@ export class DatabaseStorage implements IStorage {
   async resolveLowStockAlert(id: string): Promise<void> {
     await db
       .update(lowStockAlerts)
-      .set({ isResolved: true, resolvedAt: new Date() })
+      .set({ isResolved: true as any, resolvedAt: new Date() } as any)
       .where(eq(lowStockAlerts.id, id));
   }
 
@@ -937,14 +937,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createLoyaltyTier(tier: InsertLoyaltyTier): Promise<LoyaltyTier> {
-    const [newTier] = await db.insert(loyaltyTiers).values(tier).returning();
+    const [newTier] = await db.insert(loyaltyTiers).values(tier as unknown as typeof loyaltyTiers.$inferInsert).returning();
     return newTier;
   }
 
   async updateLoyaltyTier(id: string, tier: Partial<InsertLoyaltyTier>): Promise<LoyaltyTier> {
     const [updatedTier] = await db
       .update(loyaltyTiers)
-      .set({ ...tier, updatedAt: new Date() })
+      .set({ ...tier, updatedAt: new Date() } as any)
       .where(eq(loyaltyTiers.id, id))
       .returning();
     return updatedTier;
@@ -991,7 +991,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createLoyaltyCustomer(customer: InsertCustomer): Promise<Customer> {
-    const [newCustomer] = await db.insert(customers).values(customer).returning();
+    const [newCustomer] = await db.insert(customers).values(customer as unknown as typeof customers.$inferInsert).returning();
     return newCustomer;
   }
 
@@ -1026,7 +1026,7 @@ export class DatabaseStorage implements IStorage {
   async updateLoyaltyCustomer(id: string, customer: Partial<InsertCustomer>): Promise<Customer> {
     const [updatedCustomer] = await db
       .update(customers)
-      .set({ ...customer, updatedAt: new Date() })
+      .set({ ...customer, updatedAt: new Date() } as any)
       .where(eq(customers.id, id))
       .returning();
     return updatedCustomer;
@@ -1041,7 +1041,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createLoyaltyTransaction(transaction: InsertLoyaltyTransaction): Promise<LoyaltyTransaction> {
-    const [newTransaction] = await db.insert(loyaltyTransactions).values(transaction).returning();
+    const [newTransaction] = await db.insert(loyaltyTransactions).values(transaction as unknown as typeof loyaltyTransactions.$inferInsert).returning();
     return newTransaction;
   }
 
@@ -1071,8 +1071,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLoyaltyTransactionsCount(storeId: string): Promise<number> {
-    const [count] = await db.select({ count: sql`COUNT(*)` }).from(loyaltyTransactions).where(eq(loyaltyTransactions.storeId, storeId));
-    return parseInt(String(count?.count || "0"));
+    const result = await db
+      .select({ count: sql`COUNT(*)` })
+      .from(loyaltyTransactions)
+      .leftJoin(customers, eq(loyaltyTransactions.customerId, customers.id))
+      .where(eq(customers.storeId, storeId));
+    return parseInt(String(result[0]?.count || "0"));
   }
 
   async getLoyaltyTransactionsPaginated(storeId: string, limit: number, offset: number): Promise<LoyaltyTransaction[]> {
@@ -1575,14 +1579,14 @@ export class DatabaseStorage implements IStorage {
       role: user.role,
       storeId: user.storeId,
       description,
-    }).returning();
+    } as unknown as typeof ipWhitelists.$inferInsert).returning();
 
     return whitelist;
   }
 
   async removeIpFromWhitelist(ipAddress: string, userId: string): Promise<void> {
     await db.update(ipWhitelists)
-      .set({ isActive: false, updatedAt: new Date() })
+      .set({ isActive: false as any, updatedAt: new Date() } as any)
       .where(
         sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId}`
       );
@@ -1617,7 +1621,7 @@ export class DatabaseStorage implements IStorage {
       success,
       reason,
       userAgent,
-    });
+    } as unknown as typeof ipWhitelistLogs.$inferInsert);
   }
 
   async getIpAccessLogs(limit = 100): Promise<IpWhitelistLog[]> {

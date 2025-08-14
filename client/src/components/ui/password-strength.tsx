@@ -120,7 +120,7 @@ export function PasswordStrength({ password, className }: PasswordStrengthProps)
           <div className="text-sm text-gray-600 space-y-1">
             <p className="font-medium">Suggestions:</p>
             <ul className="list-disc list-inside space-y-1">
-              {feedback.suggestions.map((suggestion, index) => (
+              {feedback.suggestions.map((suggestion: string, index: number) => (
                 <li key={index}>{suggestion}</li>
               ))}
             </ul>

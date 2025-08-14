@@ -159,7 +159,7 @@ export default function POS() {
   // Set the scan callback in the global context
   useEffect(() => {
     setOnScan(handleBarcodeScanned);
-    return () => setOnScan(null);
+    return () => setOnScan(undefined as unknown as (barcode: string) => void);
   }, [setOnScan]);
 
   // Update date/time every minute

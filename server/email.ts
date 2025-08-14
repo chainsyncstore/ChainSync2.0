@@ -1,10 +1,15 @@
 import nodemailer from 'nodemailer';
 
 // Email configuration - in production, use environment variables
+const resolvedPort = parseInt(process.env.SMTP_PORT || '587', 10);
+const resolvedSecure = process.env.SMTP_SECURE
+  ? process.env.SMTP_SECURE === 'true'
+  : resolvedPort === 465;
+
 const emailConfig = {
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false, // true for 465, false for other ports
+  port: resolvedPort,
+  secure: resolvedSecure, // true for 465, false for other ports unless overridden
   auth: {
     user: process.env.SMTP_USER || 'your-email@gmail.com',
     pass: process.env.SMTP_PASS || 'your-app-password',
@@ -24,7 +29,7 @@ export interface EmailOptions {
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
   try {
     const mailOptions = {
-      from: emailConfig.auth.user,
+      from: process.env.SMTP_FROM || emailConfig.auth.user,
       to: options.to,
       subject: options.subject,
       html: options.html,
@@ -35,6 +40,16 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('Email sending failed:', error);
+    return false;
+  }
+}
+
+export async function verifyEmailTransporter(): Promise<boolean> {
+  try {
+    await transporter.verify();
+    return true;
+  } catch (error) {
+    console.error('SMTP transporter verification failed:', error);
     return false;
   }
 }

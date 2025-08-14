@@ -123,20 +123,24 @@ class Logger {
   }
 
   // Specialized logging methods for key events
-  logAuthEvent(event: 'login' | 'logout' | 'login_failed' | 'password_reset' | 'signup_attempt' | 'signup_duplicate' | 'verification_failed' | 'verification_success' | 'suspicious_activity', context: LogContext): void {
+  logAuthEvent(event: 'login' | 'logout' | 'login_failed' | 'password_reset' | 'signup_attempt' | 'signup_duplicate' | 'verification_failed' | 'verification_success' | 'suspicious_activity' | 'login_blocked_email_not_verified' | 'verification_sent', context: LogContext): void {
     this.info(`Authentication event: ${event}`, context);
   }
 
-  logTransactionEvent(event: 'created' | 'completed' | 'voided' | 'refunded', context: LogContext): void {
-    this.info(`Transaction event: ${event}`, context);
+  logTransactionEvent(event: 'created' | 'completed' | 'voided' | 'refunded', amountOrContext?: number | LogContext, maybeContext?: LogContext): void {
+    const amount = typeof amountOrContext === 'number' ? amountOrContext : undefined;
+    const context = (typeof amountOrContext === 'object' ? amountOrContext : maybeContext) || {};
+    this.info(`Transaction event: ${event}`, { ...context, amount });
   }
 
   logInventoryEvent(event: 'stock_adjusted' | 'low_stock_alert' | 'product_added' | 'product_updated', context: LogContext): void {
     this.info(`Inventory event: ${event}`, context);
   }
 
-  logPaymentEvent(event: 'initiated' | 'completed' | 'failed' | 'webhook_received', context: LogContext): void {
-    this.info(`Payment event: ${event}`, context);
+  logPaymentEvent(event: 'initiated' | 'completed' | 'failed' | 'webhook_received' | 'webhook_success', amountOrContext?: number | LogContext, maybeContext?: LogContext): void {
+    const amount = typeof amountOrContext === 'number' ? amountOrContext : undefined;
+    const context = (typeof amountOrContext === 'object' ? amountOrContext : maybeContext) || {};
+    this.info(`Payment event: ${event}`, { ...context, amount });
   }
 
   logSecurityEvent(event: 'ip_blocked' | 'unauthorized_access' | 'suspicious_activity' | 'csrf_failed' | 'duplicate_signup' | 'failed_verification' | 'suspicious_redirect' | 'rate_limit_exceeded' | 'bot_detected', context: LogContext): void {

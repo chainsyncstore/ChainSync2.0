@@ -159,14 +159,9 @@ export async function registerEnhancedRoutes(app: Express): Promise<Server> {
           monitoringService.recordAuthEvent('login_failed', logContext);
           
           if (authResult.lockoutUntil) {
-            sendErrorResponse(res, new AuthenticationError(authResult.error), req.path, {
-              lockoutUntil: authResult.lockoutUntil,
-              remainingAttempts: 0
-            });
+            sendErrorResponse(res, new AuthenticationError(authResult.error), req.path);
           } else {
-            sendErrorResponse(res, new AuthenticationError(authResult.error), req.path, {
-              remainingAttempts: authResult.remainingAttempts
-            });
+            sendErrorResponse(res, new AuthenticationError(authResult.error), req.path);
           }
         }
       } catch (error) {

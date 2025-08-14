@@ -61,7 +61,8 @@ export class NotificationService {
       });
 
       ws.on('error', (error) => {
-        logger.error('WebSocket error', { connectionId, error: error.message });
+        const err = error as unknown as { message?: string };
+        logger.error('WebSocket error', { connectionId, error: err?.message || 'unknown' });
         this.handleDisconnection(connectionId);
       });
 
@@ -97,7 +98,8 @@ export class NotificationService {
           logger.warn('Unknown message type', { connectionId, type: message.type });
       }
     } catch (error) {
-      logger.error('Error handling WebSocket message', { connectionId, error: error.message });
+      const err = error as unknown as { message?: string };
+      logger.error('Error handling WebSocket message', { connectionId, error: err?.message || 'unknown' });
       this.sendError(ws, 'Invalid message format');
     }
   }
@@ -145,7 +147,8 @@ export class NotificationService {
 
       logger.info('WebSocket authentication successful', { connectionId, userId, storeId });
     } catch (error) {
-      logger.error('Authentication failed', { connectionId, error: error.message });
+      const err = error as unknown as { message?: string };
+      logger.error('Authentication failed', { connectionId, error: err?.message || 'unknown' });
       this.sendError(ws, 'Authentication failed');
     }
   }
@@ -230,9 +233,9 @@ export class NotificationService {
         userId: event.userId,
         title: event.title,
         message: event.message,
-        data: event.data,
+        data: event.data ? JSON.stringify(event.data) : undefined,
         priority: event.priority
-      }).returning();
+      } as unknown as typeof notifications.$inferInsert).returning();
 
       // Determine target channels
       const channels = new Set<string>();
@@ -288,7 +291,8 @@ export class NotificationService {
 
       return notification[0];
     } catch (error) {
-      logger.error('Error broadcasting notification', { error: error.message, event });
+      const err = error as unknown as { message?: string };
+      logger.error('Error broadcasting notification', { error: err?.message || 'unknown', event });
       throw error;
     }
   }
@@ -374,9 +378,10 @@ export class NotificationService {
         isActive: true,
         connectedAt: new Date(),
         lastActivity: new Date()
-      });
+      } as unknown as typeof websocketConnections.$inferInsert);
     } catch (error) {
-      logger.error('Error tracking connection', { connectionId, error: error.message });
+      const err = error as unknown as { message?: string };
+      logger.error('Error tracking connection', { connectionId, error: err?.message || 'unknown' });
     }
   }
 
@@ -384,12 +389,13 @@ export class NotificationService {
     try {
       await db.update(websocketConnections)
         .set({
-          isActive: false,
+          isActive: false as any,
           disconnectedAt: new Date()
-        })
+        } as any)
         .where(eq(websocketConnections.connectionId, connectionId));
     } catch (error) {
-      logger.error('Error untracking connection', { connectionId, error: error.message });
+      const err = error as unknown as { message?: string };
+      logger.error('Error untracking connection', { connectionId, error: err?.message || 'unknown' });
     }
   }
 

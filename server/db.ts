@@ -106,12 +106,12 @@ export async function checkDatabaseHealth(): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('🔴 Database health check failed:', error);
-    // Log more specific error information
-    if (error.code) {
-      console.error('Database error code:', error.code);
+    const anyErr = error as any;
+    if (anyErr?.code) {
+      console.error('Database error code:', anyErr.code);
     }
-    if (error.message) {
-      console.error('Database error message:', error.message);
+    if (anyErr?.message) {
+      console.error('Database error message:', anyErr.message);
     }
     return false;
   }

@@ -346,7 +346,7 @@ export default function Inventory() {
                                 <span className="font-medium text-slate-800">{formatCurrency(item.quantity * parseFloat(item.product.price))}</span>
                               </td>
                               <td className="p-3 sm:p-4 text-center">
-                                {getStockStatus(item)}
+                                {(() => { const s = getStockStatus(item); return `${s.text}`; })()}
                               </td>
                               <td className="p-3 sm:p-4 text-center">
                                 <div className="flex items-center justify-center space-x-1 sm:space-x-2">

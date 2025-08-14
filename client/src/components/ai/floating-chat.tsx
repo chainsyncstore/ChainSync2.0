@@ -76,7 +76,7 @@ export default function FloatingChat({ storeId = "default", className }: Floatin
         setIsLoading(true);
 
         try {
-            const data = await apiClient.post('/openai/chat', {
+            const data: any = await apiClient.post('/openai/chat', {
                 message: inputText,
                 storeId,
                 sessionId: `floating-chat-${storeId}-${Date.now()}`
@@ -158,7 +158,7 @@ export default function FloatingChat({ storeId = "default", className }: Floatin
 
     const sendQuickAction = async (action: string) => {
         try {
-            const data = await apiClient.post('/openai/chat', {
+            const data: any = await apiClient.post('/openai/chat', {
                 message: action,
                 storeId,
                 sessionId: `floating-chat-${storeId}-${Date.now()}`

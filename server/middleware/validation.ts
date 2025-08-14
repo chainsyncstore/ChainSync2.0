@@ -55,7 +55,7 @@ export function validateQuery<T>(schema: z.ZodSchema<T>) {
       const validatedData = schema.parse(req.query);
       
       // Replace the request query with the validated data
-      req.query = validatedData;
+      req.query = validatedData as any;
       
       next();
     } catch (error) {
@@ -94,7 +94,7 @@ export function validateParams<T>(schema: z.ZodSchema<T>) {
       const validatedData = schema.parse(req.params);
       
       // Replace the request params with the validated data
-      req.params = validatedData;
+      req.params = validatedData as any;
       
       next();
     } catch (error) {
@@ -183,13 +183,14 @@ export function handleAsyncError(fn: (req: Request, res: Response, next: NextFun
  * @param req - Express request object
  * @returns LogContext object
  */
-export function extractLogContext(req: Request) {
+export function extractLogContext(req: Request, additional?: Partial<LogContext>) {
   return {
-    ipAddress: req.ip || req.connection.remoteAddress,
+    ipAddress: req.ip || (req as any).connection?.remoteAddress,
     userAgent: req.get('User-Agent'),
     path: req.path,
     method: req.method,
     userId: (req.session as any)?.user?.id,
-    storeId: (req.session as any)?.user?.storeId
-  };
+    storeId: (req.session as any)?.user?.storeId,
+    ...(additional || {})
+  } as LogContext;
 }

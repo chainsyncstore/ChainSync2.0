@@ -22,23 +22,36 @@ export default function ProductSearchModal({ isOpen, onClose, onSelectProduct }:
       setIsLoading(true);
       // Simulate API call
       setTimeout(() => {
+        const now = new Date();
         setProducts([
           {
             id: "1",
             name: "Sample Product 1",
+            sku: null,
             barcode: "123456789",
+            description: null,
             price: "9.99",
+            cost: null,
             category: "Electronics",
-            brand: "Sample Brand"
-          },
+            brand: "Sample Brand",
+            isActive: true,
+            createdAt: now,
+            updatedAt: now
+          } as Product,
           {
             id: "2", 
             name: "Sample Product 2",
+            sku: null,
             barcode: "987654321",
+            description: null,
             price: "19.99",
+            cost: null,
             category: "Clothing",
-            brand: "Sample Brand"
-          }
+            brand: "Sample Brand",
+            isActive: true,
+            createdAt: now,
+            updatedAt: now
+          } as Product
         ]);
         setIsLoading(false);
       }, 1000);

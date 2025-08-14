@@ -82,7 +82,7 @@ export class BotPreventionService {
       logger.info('reCAPTCHA verification successful', { score, action });
       return { success: true, score, action };
     } catch (error) {
-      logger.error('reCAPTCHA verification error', error);
+      logger.error('reCAPTCHA verification error', undefined, error as Error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error during reCAPTCHA verification' 
@@ -128,7 +128,7 @@ export class BotPreventionService {
       logger.info('hCaptcha verification successful');
       return { success: true };
     } catch (error) {
-      logger.error('hCaptcha verification error', error);
+      logger.error('hCaptcha verification error', undefined, error as Error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error during hCaptcha verification' 
