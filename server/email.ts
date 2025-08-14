@@ -54,12 +54,10 @@ export async function verifyEmailTransporter(): Promise<boolean> {
   }
 }
 
-export function generateEmailVerificationEmail(userEmail: string, verificationToken: string, userName: string): EmailOptions {
-  const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
-  
+export function generateWelcomeEmail(userEmail: string, userName: string, tier: string, companyName: string): EmailOptions {
   return {
     to: userEmail,
-    subject: 'ChainSync - Verify Your Email Address',
+    subject: 'Welcome to ChainSync! Your Account is Ready',
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
@@ -67,19 +65,33 @@ export function generateEmailVerificationEmail(userEmail: string, verificationTo
         </div>
         
         <div style="padding: 30px; background: #f9f9f9;">
-          <h2 style="color: #333; margin-bottom: 20px;">Verify Your Email Address</h2>
+          <h2 style="color: #333; margin-bottom: 20px;">Welcome to ChainSync, ${userName}! 🎉</h2>
           
           <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
-            Hello ${userName},
+            Thank you for choosing ChainSync! Your account has been successfully created and activated.
           </p>
           
+          <div style="background: #e8f4fd; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 5px;">
+            <h3 style="color: #333; margin-top: 0;">Account Details</h3>
+            <p style="color: #666; margin: 5px 0;"><strong>Company:</strong> ${companyName}</p>
+            <p style="color: #666; margin: 5px 0;"><strong>Subscription Tier:</strong> ${tier.charAt(0).toUpperCase() + tier.slice(1)}</p>
+            <p style="color: #666; margin: 5px 0;"><strong>Status:</strong> Active</p>
+          </div>
+          
           <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
-            Thank you for signing up for ChainSync! To complete your account setup, 
-            please verify your email address by clicking the button below.
+            You can now access all the features included in your ${tier} plan. Here's what you can do:
           </p>
+          
+          <ul style="color: #666; line-height: 1.6; margin-bottom: 20px;">
+            <li>Manage your inventory and track stock levels</li>
+            <li>Process sales through our POS system</li>
+            <li>Generate detailed analytics and reports</li>
+            <li>Manage multiple store locations</li>
+            <li>Access AI-powered insights and forecasting</li>
+          </ul>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${verificationUrl}" 
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard" 
                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                       color: white; 
                       padding: 15px 30px; 
@@ -87,20 +99,12 @@ export function generateEmailVerificationEmail(userEmail: string, verificationTo
                       border-radius: 5px; 
                       display: inline-block; 
                       font-weight: bold;">
-              Verify Email Address
+              Get Started with ChainSync
             </a>
           </div>
           
           <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
-            This verification link will expire in 24 hours for security reasons.
-          </p>
-          
-          <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
-            If the button above doesn't work, you can copy and paste this link into your browser:
-          </p>
-          
-          <p style="color: #667eea; word-break: break-all; margin-bottom: 20px;">
-            ${verificationUrl}
+            If you have any questions or need assistance getting started, our support team is here to help.
           </p>
           
           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
@@ -112,18 +116,27 @@ export function generateEmailVerificationEmail(userEmail: string, verificationTo
       </div>
     `,
     text: `
-      ChainSync - Email Verification
+      Welcome to ChainSync!
       
       Hello ${userName},
       
-      Thank you for signing up for ChainSync! To complete your account setup, 
-      please verify your email address by visiting this link:
+      Thank you for choosing ChainSync! Your account has been successfully created and activated.
       
-      ${verificationUrl}
+      Account Details:
+      - Company: ${companyName}
+      - Subscription Tier: ${tier.charAt(0).toUpperCase() + tier.slice(1)}
+      - Status: Active
       
-      This verification link will expire in 24 hours for security reasons.
+      You can now access all the features included in your ${tier} plan, including:
+      - Inventory management and stock tracking
+      - POS system for sales processing
+      - Analytics and reporting
+      - Multi-store management
+      - AI-powered insights and forecasting
       
-      If you didn't create this account, you can safely ignore this email.
+      Get started by visiting: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard
+      
+      If you have any questions or need assistance, our support team is here to help.
       
       Best regards,
       The ChainSync Team

@@ -25,7 +25,7 @@ import {
 
 // Services
 import { AuthService } from "./auth";
-import { sendEmail, generateEmailVerificationEmail } from "./email";
+import { sendEmail, generateWelcomeEmail } from "./email";
 import { OpenAIService } from "./openai/service";
 import { PaymentService } from "./payment/service";
 
@@ -57,8 +57,7 @@ import {
 } from "./middleware/security";
 import { 
   signupBotPrevention as signupBotPreventionImport,
-  paymentBotPrevention, 
-  emailVerificationBotPrevention as emailVerificationBotPreventionImport
+  paymentBotPrevention
 } from "./middleware/bot-prevention";
 import { SecureCookieManager } from "./lib/cookies";
 
@@ -446,36 +445,8 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           isActive: true
         });
 
-        // Generate email verification token
-        const verificationToken = await AuthService.createEmailVerificationToken(user.id);
-        
-        // Send verification email (non-blocking)
-        const emailOptions = generateEmailVerificationEmail(
-          email, 
-          verificationToken.token, 
-          firstName
-        );
-        
-        // Send email in background without blocking the response
-        sendEmail(emailOptions).then(emailSent => {
-          if (emailSent) {
-            logger.info("Verification email sent successfully", { 
-              userId: user.id, 
-              email 
-            });
-          } else {
-            logger.error("Failed to send verification email", { 
-              userId: user.id, 
-              email 
-            });
-          }
-        }).catch(error => {
-          logger.error("Email sending error", { 
-            userId: user.id, 
-            email,
-            error: error.message 
-          });
-        });
+        // User account is created but not active until payment is completed
+        // No verification email is sent - user will be onboarded after successful payment
 
         try {
           monitoringService.recordSignupEvent('success', {
@@ -486,7 +457,7 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           });
         } catch {}
         res.status(201).json({ 
-          message: "Account created successfully. Please verify your email to activate your account.",
+          message: "Account created successfully. Please complete your payment to activate your account.",
           user: {
             id: user.id,
             email: user.email,
@@ -498,8 +469,7 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           store: {
             id: store.id,
             name: store.name
-          },
-          ...(process.env.NODE_ENV === 'development' ? { verificationToken: verificationToken.token } : {})
+          }
         });
       } catch (error) {
         console.error("Signup error:", error);
@@ -561,109 +531,9 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
       }
     });
 
-  // Email verification endpoint
-  app.post("/api/auth/verify-email", 
-    sensitiveEndpointRateLimit,
-    emailVerificationBotPreventionImport,
-    handleAsyncError(async (req, res) => {
-      const { token } = req.body;
-      
-      if (!token) {
-        throw new AuthError("Verification token is required");
-      }
 
-      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
-      const logContext = extractLogContext(req, { ipAddress });
 
-      // Verify the token
-      const verificationResult = await AuthService.verifyEmailToken(token);
-      
-      if (verificationResult.success) {
-        // Mark email as verified and activate account
-        // Already marks user verified in service; just log and return
-        
-        logger.logAuthEvent('verification_success', { 
-          ...logContext, 
-          verificationType: 'email' 
-        });
-        
-        res.json({ 
-          success: true,
-          message: "Email verified successfully. Your account is now active." 
-        });
-      } else {
-        // Log failed verification for security monitoring
-        logger.logFailedVerification('unknown', 'email', verificationResult.error || 'Invalid token', ipAddress);
-        
-        throw new AuthError("Invalid or expired verification token");
-      }
-    }));
 
-  // Resend verification email endpoint
-  app.post("/api/auth/resend-verification", 
-    sensitiveEndpointRateLimit,
-    emailVerificationBotPreventionImport,
-    handleAsyncError(async (req, res) => {
-      const { email } = req.body;
-      
-      if (!email) {
-        throw new AuthError("Email address is required");
-      }
-
-      const ipAddress = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
-      const logContext = extractLogContext(req, { ipAddress });
-
-      // Check if user exists and needs verification
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        // Log attempt for non-existent user for security monitoring
-        logger.logSecurityEvent('suspicious_activity', {
-          ...logContext,
-          activity: 'verification_resend_attempt',
-          email
-        });
-        
-        // Return generic message to prevent email enumeration
-        return res.json({ 
-          success: true,
-          message: "If an account with this email exists, a verification email has been sent." 
-        });
-      }
-
-      if (user.emailVerified) {
-        throw new AuthError("Email is already verified");
-      }
-
-      // Generate new verification token
-      const verificationToken = await AuthService.createEmailVerificationToken(user.id);
-      
-      // Send verification email
-      const emailOptions = generateEmailVerificationEmail(
-        email, 
-        verificationToken.token, 
-        user.firstName || "User"
-      );
-      
-      const emailSent = await sendEmail(emailOptions);
-      if (!emailSent) {
-        logger.error("Failed to send verification email", { 
-          userId: user.id, 
-          email 
-        });
-        throw new AuthError("Failed to send verification email. Please try again later.");
-      }
-      
-      logger.logAuthEvent('verification_sent', { 
-        ...logContext, 
-        userId: user.id,
-        verificationType: 'email' 
-      });
-      
-      res.json({ 
-        success: true,
-        message: "Verification email sent successfully. Please check your inbox." 
-      });
-    }));
 
   // Complete signup route (called after successful payment)
   app.post("/api/auth/complete-signup", async (req, res) => {
@@ -1202,12 +1072,9 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
         if (!tier) tier = SecureCookieManager.getPendingSignupTier(req);
         if (!location) location = SecureCookieManager.getPendingSignupLocation(req);
         if (userId && tier && location) {
-          // Mark signup as completed
+          // Mark signup as completed and email as verified
           await storage.markSignupCompleted(userId);
-          // Conditionally verify email based on policy
-          if (process.env.REQUIRE_EMAIL_VERIFICATION !== 'true') {
-            await storage.markEmailVerified(userId);
-          }
+          await storage.markEmailVerified(userId);
           console.log(`Signup marked as completed for user: ${userId}`);
           
           // Create subscription for the user
@@ -1238,6 +1105,42 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           );
           
           console.log(`Subscription created for user: ${userId}, tier: ${tier}`);
+
+          // Send welcome email to user
+          try {
+            const user = await storage.getUserById(userId);
+            if (user) {
+              const welcomeEmailOptions = generateWelcomeEmail(
+                user.email,
+                user.firstName,
+                tier,
+                user.companyName || 'Your Company'
+              );
+              
+              sendEmail(welcomeEmailOptions).then(emailSent => {
+                if (emailSent) {
+                  logger.info("Welcome email sent successfully", { 
+                    userId: user.id, 
+                    email: user.email 
+                  });
+                } else {
+                  logger.error("Failed to send welcome email", { 
+                    userId: user.id, 
+                    email: user.email 
+                  });
+                }
+              }).catch(error => {
+                logger.error("Welcome email sending error", { 
+                  userId: user.id, 
+                  email: user.email,
+                  error: error.message 
+                });
+              });
+            }
+          } catch (emailError) {
+            console.error('Failed to send welcome email:', emailError);
+            // Don't fail the payment verification if email sending fails
+          }
 
           // Clear pending cookies after successful onboarding
           SecureCookieManager.clearPendingSignupUserId(res);
@@ -1306,9 +1209,7 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           const location = metadata?.location as 'nigeria' | 'international' | undefined;
           if (userId && tier && location) {
             await storage.markSignupCompleted(userId);
-            if (process.env.REQUIRE_EMAIL_VERIFICATION !== 'true') {
-              await storage.markEmailVerified(userId);
-            }
+            await storage.markEmailVerified(userId);
             const subscriptionService = new (await import('./subscription/service')).SubscriptionService();
             const { PRICING_TIERS } = await import('./lib/constants');
             const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
@@ -1316,6 +1217,42 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
             const currency = location === 'nigeria' ? 'NGN' : 'USD';
             const subscription = await subscriptionService.createSubscription(userId, tier, upfrontFee, currency, monthlyAmount, currency);
             await subscriptionService.recordPayment(subscription.id, reference, upfrontFee, currency, 'upfront_fee', 'completed', 'paystack', { tier, location });
+            
+            // Send welcome email to user
+            try {
+              const user = await storage.getUserById(userId);
+              if (user) {
+                const welcomeEmailOptions = generateWelcomeEmail(
+                  user.email,
+                  user.firstName,
+                  tier,
+                  user.companyName || 'Your Company'
+                );
+                
+                sendEmail(welcomeEmailOptions).then(emailSent => {
+                  if (emailSent) {
+                    logger.info("Welcome email sent successfully via webhook", { 
+                      userId: user.id, 
+                      email: user.email 
+                    });
+                  } else {
+                    logger.error("Failed to send welcome email via webhook", { 
+                      userId: user.id, 
+                      email: user.email 
+                    });
+                  }
+                }).catch(error => {
+                  logger.error("Welcome email sending error via webhook", { 
+                    userId: user.id, 
+                    email: user.email,
+                    error: error.message 
+                  });
+                });
+              }
+            } catch (emailError) {
+              console.error('Failed to send welcome email via webhook:', emailError);
+              // Don't fail the webhook processing if email sending fails
+            }
           }
         } catch (e) {
           console.error('Webhook onboarding failed (paystack):', e);
@@ -1374,9 +1311,7 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           const location = meta?.location as 'nigeria' | 'international' | undefined;
           if (userId && tier && location) {
             await storage.markSignupCompleted(userId);
-            if (process.env.REQUIRE_EMAIL_VERIFICATION !== 'true') {
-              await storage.markEmailVerified(userId);
-            }
+            await storage.markEmailVerified(userId);
             const subscriptionService = new (await import('./subscription/service')).SubscriptionService();
             const { PRICING_TIERS } = await import('./lib/constants');
             const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
@@ -1384,6 +1319,42 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
             const currency = location === 'nigeria' ? 'NGN' : 'USD';
             const subscription = await subscriptionService.createSubscription(userId, tier, upfrontFee, currency, monthlyAmount, currency);
             await subscriptionService.recordPayment(subscription.id, tx_ref, upfrontFee, currency, 'upfront_fee', 'completed', 'flutterwave', { tier, location });
+            
+            // Send welcome email to user
+            try {
+              const user = await storage.getUserById(userId);
+              if (user) {
+                const welcomeEmailOptions = generateWelcomeEmail(
+                  user.email,
+                  user.firstName,
+                  tier,
+                  user.companyName || 'Your Company'
+                );
+                
+                sendEmail(welcomeEmailOptions).then(emailSent => {
+                  if (emailSent) {
+                    logger.info("Welcome email sent successfully via webhook", { 
+                      userId: user.id, 
+                      email: user.email 
+                    });
+                  } else {
+                    logger.error("Failed to send welcome email via webhook", { 
+                      userId: user.id, 
+                      email: user.email 
+                    });
+                  }
+                }).catch(error => {
+                  logger.error("Welcome email sending error via webhook", { 
+                    userId: user.id, 
+                    email: user.email,
+                    error: error.message 
+                  });
+                });
+              }
+            } catch (emailError) {
+              console.error('Failed to send welcome email via webhook:', emailError);
+              // Don't fail the webhook processing if email sending fails
+            }
           }
         } catch (e) {
           console.error('Webhook onboarding failed (flutterwave):', e);
