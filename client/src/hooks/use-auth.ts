@@ -56,35 +56,39 @@ export function useAuth(): AuthState & AuthActions {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // First check localStorage for session persistence
+        // Optimistically hydrate from localStorage to avoid UI flicker,
+        // but ALWAYS verify with the server and clear stale sessions.
         const savedUser = loadSession();
         if (savedUser) {
-          // Session is valid, set user immediately
           setUser(savedUser);
-          setIsLoading(false);
-          
-          // Refresh session expiry
-          refreshSession();
-          return;
         }
 
-        // Fallback to server auth check
-        const response = await fetch("/api/auth/me");
+        // Server auth check (authoritative)
+        const response = await fetch("/api/auth/me", { credentials: "include" });
         console.log("Auth check response status:", response.status);
         if (response.ok) {
           const userData = await response.json();
           console.log("User data from auth check:", userData);
           setUser(userData);
-          
-          // Save session for manager/cashier roles
+
+          // Persist session only for manager/cashier roles
           if (userData.role === "manager" || userData.role === "cashier") {
             saveSession(userData);
+            refreshSession();
+          } else {
+            clearSession();
           }
         } else {
+          // Not authenticated on server – ensure any stale local session is cleared
+          clearSession();
+          setUser(null);
           console.log("Auth check failed - not authenticated");
         }
       } catch (err) {
         console.error("Auth check failed:", err);
+        // On error, do not assume authenticated; clear any local cache
+        clearSession();
+        setUser(null);
       } finally {
         setIsLoading(false);
       }

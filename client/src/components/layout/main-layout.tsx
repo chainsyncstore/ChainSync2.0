@@ -27,19 +27,51 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     return () => clearInterval(timer);
   }, []);
 
-  // Mock stores data - in real app this would come from API
+  // Load stores from API
   useEffect(() => {
-    setStores([
-      { id: "store1", name: "Downtown Store" },
-      { id: "store2", name: "Mall Location" }
-    ]);
-    setSelectedStore("store1");
+    let cancelled = false;
+    const loadStores = async () => {
+      try {
+        const res = await fetch('/api/stores', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to load stores');
+        const data = await res.json();
+        if (!cancelled) {
+          const normalized = Array.isArray(data) ? data : (data?.data || []);
+          setStores(normalized);
+          if (normalized.length > 0) setSelectedStore(normalized[0].id);
+        }
+      } catch {
+        // Fallback to a single default placeholder but without retail names
+        if (!cancelled) {
+          setStores([]);
+          setSelectedStore("");
+        }
+      }
+    };
+    loadStores();
+    return () => { cancelled = true; };
   }, []);
 
-  // Mock alert count - in real app this would come from API
+  // Load alert count for selected store
   useEffect(() => {
-    setAlertCount(3); // Mock value
-  }, []);
+    let cancelled = false;
+    const loadAlerts = async () => {
+      if (!selectedStore) { setAlertCount(0); return; }
+      try {
+        const res = await fetch(`/api/stores/${selectedStore}/alerts`, { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to load alerts');
+        const data = await res.json();
+        if (!cancelled) {
+          const normalized = Array.isArray(data) ? data : (data?.data || []);
+          setAlertCount(normalized.length || 0);
+        }
+      } catch {
+        if (!cancelled) setAlertCount(0);
+      }
+    };
+    loadAlerts();
+    return () => { cancelled = true; };
+  }, [selectedStore]);
 
   // Get page title and subtitle based on current route
   const getPageInfo = () => {

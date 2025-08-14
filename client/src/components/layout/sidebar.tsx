@@ -26,7 +26,16 @@ interface SidebarProps {
 }
 
 const getNavigationItems = (userRole: string) => {
-  const baseItems = [
+  // Tailor visible routes per role to avoid navigating to pages
+  // that aren't registered for that role (prevents 404s)
+  if (userRole === "cashier") {
+    return [
+      { path: "/pos", icon: ScanBarcode, label: "POS" },
+      { path: "/settings", icon: Settings, label: "Settings" },
+    ];
+  }
+
+  const items = [
     { path: "/inventory", icon: Package, label: "Inventory" },
     { path: "/analytics", icon: TrendingUp, label: "Analytics" },
     { path: "/loyalty", icon: Crown, label: "Loyalty" },
@@ -35,14 +44,10 @@ const getNavigationItems = (userRole: string) => {
     { path: "/settings", icon: Settings, label: "Settings" },
   ];
 
-  // Admin gets multi-store view
   if (userRole === "admin") {
-    baseItems.splice(-1, 0, { path: "/multi-store", icon: Building2, label: "Multi-Store" });
+    items.splice(-1, 0, { path: "/multi-store", icon: Building2, label: "Multi-Store" });
   }
-
-  // POS is removed from admin and manager navigation
-
-  return baseItems;
+  return items;
 };
 
 export default function Sidebar({
