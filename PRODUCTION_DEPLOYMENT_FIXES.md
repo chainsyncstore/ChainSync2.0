@@ -1,4 +1,4 @@
-# 🚨 Production Deployment Fixes
+# 🚨 Production Deployment Fixes - Updated
 
 ## Issues Found in Production Logs
 
@@ -6,15 +6,16 @@ Based on your Render deployment logs, I've identified and fixed several critical
 
 ## 🔧 **Fixed Issues**
 
-### 1. **Rate Limiting Trust Proxy Error** ✅
+### 1. **Rate Limiting KeyGenerator Error** ✅
 **Error:**
 ```
-ValidationError: The Express 'trust proxy' setting is true, which allows anyone to trivially bypass IP-based rate limiting.
+TypeError: config.keyGenerator is not a function
 ```
 
 **Fix Applied:**
-- Updated all rate limiters in `server/middleware/security.ts` to use `ipKeyGenerator({ trustProxy: process.env.NODE_ENV === 'production' })`
-- This properly handles the trust proxy setting for production environments like Render
+- Fixed rate limiters in `server/middleware/security.ts` to use a proper keyGenerator function
+- Implemented custom IP handling for production trust proxy environments
+- Removed incorrect `ipKeyGenerator` usage that was causing the function error
 
 ### 2. **Session Cookie Configuration** ✅
 **Issue:** Session cookies were using `sameSite: 'none'` in production, which requires specific CORS setup.
@@ -24,7 +25,15 @@ ValidationError: The Express 'trust proxy' setting is true, which allows anyone 
 - Fixed cookie domain configuration to only set when explicitly configured
 - Updated CSRF token cookies to use consistent settings
 
-### 3. **SMTP Configuration** ⚠️
+### 3. **Email Verification Bypass** ✅
+**Issue:** Email verification was hardcoded as required, preventing login when SMTP is not configured.
+
+**Fix Applied:**
+- Made email verification conditional based on `REQUIRE_EMAIL_VERIFICATION` environment variable
+- Updated both `AuthService` and `EnhancedAuthService` to respect this setting
+- Login now works without email verification when `REQUIRE_EMAIL_VERIFICATION=false`
+
+### 4. **SMTP Configuration** ⚠️
 **Error:**
 ```
 SMTP transporter verification failed: Error: Invalid login: 535-5.7.8 Username and Password not accepted
@@ -61,9 +70,9 @@ SMTP_PASS="your-gmail-app-password"
 SMTP_FROM="noreply@chainsync.store"
 ```
 
-### Authentication Settings:
+### Authentication Settings (Critical):
 ```bash
-REQUIRE_EMAIL_VERIFICATION=false  # Set to true once SMTP is working
+REQUIRE_EMAIL_VERIFICATION=false  # MUST be false until SMTP is configured
 VITE_REQUIRE_EMAIL_VERIFICATION="false"
 ```
 

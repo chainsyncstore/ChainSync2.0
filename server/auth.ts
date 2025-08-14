@@ -250,8 +250,8 @@ export class AuthService {
         };
       }
 
-      // Check if email is verified (required for login)
-      if (!userData.emailVerified) {
+      // Check if email is verified (conditionally required for login)
+      if (process.env.REQUIRE_EMAIL_VERIFICATION === 'true' && !userData.emailVerified) {
         return { 
           success: false, 
           error: 'Please verify your email address before logging in' 
