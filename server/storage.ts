@@ -1545,32 +1545,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   // IP Whitelist operations
-  async checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean> {
-    const user = await this.getUser(userId);
-    if (!user) return false;
+	async checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean> {
+		const user = await this.getUser(userId);
+		if (!user) return false;
 
-    // Check if IP is whitelisted for this specific user
-    const [whitelist] = await db.select().from(ipWhitelists)
-      .where(
-        sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId} AND ${ipWhitelists.isActive} = true`
-      );
-    
-    if (whitelist) return true;
+		// Always allow admin to bypass IP whitelist
+		if (user.role === "admin") return true;
 
-    // For managers and cashiers, also check store-level whitelists
-    if (user.role === "manager" || user.role === "cashier") {
-      if (user.storeId) {
-        const [storeWhitelist] = await db.select().from(ipWhitelists)
-          .where(
-            sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.storeId} = ${user.storeId} AND ${ipWhitelists.role} = ${user.role} AND ${ipWhitelists.isActive} = true`
-          );
-        
-        if (storeWhitelist) return true;
-      }
-    }
+		// Check if IP is whitelisted for this specific user
+		const [whitelist] = await db.select().from(ipWhitelists)
+			.where(
+				sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId} AND ${ipWhitelists.isActive} = true`
+			);
+		
+		if (whitelist) return true;
 
-    return false;
-  }
+		// For managers and cashiers, also check store-level whitelists
+		if (user.role === "manager" || user.role === "cashier") {
+			if (user.storeId) {
+				const [storeWhitelist] = await db.select().from(ipWhitelists)
+					.where(
+						sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.storeId} = ${user.storeId} AND ${ipWhitelists.role} = ${user.role} AND ${ipWhitelists.isActive} = true`
+					);
+				
+				if (storeWhitelist) return true;
+			}
+		}
+
+		return false;
+	}
 
   async addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist> {
     const user = await this.getUser(userId);
