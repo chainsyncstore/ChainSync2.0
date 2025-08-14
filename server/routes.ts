@@ -167,8 +167,8 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
       secure: process.env.NODE_ENV === 'production', // Secure in production
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      domain: process.env.COOKIE_DOMAIN || undefined,
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      domain: process.env.NODE_ENV === 'production' && process.env.COOKIE_DOMAIN ? process.env.COOKIE_DOMAIN : undefined,
       path: '/'
     },
     name: 'chainsync.sid', // Custom session name
@@ -762,11 +762,11 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
       res.cookie('csrf-token', csrfToken, {
         httpOnly: false, // Allow JavaScript access for CSRF token
         secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
         maxAge: 60 * 60 * 1000, // 1 hour
         path: '/',
-        // Only set cookie domain in production; in development this breaks localhost
-        domain: process.env.NODE_ENV === 'production' ? (process.env.COOKIE_DOMAIN || undefined) : undefined
+        // Only set cookie domain in production if explicitly configured
+        domain: process.env.NODE_ENV === 'production' && process.env.COOKIE_DOMAIN ? process.env.COOKIE_DOMAIN : undefined
       });
 
       res.json({ csrfToken });
