@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import cors from "cors";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { logger } from "../lib/logger";
 import { monitoringService } from "../lib/monitoring";
 
@@ -80,18 +80,8 @@ export const globalRateLimit = rateLimit({
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // Use proper keyGenerator for IPv6 support
-  keyGenerator: (req, res) => {
-    // Handle trust proxy for production environments
-    if (process.env.NODE_ENV === 'production') {
-      const forwardedFor = req.headers['x-forwarded-for'];
-      if (forwardedFor) {
-        const firstIP = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor.toString().split(',')[0].trim();
-        return firstIP || req.ip || 'unknown';
-      }
-    }
-    return req.ip || 'unknown';
-  },
+  // Use express-rate-limit helper for proper IPv6 support
+  keyGenerator: ipKeyGenerator,
   handler: (req: Request, res: Response) => {
     logger.warn('Rate limit exceeded', {
       ip: req.ip,
@@ -119,18 +109,8 @@ export const authRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Use proper keyGenerator for IPv6 support
-  keyGenerator: (req, res) => {
-    // Handle trust proxy for production environments
-    if (process.env.NODE_ENV === 'production') {
-      const forwardedFor = req.headers['x-forwarded-for'];
-      if (forwardedFor) {
-        const firstIP = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor.toString().split(',')[0].trim();
-        return firstIP || req.ip || 'unknown';
-      }
-    }
-    return req.ip || 'unknown';
-  },
+  // Use express-rate-limit helper for proper IPv6 support
+  keyGenerator: ipKeyGenerator,
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
       ip: req.ip,
@@ -160,18 +140,8 @@ export const sensitiveEndpointRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Use proper keyGenerator for IPv6 support
-  keyGenerator: (req, res) => {
-    // Handle trust proxy for production environments
-    if (process.env.NODE_ENV === 'production') {
-      const forwardedFor = req.headers['x-forwarded-for'];
-      if (forwardedFor) {
-        const firstIP = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor.toString().split(',')[0].trim();
-        return firstIP || req.ip || 'unknown';
-      }
-    }
-    return req.ip || 'unknown';
-  },
+  // Use express-rate-limit helper for proper IPv6 support
+  keyGenerator: ipKeyGenerator,
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
       ip: req.ip,
@@ -201,18 +171,8 @@ export const paymentRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Use proper keyGenerator for IPv6 support
-  keyGenerator: (req, res) => {
-    // Handle trust proxy for production environments
-    if (process.env.NODE_ENV === 'production') {
-      const forwardedFor = req.headers['x-forwarded-for'];
-      if (forwardedFor) {
-        const firstIP = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor.toString().split(',')[0].trim();
-        return firstIP || req.ip || 'unknown';
-      }
-    }
-    return req.ip || 'unknown';
-  },
+  // Use express-rate-limit helper for proper IPv6 support
+  keyGenerator: ipKeyGenerator,
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {
       ip: req.ip,
