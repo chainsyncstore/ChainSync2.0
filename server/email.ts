@@ -7,12 +7,12 @@ const resolvedSecure = process.env.SMTP_SECURE
   : resolvedPort === 465;
 
 const emailConfig = {
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  host: process.env.SMTP_HOST || 'smtp.mailersend.net',
   port: resolvedPort,
   secure: resolvedSecure, // true for 465, false for other ports unless overridden
   auth: {
-    user: process.env.SMTP_USER || 'your-email@gmail.com',
-    pass: process.env.SMTP_PASS || 'your-app-password',
+    user: process.env.SMTP_USER || 'your-mailersend-username',
+    pass: process.env.SMTP_PASS || 'your-mailersend-api-key',
   },
 };
 
