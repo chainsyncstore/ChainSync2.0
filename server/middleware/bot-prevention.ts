@@ -24,7 +24,8 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
 
       // Skip if bot prevention is not configured and we're allowed to skip
       if (!botPreventionService.isConfigured()) {
-        if (isProduction) {
+        const allowBypass = process.env.ALLOW_INSECURE_PAYMENT_NO_CAPTCHA === 'true';
+        if (isProduction && required && !allowBypass) {
           logger.error('Bot prevention required in production but not configured', {
             path: req.path,
             ip: req.ip
@@ -35,21 +36,13 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
           });
         }
 
-        if (skipIfNotConfigured) {
-          logger.info('Bot prevention not configured, skipping validation', {
-            path: req.path,
-            ip: req.ip
-          });
-          return next();
-        } else {
-          logger.warn('Bot prevention required but not configured, allowing request to continue', {
-            path: req.path,
-            ip: req.ip
-          });
-          // Instead of returning 500, allow the request to continue
-          // This prevents the signup from failing due to missing bot prevention config
-          return next();
-        }
+        logger.warn('Bot prevention not configured, bypassing validation per settings', {
+          path: req.path,
+          ip: req.ip,
+          allowBypass,
+          environment: process.env.NODE_ENV
+        });
+        return next();
       }
 
       // Get captcha token from request body or headers
@@ -57,7 +50,8 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
 
       if (!captchaToken) {
         if (required) {
-          if (isProduction) {
+          const allowBypass = process.env.ALLOW_INSECURE_PAYMENT_NO_CAPTCHA === 'true';
+          if (isProduction && !allowBypass) {
             logger.warn('Captcha token missing in production, rejecting request', {
               path: req.path,
               ip: req.ip,
@@ -76,15 +70,15 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
               error: 'Captcha token required',
               message: 'Please complete the captcha verification'
             });
-          } else {
-            logger.warn('Captcha token missing, but allowing request to continue for development', {
-              path: req.path,
-              ip: req.ip,
-              userAgent: req.get('User-Agent')
-            });
-            // Allow requests without captcha tokens in development to prevent signup failures
-            return next();
           }
+          logger.warn('Captcha token missing, bypassing due to configuration', {
+            path: req.path,
+            ip: req.ip,
+            userAgent: req.get('User-Agent'),
+            environment: process.env.NODE_ENV,
+            allowBypass
+          });
+          return next();
         } else {
           // Not required, continue without validation
           return next();

@@ -77,7 +77,7 @@ export async function verifyHcaptcha(token: string): Promise<boolean> {
  * Generates a reCAPTCHA v3 token
  * @returns Promise<string> - The reCAPTCHA token
  */
-export async function generateRecaptchaToken(): Promise<string> {
+export async function generateRecaptchaToken(action: string = 'signup'): Promise<string> {
   console.log('generateRecaptchaToken called, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
   
   // Check if the site key is configured
@@ -133,9 +133,9 @@ export async function generateRecaptchaToken(): Promise<string> {
           }
         });
 
-        console.log('reCAPTCHA ready, executing...');
-        // Generate the token
-        const token = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: 'signup' });
+        console.log('reCAPTCHA ready, executing...', { action });
+        // Generate the token for the requested action
+        const token = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action });
         console.log('reCAPTCHA token generated successfully, length:', token.length);
         resolve(token);
       } catch (error) {

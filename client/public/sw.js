@@ -29,8 +29,8 @@ if (isDevelopment()) {
   disableInDevelopment();
 }
 
-const CACHE_NAME = 'chainsync-v1.0.0';
-const OFFLINE_CACHE = 'chainsync-offline-v1.0.0';
+const CACHE_NAME = 'chainsync-v1.0.1';
+const OFFLINE_CACHE = 'chainsync-offline-v1.0.1';
 let isDisabled = false;
 
 // Essential resources to cache for offline use

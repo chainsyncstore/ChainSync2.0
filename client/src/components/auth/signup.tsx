@@ -335,6 +335,15 @@ function SignupForm() {
     try {
       console.log('Starting payment process...', { data });
       
+      // Generate captcha token for bot prevention in production
+      let recaptchaToken: string | undefined;
+      try {
+        // Generate token specifically for payment action to satisfy server verification
+        recaptchaToken = await generateRecaptchaToken('payment');
+      } catch (e) {
+        console.warn('Failed to generate reCAPTCHA token (continuing if allowed):', e);
+      }
+      
       const paymentProvider = data.location === 'nigeria' ? 'paystack' : 'flutterwave';
       const normalizedTier = normalizeTier(data.tier);
       const selectedTier = pricingTiers.find(t => t.name === normalizedTier);
@@ -356,12 +365,14 @@ function SignupForm() {
       }
 
       const paymentRequest = {
-        email: data.email,
+        email: userData?.email || data.email,
         amount: upfrontFee, // Use upfront fee instead of monthly amount
         currency: data.location === 'nigeria' ? 'NGN' : 'USD',
         provider: paymentProvider,
         tier: normalizedTier,
+        location: data.location,
         userId: userData?.id,
+        ...(recaptchaToken ? { recaptchaToken } : {}),
         metadata: {
           firstName: data.firstName,
           lastName: data.lastName,
