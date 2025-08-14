@@ -42,8 +42,8 @@ const PageLoader = () => (
 
 // Dashboard component for different user roles
 function Dashboard({ userRole }: { userRole: string }) {
-  // Ensure userRole is always a valid string, default to "cashier" if undefined/null
-  const role = userRole || "cashier";
+  // Ensure userRole is always a valid string; default to "admin" for new signups
+  const role = userRole || "admin";
   console.log("Dashboard rendering with role:", role);
   
   if (role === "admin") {

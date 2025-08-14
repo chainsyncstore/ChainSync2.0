@@ -71,13 +71,9 @@ export function useAuth(): AuthState & AuthActions {
           console.log("User data from auth check:", userData);
           setUser(userData);
 
-          // Persist session only for manager/cashier roles
-          if (userData.role === "manager" || userData.role === "cashier") {
-            saveSession(userData);
-            refreshSession();
-          } else {
-            clearSession();
-          }
+          // Persist session for any authenticated user
+          saveSession(userData);
+          refreshSession();
         } else {
           // Not authenticated on server – ensure any stale local session is cleared
           clearSession();
@@ -108,10 +104,8 @@ export function useAuth(): AuthState & AuthActions {
       setUser(userData);
       setError(null);
       
-      // Save session for manager/cashier roles
-      if (userData.role === "manager" || userData.role === "cashier") {
-        saveSession(userData);
-      }
+      // Save session for any authenticated user
+      saveSession(userData);
       
               // Redirect to appropriate default page based on role and email verification policy
         const role = userData.role || "cashier";
