@@ -3,6 +3,7 @@ import helmet from "helmet";
 import cors from "cors";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { logger } from "../lib/logger";
+import { monitoringService } from "../lib/monitoring";
 
 // CORS configuration for API routes only
 const corsOptions = {
@@ -259,7 +260,6 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
       hasCookieToken: !!cookieToken
     });
     try {
-      const { monitoringService } = await import('../lib/monitoring');
       monitoringService.recordCsrfFailure({
         ipAddress: req.ip || (req as any).connection?.remoteAddress,
         userAgent: req.get('User-Agent'),
@@ -284,7 +284,6 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
       cookieToken: cookieToken?.substring(0, 8) + '...'
     });
     try {
-      const { monitoringService } = await import('../lib/monitoring');
       monitoringService.recordCsrfFailure({
         ipAddress: req.ip || (req as any).connection?.remoteAddress,
         userAgent: req.get('User-Agent'),

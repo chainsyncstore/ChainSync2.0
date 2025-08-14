@@ -160,6 +160,7 @@
     "@vitejs/plugin-react": "^4.3.2",
     "@vitest/ui": "^2.1.8",
     "autoprefixer": "^10.4.20",
+    "caniuse-lite": "^1.0.30001734",
     "cross-env": "^10.0.0",
     "crypto-browserify": "^3.12.0",
     "drizzle-kit": "^0.30.6",
