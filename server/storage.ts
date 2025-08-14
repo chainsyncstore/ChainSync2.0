@@ -274,8 +274,10 @@ export class DatabaseStorage implements IStorage {
         return null;
       }
 
-      // Check if user is active
-      if (!user.isActive) {
+      // Check if user is active.
+      // Allow login to proceed for users who completed signup (policy will be enforced at route level).
+      const allowInactiveCompletedSignup = user.signupCompleted === true;
+      if (!user.isActive && !allowInactiveCompletedSignup) {
         if (ipAddress) {
           await this.logIpAccess(
             ipAddress, 

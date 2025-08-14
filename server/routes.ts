@@ -167,7 +167,8 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
       secure: process.env.NODE_ENV === 'production', // Secure in production
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      // Use 'lax' in production to avoid edge cases with redirects/CDN while still preventing CSRF on subresource requests
+      sameSite: 'lax',
       domain: process.env.NODE_ENV === 'production' && process.env.COOKIE_DOMAIN ? process.env.COOKIE_DOMAIN : undefined,
       path: '/'
     },
@@ -229,9 +230,9 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
               throw new AuthError("Please verify your email address before logging in");
             }
           
-          // Sanitize user data before storing in session
+          // Sanitize user data before storing in session and responding
           const sanitizedUser = AuthService.sanitizeUserForSession(user) as any;
-          req.session.user = user as any;
+          req.session.user = sanitizedUser as any;
           
           // Log successful login
           logger.logAuthEvent('login', { ...logContext, userId: user.id, storeId: user.storeId || undefined });

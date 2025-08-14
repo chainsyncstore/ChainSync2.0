@@ -53,6 +53,7 @@ export default function Login({ onLogin, onForgotPassword, isLoading, error }: L
                 placeholder="Enter your username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
                 required
                 disabled={isLoading}
               />
@@ -66,6 +67,7 @@ export default function Login({ onLogin, onForgotPassword, isLoading, error }: L
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 required
                 disabled={isLoading}
               />
