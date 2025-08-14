@@ -63,7 +63,7 @@ export function useAuth(): AuthState & AuthActions {
           setUser(savedUser);
         }
 
-        // Server auth check (authoritative)
+        // Server auth check (authoritative) using direct fetch to avoid global 401 redirects
         const response = await fetch("/api/auth/me", { credentials: "include" });
         console.log("Auth check response status:", response.status);
         if (response.ok) {
