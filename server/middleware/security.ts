@@ -240,7 +240,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   }
   
   // Custom CSRF validation with consistent cookie naming
-  const csrfToken = req.headers['x-csrf-token'] || req.headers['X-CSRF-Token'] as string;
+  const csrfToken = (req.headers['x-csrf-token'] as string) || (req.headers['X-CSRF-Token'] as string);
   const cookieToken = req.cookies['csrf-token']; // Use consistent cookie name
   
   // Log CSRF validation details for debugging

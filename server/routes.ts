@@ -891,7 +891,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 60 * 60 * 1000, // 1 hour
         path: '/',
-        domain: process.env.COOKIE_DOMAIN || undefined
+        // Only set cookie domain in production; in development this breaks localhost
+        domain: process.env.NODE_ENV === 'production' ? (process.env.COOKIE_DOMAIN || undefined) : undefined
       });
 
       res.json({ csrfToken });

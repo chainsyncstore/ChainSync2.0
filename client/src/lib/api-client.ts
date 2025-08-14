@@ -136,7 +136,13 @@ class ApiClient {
         headers: Object.fromEntries(response.headers.entries())
       });
 
-      const data: ApiResponse<T> = await response.json();
+      let data: ApiResponse<T>;
+      try {
+        data = await response.json();
+      } catch (e) {
+        // Handle cases where server returned empty body or non-JSON (e.g., proxies, 4xx/5xx without JSON)
+        data = { status: response.ok ? 'success' : 'error', timestamp: new Date().toISOString() } as ApiResponse<T>;
+      }
 
       if (!response.ok) {
         // Handle API errors
