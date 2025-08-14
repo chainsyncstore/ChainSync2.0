@@ -1059,10 +1059,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const callbackUrl = `${baseUrl}/payment/callback?${callbackParams.toString()}`;
       
       console.log(`Setting callback URL: ${callbackUrl} for ${provider} payment`);
-      
-      const normalizedLocation = location === 'nigeria' || location === 'international'
-        ? location
-        : (currency === 'NGN' ? 'nigeria' : 'international');
 
       const paymentRequest = {
         email,
