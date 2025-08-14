@@ -109,10 +109,13 @@ export function useAuth(): AuthState & AuthActions {
         saveSession(userData);
       }
       
-      // Redirect to appropriate default page based on role
+      // Redirect to appropriate default page based on role and email verification policy
       const role = userData.role || "cashier";
+      const requireVerify = (import.meta as any).env?.VITE_REQUIRE_EMAIL_VERIFICATION === 'true';
       let defaultPath = "/";
-      if (role === "admin") {
+      if (requireVerify && !userData.emailVerified) {
+        defaultPath = "/post-onboarding";
+      } else if (role === "admin") {
         defaultPath = "/analytics";
       } else if (role === "manager") {
         defaultPath = "/inventory";

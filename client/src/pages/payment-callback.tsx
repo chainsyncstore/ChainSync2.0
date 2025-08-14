@@ -20,6 +20,9 @@ export default function PaymentCallback() {
         const trxref = urlParams.get('trxref'); // Paystack
         const trx_ref = urlParams.get('trx_ref'); // Flutterwave
         const status = urlParams.get('status');
+        const userIdParam = urlParams.get('userId');
+        const tierParam = urlParams.get('tier');
+        const locationParam = urlParams.get('location');
         
         // Log all URL parameters for debugging
         console.log('Payment callback URL parameters:', {
@@ -44,10 +47,32 @@ export default function PaymentCallback() {
 
         console.log('Processing payment callback with reference:', paymentReference);
 
-        // Verify payment with backend
+        // Build onboarding context preferring URL params, then localStorage
+        let userId = userIdParam || undefined;
+        let tier = (tierParam || undefined) as any;
+        let location = (locationParam || undefined) as any;
+
+        if (!userId || !tier || !location) {
+          try {
+            const saved = localStorage.getItem('chainsync_onboarding');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              userId = userId || parsed?.userId || undefined;
+              tier = tier || parsed?.tier || undefined;
+              location = location || parsed?.location || undefined;
+            }
+          } catch (e) {
+            console.warn('Failed to read local onboarding context:', e);
+          }
+        }
+
+        // Verify payment with backend including onboarding context
         const data = await apiClient.post<{ success: boolean; message?: string }>('/payment/verify', {
           reference: paymentReference,
-          status: status
+          status: status,
+          userId,
+          tier,
+          location
         });
 
         console.log('Payment verification response:', data);
@@ -56,10 +81,14 @@ export default function PaymentCallback() {
           setStatus('success');
           setMessage('Payment successful! Your subscription is now active.');
           
-          // Redirect to analytics page after 3 seconds (default admin view)
+          // Decide redirect based on email verification policy
+          const requireEmailVerification = (import.meta as any).env?.VITE_REQUIRE_EMAIL_VERIFICATION === 'true';
           setTimeout(() => {
-            console.log('Redirecting to analytics page...');
-            setLocation('/analytics');
+            if (requireEmailVerification) {
+              setLocation('/post-onboarding');
+            } else {
+              setLocation('/analytics');
+            }
           }, 3000);
         } else {
           setStatus('error');

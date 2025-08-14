@@ -372,6 +372,19 @@ function SignupForm() {
 
       console.log('Sending payment request:', paymentRequest);
 
+      // Persist minimal onboarding context locally for callback consumption
+      try {
+        const onboardingContext = {
+          userId: userData?.id || null,
+          tier: normalizedTier,
+          location: data.location,
+          savedAt: Date.now()
+        };
+        localStorage.setItem('chainsync_onboarding', JSON.stringify(onboardingContext));
+      } catch (e) {
+        console.warn('Failed to persist onboarding context:', e);
+      }
+
       const paymentData = await apiClient.post('/payment/initialize', paymentRequest);
       
       console.log('Payment response received:', paymentData);

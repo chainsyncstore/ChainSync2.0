@@ -217,14 +217,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const user = await storage.authenticateUser(username, password, ipAddress);
         
         if (user) {
-          // Check if email is verified before allowing login
-          if (!user.emailVerified) {
+          // Conditionally require email verification
+          if (process.env.REQUIRE_EMAIL_VERIFICATION === 'true' && !user.emailVerified) {
             logger.logAuthEvent('login_blocked_email_not_verified', { 
               ...logContext, 
               userId: user.id, 
               storeId: user.storeId 
             });
-            
             throw new AuthError("Please verify your email address before logging in");
           }
           
@@ -957,13 +956,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Check for pending signup in secure cookie
-      const pendingSignupId = req.cookies['pending-signup-id'];
+      // Check for pending signup in secure cookies (managed centrally)
+      const pendingSignupId = SecureCookieManager.getPendingSignupUserId(req);
+      const pendingTier = SecureCookieManager.getPendingSignupTier(req);
+      const pendingLocation = SecureCookieManager.getPendingSignupLocation(req);
       
       if (pendingSignupId) {
         // Return the pending signup ID
         res.json({ 
           pendingSignupId,
+          pendingTier,
+          pendingLocation,
           hasPendingSignup: true
         });
       } else {
@@ -992,7 +995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     paymentBotPrevention,
     async (req, res) => {
     try {
-      const { email, currency, provider, tier, metadata } = req.body;
+      const { email, currency, provider, tier, metadata, location } = req.body;
       const logContext = extractLogContext(req, { email, provider, tier });
       
       if (!email || !currency || !provider || !tier) {
@@ -1045,10 +1048,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Ensure callback URL is properly set for both development and production
       const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-      const callbackUrl = `${baseUrl}/payment/callback`;
+      // Append minimal onboarding context as query for robustness
+      const callbackParams = new URLSearchParams();
+      if (req.body.userId) callbackParams.set('userId', String(req.body.userId));
+      if (tier) callbackParams.set('tier', tier);
+      const normalizedLocation = location === 'nigeria' || location === 'international'
+        ? location
+        : (currency === 'NGN' ? 'nigeria' : 'international');
+      callbackParams.set('location', normalizedLocation);
+      const callbackUrl = `${baseUrl}/payment/callback?${callbackParams.toString()}`;
       
       console.log(`Setting callback URL: ${callbackUrl} for ${provider} payment`);
       
+      const normalizedLocation = location === 'nigeria' || location === 'international'
+        ? location
+        : (currency === 'NGN' ? 'nigeria' : 'international');
+
       const paymentRequest = {
         email,
         amount: upfrontFee, // Server-calculated upfront fee in smallest unit
@@ -1057,7 +1072,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         callback_url: callbackUrl,
         metadata: {
           ...metadata,
+          userId: req.body.userId || undefined,
           tier,
+           location: normalizedLocation,
           provider,
           paymentType: 'upfront_fee',
           monthlyAmount: PRICING_TIERS[tier][currency === 'NGN' ? 'ngn' : 'usd'] // Store monthly amount for future billing
@@ -1088,10 +1105,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       logger.logPaymentEvent('initiated', upfrontFee, { ...logContext, reference, callbackUrl, serverCalculatedAmount: true, paymentType: 'upfront_fee' });
       monitoringService.recordPaymentEvent('initiated', upfrontFee, { ...logContext, reference, callbackUrl, serverCalculatedAmount: true, paymentType: 'upfront_fee' });
 
-      // Set secure cookie for pending signup user ID if provided
+      // Set secure cookies for pending signup data if provided
       if (req.body.userId) {
         SecureCookieManager.setPendingSignupUserId(res, req.body.userId);
       }
+      if (tier) {
+        SecureCookieManager.setPendingSignupTier(res, tier);
+      }
+      SecureCookieManager.setPendingSignupLocation(res, normalizedLocation);
 
       // Include user ID in response for signup completion tracking
       const responseData = {
@@ -1173,12 +1194,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`Payment completed successfully for ${provider} reference: ${reference}`);
       
-      // Try to complete signup and create subscription if user ID is provided
+      // Try to complete signup and create subscription using provided body or pending cookies
       try {
-        const { userId, tier, location } = req.body;
+        let { userId, tier, location } = req.body as any;
+        if (!userId) userId = SecureCookieManager.getPendingSignupUserId(req);
+        if (!tier) tier = SecureCookieManager.getPendingSignupTier(req);
+        if (!location) location = SecureCookieManager.getPendingSignupLocation(req);
         if (userId && tier && location) {
           // Mark signup as completed
           await storage.markSignupCompleted(userId);
+          // Conditionally verify email based on policy
+          if (process.env.REQUIRE_EMAIL_VERIFICATION !== 'true') {
+            await storage.markEmailVerified(userId);
+          }
           console.log(`Signup marked as completed for user: ${userId}`);
           
           // Create subscription for the user
@@ -1209,6 +1237,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
           
           console.log(`Subscription created for user: ${userId}, tier: ${tier}`);
+
+          // Clear pending cookies after successful onboarding
+          SecureCookieManager.clearPendingSignupUserId(res);
+          SecureCookieManager.clearPendingSignupTier(res);
+          SecureCookieManager.clearPendingSignupLocation(res);
         }
       } catch (signupError) {
         console.error('Failed to complete signup or create subscription:', signupError);
@@ -1225,39 +1258,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }));
 
-  // Payment webhook route (for handling payment confirmations)
-  app.post("/api/payment/webhook", async (req, res) => {
-    try {
-      const { reference, status, provider } = req.body;
-      
-      // In production, verify the webhook signature
-      // For now, we'll just log the payment status
-      console.log(`Payment webhook received: ${provider} - ${reference} - ${status}`);
-      
-      if (status === 'success' || status === 'successful') {
-        // Update user subscription status
-        // await storage.updateUserSubscription(reference, 'active');
-        console.log(`Payment successful for reference: ${reference}`);
-      }
-      
-      res.json({ status: 'success' });
-    } catch (error) {
-      console.error("Payment webhook error:", error);
-      res.status(500).json({ message: "Webhook processing failed" });
-    }
-  });
+  // REMOVED shared payment webhook route: use provider-specific endpoints only
 
   // Paystack-specific webhook endpoint
   app.post("/api/payment/paystack-webhook", async (req, res) => {
     try {
       console.log('Paystack webhook received:', req.body);
       
-      // In production, verify the webhook signature using Paystack's secret key
-      // For now, we'll process the webhook data
+      // Verify Paystack signature (x-paystack-signature = HMAC-SHA512(secret, raw_body))
+      try {
+        const signature = req.headers['x-paystack-signature'];
+        if (!signature) {
+          return res.status(400).json({ status: 'error', message: 'Missing signature' });
+        }
+        const crypto = await import('crypto');
+        const expected = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY || '').update(JSON.stringify(req.body)).digest('hex');
+        if (expected !== signature) {
+          return res.status(401).json({ status: 'error', message: 'Invalid signature' });
+        }
+      } catch (sigErr) {
+        console.error('Paystack signature verification failed:', sigErr);
+        return res.status(401).json({ status: 'error', message: 'Signature verification failed' });
+      }
+
+      // Process webhook data after verification
       const { event, data } = req.body;
       
       if (event === 'charge.success') {
-        const { reference, amount, status, customer } = data;
+        const { reference, amount, status, customer, metadata } = data;
         console.log(`Paystack payment successful: ${reference}, amount: ${amount}, status: ${status}`);
         
         // Here you would:
@@ -1269,6 +1297,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // For now, just log it
         logger.logPaymentEvent('webhook_success', amount, { reference, provider: 'paystack', customer: customer?.email });
         monitoringService.recordPaymentEvent('webhook_success', amount, { reference, provider: 'paystack' });
+
+        // Attempt onboarding if metadata contains required fields
+        try {
+          const userId = metadata?.userId || metadata?.user?.id;
+          const tier = metadata?.tier;
+          const location = metadata?.location as 'nigeria' | 'international' | undefined;
+          if (userId && tier && location) {
+            await storage.markSignupCompleted(userId);
+            if (process.env.REQUIRE_EMAIL_VERIFICATION !== 'true') {
+              await storage.markEmailVerified(userId);
+            }
+            const subscriptionService = new (await import('./subscription/service')).SubscriptionService();
+            const { PRICING_TIERS } = await import('./lib/constants');
+            const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
+            const monthlyAmount = PRICING_TIERS[tier][location === 'nigeria' ? 'ngn' : 'usd'];
+            const currency = location === 'nigeria' ? 'NGN' : 'USD';
+            const subscription = await subscriptionService.createSubscription(userId, tier, upfrontFee, currency, monthlyAmount, currency);
+            await subscriptionService.recordPayment(subscription.id, reference, upfrontFee, currency, 'upfront_fee', 'completed', 'paystack', { tier, location });
+          }
+        } catch (e) {
+          console.error('Webhook onboarding failed (paystack):', e);
+        }
       }
       
       // Always respond with 200 to acknowledge receipt
@@ -1285,12 +1335,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log('Flutterwave webhook received:', req.body);
       
-      // In production, verify the webhook signature using Flutterwave's secret hash
-      // For now, we'll process the webhook data
+      // Verify Flutterwave signature: header 'verif-hash' must equal secret key
+      try {
+        const signature = req.headers['verif-hash'];
+        if (!signature) {
+          return res.status(400).json({ status: 'error', message: 'Missing signature' });
+        }
+        if (signature !== (process.env.FLUTTERWAVE_SECRET_KEY || '')) {
+          return res.status(401).json({ status: 'error', message: 'Invalid signature' });
+        }
+      } catch (sigErr) {
+        console.error('Flutterwave signature verification failed:', sigErr);
+        return res.status(401).json({ status: 'error', message: 'Signature verification failed' });
+      }
+
+      // Process webhook data after verification
       const { event, data } = req.body;
       
       if (event === 'charge.completed') {
-        const { tx_ref, amount, status, customer } = data;
+        const { tx_ref, amount, status, customer, meta } = data;
         console.log(`Flutterwave payment successful: ${tx_ref}, amount: ${amount}, status: ${status}`);
         
         // Here you would:
@@ -1302,6 +1365,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // For now, just log it
         logger.logPaymentEvent('webhook_success', amount, { reference: tx_ref, provider: 'flutterwave', customer: customer?.email });
         monitoringService.recordPaymentEvent('webhook_success', amount, { reference: tx_ref, provider: 'flutterwave' });
+
+        // Attempt onboarding if meta contains required fields
+        try {
+          const userId = meta?.userId || meta?.user?.id;
+          const tier = meta?.tier;
+          const location = meta?.location as 'nigeria' | 'international' | undefined;
+          if (userId && tier && location) {
+            await storage.markSignupCompleted(userId);
+            if (process.env.REQUIRE_EMAIL_VERIFICATION !== 'true') {
+              await storage.markEmailVerified(userId);
+            }
+            const subscriptionService = new (await import('./subscription/service')).SubscriptionService();
+            const { PRICING_TIERS } = await import('./lib/constants');
+            const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
+            const monthlyAmount = PRICING_TIERS[tier][location === 'nigeria' ? 'ngn' : 'usd'];
+            const currency = location === 'nigeria' ? 'NGN' : 'USD';
+            const subscription = await subscriptionService.createSubscription(userId, tier, upfrontFee, currency, monthlyAmount, currency);
+            await subscriptionService.recordPayment(subscription.id, tx_ref, upfrontFee, currency, 'upfront_fee', 'completed', 'flutterwave', { tier, location });
+          }
+        } catch (e) {
+          console.error('Webhook onboarding failed (flutterwave):', e);
+        }
       }
       
       // Always respond with 200 to acknowledge receipt

@@ -23,6 +23,7 @@ const PaymentCallback = lazy(() => import("@/pages/payment-callback"));
 const POS = lazy(() => import("@/pages/pos"));
 const Inventory = lazy(() => import("@/pages/inventory"));
 const Analytics = lazy(() => import("@/pages/analytics"));  
+const PostOnboarding = lazy(() => import("@/pages/post-onboarding"));
 const Loyalty = lazy(() => import("@/pages/loyalty"));
 const Alerts = lazy(() => import("@/pages/alerts"));
 const DataImport = lazy(() => import("@/pages/data-import"));
@@ -157,6 +158,7 @@ function App() {
                       );
                     }} />
                     <Route path="/payment/callback" component={PaymentCallback} />
+                    <Route path="/post-onboarding" component={PostOnboarding} />
                     <Route component={() => 
                       showForgotPassword ? (
                         <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />

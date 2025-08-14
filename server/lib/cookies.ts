@@ -47,6 +47,58 @@ export class SecureCookieManager {
   }
 
   /**
+   * Set pending signup tier
+   */
+  static setPendingSignupTier(res: Response, tier: string): void {
+    const options = {
+      ...defaultCookieOptions,
+      maxAge: 30 * 60 * 1000, // 30 minutes
+      path: '/'
+    };
+    res.cookie('pendingSignupTier', tier, options);
+  }
+
+  /**
+   * Get pending signup tier
+   */
+  static getPendingSignupTier(req: any): string | null {
+    return req.cookies?.pendingSignupTier || null;
+  }
+
+  /**
+   * Clear pending signup tier
+   */
+  static clearPendingSignupTier(res: Response): void {
+    res.clearCookie('pendingSignupTier', { path: '/' });
+  }
+
+  /**
+   * Set pending signup location
+   */
+  static setPendingSignupLocation(res: Response, location: 'nigeria' | 'international'): void {
+    const options = {
+      ...defaultCookieOptions,
+      maxAge: 30 * 60 * 1000, // 30 minutes
+      path: '/'
+    };
+    res.cookie('pendingSignupLocation', location, options);
+  }
+
+  /**
+   * Get pending signup location
+   */
+  static getPendingSignupLocation(req: any): 'nigeria' | 'international' | null {
+    return (req.cookies?.pendingSignupLocation as 'nigeria' | 'international') || null;
+  }
+
+  /**
+   * Clear pending signup location
+   */
+  static clearPendingSignupLocation(res: Response): void {
+    res.clearCookie('pendingSignupLocation', { path: '/' });
+  }
+
+  /**
    * Set a secure CSRF token cookie
    */
   static setCsrfToken(res: Response, token: string): void {
