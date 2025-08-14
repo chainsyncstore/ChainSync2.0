@@ -83,6 +83,7 @@ const cache = new Cache();
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
+  getUserById(id: string): Promise<User | undefined>; // Alias for getUser
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null>;
@@ -185,6 +186,11 @@ export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+    // Alias for getUser method
+    return this.getUser(id);
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {

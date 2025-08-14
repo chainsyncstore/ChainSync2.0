@@ -218,16 +218,16 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
       try {
         const user = await storage.authenticateUser(username, password, ipAddress);
         
-        if (user) {
-          // Conditionally require email verification
-          if (process.env.REQUIRE_EMAIL_VERIFICATION === 'true' && !user.emailVerified) {
-            logger.logAuthEvent('login_blocked_email_not_verified', { 
-              ...logContext, 
-              userId: user.id, 
-              storeId: user.storeId 
-            });
-            throw new AuthError("Please verify your email address before logging in");
-          }
+                  if (user) {
+            // Conditionally require email verification - allow completed signups to login
+            if (process.env.REQUIRE_EMAIL_VERIFICATION === 'true' && !user.emailVerified && !user.signupCompleted) {
+              logger.logAuthEvent('login_blocked_email_not_verified', { 
+                ...logContext, 
+                userId: user.id, 
+                storeId: user.storeId 
+              });
+              throw new AuthError("Please verify your email address before logging in");
+            }
           
           // Sanitize user data before storing in session
           const sanitizedUser = AuthService.sanitizeUserForSession(user) as any;
@@ -1077,6 +1077,14 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           await storage.markEmailVerified(userId);
           console.log(`Signup marked as completed for user: ${userId}`);
           
+          // AUTO-LOGIN: Get user and establish session for immediate access
+          const user = await storage.getUserById(userId);
+          if (user) {
+            // Set session for immediate access after payment
+            req.session.user = user;
+            console.log(`Auto-login session established for user: ${userId}`);
+          }
+          
           // Create subscription for the user
           const { PRICING_TIERS } = await import('./lib/constants');
           const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
@@ -1210,6 +1218,10 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           if (userId && tier && location) {
             await storage.markSignupCompleted(userId);
             await storage.markEmailVerified(userId);
+            
+            // Note: Webhook routes can't establish sessions directly
+            // Users will need to login manually after webhook processing
+            console.log(`Webhook: Signup completed for user: ${userId} - manual login required`);
             const subscriptionService = new (await import('./subscription/service')).SubscriptionService();
             const { PRICING_TIERS } = await import('./lib/constants');
             const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
@@ -1312,6 +1324,10 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
           if (userId && tier && location) {
             await storage.markSignupCompleted(userId);
             await storage.markEmailVerified(userId);
+            
+            // Note: Webhook routes can't establish sessions directly
+            // Users will need to login manually after webhook processing
+            console.log(`Webhook: Signup completed for user: ${userId} - manual login required`);
             const subscriptionService = new (await import('./subscription/service')).SubscriptionService();
             const { PRICING_TIERS } = await import('./lib/constants');
             const upfrontFee = PRICING_TIERS[tier].upfrontFee[location === 'nigeria' ? 'ngn' : 'usd'];
