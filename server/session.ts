@@ -8,13 +8,18 @@ export function createRedisClient(redisUrl: string) {
 	return client;
 }
 
-export function configureSession(redisUrl: string, sessionSecret: string) {
-	const client = createRedisClient(redisUrl);
-	client.connect().catch((e: any) => console.error('Redis connect error', e));
-	const store = new (RedisStore as any)({ client, prefix: 'chainsync:sess:' });
+export function configureSession(redisUrl: string | undefined, sessionSecret: string) {
+	let store: any | undefined;
+	if (redisUrl) {
+		const client = createRedisClient(redisUrl);
+		client.connect().catch((e: any) => console.error('Redis connect error', e));
+		store = new (RedisStore as any)({ client, prefix: 'chainsync:sess:' });
+	} else {
+		console.warn('REDIS_URL not set; using in-memory session store (not recommended for production).');
+	}
 
 	return session({
-		store,
+		...(store ? { store } : {}),
 		secret: sessionSecret,
 		resave: false,
 		saveUninitialized: false,

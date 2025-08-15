@@ -15,6 +15,13 @@
       "when": 1754405747730,
       "tag": "0001_pretty_ultimatum",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1755273694715,
+      "tag": "0002_daffy_captain_britain",
+      "breakpoints": true
     }
   ]
 }

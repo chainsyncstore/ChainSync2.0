@@ -3,7 +3,7 @@ import { z } from 'zod';
 // Core env schema with optional payments/AI; strict on DB/Redis/session
 export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
-  REDIS_URL: z.string().url(),
+  REDIS_URL: z.string().url().optional(),
   APP_URL: z.string().url(),
   BASE_URL: z.string().url().optional(),
   FRONTEND_URL: z.string().url().optional(),
@@ -51,6 +51,15 @@ export function loadEnv(raw: NodeJS.ProcessEnv): Env {
   }
   if (!data.FLUTTERWAVE_PUBLIC_KEY && (raw.FLW_PUBLIC_KEY?.length || 0) > 0) {
     data.FLUTTERWAVE_PUBLIC_KEY = raw.FLW_PUBLIC_KEY as string;
+  }
+
+  // Production hard-requirements
+  if (data.NODE_ENV === 'production') {
+    const missing: string[] = [];
+    if (!data.REDIS_URL) missing.push('REDIS_URL');
+    if (missing.length) {
+      throw new Error(`Invalid environment configuration:\n${missing.join(', ')} required in production`);
+    }
   }
 
   return data;
