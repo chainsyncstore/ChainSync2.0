@@ -17,7 +17,7 @@ export interface NotificationEvent {
 }
 
 export interface WebSocketMessage {
-  type: 'notification' | 'ping' | 'pong' | 'auth' | 'subscribe' | 'unsubscribe';
+  type: 'notification' | 'ping' | 'pong' | 'auth' | 'subscribe' | 'unsubscribe' | 'event';
   data?: any;
   timestamp: number;
 }
@@ -114,9 +114,9 @@ export class NotificationService {
       // Verify JWT token
       const decoded = jwt.verify(authData.token, process.env.SESSION_SECRET!) as any;
       const userId = decoded.userId;
-      const storeId = decoded.storeId;
+      const storeId = authData.storeId || decoded.storeId || '';
 
-      if (!userId || !storeId) {
+      if (!userId) {
         this.sendError(ws, 'Invalid token payload');
         return;
       }
@@ -136,7 +136,9 @@ export class NotificationService {
       await this.trackConnection(connectionId, userId, storeId, authData.userAgent, authData.ipAddress);
 
       // Subscribe to default channels
-      await this.handleSubscription(connectionId, { channel: `store:${storeId}` });
+      if (storeId) {
+        await this.handleSubscription(connectionId, { channel: `store:${storeId}` });
+      }
       await this.handleSubscription(connectionId, { channel: `user:${userId}` });
 
       this.sendMessage(ws, {
@@ -295,6 +297,23 @@ export class NotificationService {
       logger.error('Error broadcasting notification', { error: err?.message || 'unknown', event });
       throw error;
     }
+  }
+
+  // Lightweight channel publish for app-domain events
+  public async publish(channel: string, payload: any) {
+    const subscribers = this.channels.get(channel);
+    if (!subscribers) return;
+    const message: WebSocketMessage = {
+      type: 'event',
+      data: payload,
+      timestamp: Date.now()
+    };
+    subscribers.forEach(connectionId => {
+      const connection = this.connections.get(connectionId);
+      if (connection && connection.ws.readyState === WebSocket.OPEN) {
+        this.sendMessage(connection.ws, message);
+      }
+    });
   }
 
   public async sendToUser(userId: string, event: NotificationEvent) {

@@ -4,6 +4,7 @@ import { sales, auditLogs, users, userRoles, stores } from '@shared/prd-schema';
 import { and, eq, gte, lte, sql, inArray } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
 import { requireAuth, requireRole } from '../middleware/authz';
+import { getTodayRollupForOrg, getTodayRollupForStore } from '../lib/redis';
 
 export async function registerAnalyticsRoutes(app: Express) {
   const auth = (req: Request, res: Response, next: any) => {
@@ -91,6 +92,33 @@ export async function registerAnalyticsRoutes(app: Express) {
     }
     if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
     if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
+
+    // Redis fast-path for "today" without custom date range
+    const now = new Date();
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - parseInt(String(req.query.period || '0') || '0'));
+
+    const noCustomRange = !req.query.date_from && !req.query.date_to;
+    if (noCustomRange) {
+      try {
+        let rollup: { revenue: number; transactions: number; discount: number; tax: number } | null = null;
+        if (req.query.store_id) {
+          rollup = await getTodayRollupForStore(String(req.query.store_id));
+        } else if (orgId) {
+          rollup = await getTodayRollupForOrg(orgId);
+        }
+        if (rollup) {
+          return res.json({
+            gross: String(rollup.revenue),
+            discount: String(rollup.discount),
+            tax: String(rollup.tax),
+            transactions: rollup.transactions,
+            cache: 'hit'
+          });
+        }
+      } catch {}
+    }
 
     const total = await db.execute(sql`SELECT 
       COALESCE(SUM(total::numeric),0) as total, 

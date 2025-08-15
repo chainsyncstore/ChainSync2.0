@@ -1,9 +1,10 @@
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
-import { sales, saleItems, inventory, products, returns } from '@shared/prd-schema';
+import { sales, saleItems, inventory, products, returns, stores } from '@shared/prd-schema';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/authz';
+import { incrementTodayRollups } from '../lib/redis';
 
 const SaleSchema = z.object({
   orgId: z.string().uuid(),
@@ -58,6 +59,51 @@ export async function registerPosRoutes(app: Express) {
       }
 
       await pg.query('COMMIT');
+
+      // Redis rollups and websocket event (fire-and-forget)
+      try {
+        // Resolve orgId from store for channeling by org
+        const srow = await db.select({ orgId: stores.orgId }).from(stores).where(eq(stores.id, parsed.data.storeId)).limit(1);
+        const orgId = (srow as any)[0]?.orgId as string | undefined;
+        const revenue = parseFloat(String(parsed.data.total || '0')) || 0;
+        const discount = parseFloat(String(parsed.data.discount || '0')) || 0;
+        const tax = parseFloat(String(parsed.data.tax || '0')) || 0;
+        await incrementTodayRollups(orgId || parsed.data.orgId, parsed.data.storeId, {
+          revenue,
+          transactions: 1,
+          discount,
+          tax,
+        });
+
+        const wsService = (req.app as any).wsService;
+        if (wsService) {
+          const payload = {
+            event: 'sale:created',
+            orgId: orgId || parsed.data.orgId,
+            storeId: parsed.data.storeId,
+            delta: { revenue, transactions: 1, discount, tax },
+            saleId: sale.id,
+            occurredAt: new Date().toISOString(),
+          };
+          // Publish to store and org channels if supported by service
+          if (wsService.publish) {
+            await wsService.publish(`store:${parsed.data.storeId}`, payload);
+            if (orgId || parsed.data.orgId) {
+              await wsService.publish(`org:${orgId || parsed.data.orgId}`, payload);
+            }
+          } else if (wsService.broadcastNotification) {
+            await wsService.broadcastNotification({
+              type: 'sales_update',
+              storeId: parsed.data.storeId,
+              title: 'Sale created',
+              message: `+${revenue.toFixed(2)}`,
+              data: payload,
+              priority: 'low',
+            });
+          }
+        }
+      } catch {}
+
       res.json(sale);
     } catch (e) {
       await pg.query('ROLLBACK');

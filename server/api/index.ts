@@ -8,6 +8,7 @@ import { registerPosRoutes } from './routes.pos';
 import { registerAnalyticsRoutes } from './routes.analytics';
 import { registerMeRoutes } from './routes.me';
 import { auditMiddleware } from '../middleware/validation';
+import { NotificationService } from '../websocket/notification-service';
 
 export async function registerRoutes(app: Express) {
   const env = loadEnv(process.env);
@@ -29,7 +30,13 @@ export async function registerRoutes(app: Express) {
   await registerPosRoutes(app);
   await registerAnalyticsRoutes(app);
 
-  return createServer(app);
+  const server = createServer(app);
+  // Attach websocket notification service
+  try {
+    const wsService = new NotificationService(server);
+    (app as any).wsService = wsService;
+  } catch {}
+  return server;
 }
 
 

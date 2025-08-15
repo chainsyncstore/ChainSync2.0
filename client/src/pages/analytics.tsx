@@ -12,6 +12,7 @@ import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Users, Cal
 import { formatCurrency } from "@/lib/pos-utils";
 import { LoadingSpinner, CardSkeleton, ChartSkeleton } from "@/components/ui/loading";
 import type { Store, LowStockAlert, Product } from "@shared/schema";
+import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 
 export default function Analytics() {
   const { user } = useAuth();
@@ -50,6 +51,9 @@ export default function Analytics() {
       return { transactions: j.transactions || 0, revenue: parseFloat(j.gross || '0') };
     },
   });
+  // Subscribe to realtime sales for current scope
+  useRealtimeSales({ orgId: null, storeId: selectedStore || null });
+
 
   const { data: popularProducts = [] } = useQuery<Array<{ product: Product; salesCount: number }>>({
     queryKey: ["/api/stores", selectedStore, "analytics/popular-products"],

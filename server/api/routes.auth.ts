@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { authenticator } from 'otplib';
+import jwt from 'jsonwebtoken';
 
 const LoginSchema = z.union([
   z.object({ email: z.string().email(), password: z.string().min(8) }),
@@ -99,6 +100,14 @@ export async function registerAuthRoutes(app: Express) {
     req.session?.destroy(() => {
       res.json({ ok: true });
     });
+  });
+
+  // WebSocket auth token (simple JWT containing userId and optional storeId)
+  app.get('/api/auth/realtime-token', async (req: Request, res: Response) => {
+    const userId = req.session?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+    const token = jwt.sign({ userId }, process.env.SESSION_SECRET || 'changeme', { expiresIn: '1h' });
+    res.json({ token });
   });
 
   // Back-compat: return current user with role

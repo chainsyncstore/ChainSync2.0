@@ -12,6 +12,7 @@ import { useNotifications } from "@/hooks/use-notifications";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, LowStockAlert } from "@shared/schema";
+import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 
 export default function POS() {
   const { user } = useAuth();
@@ -121,6 +122,9 @@ export default function POS() {
       console.error("Transaction error:", error);
     },
   });
+
+  // Subscribe to realtime sales for POS store scope
+  useRealtimeSales({ orgId: null, storeId: selectedStore || null });
 
   // Barcode scanning
   const handleBarcodeScanned = async (barcode: string) => {
