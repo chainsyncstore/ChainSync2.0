@@ -5,45 +5,18 @@ import rateLimit from "express-rate-limit";
 import { logger } from "../lib/logger";
 import { monitoringService } from "../lib/monitoring";
 
-// CORS configuration for API routes only
+// CORS configuration for API routes only (reads CORS_ORIGINS CSV)
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // In production, allow requests with no origin for certain cases (like service workers, direct API calls)
-    if (process.env.NODE_ENV === 'production' && !origin) {
-      logger.info('Allowing request with no origin in production (likely service worker or direct API call)', {
-        environment: process.env.NODE_ENV
-      });
+    // Allow requests with no origin (e.g., same-origin, service workers) in all envs
+    if (!origin) {
       return callback(null, true);
     }
 
-    // In development, allow requests with no origin for testing
-    if (process.env.NODE_ENV === 'development' && !origin) {
-      return callback(null, true);
-    }
+    const csv = process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://localhost:5000';
+    const allowedOrigins = csv.split(',').map(s => s.trim()).filter(Boolean);
 
-    let allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean) || [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://localhost:5000',
-    ];
-
-    // In production, lock origins strictly to env-configured production domains
-    if (process.env.NODE_ENV === 'production') {
-      const prodOrigins: string[] = [];
-      if (process.env.ALLOWED_ORIGINS) {
-        prodOrigins.push(...process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean));
-      }
-      if (process.env.PRODUCTION_DOMAIN) {
-        prodOrigins.push(process.env.PRODUCTION_DOMAIN);
-      }
-      if (process.env.PRODUCTION_WWW_DOMAIN) {
-        prodOrigins.push(process.env.PRODUCTION_WWW_DOMAIN);
-      }
-      // If nothing configured, default to primary domain to avoid accidental wide-open CORS
-      allowedOrigins = prodOrigins.length > 0 ? prodOrigins : ['https://chainsync.store', 'https://www.chainsync.store'];
-    }
-
-    if (origin && allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
