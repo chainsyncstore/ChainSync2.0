@@ -878,7 +878,7 @@ export class DatabaseStorage implements IStorage {
   async getTransactionsByStore(storeId: string, limit = 50): Promise<Transaction[]> {
     if (this.isTestEnv) {
       const all = Array.from(this.mem.transactions.values()).filter((t: any) => t.storeId === storeId);
-      return all.sort((a: any, b: any) => (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())).slice(0, limit);
+      return (all as any[]).sort((a: any, b: any) => (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())).slice(0, limit) as any;
     }
     return await db
       .select()
@@ -900,7 +900,7 @@ export class DatabaseStorage implements IStorage {
     if (this.isTestEnv) {
       const all = Array.from(this.mem.transactions.values()).filter((t: any) => t.storeId === storeId);
       const sorted = all.sort((a: any, b: any) => (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-      return sorted.slice(offset, offset + limit);
+      return (sorted as any[]).slice(offset, offset + limit) as any;
     }
     return await db
       .select()

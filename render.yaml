@@ -1,20 +1,25 @@
 services:
   - type: web
-    name: chainsync
+    name: chainsync-server
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build:simple
+    buildCommand: npm install && npx drizzle-kit generate && npx drizzle-kit migrate && npm run build:simple
     startCommand: npm run start:render
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
         sync: false
+      - key: REDIS_URL
+        sync: false
       - key: SESSION_SECRET
         sync: false
       - key: JWT_SECRET
         sync: false
-      - key: JWT_REFRESH_SECRET
+      - key: CORS_ORIGINS
         sync: false
-      - key: CSRF_SECRET
+      - key: APP_URL
         sync: false
+      - key: ADMIN_2FA_ISSUER
+        value: ChainSync

@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import * as schema from "@shared/schema";
+// Use PRD-compliant schema
+import * as schema from "@shared/prd-schema";
 import 'dotenv/config';
 
 if (!process.env.DATABASE_URL) {

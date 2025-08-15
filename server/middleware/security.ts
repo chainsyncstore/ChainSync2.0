@@ -81,7 +81,7 @@ export const globalRateLimit = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   // Use request IP as key, relying on app.set('trust proxy', true)
-  keyGenerator: (req: Request) => ipKeyGenerator(req),
+  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
   handler: (req: Request, res: Response) => {
     logger.warn('Rate limit exceeded', {
       ip: req.ip,
@@ -109,7 +109,7 @@ export const authRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => ipKeyGenerator(req),
+  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
       ip: req.ip,
@@ -139,7 +139,7 @@ export const sensitiveEndpointRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => ipKeyGenerator(req),
+  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
       ip: req.ip,
@@ -169,7 +169,7 @@ export const paymentRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => ipKeyGenerator(req),
+  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {
       ip: req.ip,

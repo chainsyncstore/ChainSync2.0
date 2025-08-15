@@ -1,0 +1,71 @@
+import type { Express, Request, Response } from 'express';
+import { db } from '../db';
+import { sales, saleItems, inventory, products } from '@shared/prd-schema';
+import { eq, sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
+
+const SaleSchema = z.object({
+  orgId: z.string().uuid(),
+  storeId: z.string().uuid(),
+  cashierId: z.string().uuid(),
+  subtotal: z.string(),
+  discount: z.string().default('0'),
+  tax: z.string().default('0'),
+  total: z.string(),
+  paymentMethod: z.string().default('manual'),
+  items: z.array(z.object({
+    productId: z.string().uuid(),
+    quantity: z.number().int().positive(),
+    unitPrice: z.string(),
+    lineDiscount: z.string().default('0'),
+    lineTotal: z.string(),
+  })),
+});
+
+export async function registerPosRoutes(app: Express) {
+  app.post('/api/pos/sales', requireAuth, enforceIpWhitelist, async (req: Request, res: Response) => {
+    const idempotencyKey = String(req.headers['idempotency-key'] || '');
+    if (!idempotencyKey) return res.status(400).json({ error: 'Idempotency-Key required' });
+    const parsed = SaleSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+
+    // Check idempotency
+    const existing = await db.select().from(sales).where(eq(sales.idempotencyKey, idempotencyKey));
+    if (existing[0]) return res.json(existing[0]);
+
+    // Transactional insert and inventory decrement
+    const client = (db as any).client;
+    const pg = await client.connect();
+    try {
+      await pg.query('BEGIN');
+      const [sale] = await db.insert(sales).values({
+        ...parsed.data,
+        idempotencyKey,
+      } as any).returning();
+
+      for (const item of parsed.data.items) {
+        await db.insert(saleItems).values({
+          saleId: sale.id,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          lineDiscount: item.lineDiscount,
+          lineTotal: item.lineTotal,
+        } as any);
+
+        await db.execute(sql`UPDATE inventory SET quantity = quantity - ${item.quantity} WHERE store_id = ${parsed.data.storeId} AND product_id = ${item.productId}`);
+      }
+
+      await pg.query('COMMIT');
+      res.json(sale);
+    } catch (e) {
+      await pg.query('ROLLBACK');
+      res.status(500).json({ error: 'Failed to record sale' });
+    } finally {
+      pg.release();
+    }
+  });
+}
+
+

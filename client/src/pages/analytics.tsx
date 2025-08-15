@@ -2,9 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import SalesChart from "@/components/analytics/sales-chart";
-import DemandForecast from "@/components/analytics/demand-forecast";
-import AiInsights from "@/components/analytics/ai-insights";
-import ForecastChat from "@/components/ai/forecast-chat";
+// PRD: Remove AI features from v1
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -191,9 +189,7 @@ export default function Analytics() {
             <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="sales">Sales Analytics</TabsTrigger>
-              <TabsTrigger value="ai-forecast">AI Forecasting</TabsTrigger>
-              <TabsTrigger value="ai-insights">AI Insights</TabsTrigger>
-              <TabsTrigger value="ai-chat">AI Assistant</TabsTrigger>
+              
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
@@ -349,44 +345,7 @@ export default function Analytics() {
               <SalesChart storeId={selectedStore} className="w-full" />
             </TabsContent>
 
-            <TabsContent value="ai-forecast" className="space-y-6">
-              <DemandForecast storeId={selectedStore} />
-            </TabsContent>
-
-            <TabsContent value="ai-insights" className="space-y-6">
-              <AiInsights storeId={selectedStore} />
-            </TabsContent>
-
-            <TabsContent value="ai-chat" className="space-y-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <ForecastChat storeId={selectedStore} />
-                <Card>
-                  <CardHeader>
-                    <CardTitle>AI Assistant Tips</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="p-3 bg-blue-50 rounded-lg">
-                        <h4 className="font-semibold text-blue-800">Demand Forecasting</h4>
-                        <p className="text-sm text-blue-700">Ask: "What's the demand forecast for next month?"</p>
-                      </div>
-                      <div className="p-3 bg-green-50 rounded-lg">
-                        <h4 className="font-semibold text-green-800">Inventory Management</h4>
-                        <p className="text-sm text-green-700">Ask: "Show me low stock alerts"</p>
-                      </div>
-                      <div className="p-3 bg-purple-50 rounded-lg">
-                        <h4 className="font-semibold text-purple-800">Sales Trends</h4>
-                        <p className="text-sm text-purple-700">Ask: "What are the current sales trends?"</p>
-                      </div>
-                      <div className="p-3 bg-orange-50 rounded-lg">
-                        <h4 className="font-semibold text-orange-800">Reorder Recommendations</h4>
-                        <p className="text-sm text-orange-700">Ask: "When should I reorder electronics?"</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
+            
           </Tabs>
         </div>
       </div>
