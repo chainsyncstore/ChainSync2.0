@@ -36,12 +36,19 @@ export default function Analytics() {
   }, [stores, selectedStore, userData.role]);
 
   const { data: dailySales = { transactions: 0, revenue: 0 } } = useQuery<{ transactions: number; revenue: number }>({
-    queryKey: ["/api/stores", selectedStore || (userData.role === 'admin' ? 'all' : ''), "analytics/daily-sales"],
-    queryFn: () => {
-      const storeParam = userData.role === 'admin' && !selectedStore ? 'all' : selectedStore;
-      return fetch(`/api/stores/${storeParam}/analytics/daily-sales`).then(r => r.json());
+    queryKey: ["/api/analytics/overview", selectedStore, selectedPeriod],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedStore) params.set('store_id', selectedStore);
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - parseInt(selectedPeriod));
+      params.set('date_from', start.toISOString());
+      params.set('date_to', end.toISOString());
+      const r = await fetch(`/api/analytics/overview?${params.toString()}`);
+      const j = await r.json();
+      return { transactions: j.transactions || 0, revenue: parseFloat(j.gross || '0') };
     },
-    enabled: !!(selectedStore || userData.role === 'admin')
   });
 
   const { data: popularProducts = [] } = useQuery<Array<{ product: Product; salesCount: number }>>({
@@ -105,11 +112,11 @@ export default function Analytics() {
             <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
               <Button variant="outline" size="sm" className="min-h-[36px]" onClick={() => {
                 const params = new URLSearchParams();
-                params.set('startDate', new Date(Date.now() - parseInt(selectedPeriod) * 24 * 60 * 60 * 1000).toISOString());
-                params.set('endDate', new Date().toISOString());
-                params.set('format', 'pdf');
-                const store = userData.role === 'admin' && !selectedStore ? stores[0]?.id : selectedStore;
-                window.open(`/api/stores/${store}/reports/sales?${params.toString()}`, '_blank');
+                params.set('interval', 'day');
+                params.set('date_from', new Date(Date.now() - parseInt(selectedPeriod) * 24 * 60 * 60 * 1000).toISOString());
+                params.set('date_to', new Date().toISOString());
+                if (selectedStore) params.set('store_id', selectedStore);
+                window.open(`/api/analytics/export.pdf?${params.toString()}`, '_blank');
               }}>
                 <Calendar className="w-4 h-4 mr-2" />
                 Export Report
