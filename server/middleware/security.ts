@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import cors from "cors";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import rateLimit from "express-rate-limit";
 import { logger } from "../lib/logger";
 import { monitoringService } from "../lib/monitoring";
 
@@ -80,8 +80,12 @@ export const globalRateLimit = rateLimit({
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // IPv6-safe key generation using helper
-  keyGenerator: (req: Request) => ipKeyGenerator(req),
+  // IPv6-safe key generation
+  keyGenerator: (req: Request) => {
+    const raw = req.ip || (req as any).connection?.remoteAddress || req.socket?.remoteAddress || "";
+    // Normalize IPv6-mapped IPv4 addresses like ::ffff:127.0.0.1
+    return raw.startsWith("::ffff:") ? raw.substring(7) : raw;
+  },
   // Disable rate limiting during tests
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
@@ -111,7 +115,10 @@ export const authRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => ipKeyGenerator(req),
+  keyGenerator: (req: Request) => {
+    const raw = req.ip || (req as any).connection?.remoteAddress || req.socket?.remoteAddress || "";
+    return raw.startsWith("::ffff:") ? raw.substring(7) : raw;
+  },
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
@@ -142,7 +149,10 @@ export const sensitiveEndpointRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => ipKeyGenerator(req),
+  keyGenerator: (req: Request) => {
+    const raw = req.ip || (req as any).connection?.remoteAddress || req.socket?.remoteAddress || "";
+    return raw.startsWith("::ffff:") ? raw.substring(7) : raw;
+  },
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
@@ -173,7 +183,10 @@ export const paymentRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => ipKeyGenerator(req),
+  keyGenerator: (req: Request) => {
+    const raw = req.ip || (req as any).connection?.remoteAddress || req.socket?.remoteAddress || "";
+    return raw.startsWith("::ffff:") ? raw.substring(7) : raw;
+  },
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {
