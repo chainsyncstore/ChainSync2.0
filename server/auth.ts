@@ -93,6 +93,11 @@ export class AuthService {
       errors.push('Password must contain at least one number');
     }
     
+    // Require at least one non-alphanumeric character
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      errors.push('Password must contain at least one special character');
+    }
+    
     return {
       isValid: errors.length === 0,
       errors

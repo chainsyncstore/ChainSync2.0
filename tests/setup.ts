@@ -25,6 +25,15 @@ vi.mock('./server/db', () => ({
   }
 }));
 
+// Provide no-op DB setup/teardown for E2E tests that import from tests/setup
+export async function setupTestDatabase() {
+  return true;
+}
+
+export async function teardownTestDatabase() {
+  return true;
+}
+
 // Import and use comprehensive crypto mock
 import { cryptoModuleMock } from './utils/crypto-mocks';
 
