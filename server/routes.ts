@@ -197,6 +197,8 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
     next();
   });
 
+  // (CSRF token endpoint defined later; avoid duplicate route definitions)
+
   // CSRF protection (must come after session middleware). Skip in test environment.
   if (process.env.NODE_ENV !== 'test') {
     const { csrfProtection, csrfErrorHandler } = await import('./middleware/security');
