@@ -1,7 +1,8 @@
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
-import { sales, saleItems, products } from '@shared/prd-schema';
+import { sales, saleItems, products, auditLogs, users } from '@shared/prd-schema';
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
+import { requireAuth, requireRole } from '../middleware/authz';
 
 export async function registerAnalyticsRoutes(app: Express) {
   app.get('/api/analytics/overview', async (req: Request, res: Response) => {
@@ -25,6 +26,26 @@ export async function registerAnalyticsRoutes(app: Express) {
       discount: total.rows[0]?.discount || '0',
       tax: total.rows[0]?.tax || '0',
     });
+  });
+
+  // Minimal admin audit logs feed
+  app.get('/api/admin/audit', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+    const limit = Math.min(parseInt(String(req.query.limit || '50'), 10) || 50, 200);
+    const rows = await db.execute(sql`SELECT id, org_id, user_id, action, entity, entity_id, meta, ip, user_agent, created_at
+      FROM audit_logs ORDER BY created_at DESC LIMIT ${limit}`);
+    const logs = (rows as any).rows.map((r: any) => ({
+      id: r.id,
+      orgId: r.org_id,
+      userId: r.user_id,
+      action: r.action,
+      entity: r.entity,
+      entityId: r.entity_id,
+      meta: r.meta,
+      ip: r.ip,
+      userAgent: r.user_agent,
+      createdAt: r.created_at,
+    }));
+    res.json({ logs });
   });
 }
 

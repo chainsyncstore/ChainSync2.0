@@ -1,9 +1,9 @@
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
-import { sales, saleItems, inventory, products } from '@shared/prd-schema';
+import { sales, saleItems, inventory, products, returns } from '@shared/prd-schema';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
+import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/authz';
 
 const SaleSchema = z.object({
   orgId: z.string().uuid(),
@@ -24,7 +24,7 @@ const SaleSchema = z.object({
 });
 
 export async function registerPosRoutes(app: Express) {
-  app.post('/api/pos/sales', requireAuth, enforceIpWhitelist, async (req: Request, res: Response) => {
+  app.post('/api/pos/sales', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const idempotencyKey = String(req.headers['idempotency-key'] || '');
     if (!idempotencyKey) return res.status(400).json({ error: 'Idempotency-Key required' });
     const parsed = SaleSchema.safeParse(req.body);
@@ -62,6 +62,56 @@ export async function registerPosRoutes(app: Express) {
     } catch (e) {
       await pg.query('ROLLBACK');
       res.status(500).json({ error: 'Failed to record sale' });
+    } finally {
+      pg.release();
+    }
+  });
+
+  // POS Returns: restore inventory based on original sale items
+  const ReturnSchema = z.object({
+    saleId: z.string().uuid(),
+    reason: z.string().optional(),
+    storeId: z.string().uuid(),
+  });
+
+  app.post('/api/pos/returns', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const parsed = ReturnSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+
+    // Verify sale exists and not already returned
+    const saleRows = await db.select().from(sales).where(eq(sales.id, parsed.data.saleId));
+    const sale = saleRows[0];
+    if (!sale) return res.status(404).json({ error: 'Sale not found' });
+    if (sale.status === 'RETURNED') return res.status(409).json({ error: 'Sale already returned' });
+
+    const client = (db as any).client;
+    const pg = await client.connect();
+    try {
+      await pg.query('BEGIN');
+
+      // Mark sale as returned
+      await db.execute(sql`UPDATE sales SET status = 'RETURNED' WHERE id = ${parsed.data.saleId}`);
+
+      // Fetch sale items
+      const items = await db.select().from(saleItems).where(eq(saleItems.saleId, parsed.data.saleId));
+
+      // Restore inventory per item
+      for (const item of items) {
+        await db.execute(sql`UPDATE inventory SET quantity = quantity + ${item.quantity} WHERE store_id = ${parsed.data.storeId} AND product_id = ${item.productId}`);
+      }
+
+      // Record return entry
+      const [ret] = await db.insert(returns).values({
+        saleId: parsed.data.saleId,
+        reason: parsed.data.reason,
+        processedBy: (req.session as any).userId,
+      } as any).returning();
+
+      await pg.query('COMMIT');
+      res.status(201).json({ ok: true, return: ret });
+    } catch (e) {
+      await pg.query('ROLLBACK');
+      res.status(500).json({ error: 'Failed to process return' });
     } finally {
       pg.release();
     }
