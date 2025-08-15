@@ -9,12 +9,12 @@ declare module 'express-session' {
   }
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
   next();
 }
 
-export async function requireRole(required: 'ADMIN' | 'MANAGER' | 'CASHIER') {
+export function requireRole(required: 'ADMIN' | 'MANAGER' | 'CASHIER') {
   return async (req: Request, res: Response, next: NextFunction) => {
     const userId = req.session?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });

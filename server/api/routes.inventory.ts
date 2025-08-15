@@ -44,6 +44,7 @@ export async function registerInventoryRoutes(app: Express) {
 
   // Inventory import (multipart CSV), Zod validation, upsert products, per-store qty, invalid row report
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+  const uploadSingle: any = upload.single('file');
   const ImportRowSchema = z.object({
     sku: z.string().min(1),
     barcode: z.string().optional().nullable(),
@@ -57,7 +58,7 @@ export async function registerInventoryRoutes(app: Express) {
     store_code: z.string().optional(),
   });
 
-  app.post('/api/inventory/import', requireAuth, enforceIpWhitelist, upload.single('file'), async (req: Request, res: Response) => {
+  app.post('/api/inventory/import', requireAuth, enforceIpWhitelist, uploadSingle, async (req: Request, res: Response) => {
     if (!req.file) return res.status(400).json({ error: 'file is required' });
 
     const invalidRows: Array<{ row: any; error: string }> = [];
