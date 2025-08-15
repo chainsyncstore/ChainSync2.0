@@ -2046,37 +2046,39 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
         }
       } catch {}
 
-      // Redis rollups and lightweight event publish
-      try {
-        const { incrementTodayRollups } = await import('./lib/redis');
-        const { db } = await import('./db');
-        const { stores } = await import('../shared/prd-schema');
-        const { eq } = await import('drizzle-orm');
-        let orgId: string | undefined;
+      // Redis rollups and lightweight event publish (skip in test to avoid side-effects/timeouts)
+      if (process.env.NODE_ENV !== 'test') {
         try {
-          const r = await db.select({ orgId: (stores as any).orgId }).from(stores as any).where(eq((stores as any).id, transaction.storeId)).limit(1);
-          orgId = (r as any)[0]?.orgId as string | undefined;
+          const { incrementTodayRollups } = await import('./lib/redis');
+          const { db } = await import('./db');
+          const { stores } = await import('../shared/prd-schema');
+          const { eq } = await import('drizzle-orm');
+          let orgId: string | undefined;
+          try {
+            const r = await db.select({ orgId: (stores as any).orgId }).from(stores as any).where(eq((stores as any).id, transaction.storeId)).limit(1);
+            orgId = (r as any)[0]?.orgId as string | undefined;
+          } catch {}
+          await incrementTodayRollups(orgId || transaction.storeId, transaction.storeId, {
+            revenue: totalAmount,
+            transactions: 1,
+            discount: 0,
+            tax: 0,
+          } as any);
+          const wsService = (req.app as any).wsService;
+          if (wsService && wsService.publish) {
+            const payload = {
+              event: 'sale:created',
+              orgId: orgId,
+              storeId: transaction.storeId,
+              delta: { revenue: totalAmount, transactions: 1 },
+              saleId: transaction.id,
+              occurredAt: new Date().toISOString(),
+            };
+            await wsService.publish(`store:${transaction.storeId}`, payload);
+            if (orgId) await wsService.publish(`org:${orgId}`, payload);
+          }
         } catch {}
-        await incrementTodayRollups(orgId || transaction.storeId, transaction.storeId, {
-          revenue: totalAmount,
-          transactions: 1,
-          discount: 0,
-          tax: 0,
-        } as any);
-        const wsService = (req.app as any).wsService;
-        if (wsService && wsService.publish) {
-          const payload = {
-            event: 'sale:created',
-            orgId: orgId,
-            storeId: transaction.storeId,
-            delta: { revenue: totalAmount, transactions: 1 },
-            saleId: transaction.id,
-            occurredAt: new Date().toISOString(),
-          };
-          await wsService.publish(`store:${transaction.storeId}`, payload);
-          if (orgId) await wsService.publish(`org:${orgId}`, payload);
-        }
-      } catch {}
+      }
       
       res.json(transaction);
     } catch (error) {
