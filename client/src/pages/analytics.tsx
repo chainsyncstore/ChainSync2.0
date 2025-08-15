@@ -32,13 +32,18 @@ export default function Analytics() {
 
   // Auto-select first store when stores are loaded
   useEffect(() => {
-    if (stores.length > 0 && !selectedStore) {
+    if (userData.role !== 'admin' && stores.length > 0 && !selectedStore) {
       setSelectedStore(stores[0].id);
     }
-  }, [stores, selectedStore]);
+  }, [stores, selectedStore, userData.role]);
 
   const { data: dailySales = { transactions: 0, revenue: 0 } } = useQuery<{ transactions: number; revenue: number }>({
-    queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"],
+    queryKey: ["/api/stores", selectedStore || (userData.role === 'admin' ? 'all' : ''), "analytics/daily-sales"],
+    queryFn: () => {
+      const storeParam = userData.role === 'admin' && !selectedStore ? 'all' : selectedStore;
+      return fetch(`/api/stores/${storeParam}/analytics/daily-sales`).then(r => r.json());
+    },
+    enabled: !!(selectedStore || userData.role === 'admin')
   });
 
   const { data: popularProducts = [] } = useQuery<Array<{ product: Product; salesCount: number }>>({
@@ -100,7 +105,14 @@ export default function Analytics() {
               <span className="text-sm text-gray-600">Analytics Period</span>
             </div>
             <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-              <Button variant="outline" size="sm" className="min-h-[36px]">
+              <Button variant="outline" size="sm" className="min-h-[36px]" onClick={() => {
+                const params = new URLSearchParams();
+                params.set('startDate', new Date(Date.now() - parseInt(selectedPeriod) * 24 * 60 * 60 * 1000).toISOString());
+                params.set('endDate', new Date().toISOString());
+                params.set('format', 'pdf');
+                const store = userData.role === 'admin' && !selectedStore ? stores[0]?.id : selectedStore;
+                window.open(`/api/stores/${store}/reports/sales?${params.toString()}`, '_blank');
+              }}>
                 <Calendar className="w-4 h-4 mr-2" />
                 Export Report
               </Button>

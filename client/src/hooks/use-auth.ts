@@ -99,16 +99,36 @@ export function useAuth(): AuthState & AuthActions {
     
     try {
       // Use centralized API client which automatically handles CSRF tokens and cookies
-      const userData = await post<User>("/auth/login", { username, password });
-      console.log("Login successful, user data:", userData);
-      setUser(userData);
+      const userDataOrOtp = await post<any>("/auth/login", { username, password });
+      if ((userDataOrOtp as any)?.status === 'otp_required') {
+        // Prompt for OTP inline
+        const otp = window.prompt('Enter 2FA code from your authenticator app');
+        if (!otp) {
+          setIsLoading(false);
+          setError('2FA required');
+          return;
+        }
+        const verifyResp = await post<any>("/auth/2fa/verify", { otp });
+        if (!verifyResp?.success) {
+          setIsLoading(false);
+          setError('Invalid OTP');
+          return;
+        }
+        // Re-fetch session user
+        const me = await fetch("/api/auth/me", { credentials: 'include' });
+        if (!me.ok) throw new Error('Failed to fetch user after 2FA');
+        const userData = await me.json();
+        setUser(userData);
+        saveSession(userData);
+      } else {
+        const userData = userDataOrOtp as User;
+        setUser(userData);
+        saveSession(userData);
+      }
       setError(null);
       
-      // Save session for any authenticated user
-      saveSession(userData);
-      
               // Redirect to appropriate default page based on role and email verification policy
-        const role = userData.role || "cashier";
+        const role = (loadSession() as any)?.role || "cashier";
         const requireVerify = (import.meta as any).env?.VITE_REQUIRE_EMAIL_VERIFICATION === 'true';
         let defaultPath = "/";
         if (requireVerify && !userData.emailVerified && !userData.signupCompleted) {

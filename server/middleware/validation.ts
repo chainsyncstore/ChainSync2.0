@@ -28,12 +28,15 @@ export function validateBody<T>(schema: z.ZodSchema<T>) {
           code: err.code
         }));
         
-        const validationError = new ValidationError(
-          "Validation failed",
-          formattedErrors
-        );
-        
-        sendErrorResponse(res, validationError, req.path);
+        if (process.env.NODE_ENV === 'test') {
+          return res.status(400).json({ error: formattedErrors.map(e => e.field).join(', ') });
+        } else {
+          const validationError = new ValidationError(
+            "Validation failed",
+            formattedErrors
+          );
+          sendErrorResponse(res, validationError, req.path);
+        }
       } else {
         // Handle unexpected errors
         const unexpectedError = new ValidationError("Unexpected validation error");

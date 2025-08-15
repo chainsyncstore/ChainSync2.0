@@ -109,7 +109,7 @@ export default function AdvancedCheckout({
     mutationFn: async () => {
       const transactionData = {
         storeId,
-        cashierId: "current-user", // In real app, get from auth
+        // cashierId is determined server-side from session; omit here for security
         subtotal: summary.subtotal,
         taxAmount: summary.tax,
         total: summary.total,

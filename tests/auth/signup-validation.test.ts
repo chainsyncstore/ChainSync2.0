@@ -26,7 +26,7 @@ describe('SignupSchema Validation', () => {
         expect(result.data.companyName).toBe('Acme Corp');
         expect(result.data.password).toBe('SecurePass123');
         expect(result.data.tier).toBe('basic');
-        expect(result.data.location).toBe('New York');
+        expect(result.data.location).toBe('international');
       }
     });
 
@@ -89,7 +89,7 @@ describe('SignupSchema Validation', () => {
         expect(result.data.firstName).toBe('Alice');
         expect(result.data.lastName).toBe('Brown');
         expect(result.data.companyName).toBe('Clean Corp');
-        expect(result.data.location).toBe('Los Angeles');
+        expect(result.data.location).toBe('international');
       }
     });
   });

@@ -15,6 +15,7 @@ import {
   redirectSecurityCheck
 } from "./middleware/security";
 import { scheduleAbandonedSignupCleanup } from "./jobs/cleanup";
+import { NotificationService } from './websocket/notification-service';
 
 const app = express();
 
@@ -58,6 +59,17 @@ app.use(requestLogger);
     });
 
     const server = await registerRoutes(app);
+
+    // Start WebSocket server for real-time analytics/notifications
+    if (process.env.WS_ENABLED !== 'false') {
+      try {
+        const wsService = new NotificationService(server);
+        (app as any).wsService = wsService;
+        logger.info('WebSocket service initialized');
+      } catch (e) {
+        logger.error('Failed to initialize WebSocket service', { error: e instanceof Error ? e.message : String(e) });
+      }
+    }
 
     // Verify SMTP transporter in production to catch misconfiguration early
     if (app.get("env") === "production") {

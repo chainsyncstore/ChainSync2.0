@@ -9,30 +9,46 @@ dotenv.config({ path: '.env.test' });
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'error';
 
-// Mock the database module
-vi.mock('../../server/db', () => ({
-  db: {
-    select: vi.fn().mockReturnThis(),
-    insert: vi.fn().mockReturnThis(),
-    update: vi.fn().mockReturnThis(),
-    delete: vi.fn().mockReturnThis(),
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    set: vi.fn().mockReturnThis(),
-    values: vi.fn().mockReturnThis(),
-    returning: vi.fn().mockReturnThis(),
-    execute: vi.fn().mockResolvedValue([])
+// Mock the database module (fluent builder returning Promises/arrays where awaited)
+vi.mock('../../server/db', () => {
+  function createQueryResult(result: any[] = []) {
+    const builder: any = {
+      innerJoin: vi.fn(() => builder),
+      leftJoin: vi.fn(() => builder),
+      where: vi.fn(() => Promise.resolve(result)),
+      orderBy: vi.fn(() => builder),
+      groupBy: vi.fn(() => builder),
+      limit: vi.fn(() => ({
+        offset: vi.fn(() => Promise.resolve(result))
+      })),
+      offset: vi.fn(() => Promise.resolve(result))
+    };
+    return builder;
   }
-}));
 
-// Mock the storage module
-vi.mock('../../server/storage', () => ({
-  storage: {
-    upload: vi.fn().mockResolvedValue({ url: 'mocked-url' }),
-    delete: vi.fn().mockResolvedValue(true),
-    getSignedUrl: vi.fn().mockResolvedValue('mocked-signed-url')
-  }
-}));
+  const db = {
+    select: vi.fn(() => ({
+      from: vi.fn(() => createQueryResult([]))
+    })),
+    insert: vi.fn(() => ({
+      values: vi.fn(() => ({
+        returning: vi.fn(() => Promise.resolve([{}]))
+      }))
+    })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({ returning: vi.fn(() => Promise.resolve([{}])) }))
+      }))
+    })),
+    delete: vi.fn(() => ({
+      where: vi.fn(() => Promise.resolve({ rowCount: 0 }))
+    })),
+  } as any;
+
+  return { db, checkDatabaseHealth: vi.fn().mockResolvedValue(true) };
+});
+
+// Do not mock storage to preserve full functionality used by integration tests
 
 // Mock crypto module for integration tests
 vi.mock('crypto', () => cryptoModuleMock);

@@ -93,10 +93,6 @@ export class AuthService {
       errors.push('Password must contain at least one number');
     }
     
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      errors.push('Password must contain at least one special character');
-    }
-    
     return {
       isValid: errors.length === 0,
       errors
@@ -338,6 +334,33 @@ export class AuthService {
       }
       return { valid: false, error: 'Token verification failed' };
     }
+  }
+
+  /**
+   * 2FA helpers (TOTP-compatible secret storage, but verification delegated to route-level for now)
+   */
+  static async enableTwoFactor(userId: string, secret: string, recoveryCodes: string[]): Promise<void> {
+    await db.update(users)
+      .set({ twoFactorEnabled: true as any, twoFactorSecret: secret, twoFactorRecoveryCodes: recoveryCodes.join(',') } as any)
+      .where(eq(users.id, userId));
+  }
+
+  static async disableTwoFactor(userId: string): Promise<void> {
+    await db.update(users)
+      .set({ twoFactorEnabled: false as any, twoFactorSecret: null as any, twoFactorRecoveryCodes: null as any } as any)
+      .where(eq(users.id, userId));
+  }
+
+  static async getTwoFactorData(userId: string): Promise<{ enabled: boolean; secret?: string; recoveryCodes?: string[] }> {
+    const result = await db.select({ twoFactorEnabled: users.twoFactorEnabled, twoFactorSecret: users.twoFactorSecret, twoFactorRecoveryCodes: users.twoFactorRecoveryCodes })
+      .from(users)
+      .where(eq(users.id, userId));
+    const row = result[0];
+    return {
+      enabled: !!row?.twoFactorEnabled,
+      secret: row?.twoFactorSecret || undefined,
+      recoveryCodes: row?.twoFactorRecoveryCodes ? row.twoFactorRecoveryCodes.split(',') : undefined,
+    };
   }
 
   /**

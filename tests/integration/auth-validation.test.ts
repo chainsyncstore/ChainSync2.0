@@ -1,14 +1,22 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import { app } from '../../server/index';
+import express from 'express';
+import session from 'express-session';
+import { registerRoutes } from '../../server/routes';
 import { db } from '../../server/db';
 
 describe('Auth Validation Integration Tests', () => {
+  let app: express.Application;
   let server: any;
 
   beforeAll(async () => {
-    // Start the server for testing
-    server = app.listen(0); // Use random port
+    // Build a fresh app with in-memory session
+    app = express();
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: false }));
+    app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: false, cookie: { secure: false } }));
+    await registerRoutes(app);
+    server = app.listen(0);
   });
 
   afterAll(async () => {
