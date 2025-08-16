@@ -5,6 +5,7 @@ import { and, eq, gte, lte, sql, inArray } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
 import { requireAuth, requireRole } from '../middleware/authz';
 import { getTodayRollupForOrg, getTodayRollupForStore } from '../lib/redis';
+import { requireActiveSubscription } from '../middleware/subscription';
 
 export async function registerAnalyticsRoutes(app: Express) {
   const auth = (req: Request, res: Response, next: any) => {
@@ -73,7 +74,7 @@ export async function registerAnalyticsRoutes(app: Express) {
   }
 
   // Overview endpoint (scoped by org and optional store)
-  app.get('/api/analytics/overview', auth, async (req: Request, res: Response) => {
+  app.get('/api/analytics/overview', auth, requireActiveSubscription, async (req: Request, res: Response) => {
     if (process.env.NODE_ENV === 'test') {
       return res.json({ gross: '315', discount: '0', tax: '15', transactions: 2 });
     }
@@ -136,7 +137,7 @@ export async function registerAnalyticsRoutes(app: Express) {
   });
 
   // Timeseries endpoint
-  app.get('/api/analytics/timeseries', auth, async (req: Request, res: Response) => {
+  app.get('/api/analytics/timeseries', auth, requireActiveSubscription, async (req: Request, res: Response) => {
     if (process.env.NODE_ENV === 'test') {
       const now = new Date();
       const d1 = new Date(now.getTime() - 2 * 86400000).toISOString();
@@ -184,7 +185,7 @@ export async function registerAnalyticsRoutes(app: Express) {
   });
 
   // CSV export
-  app.get('/api/analytics/export.csv', auth, async (req: Request, res: Response) => {
+  app.get('/api/analytics/export.csv', auth, requireActiveSubscription, async (req: Request, res: Response) => {
     if (process.env.NODE_ENV === 'test') {
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename="analytics_export.csv"');
@@ -234,7 +235,7 @@ export async function registerAnalyticsRoutes(app: Express) {
   });
 
   // PDF export
-  app.get('/api/analytics/export.pdf', auth, async (req: Request, res: Response) => {
+  app.get('/api/analytics/export.pdf', auth, requireActiveSubscription, async (req: Request, res: Response) => {
     if (process.env.NODE_ENV === 'test') {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename="analytics_report.pdf"');

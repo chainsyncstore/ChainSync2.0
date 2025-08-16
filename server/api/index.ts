@@ -1,4 +1,4 @@
-import type { Express } from 'express';
+import express, { type Express } from 'express';
 import { createServer } from 'http';
 import { configureSession } from '../session';
 import { loadEnv } from '../../shared/env';
@@ -10,6 +10,8 @@ import { registerAdminRoutes } from './routes.admin';
 import { registerMeRoutes } from './routes.me';
 import { registerCustomerRoutes } from './routes.customers';
 import { registerLoyaltyRoutes } from './routes.loyalty';
+import { registerBillingRoutes } from './routes.billing';
+import { registerWebhookRoutes } from './routes.webhooks';
 import { auditMiddleware } from '../middleware/validation';
 import { NotificationService } from '../websocket/notification-service';
 
@@ -18,6 +20,9 @@ export async function registerRoutes(app: Express) {
 
   // Sessions (Redis-backed)
   app.use(configureSession(env.REDIS_URL, env.SESSION_SECRET));
+  // Ensure raw body is available for webhooks
+  app.use('/webhooks', express.raw({ type: '*/*' }));
+  app.use('/api/payment', express.raw({ type: '*/*' }));
   // Global audit for non-GET
   app.use(auditMiddleware());
 
@@ -35,6 +40,11 @@ export async function registerRoutes(app: Express) {
   await registerPosRoutes(app);
   await registerAnalyticsRoutes(app);
   await registerAdminRoutes(app);
+  await registerBillingRoutes(app);
+  await registerWebhookRoutes(app);
+  app.get('/api/billing/plans', (_req, res) => {
+    res.json({ ok: true });
+  });
 
   const server = createServer(app);
   // Attach websocket notification service

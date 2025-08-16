@@ -26,6 +26,8 @@ export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   name: varchar('name', { length: 255 }).notNull(),
   currency: varchar('currency', { length: 8 }).notNull().default('NGN'),
+  isActive: boolean('is_active').notNull().default(false),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
@@ -218,6 +220,7 @@ export const subscriptions = pgTable('subscriptions', {
   startedAt: timestamp('started_at', { withTimezone: true }),
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
   lastEventRaw: jsonb('last_event_raw'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 }, (t) => ({
   orgIdx: index('subscriptions_org_idx').on(t.orgId),
 }));
