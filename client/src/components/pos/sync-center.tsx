@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listQueuedSales, deleteQueuedSale, processQueueNow, type OfflineSaleRecord } from "@/lib/offline-queue";
+import { listQueuedSales, deleteQueuedSale, expediteQueuedSale, processQueueNow, type OfflineSaleRecord } from "@/lib/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -18,6 +18,12 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
 
   useEffect(() => {
     if (open) refresh();
+    const onMsg = (event: MessageEvent) => {
+      if (event.data?.type === 'SYNC_SALE_OK') refresh();
+      if (event.data?.type === 'SYNC_COMPLETED') refresh();
+    };
+    navigator.serviceWorker?.addEventListener('message', onMsg as any);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMsg as any);
   }, [open]);
 
   if (!open) return null;
@@ -42,8 +48,12 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
                 <div>
                   <div className="font-mono text-xs">{it.id}</div>
                   <div>Attempts: {it.attempts} {it.lastError ? <span className="text-amber-700">({it.lastError})</span> : null}</div>
+                  {it.nextAttemptAt ? (
+                    <div className="text-xs text-slate-500">Next retry: {new Date(it.nextAttemptAt).toLocaleString()}</div>
+                  ) : null}
                 </div>
                 <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => { await expediteQueuedSale(it.id); await processQueueNow(); await refresh(); }}>Retry now</Button>
                   <Button size="sm" variant="outline" onClick={async () => { await deleteQueuedSale(it.id); await refresh(); }}>Remove</Button>
                 </div>
               </div>

@@ -156,6 +156,34 @@ export async function deleteQueuedSale(id: string): Promise<void> {
   });
 }
 
+export async function expediteQueuedSale(id: string): Promise<void> {
+  const db = await openDb();
+  if (!db) {
+    const raw = localStorage.getItem(STORE);
+    const arr = raw ? (JSON.parse(raw) as OfflineSaleRecord[]) : [];
+    const idx = arr.findIndex((r) => r.id === id);
+    if (idx >= 0) {
+      arr[idx].nextAttemptAt = Date.now();
+      localStorage.setItem(STORE, JSON.stringify(arr));
+    }
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const rec = getReq.result as OfflineSaleRecord | undefined;
+      if (rec) {
+        rec.nextAttemptAt = Date.now();
+        store.put(rec);
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
 export type { OfflineSaleRecord };
 
 

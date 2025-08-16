@@ -89,6 +89,15 @@ export default function POS() {
       if (event.data?.type === 'SYNC_COMPLETED') {
         setLastSync(event.data.data);
         update();
+      } else if (event.data?.type === 'SYNC_SALE_OK') {
+        const sale = event.data?.data?.sale;
+        const receipt = sale?.receiptNumber || sale?.id || 'sale';
+        addNotification({
+          type: 'success',
+          title: 'Sale Synced',
+          message: `Receipt #${receipt}`,
+        });
+        update();
       }
     };
     navigator.serviceWorker?.addEventListener('message', onMsg as any);
@@ -208,6 +217,16 @@ export default function POS() {
           message: `${product.name} added to cart`,
         });
       } else {
+        // fallback: try local catalog
+        try {
+          const mod = await import('@/lib/idb-catalog');
+          const local = await mod.getProductByBarcodeLocally(barcode);
+          if (local) {
+            addItem({ id: local.id, name: local.name, barcode: local.barcode || '', price: parseFloat(local.price) });
+            addNotification({ type: 'success', title: 'Product Added (offline)', message: `${local.name} added to cart` });
+            return;
+          }
+        } catch {}
         addNotification({
           type: "error",
           title: "Product Not Found",
@@ -215,11 +234,17 @@ export default function POS() {
         });
       }
     } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Scan Error",
-        message: "Failed to scan product. Please try again.",
-      });
+      // offline fallback
+      try {
+        const mod = await import('@/lib/idb-catalog');
+        const local = await mod.getProductByBarcodeLocally(barcode);
+        if (local) {
+          addItem({ id: local.id, name: local.name, barcode: local.barcode || '', price: parseFloat(local.price) });
+          addNotification({ type: 'success', title: 'Product Added (offline)', message: `${local.name} added to cart` });
+          return;
+        }
+      } catch {}
+      addNotification({ type: 'error', title: 'Scan Error', message: 'Failed to scan product. Please try again.' });
       console.error("Barcode scan error:", error);
     }
   };

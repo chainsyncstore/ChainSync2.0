@@ -29,8 +29,8 @@ if (isDevelopment()) {
   disableInDevelopment();
 }
 
-const CACHE_NAME = 'chainsync-v1.0.1';
-const OFFLINE_CACHE = 'chainsync-offline-v1.0.1';
+const CACHE_NAME = 'chainsync-v1.0.2';
+const OFFLINE_CACHE = 'chainsync-offline-v1.0.2';
 let isDisabled = false;
 let heartbeatTimer = null;
 
@@ -415,8 +415,28 @@ async function syncOfflineData() {
         if (item.nextAttemptAt && item.nextAttemptAt > now) continue;
         const res = await syncOfflineItem(item);
         if (res.ok || res.status === 409) {
+          // Try to parse response for details (receipt, sale id)
+          let payload = null;
+          try {
+            const ct = res.headers.get('content-type') || '';
+            if (ct.includes('application/json')) payload = await res.clone().json();
+          } catch {}
           await deleteOfflineSale(item.id);
           syncedCount++;
+          // Notify clients of each synced sale
+          try {
+            const clientsList = await self.clients.matchAll();
+            clientsList.forEach((client) => {
+              client.postMessage({
+                type: 'SYNC_SALE_OK',
+                data: {
+                  idempotencyKey: item.idempotencyKey,
+                  status: res.status,
+                  sale: payload || null,
+                }
+              });
+            });
+          } catch {}
         } else {
           await updateOfflineSaleFailure(item.id, `HTTP ${res.status}`);
         }
@@ -459,7 +479,7 @@ self.addEventListener('message', (event) => {
       event.waitUntil((async () => {
         try {
           const cache = await caches.open(OFFLINE_CACHE);
-          const urls = ['/api/products', '/api/stores'];
+          const urls = ['/api/products', '/api/stores', '/api/inventory'];
           await Promise.all(urls.map(async (u) => {
             try {
               const res = await fetch(u, { credentials: 'include' });
@@ -580,6 +600,15 @@ setInterval(async () => {
       
       if (date && new Date(date).getTime() < cutoff) {
         await cache.delete(request);
+      }
+    }
+    // Limit cache size for offline cache to avoid unbounded growth
+    const refreshedKeys = await cache.keys();
+    const MAX_ENTRIES = 200;
+    if (refreshedKeys.length > MAX_ENTRIES) {
+      const toDelete = refreshedKeys.slice(0, refreshedKeys.length - MAX_ENTRIES);
+      for (const req of toDelete) {
+        await cache.delete(req);
       }
     }
   } catch (error) {

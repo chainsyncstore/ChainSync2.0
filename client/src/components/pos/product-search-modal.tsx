@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Package, Search, Plus } from "lucide-react";
 import { LoadingSpinner, ListSkeleton } from "@/components/ui/loading";
 import type { Product } from "@shared/schema";
+import { searchProductsLocally, putProducts } from "@/lib/idb-catalog";
 
 interface ProductSearchModalProps {
   isOpen: boolean;
@@ -18,46 +19,32 @@ export default function ProductSearchModal({ isOpen, onClose, onSelectProduct }:
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (searchQuery.length > 2) {
+    let cancelled = false;
+    const run = async () => {
+      if (searchQuery.length <= 2) {
+        setProducts([]);
+        return;
+      }
       setIsLoading(true);
-      // Simulate API call
-      setTimeout(() => {
-        const now = new Date();
-        setProducts([
-          {
-            id: "1",
-            name: "Sample Product 1",
-            sku: null,
-            barcode: "123456789",
-            description: null,
-            price: "9.99",
-            cost: null,
-            category: "Electronics",
-            brand: "Sample Brand",
-            isActive: true,
-            createdAt: now,
-            updatedAt: now
-          } as Product,
-          {
-            id: "2", 
-            name: "Sample Product 2",
-            sku: null,
-            barcode: "987654321",
-            description: null,
-            price: "19.99",
-            cost: null,
-            category: "Clothing",
-            brand: "Sample Brand",
-            isActive: true,
-            createdAt: now,
-            updatedAt: now
-          } as Product
-        ]);
+      // First try local search
+      const local = await searchProductsLocally(searchQuery, 50);
+      if (!cancelled) {
+        setProducts(local as any);
         setIsLoading(false);
-      }, 1000);
-    } else {
-      setProducts([]);
-    }
+      }
+      // Then try network refresh (best-effort)
+      try {
+        const res = await fetch(`/api/products?query=${encodeURIComponent(searchQuery)}`, { credentials: 'include' });
+        if (res.ok) {
+          const remote = await res.json();
+          const mapped = (remote || []).map((p: any) => ({ id: p.id, name: p.name, barcode: p.barcode, price: String(p.price || p.salePrice || '0') }));
+          await putProducts(mapped);
+          if (!cancelled) setProducts(remote);
+        }
+      } catch {}
+    };
+    run();
+    return () => { cancelled = true; };
   }, [searchQuery]);
 
   return (
