@@ -35,6 +35,24 @@ export function generateIdempotencyKey(): string {
   return `idemp_${Date.now()}_${generateRandomString()}`;
 }
 
+export function validateSalePayload(payload: any): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!payload || typeof payload !== 'object') {
+    return { valid: false, errors: ['Missing payload'] };
+  }
+  if (!payload.storeId || typeof payload.storeId !== 'string') errors.push('Invalid storeId');
+  if (!Array.isArray(payload.items) || payload.items.length === 0) errors.push('No items');
+  (payload.items || []).forEach((it: any, idx: number) => {
+    if (!it.productId) errors.push(`Item ${idx + 1}: missing productId`);
+    if (!(Number.isFinite(Number(it.quantity)) && Number(it.quantity) > 0)) errors.push(`Item ${idx + 1}: invalid quantity`);
+    const unitPriceNum = Number(it.unitPrice);
+    if (!(Number.isFinite(unitPriceNum) && unitPriceNum >= 0)) errors.push(`Item ${idx + 1}: invalid unitPrice`);
+    const lineTotalNum = Number(it.lineTotal);
+    if (!(Number.isFinite(lineTotalNum) && lineTotalNum >= 0)) errors.push(`Item ${idx + 1}: invalid lineTotal`);
+  });
+  return { valid: errors.length === 0, errors };
+}
+
 function openDb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     if (typeof indexedDB === 'undefined') return resolve(null);
@@ -219,6 +237,38 @@ export async function getEscalatedCount(threshold: number = 5): Promise<number> 
       cur.continue();
     };
     cursorReq.onerror = () => resolve(count);
+  });
+}
+
+export async function updateQueuedSalePayload(id: string, newPayload: any): Promise<void> {
+  const db = await openDb();
+  if (!db) {
+    const raw = localStorage.getItem(STORE);
+    const arr = raw ? (JSON.parse(raw) as OfflineSaleRecord[]) : [];
+    const idx = arr.findIndex((r) => r.id === id);
+    if (idx >= 0) {
+      arr[idx].payload = newPayload;
+      arr[idx].attempts = 0;
+      arr[idx].nextAttemptAt = Date.now();
+      localStorage.setItem(STORE, JSON.stringify(arr));
+    }
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const rec = getReq.result as OfflineSaleRecord | undefined;
+      if (rec) {
+        rec.payload = newPayload;
+        rec.attempts = 0;
+        rec.nextAttemptAt = Date.now();
+        store.put(rec);
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
   });
 }
 

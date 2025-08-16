@@ -11,7 +11,7 @@ import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
 import { useNotifications } from "@/hooks/use-notifications";
 import { apiRequest } from "@/lib/queryClient";
-import { enqueueOfflineSale, generateIdempotencyKey, getOfflineQueueCount, processQueueNow, getEscalatedCount } from "@/lib/offline-queue";
+import { enqueueOfflineSale, generateIdempotencyKey, getOfflineQueueCount, processQueueNow, getEscalatedCount, validateSalePayload } from "@/lib/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -166,6 +166,11 @@ export default function POS() {
         return await res.json();
       } catch (err) {
         // Offline fallback: enqueue and trigger background sync
+        const v = validateSalePayload(payload);
+        if (!v.valid) {
+          addNotification({ type: 'error', title: 'Cannot queue sale', message: v.errors.slice(0,3).join('; ') });
+          throw err;
+        }
         await enqueueOfflineSale({ url: '/api/pos/sales', payload, idempotencyKey });
         setQueuedCount(await getOfflineQueueCount());
         addNotification({
