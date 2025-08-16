@@ -70,6 +70,12 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
                   ) : null}
                 </div>
                 <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(JSON.stringify(it.payload, null, 2));
+                      alert('Queued payload copied to clipboard');
+                    } catch {}
+                  }}>Export JSON</Button>
                   <Button size="sm" variant="outline" onClick={async () => { await expediteQueuedSale(it.id); await processQueueNow(); await refresh(); }}>Retry now</Button>
                   <Button size="sm" variant="outline" onClick={async () => { await deleteQueuedSale(it.id); await refresh(); }}>Remove</Button>
                 </div>
