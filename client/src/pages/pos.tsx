@@ -10,6 +10,7 @@ import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
 import { useNotifications } from "@/hooks/use-notifications";
 import { apiRequest } from "@/lib/queryClient";
+import { enqueueOfflineSale, generateIdempotencyKey, getOfflineQueueCount, processQueueNow } from "@/lib/offline-queue";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, LowStockAlert } from "@shared/schema";
 import { useRealtimeSales } from "@/hooks/use-realtime-sales";
@@ -72,39 +73,69 @@ export default function POS() {
     queryKey: ["/api/stores", selectedStore, "alerts"],
   });
 
-  // Transaction mutations
+  // Track offline sync state
+  const [queuedCount, setQueuedCount] = useState(0);
+  const [lastSync, setLastSync] = useState<{ attempted: number; synced: number } | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const update = async () => setQueuedCount(await getOfflineQueueCount());
+    update();
+    const onMsg = (event: MessageEvent) => {
+      if (event.data?.type === 'SYNC_COMPLETED') {
+        setLastSync(event.data.data);
+        update();
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onMsg as any);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMsg as any);
+  }, []);
+
+  // POS sale mutation using /api/pos/sales with idempotency and offline fallback
   const createTransactionMutation = useMutation({
     mutationFn: async () => {
-      const transactionResponse = await apiRequest("POST", "/api/transactions", {
+      const idempotencyKey = generateIdempotencyKey();
+      const payload = {
         storeId: selectedStore,
-        cashierId: "user123", // In real app, get from auth
-        subtotal: summary.subtotal,
-        taxAmount: summary.tax,
-        total: summary.total,
+        subtotal: String(Number(summary.subtotal.toFixed(2))),
+        discount: String(0),
+        tax: String(Number(summary.tax.toFixed(2))),
+        total: String(Number(summary.total.toFixed(2))),
         paymentMethod: payment.method,
-        amountReceived: payment.amountReceived,
-        changeDue: payment.changeDue,
-      });
-      
-      const transaction = await transactionResponse.json();
-      
-      // Add items to transaction
-      for (const item of items) {
-        await apiRequest("POST", `/api/transactions/${transaction.id}/items`, {
-          productId: item.productId,
-          quantity: item.quantity,
-          unitPrice: item.price,
-          totalPrice: item.total,
-          storeId: selectedStore,
+        items: items.map((it) => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          unitPrice: String(Number(it.price.toFixed(2))),
+          lineDiscount: String(0),
+          lineTotal: String(Number(it.total.toFixed(2))),
+        })),
+      };
+
+      try {
+        const res = await fetch('/api/pos/sales', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify(payload),
+          credentials: 'include',
         });
+        if (!res.ok) throw new Error(`${res.status}`);
+        return await res.json();
+      } catch (err) {
+        // Offline fallback: enqueue and trigger background sync
+        await enqueueOfflineSale({ url: '/api/pos/sales', payload, idempotencyKey });
+        setQueuedCount(await getOfflineQueueCount());
+        addNotification({
+          type: 'info',
+          title: 'Saved Offline',
+          message: 'Sale saved locally and will sync when online.',
+        });
+        // Return a fake object to satisfy UI, with local id
+        return { id: `local_${Date.now()}`, idempotencyKey, total: payload.total } as any;
       }
-      
-      // Complete the transaction
-      await apiRequest("PUT", `/api/transactions/${transaction.id}/complete`);
-      
-      return transaction;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       addNotification({
         type: "success",
         title: "Sale Completed",
@@ -112,6 +143,9 @@ export default function POS() {
       });
       clearCart();
       queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"] });
+      // Try to process queue immediately (harmless if none)
+      await processQueueNow();
+      setQueuedCount(await getOfflineQueueCount());
     },
     onError: (error) => {
       addNotification({
@@ -222,6 +256,17 @@ export default function POS() {
 
   return (
     <>
+      {/* Sync status banner */}
+      <div className="mb-2">
+        {queuedCount > 0 && (
+          <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            {queuedCount} offline sale{queuedCount > 1 ? 's' : ''} pending sync. They will sync automatically when online.
+          </div>
+        )}
+        {lastSync && (
+          <div className="text-xs text-slate-600 mt-1">Last sync: attempted {lastSync.attempted}, synced {lastSync.synced}</div>
+        )}
+      </div>
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
         <div className="xl:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
           <BarcodeScanner

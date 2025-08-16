@@ -32,7 +32,11 @@ export async function registerPosRoutes(app: Express) {
 		if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
 
 		// Check idempotency
-		const existing = await db.select().from(sales).where(eq(sales.idempotencyKey, idempotencyKey));
+		const existing = await db
+			.select()
+			.from(sales)
+			.where(eq(sales.idempotencyKey, idempotencyKey))
+			.limit(1);
 		if (existing[0]) return res.json(existing[0]);
 
 		// Resolve user/org/cashier from session (fallback in tests)

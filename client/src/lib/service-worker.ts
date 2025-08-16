@@ -124,6 +124,16 @@ export class ServiceWorkerManager {
 
       console.log('Service Worker registered successfully:', this.registration);
 
+      // Try to register background sync for offline queue
+      try {
+        if ('sync' in this.registration) {
+          await (this.registration as any).sync.register('background-sync');
+          console.log('Background sync registered');
+        }
+      } catch (err) {
+        console.log('Background sync not available', err);
+      }
+
       // Handle service worker updates
       this.registration.addEventListener('updatefound', () => {
         const newWorker = this.registration!.installing;

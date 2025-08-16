@@ -44,7 +44,7 @@ const ESSENTIAL_RESOURCES = [
 
 // API endpoints that should work offline
 const OFFLINE_ENDPOINTS = [
-  '/api/pos/transactions',
+  '/api/pos/sales',
   '/api/inventory',
   '/api/products',
   '/api/stores'
@@ -147,9 +147,10 @@ async function handleApiRequest(request) {
       }
     }
     
-    // Return offline response for critical endpoints
+    // For critical POS sales endpoint, do not fabricate success.
+    // Let page logic enqueue offline; return 503 to trigger fallback UI
     if (isCriticalEndpoint(request.url)) {
-      return createOfflineResponse(request);
+      return new Response(JSON.stringify({ status: 'offline', message: 'Saved for offline sync (client)', data: null }), { status: 503, headers: { 'Content-Type': 'application/json' } });
     }
     
     // Don't throw error, just return a fallback response
@@ -253,7 +254,7 @@ function isOfflineEndpoint(url) {
 // Check if endpoint is critical for offline operation
 function isCriticalEndpoint(url) {
   const criticalPatterns = [
-    '/api/pos/transactions',
+    '/api/pos/sales',
     '/api/products/barcode'
   ];
   
@@ -265,10 +266,10 @@ function createOfflineResponse(request) {
   const url = new URL(request.url);
   
   // Return appropriate offline response based on endpoint
-  if (url.pathname.startsWith('/api/pos/transactions')) {
+  if (url.pathname.startsWith('/api/pos/sales')) {
     return new Response(JSON.stringify({
       status: 'offline',
-      message: 'Transaction saved locally. Will sync when online.',
+      message: 'Sale saved locally. Will sync when online.',
       data: { localId: generateLocalId() }
     }), {
       status: 200,
@@ -310,26 +311,107 @@ self.addEventListener('sync', (event) => {
   }
 });
 
+// Also allow manual trigger from client
+self.addEventListener('message', (event) => {
+  try {
+    if (event.data && event.data.type === 'TRY_SYNC') {
+      event.waitUntil(syncOfflineData());
+    }
+  } catch {}
+});
+
 // Sync offline data when connection is restored
+// IndexedDB helpers
+const DB_NAME = 'chainsync_offline';
+const STORE = 'offline_sales';
+
+function openDb() {
+  return new Promise((resolve) => {
+    if (typeof indexedDB === 'undefined') return resolve(null);
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: 'id' });
+        store.createIndex('nextAttemptAt', 'nextAttemptAt', { unique: false });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
+  });
+}
+
+async function getAllOfflineSales() {
+  const db = await openDb();
+  if (!db) return [];
+  return await new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const store = tx.objectStore(STORE);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
+
+async function deleteOfflineSale(id) {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+async function updateOfflineSaleFailure(id, lastError) {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const rec = getReq.result;
+      if (!rec) return resolve();
+      const attempts = (rec.attempts || 0) + 1;
+      const delayMs = Math.min(300000, Math.pow(2, attempts) * 1000); // capped exponential backoff (5m)
+      rec.attempts = attempts;
+      rec.lastError = String(lastError || 'unknown error');
+      rec.nextAttemptAt = Date.now() + delayMs;
+      store.put(rec);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
 async function syncOfflineData() {
   try {
     console.log('Starting background sync...');
-    
-    // Get offline data from IndexedDB
-    const offlineData = await getOfflineData();
+    const offlineData = await getAllOfflineSales();
     
     if (offlineData.length === 0) {
       console.log('No offline data to sync');
       return;
     }
     
-    // Sync each offline item
+    const now = Date.now();
+    let syncedCount = 0;
     for (const item of offlineData) {
       try {
-        await syncOfflineItem(item);
-        await removeOfflineItem(item.id);
+        if (item.nextAttemptAt && item.nextAttemptAt > now) continue;
+        const res = await syncOfflineItem(item);
+        if (res.ok || res.status === 409) {
+          await deleteOfflineSale(item.id);
+          syncedCount++;
+        } else {
+          await updateOfflineSaleFailure(item.id, `HTTP ${res.status}`);
+        }
       } catch (error) {
         console.error('Failed to sync offline item:', error);
+        await updateOfflineSaleFailure(item.id, error?.message || 'error');
       }
     }
     
@@ -340,7 +422,7 @@ async function syncOfflineData() {
     clients.forEach(client => {
       client.postMessage({
         type: 'SYNC_COMPLETED',
-        data: { syncedItems: offlineData.length }
+        data: { attempted: offlineData.length, synced: syncedCount }
       });
     });
   } catch (error) {
@@ -349,31 +431,14 @@ async function syncOfflineData() {
 }
 
 // Get offline data from IndexedDB
-async function getOfflineData() {
-  // This would be implemented with IndexedDB
-  // For now, return empty array
-  return [];
-}
-
-// Sync individual offline item
 async function syncOfflineItem(item) {
   const response = await fetch(item.url, {
-    method: item.method,
-    headers: item.headers,
-    body: item.body
+    method: 'POST',
+    headers: item.headers || { 'Content-Type': 'application/json', 'Idempotency-Key': item.idempotencyKey },
+    body: JSON.stringify(item.payload),
+    credentials: 'include',
   });
-  
-  if (!response.ok) {
-    throw new Error(`Sync failed: ${response.status}`);
-  }
-  
   return response;
-}
-
-// Remove synced offline item
-async function removeOfflineItem(id) {
-  // This would be implemented with IndexedDB
-  console.log('Removing synced item:', id);
 }
 
 // Handle push notifications
