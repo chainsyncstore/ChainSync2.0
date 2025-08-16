@@ -40,7 +40,9 @@ const ESSENTIAL_RESOURCES = [
   '/index.html',
   '/src/main.tsx',
   '/src/index.css',
-  '/manifest.json'
+  '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png'
 ];
 
 // API endpoints that should work offline

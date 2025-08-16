@@ -198,11 +198,18 @@ export default function AdvancedCheckout({
         });
       }
     } catch (error) {
-      toast({
-        title: "Customer Not Found",
-        description: "Please check the phone number",
-        variant: "destructive",
-      });
+      try {
+        const mod = await import('@/lib/idb-catalog');
+        const local = await mod.getCustomerByPhone(phone);
+        if (local) {
+          setCustomerInfo({ name: local.name || '', email: '', phone: local.phone, loyaltyNumber: local.id });
+          toast({ title: 'Customer (offline)', description: `Attached customer ${local.phone}` });
+        } else {
+          toast({ title: 'Customer Not Found', description: 'Please check the phone number', variant: 'destructive' });
+        }
+      } catch {
+        toast({ title: 'Customer Not Found', description: 'Please check the phone number', variant: 'destructive' });
+      }
     }
   };
 

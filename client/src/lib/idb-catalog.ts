@@ -81,6 +81,30 @@ export async function getProductByBarcodeLocally(barcode: string): Promise<Produ
   });
 }
 
+export async function putCustomers(rows: CustomerRow[]): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('customers','readwrite');
+    const s = tx.objectStore('customers');
+    rows.forEach((r) => s.put(r));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+export async function getCustomerByPhone(phone: string): Promise<CustomerRow | null> {
+  const db = await openDb();
+  if (!db) return null;
+  return await new Promise((resolve) => {
+    const tx = db.transaction('customers','readonly');
+    const idx = tx.objectStore('customers').index('phone');
+    const req = idx.get(phone);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  });
+}
+
 export type { ProductRow, InventoryRow, CustomerRow };
 
 
