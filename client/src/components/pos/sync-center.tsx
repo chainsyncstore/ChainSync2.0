@@ -11,6 +11,7 @@ interface SyncCenterProps {
 export default function SyncCenter({ open, onClose }: SyncCenterProps) {
   const [items, setItems] = useState<OfflineSaleRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [health, setHealth] = useState<{ total: number; last24h: number } | null>(null);
 
   const refresh = async () => {
     setItems(await listQueuedSales());
@@ -24,6 +25,19 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
     };
     navigator.serviceWorker?.addEventListener('message', onMsg as any);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg as any);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const r = await fetch('/api/pos/sync/health', { credentials: 'include' });
+        if (r.ok) {
+          const j = await r.json();
+          setHealth(j?.sales || null);
+        }
+      } catch {}
+    })();
   }, [open]);
 
   if (!open) return null;
@@ -42,9 +56,12 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
               <Button size="sm" onClick={async () => { setLoading(true); await processQueueNow(); await refresh(); setLoading(false); }} disabled={loading}>{loading ? 'Syncing...' : 'Sync now'}</Button>
             </div>
           </div>
+          {health && (
+            <div className="text-xs text-slate-500 mb-2">Sales (24h): {health.last24h} • Total: {health.total}</div>
+          )}
           <div className="space-y-2 max-h-96 overflow-auto">
             {items.map((it) => (
-              <div key={it.id} className="border rounded p-2 text-sm flex items-center justify-between">
+              <div key={it.id} className={`border rounded p-2 text-sm flex items-center justify-between ${it.attempts >= 5 ? 'border-red-300 bg-red-50' : ''}`}>
                 <div>
                   <div className="font-mono text-xs">{it.id}</div>
                   <div>Attempts: {it.attempts} {it.lastError ? <span className="text-amber-700">({it.lastError})</span> : null}</div>

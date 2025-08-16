@@ -11,7 +11,7 @@ import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
 import { useNotifications } from "@/hooks/use-notifications";
 import { apiRequest } from "@/lib/queryClient";
-import { enqueueOfflineSale, generateIdempotencyKey, getOfflineQueueCount, processQueueNow } from "@/lib/offline-queue";
+import { enqueueOfflineSale, generateIdempotencyKey, getOfflineQueueCount, processQueueNow, getEscalatedCount } from "@/lib/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -81,9 +81,10 @@ export default function POS() {
   const [queuedCount, setQueuedCount] = useState(0);
   const [lastSync, setLastSync] = useState<{ attempted: number; synced: number } | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [escalations, setEscalations] = useState(0);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const update = async () => setQueuedCount(await getOfflineQueueCount());
+    const update = async () => { setQueuedCount(await getOfflineQueueCount()); setEscalations(await getEscalatedCount(5)); };
     update();
     const onMsg = (event: MessageEvent) => {
       if (event.data?.type === 'SYNC_COMPLETED') {
@@ -106,6 +107,7 @@ export default function POS() {
       try {
         await processQueueNow();
         setQueuedCount(await getOfflineQueueCount());
+        setEscalations(await getEscalatedCount(5));
         toast({ title: 'Back online', description: 'Sync started automatically.' });
       } catch {}
     };
@@ -123,6 +125,7 @@ export default function POS() {
     try {
       await processQueueNow();
       setQueuedCount(await getOfflineQueueCount());
+      setEscalations(await getEscalatedCount(5));
       toast({ title: 'Sync requested', description: 'Background sync triggered.' });
     } catch (e) {
       toast({ title: 'Sync failed to start', description: 'Please try again later.', variant: 'destructive' });
@@ -335,6 +338,11 @@ export default function POS() {
           </div>
         )}
       </div>
+      {escalations > 0 && (
+        <div className="mb-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+          Some sales have failed to sync after multiple attempts. Please check connection or contact support.
+        </div>
+      )}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
         <div className="xl:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
           <BarcodeScanner

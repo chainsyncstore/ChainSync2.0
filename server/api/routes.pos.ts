@@ -261,6 +261,34 @@ export async function registerPosRoutes(app: Express) {
 			if (hasTx2 && pg2) pg2.release();
 		}
 	});
+
+	// POS Sync health - lightweight observability endpoint
+	app.get('/api/pos/sync/health', requireAuth, requireRole('CASHIER'), async (_req: Request, res: Response) => {
+		try {
+			let recent24h = 0;
+			let total = 0;
+			try {
+				// Prefer raw SQL if available (production path)
+				if (typeof (db as any).execute === 'function') {
+					const r1: any = await (db as any).execute(sql`SELECT COUNT(*)::int AS c FROM sales WHERE occurred_at > NOW() - INTERVAL '24 HOURS'`);
+					recent24h = Number(r1?.[0]?.c || 0);
+					const r2: any = await (db as any).execute(sql`SELECT COUNT(*)::int AS c FROM sales`);
+					total = Number(r2?.[0]?.c || 0);
+				} else {
+					const rows = await db.select().from(sales);
+					total = (rows as any).length || 0;
+					recent24h = total; // mock DB lacks timestamps; approximate
+				}
+			} catch {
+				const rows = await db.select().from(sales);
+				total = (rows as any).length || 0;
+				recent24h = total;
+			}
+			return res.json({ ok: true, serverTime: new Date().toISOString(), sales: { total, last24h: recent24h } });
+		} catch (e) {
+			return res.status(500).json({ ok: false });
+		}
+	});
 }
 
 

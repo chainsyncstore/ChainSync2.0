@@ -184,6 +184,44 @@ export async function expediteQueuedSale(id: string): Promise<void> {
   });
 }
 
+export async function getQueuedSale(id: string): Promise<OfflineSaleRecord | null> {
+  const db = await openDb();
+  if (!db) {
+    const raw = localStorage.getItem(STORE);
+    const arr = raw ? (JSON.parse(raw) as OfflineSaleRecord[]) : [];
+    return arr.find((r) => r.id === id) || null;
+  }
+  return await new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  });
+}
+
+export async function getEscalatedCount(threshold: number = 5): Promise<number> {
+  const db = await openDb();
+  if (!db) {
+    const raw = localStorage.getItem(STORE);
+    const arr = raw ? (JSON.parse(raw) as OfflineSaleRecord[]) : [];
+    return arr.filter((r) => (r.attempts || 0) >= threshold).length;
+  }
+  return await new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const s = tx.objectStore(STORE);
+    const cursorReq = s.openCursor();
+    let count = 0;
+    cursorReq.onsuccess = () => {
+      const cur = cursorReq.result as IDBCursorWithValue | null;
+      if (!cur) return resolve(count);
+      const row = cur.value as OfflineSaleRecord;
+      if ((row.attempts || 0) >= threshold) count++;
+      cur.continue();
+    };
+    cursorReq.onerror = () => resolve(count);
+  });
+}
+
 export type { OfflineSaleRecord };
 
 
