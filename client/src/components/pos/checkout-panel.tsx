@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/pos-utils";
 import { CheckCircle, Pause, X, CreditCard, Banknote } from "lucide-react";
 import type { CartSummary, PaymentData } from "@/types/pos";
+import { getOfflineQueueCount, processQueueNow } from "@/lib/offline-queue";
 
 interface CheckoutPanelProps {
   summary: CartSummary;
@@ -31,6 +32,25 @@ export default function CheckoutPanel({
 }: CheckoutPanelProps) {
   const [amountReceived, setAmountReceived] = useState("");
   const [amountError, setAmountError] = useState("");
+  const [queuedCount, setQueuedCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const load = async () => setQueuedCount(await getOfflineQueueCount());
+    load();
+    const onOnline = async () => {
+      setIsOnline(true);
+      await processQueueNow();
+      setQueuedCount(await getOfflineQueueCount());
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
 
   const handleAmountChange = (value: string) => {
     setAmountReceived(value);
@@ -58,6 +78,13 @@ export default function CheckoutPanel({
 
   return (
     <div className="flex flex-col space-y-4 sm:space-y-6">
+      {/* Lightweight status row */}
+      <div className="flex items-center justify-between text-xs">
+        <span className={`font-medium ${isOnline ? 'text-green-700' : 'text-amber-700'}`}>{isOnline ? 'Online' : 'Offline'}</span>
+        {queuedCount > 0 && (
+          <button className="text-blue-600 hover:underline" onClick={async () => { await processQueueNow(); setQueuedCount(await getOfflineQueueCount()); }}>Sync pending ({queuedCount})</button>
+        )}
+      </div>
       {/* Order Summary */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6">
         <h3 className="text-lg font-semibold text-slate-800 mb-4">Order Summary</h3>

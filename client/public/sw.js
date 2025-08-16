@@ -32,6 +32,7 @@ if (isDevelopment()) {
 const CACHE_NAME = 'chainsync-v1.0.1';
 const OFFLINE_CACHE = 'chainsync-offline-v1.0.1';
 let isDisabled = false;
+let heartbeatTimer = null;
 
 // Essential resources to cache for offline use
 const ESSENTIAL_RESOURCES = [
@@ -87,6 +88,13 @@ self.addEventListener('activate', (event) => {
         return self.clients.claim();
       })
   );
+  // Lightweight heartbeat to keep SW alive and schedule periodic sync checks
+  try {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(() => {
+      // noop; could postMessage to clients if needed
+    }, 60 * 60 * 1000); // hourly noop
+  } catch {}
 });
 
 // Fetch event - handle offline requests
@@ -99,7 +107,7 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
+  // For POST to POS sales, let network happen; on failure, client enqueues
   if (request.method !== 'GET') {
     return;
   }

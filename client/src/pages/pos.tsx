@@ -11,6 +11,8 @@ import { useCart } from "@/hooks/use-cart";
 import { useNotifications } from "@/hooks/use-notifications";
 import { apiRequest } from "@/lib/queryClient";
 import { enqueueOfflineSale, generateIdempotencyKey, getOfflineQueueCount, processQueueNow } from "@/lib/offline-queue";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, LowStockAlert } from "@shared/schema";
 import { useRealtimeSales } from "@/hooks/use-realtime-sales";
@@ -76,6 +78,7 @@ export default function POS() {
   // Track offline sync state
   const [queuedCount, setQueuedCount] = useState(0);
   const [lastSync, setLastSync] = useState<{ attempted: number; synced: number } | null>(null);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const update = async () => setQueuedCount(await getOfflineQueueCount());
@@ -87,8 +90,33 @@ export default function POS() {
       }
     };
     navigator.serviceWorker?.addEventListener('message', onMsg as any);
-    return () => navigator.serviceWorker?.removeEventListener('message', onMsg as any);
+    const onOnline = async () => {
+      setIsOnline(true);
+      try {
+        await processQueueNow();
+        setQueuedCount(await getOfflineQueueCount());
+        toast({ title: 'Back online', description: 'Sync started automatically.' });
+      } catch {}
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onMsg as any);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
   }, []);
+
+  const handleSyncNow = async () => {
+    try {
+      await processQueueNow();
+      setQueuedCount(await getOfflineQueueCount());
+      toast({ title: 'Sync requested', description: 'Background sync triggered.' });
+    } catch (e) {
+      toast({ title: 'Sync failed to start', description: 'Please try again later.', variant: 'destructive' });
+    }
+  };
 
   // POS sale mutation using /api/pos/sales with idempotency and offline fallback
   const createTransactionMutation = useMutation({
@@ -256,15 +284,25 @@ export default function POS() {
 
   return (
     <>
-      {/* Sync status banner */}
-      <div className="mb-2">
+      {/* Sync/Connectivity status */}
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Badge variant={isOnline ? 'outline' : 'secondary'} className={isOnline ? 'text-green-700 border-green-300' : 'bg-amber-100 text-amber-800'}>
+            {isOnline ? 'Online' : 'Offline'}
+          </Badge>
+          {lastSync && (
+            <span className="text-xs text-slate-600">Last sync: attempted {lastSync.attempted}, synced {lastSync.synced}</span>
+          )}
+        </div>
         {queuedCount > 0 && (
-          <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-            {queuedCount} offline sale{queuedCount > 1 ? 's' : ''} pending sync. They will sync automatically when online.
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-amber-700">
+              {queuedCount} pending sale{queuedCount > 1 ? 's' : ''}
+            </span>
+            <Button size="sm" variant="outline" onClick={handleSyncNow}>
+              Sync now
+            </Button>
           </div>
-        )}
-        {lastSync && (
-          <div className="text-xs text-slate-600 mt-1">Last sync: attempted {lastSync.attempted}, synced {lastSync.synced}</div>
         )}
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
