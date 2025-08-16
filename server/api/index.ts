@@ -7,6 +7,8 @@ import { registerInventoryRoutes } from './routes.inventory';
 import { registerPosRoutes } from './routes.pos';
 import { registerAnalyticsRoutes } from './routes.analytics';
 import { registerMeRoutes } from './routes.me';
+import { registerCustomerRoutes } from './routes.customers';
+import { registerLoyaltyRoutes } from './routes.loyalty';
 import { auditMiddleware } from '../middleware/validation';
 import { NotificationService } from '../websocket/notification-service';
 
@@ -27,6 +29,8 @@ export async function registerRoutes(app: Express) {
   await registerAuthRoutes(app);
   await registerMeRoutes(app);
   await registerInventoryRoutes(app);
+  await registerCustomerRoutes(app);
+  await registerLoyaltyRoutes(app);
   await registerPosRoutes(app);
   await registerAnalyticsRoutes(app);
 
