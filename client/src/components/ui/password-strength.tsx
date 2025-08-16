@@ -1,18 +1,23 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 
-// Import zxcvbn with error handling
+// Lazy-load zxcvbn at runtime (avoid loading during tests)
 let zxcvbn: any = null;
-try {
-  // Try to import zxcvbn using dynamic import
-  import('zxcvbn').then(module => {
-    zxcvbn = module.default || module;
-  }).catch(error => {
+const loadZxcvbnIfNeeded = () => {
+  if (zxcvbn) return;
+  if (process.env.NODE_ENV === 'test') return; // In tests, use fallback logic
+  try {
+    import('zxcvbn')
+      .then(module => {
+        zxcvbn = (module as any).default || module;
+      })
+      .catch(error => {
+        console.warn('zxcvbn library not available, using fallback:', error);
+      });
+  } catch (error) {
     console.warn('zxcvbn library not available, using fallback:', error);
-  });
-} catch (error) {
-  console.warn('zxcvbn library not available, using fallback:', error);
-}
+  }
+};
 
 interface PasswordStrengthProps {
   password: string;
@@ -20,6 +25,9 @@ interface PasswordStrengthProps {
 }
 
 export function PasswordStrength({ password, className }: PasswordStrengthProps) {
+  React.useEffect(() => {
+    loadZxcvbnIfNeeded();
+  }, []);
   if (!password) return null;
 
   // If zxcvbn is not available, show a simple strength indicator that matches tests
