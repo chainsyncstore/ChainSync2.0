@@ -6,6 +6,7 @@ import { registerAuthRoutes } from './routes.auth';
 import { registerInventoryRoutes } from './routes.inventory';
 import { registerPosRoutes } from './routes.pos';
 import { registerAnalyticsRoutes } from './routes.analytics';
+import { registerAdminRoutes } from './routes.admin';
 import { registerMeRoutes } from './routes.me';
 import { registerCustomerRoutes } from './routes.customers';
 import { registerLoyaltyRoutes } from './routes.loyalty';
@@ -33,6 +34,7 @@ export async function registerRoutes(app: Express) {
   await registerLoyaltyRoutes(app);
   await registerPosRoutes(app);
   await registerAnalyticsRoutes(app);
+  await registerAdminRoutes(app);
 
   const server = createServer(app);
   // Attach websocket notification service

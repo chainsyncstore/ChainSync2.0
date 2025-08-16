@@ -24,6 +24,9 @@ const POS = lazy(() => import("@/pages/pos"));
 const Inventory = lazy(() => import("@/pages/inventory"));
 const Analytics = lazy(() => import("@/pages/analytics"));  
 const AdminAudit = lazy(() => import("@/pages/admin/audit"));
+const AdminUsers = lazy(() => import("@/pages/admin/users"));
+const AdminIp = lazy(() => import("@/pages/admin/ip-whitelist"));
+const AdminBulk = lazy(() => import("@/pages/admin/bulk-pricing"));
 const PostOnboarding = lazy(() => import("@/pages/post-onboarding"));
 const Loyalty = lazy(() => import("@/pages/loyalty"));
 const Alerts = lazy(() => import("@/pages/alerts"));
@@ -57,6 +60,9 @@ function Dashboard({ userRole }: { userRole: string }) {
             <Route path="/inventory" component={Inventory} />
             <Route path="/analytics" component={Analytics} />
             <Route path="/admin/audit" component={AdminAudit} />
+            <Route path="/admin/users" component={AdminUsers} />
+            <Route path="/admin/ip-whitelist" component={AdminIp} />
+            <Route path="/admin/bulk-pricing" component={AdminBulk} />
             <Route path="/loyalty" component={Loyalty} />
             <Route path="/alerts" component={Alerts} />
             <Route path="/data-import" component={DataImport} />
@@ -81,6 +87,9 @@ function Dashboard({ userRole }: { userRole: string }) {
             <Route path="/inventory" component={Inventory} />
             <Route path="/analytics" component={Analytics} />
             <Route path="/admin/audit" component={AdminAudit} />
+            <Route path="/admin/users" component={AdminUsers} />
+            <Route path="/admin/ip-whitelist" component={AdminIp} />
+            <Route path="/admin/bulk-pricing" component={AdminBulk} />
             <Route path="/loyalty" component={Loyalty} />
             <Route path="/alerts" component={Alerts} />
             <Route path="/data-import" component={DataImport} />
