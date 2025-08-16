@@ -4,7 +4,7 @@ import { registerRoutes } from "./api";
 import { setupVite, serveStatic, log } from "./vite";
 import { loadEnv } from "../shared/env";
 import { sendErrorResponse, AppError, isOperationalError } from "./lib/errors";
-import { logger, requestLogger } from "./lib/logger";
+import { logger, requestLogger, pinoHttpMiddleware } from "./lib/logger";
 import { monitoringService, monitoringMiddleware } from "./lib/monitoring";
 import { 
   helmetConfig, 
@@ -15,7 +15,7 @@ import {
   securityLogging,
   redirectSecurityCheck
 } from "./middleware/security";
-import { scheduleAbandonedSignupCleanup } from "./jobs/cleanup";
+import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts } from "./jobs/cleanup";
 // WebSocket service will be set up after core APIs are migrated to PRD schema
 
 const app = express();
@@ -49,6 +49,7 @@ app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
 // Add monitoring and logging middleware
 app.use(monitoringMiddleware);
+app.use(pinoHttpMiddleware);
 app.use(requestLogger);
 
 (async () => {
@@ -130,6 +131,8 @@ app.use(requestLogger);
     
     // Schedule daily cleanup of abandoned signups
     scheduleAbandonedSignupCleanup();
+    // Schedule nightly low stock alerts generation
+    scheduleNightlyLowStockAlerts();
 
     server.listen({
       port,

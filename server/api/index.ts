@@ -13,6 +13,8 @@ import { registerLoyaltyRoutes } from './routes.loyalty';
 import { registerBillingRoutes } from './routes.billing';
 import { registerWebhookRoutes } from './routes.webhooks';
 import { auditMiddleware } from '../middleware/validation';
+import rateLimit from 'express-rate-limit';
+import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { NotificationService } from '../websocket/notification-service';
 
 export async function registerRoutes(app: Express) {
@@ -23,6 +25,8 @@ export async function registerRoutes(app: Express) {
   // Ensure raw body is available for webhooks
   app.use('/webhooks', express.raw({ type: '*/*' }));
   app.use('/api/payment', express.raw({ type: '*/*' }));
+  // Protect CSV/PDF exports with rate limiting
+  app.use(['/api/export', '/api/**/export'], sensitiveEndpointRateLimit);
   // Global audit for non-GET
   app.use(auditMiddleware());
 

@@ -1,3 +1,13 @@
+### Backups
+
+Neon Postgres logical backups:
+
+```bash
+bash infra/backup.sh ./backups
+```
+
+Requires `DATABASE_URL` in the environment and `pg_dump` in PATH.
+
 ChainSync (PRD-aligned)
 
 Setup

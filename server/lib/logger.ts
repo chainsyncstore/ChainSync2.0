@@ -1,4 +1,7 @@
 import { Request, Response } from 'express';
+import pino, { Logger as PinoLogger } from 'pino';
+import pinoHttp from 'pino-http';
+import * as Sentry from '@sentry/node';
 
 export enum LogLevel {
   ERROR = 'error',
@@ -32,10 +35,40 @@ export interface LogEntry {
 class Logger {
   private logLevel: LogLevel;
   private isDevelopment: boolean;
+  private pino: PinoLogger;
 
   constructor() {
     this.logLevel = (process.env.LOG_LEVEL as LogLevel) || LogLevel.INFO;
     this.isDevelopment = process.env.NODE_ENV === 'development';
+
+    const pinoLevel = (process.env.LOG_LEVEL || 'info') as any;
+    const base: Record<string, any> = {
+      service: 'chainsync-server',
+      env: process.env.NODE_ENV,
+    };
+
+    this.pino = pino({
+      level: pinoLevel,
+      base,
+      formatters: {
+        level: (label) => ({ level: label }),
+        bindings: (bindings) => ({ pid: bindings.pid, hostname: bindings.hostname }),
+      },
+      transport: this.isDevelopment ? {
+        target: 'pino-pretty',
+        options: { colorize: true, translateTime: 'SYS:standard' }
+      } : undefined,
+    });
+
+    if (process.env.SENTRY_DSN) {
+      try {
+        Sentry.init({
+          dsn: process.env.SENTRY_DSN,
+          environment: process.env.NODE_ENV || 'development',
+          tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0.0),
+        });
+      } catch {}
+    }
   }
 
   private shouldLog(level: LogLevel): boolean {
@@ -65,25 +98,30 @@ class Logger {
   }
 
   private outputLog(logEntry: LogEntry): void {
-    if (this.isDevelopment) {
-      // Development: Pretty console output
-      const colorMap = {
-        [LogLevel.ERROR]: '\x1b[31m', // Red
-        [LogLevel.WARN]: '\x1b[33m',  // Yellow
-        [LogLevel.INFO]: '\x1b[36m',  // Cyan
-        [LogLevel.DEBUG]: '\x1b[35m', // Magenta
-        [LogLevel.TRACE]: '\x1b[37m'  // White
+    const { level, message, context, error } = logEntry;
+    const payload = { ...context } as any;
+    if (error) {
+      payload.err = {
+        name: (error as any).name,
+        message: (error as any).message,
+        stack: (error as any).stack,
       };
-      const reset = '\x1b[0m';
-      
-      console.log(
-        `${colorMap[logEntry.level]}[${logEntry.level.toUpperCase()}]${reset} ${logEntry.timestamp} - ${logEntry.message}`,
-        logEntry.context ? JSON.stringify(logEntry.context, null, 2) : '',
-        logEntry.error ? `\nError: ${logEntry.error.message}\nStack: ${logEntry.error.stack}` : ''
-      );
-    } else {
-      // Production: Structured JSON logging
-      console.log(JSON.stringify(logEntry));
+    }
+    switch (level) {
+      case LogLevel.ERROR:
+        this.pino.error(payload, message);
+        break;
+      case LogLevel.WARN:
+        this.pino.warn(payload, message);
+        break;
+      case LogLevel.DEBUG:
+        this.pino.debug(payload, message);
+        break;
+      case LogLevel.TRACE:
+        this.pino.trace(payload, message);
+        break;
+      default:
+        this.pino.info(payload, message);
     }
   }
 
@@ -91,6 +129,15 @@ class Logger {
     if (this.shouldLog(LogLevel.ERROR)) {
       const logEntry = this.formatLog(LogLevel.ERROR, message, context, error);
       this.outputLog(logEntry);
+      if (process.env.SENTRY_DSN && error) {
+        try {
+          Sentry.withScope((scope) => {
+            if (context) Object.entries(context).forEach(([k, v]) => scope.setTag(k, String(v)));
+            scope.setExtra('message', message);
+            Sentry.captureException(error);
+          });
+        } catch {}
+      }
     }
   }
 
@@ -196,7 +243,8 @@ class Logger {
       duration,
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
-      userId: (req.session as any)?.user?.id,
+      userId: (req.session as any)?.user?.id || (req.session as any)?.userId,
+      orgId: (req as any).orgId,
       storeId: (req.session as any)?.user?.storeId,
       requestId: (req as any).requestId
     };
@@ -210,6 +258,19 @@ class Logger {
 }
 
 export const logger = new Logger();
+
+// Pino HTTP middleware (optional for direct req.log usage)
+export const pinoHttpMiddleware = pinoHttp({
+  logger: (logger as any).pino,
+  redact: {
+    paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', 'req.body.password'],
+    remove: true,
+  },
+  customProps: (req) => ({
+    requestId: (req as any).requestId,
+    userId: (req as any).session?.user?.id || (req as any).session?.userId,
+  }),
+});
 
 // Middleware for request logging
 export const requestLogger = (req: Request, res: Response, next: () => void): void => {

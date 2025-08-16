@@ -1,5 +1,8 @@
 import { pool } from "../db";
 import { logger } from "../lib/logger";
+import { db } from "../db";
+import { inventory, lowStockAlerts } from "@shared/schema";
+import { and, lt, eq } from "drizzle-orm";
 
 async function runCleanupOnce(): Promise<void> {
 	try {
@@ -61,3 +64,54 @@ export async function runAbandonedSignupCleanupNow(): Promise<void> {
 }
 
 
+// Nightly low stock alert generator
+async function runLowStockAlertOnce(): Promise<void> {
+    try {
+        const start = Date.now();
+        const rows = await db.select().from(inventory).where(lt(inventory.quantity, inventory.reorderLevel));
+        let created = 0;
+        for (const row of rows as any[]) {
+            const existing = await db.select().from(lowStockAlerts)
+                .where(and(eq(lowStockAlerts.storeId, row.storeId), eq(lowStockAlerts.productId, row.productId), eq(lowStockAlerts.isResolved, false)));
+            if (existing.length === 0) {
+                await db.insert(lowStockAlerts).values({
+                    storeId: row.storeId,
+                    productId: row.productId,
+                    currentStock: row.quantity,
+                    minStockLevel: row.reorderLevel,
+                } as any);
+                created++;
+            }
+        }
+        logger.info("Low stock alert scan completed", { created, durationMs: Date.now() - start });
+    } catch (error) {
+        logger.error("Low stock alert scan failed", {}, error as Error);
+    }
+}
+
+function msUntilNextHourUtc(hourUtc: number): number {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCDate(now.getUTCDate());
+    next.setUTCHours(hourUtc, 0, 0, 0);
+    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+    return next.getTime() - now.getTime();
+}
+
+export function scheduleNightlyLowStockAlerts(): void {
+    const enabled = process.env.LOW_STOCK_ALERTS_SCHEDULE !== "false";
+    if (!enabled) {
+        logger.info("Low stock alerts scheduler disabled via env");
+        return;
+    }
+    const hourUtc = Number(process.env.LOW_STOCK_ALERTS_HOUR_UTC ?? 2);
+    const scheduleNext = () => {
+        const delay = msUntilNextHourUtc(hourUtc);
+        logger.info("Scheduling nightly low stock alert scan", { runInMs: delay });
+        setTimeout(async () => {
+            await runLowStockAlertOnce();
+            setInterval(runLowStockAlertOnce, 24 * 60 * 60 * 1000);
+        }, delay);
+    };
+    scheduleNext();
+}

@@ -8,6 +8,7 @@ import path from 'path';
 import multer from 'multer';
 import { parse as csvParse } from 'csv-parse';
 import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
+import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { requireRole } from '../middleware/authz';
 
 export async function registerInventoryRoutes(app: Express) {
@@ -35,7 +36,7 @@ export async function registerInventoryRoutes(app: Express) {
   });
 
   // CSV template download
-  app.get('/api/inventory/template.csv', (_req: Request, res: Response) => {
+  app.get('/api/inventory/template.csv', sensitiveEndpointRateLimit, (_req: Request, res: Response) => {
     const file = path.resolve(process.cwd(), 'scripts/csv-templates/inventory_import_template.csv');
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="inventory_template.csv"');
@@ -58,7 +59,7 @@ export async function registerInventoryRoutes(app: Express) {
     store_code: z.string().optional(),
   });
 
-  app.post('/api/inventory/import', requireAuth, enforceIpWhitelist, uploadSingle, async (req: Request, res: Response) => {
+  app.post('/api/inventory/import', requireAuth, enforceIpWhitelist, sensitiveEndpointRateLimit, uploadSingle, async (req: Request, res: Response) => {
     if (!req.file) return res.status(400).json({ error: 'file is required' });
 
     const invalidRows: Array<{ row: any; error: string }> = [];

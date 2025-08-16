@@ -1601,6 +1601,16 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
       res.status(500).json({ message: "Failed to fetch alerts" });
     }
   });
+  
+  app.put("/api/alerts/:id/resolve", async (req, res) => {
+    try {
+      await storage.resolveLowStockAlert(req.params.id);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error resolving alert:", error);
+      res.status(500).json({ message: "Failed to resolve alert" });
+    }
+  });
 
   app.get("/api/stores/:storeId/analytics/daily-sales", async (req, res) => {
     try {
@@ -2661,7 +2671,7 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
   });
 
   // Export Routes
-  app.get("/api/stores/:storeId/export/products", async (req, res) => {
+  app.get("/api/stores/:storeId/export/products", sensitiveEndpointRateLimit, async (req, res) => {
     try {
       const { format = "csv" } = req.query;
       const exportData = await storage.exportProducts(req.params.storeId, format as string);
@@ -2675,7 +2685,7 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
     }
   });
 
-  app.get("/api/stores/:storeId/export/transactions", async (req, res) => {
+  app.get("/api/stores/:storeId/export/transactions", sensitiveEndpointRateLimit, async (req, res) => {
     try {
       const { startDate, endDate, format = "csv" } = req.query;
       const exportData = await storage.exportTransactions(
@@ -2694,7 +2704,7 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
     }
   });
 
-  app.get("/api/stores/:storeId/export/customers", async (req, res) => {
+  app.get("/api/stores/:storeId/export/customers", sensitiveEndpointRateLimit, async (req, res) => {
     try {
       const { format = "csv" } = req.query;
       const exportData = await storage.exportCustomers(
@@ -2711,7 +2721,7 @@ export async function registerRoutes(app: Express): Promise<import('http').Serve
     }
   });
 
-  app.get("/api/stores/:storeId/export/inventory", async (req, res) => {
+  app.get("/api/stores/:storeId/export/inventory", sensitiveEndpointRateLimit, async (req, res) => {
     try {
       const { format = "csv" } = req.query;
       const exportData = await storage.exportInventory(

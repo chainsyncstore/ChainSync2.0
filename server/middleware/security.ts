@@ -43,10 +43,10 @@ const corsOptions = {
 
 
 
-// Global rate limiting (200 requests per 15 minutes)
+// Global rate limiting (configurable via env)
 export const globalRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // limit each IP to 200 requests per windowMs
+  windowMs: Number(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS || 15 * 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_GLOBAL_MAX || 200),
   message: {
     error: 'Too many requests from this IP, please try again later.',
     retryAfter: Math.ceil(15 * 60 / 60) // minutes
@@ -74,10 +74,10 @@ export const globalRateLimit = rateLimit({
   }
 });
 
-// Auth-specific rate limiting (10 requests per 10 minutes)
+// Auth-specific rate limiting (configurable)
 export const authRateLimit = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 10, // limit each IP to 10 requests per windowMs
+  windowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS || 10 * 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_AUTH_MAX || 10),
   message: {
     error: 'Too many authentication attempts, please try again later.',
     retryAfter: Math.ceil(10 * 60 / 60) // minutes
@@ -105,10 +105,10 @@ export const authRateLimit = rateLimit({
   skipSuccessfulRequests: true
 });
 
-// Sensitive endpoints rate limiting (5 requests per minute)
+// Sensitive endpoints rate limiting (configurable)
 export const sensitiveEndpointRateLimit = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5, // limit each IP to 5 requests per minute
+  windowMs: Number(process.env.RATE_LIMIT_SENSITIVE_WINDOW_MS || 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_SENSITIVE_MAX || 5),
   message: {
     error: 'Too many requests to sensitive endpoint, please try again later.',
     retryAfter: Math.ceil(60 / 60) // minutes
@@ -136,10 +136,10 @@ export const sensitiveEndpointRateLimit = rateLimit({
   skipSuccessfulRequests: false
 });
 
-// Payment-specific rate limiting (3 requests per minute)
+// Payment-specific rate limiting (configurable)
 export const paymentRateLimit = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 3, // limit each IP to 3 payment requests per minute
+  windowMs: Number(process.env.RATE_LIMIT_PAYMENT_WINDOW_MS || 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_PAYMENT_MAX || 3),
   message: {
     error: 'Too many payment attempts, please try again later.',
     retryAfter: Math.ceil(60 / 60) // minutes
@@ -185,7 +185,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   const cookieToken = req.cookies['csrf-token']; // Use consistent cookie name
   
   // Log CSRF validation details for debugging
-  console.log('CSRF Validation:', {
+  logger.debug('CSRF validation', {
     path: req.path,
     method: req.method,
     hasHeaderToken: !!csrfToken,
@@ -195,7 +195,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   });
   
   if (!csrfToken || !cookieToken) {
-    console.warn('CSRF validation failed - missing tokens:', {
+    logger.warn('CSRF validation failed - missing tokens', {
       path: req.path,
       hasHeaderToken: !!csrfToken,
       hasCookieToken: !!cookieToken
@@ -219,7 +219,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   }
   
   if (csrfToken !== cookieToken) {
-    console.warn('CSRF validation failed - token mismatch:', {
+    logger.warn('CSRF validation failed - token mismatch', {
       path: req.path,
       headerToken: csrfToken?.substring(0, 8) + '...',
       cookieToken: cookieToken?.substring(0, 8) + '...'
@@ -243,7 +243,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   }
   
   // CSRF validation passed
-  console.log('CSRF validation passed for:', req.path);
+  logger.debug('CSRF validation passed', { path: req.path });
   next();
 };
 
@@ -262,7 +262,13 @@ export const helmetConfig = helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://replit.com", "https://www.google.com", "https://www.gstatic.com", "https://www.recaptcha.net"],
+      scriptSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        "https://www.google.com",
+        "https://www.gstatic.com",
+        "https://www.recaptcha.net",
+      ],
       connectSrc: [
         "'self'",
         "https://api.openai.com",
@@ -272,7 +278,9 @@ export const helmetConfig = helmet({
         "https://www.google.com/recaptcha/api2/clr",
         // Payment APIs for client-side callbacks if needed
         "https://api.paystack.co",
-        "https://api.flutterwave.com"
+        "https://api.flutterwave.com",
+        // Sentry (optional)
+        "https://o*.ingest.sentry.io",
       ],
       frameSrc: [
         "'self'",
@@ -290,6 +298,8 @@ export const helmetConfig = helmet({
         "https://*.flutterwave.com"
       ],
       workerSrc: ["'self'", "blob:"],
+      mediaSrc: ["'self'", "blob:"],
+      frameAncestors: ["'none'"],
       objectSrc: ["'none'"]
     }
   },

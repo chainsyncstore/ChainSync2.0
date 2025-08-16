@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import { securityAuditService } from '../lib/security-audit';
 import { monitoringService } from '../lib/monitoring';
 import { logger, extractLogContext } from '../lib/logger';
+import { authRateLimit } from '../middleware/security';
 
 const LoginSchema = z.union([
   z.object({ email: z.string().email(), password: z.string().min(8) }),
@@ -36,7 +37,7 @@ export async function registerAuthRoutes(app: Express) {
     res.json({ csrfToken: token });
   });
 
-  app.post('/api/auth/login', async (req: Request, res: Response) => {
+  app.post('/api/auth/login', authRateLimit, async (req: Request, res: Response) => {
     const context = extractLogContext(req);
     
     const parsed = LoginSchema.safeParse(req.body);
