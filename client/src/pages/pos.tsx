@@ -5,6 +5,7 @@ import BarcodeScanner from "@/components/pos/barcode-scanner";
 import ShoppingCart from "@/components/pos/shopping-cart";
 import CheckoutPanel from "@/components/pos/checkout-panel";
 import ProductSearchModal from "@/components/pos/product-search-modal";
+import SyncCenter from "@/components/pos/sync-center";
 import ToastSystem from "@/components/notifications/toast-system";
 import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
@@ -21,6 +22,7 @@ export default function POS() {
   const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -302,6 +304,9 @@ export default function POS() {
             <Button size="sm" variant="outline" onClick={handleSyncNow}>
               Sync now
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setIsSyncCenterOpen(true)}>
+              View
+            </Button>
           </div>
         )}
       </div>
@@ -358,6 +363,8 @@ export default function POS() {
           });
         }}
       />
+
+      <SyncCenter open={isSyncCenterOpen} onClose={() => setIsSyncCenterOpen(false)} />
 
       <ToastSystem
         notifications={notifications}

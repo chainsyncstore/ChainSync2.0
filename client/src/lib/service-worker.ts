@@ -134,6 +134,11 @@ export class ServiceWorkerManager {
         console.log('Background sync not available', err);
       }
 
+      // Signal SW to prewarm caches for POS data
+      try {
+        this.registration.active?.postMessage({ type: 'PREWARM_CACHES' });
+      } catch {}
+
       // Handle service worker updates
       this.registration.addEventListener('updatefound', () => {
         const newWorker = this.registration!.installing;

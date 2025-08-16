@@ -124,4 +124,38 @@ export async function processQueueNow(): Promise<void> {
   } catch {}
 }
 
+export async function listQueuedSales(): Promise<OfflineSaleRecord[]> {
+  const db = await openDb();
+  if (!db) {
+    const raw = localStorage.getItem(STORE);
+    return raw ? (JSON.parse(raw) as OfflineSaleRecord[]) : [];
+  }
+  return await new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const store = tx.objectStore(STORE);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
+
+export async function deleteQueuedSale(id: string): Promise<void> {
+  const db = await openDb();
+  if (!db) {
+    const raw = localStorage.getItem(STORE);
+    const arr = raw ? (JSON.parse(raw) as OfflineSaleRecord[]) : [];
+    const next = arr.filter((r) => r.id !== id);
+    localStorage.setItem(STORE, JSON.stringify(next));
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+export type { OfflineSaleRecord };
+
 

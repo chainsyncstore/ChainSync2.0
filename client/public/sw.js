@@ -384,7 +384,10 @@ async function updateOfflineSaleFailure(id, lastError) {
       const rec = getReq.result;
       if (!rec) return resolve();
       const attempts = (rec.attempts || 0) + 1;
-      const delayMs = Math.min(300000, Math.pow(2, attempts) * 1000); // capped exponential backoff (5m)
+      // capped exponential backoff (5m) + jitter
+      const base = Math.pow(2, attempts) * 1000;
+      const jitter = Math.floor(Math.random() * 500);
+      const delayMs = Math.min(300000, base + jitter);
       rec.attempts = attempts;
       rec.lastError = String(lastError || 'unknown error');
       rec.nextAttemptAt = Date.now() + delayMs;
@@ -448,6 +451,26 @@ async function syncOfflineItem(item) {
   });
   return response;
 }
+
+// Prewarm caches for app shell + POS data when clients signal readiness
+self.addEventListener('message', (event) => {
+  try {
+    if (event.data && event.data.type === 'PREWARM_CACHES') {
+      event.waitUntil((async () => {
+        try {
+          const cache = await caches.open(OFFLINE_CACHE);
+          const urls = ['/api/products', '/api/stores'];
+          await Promise.all(urls.map(async (u) => {
+            try {
+              const res = await fetch(u, { credentials: 'include' });
+              if (res.ok) await cache.put(u, res.clone());
+            } catch {}
+          }));
+        } catch {}
+      })());
+    }
+  } catch {}
+});
 
 // Handle push notifications
 self.addEventListener('push', (event) => {
