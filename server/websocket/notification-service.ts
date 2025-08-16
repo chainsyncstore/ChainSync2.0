@@ -5,6 +5,9 @@ import { db } from '../db';
 import { notifications, websocketConnections } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
 import jwt from 'jsonwebtoken';
+import { securityAuditService } from '../lib/security-audit';
+import { monitoringService } from '../lib/monitoring';
+import { loadEnv } from '../../shared/env';
 
 export interface NotificationEvent {
   type: 'inventory_alert' | 'sales_update' | 'system_alert' | 'ai_insight' | 'low_stock' | 'payment_alert' | 'user_activity';
@@ -34,22 +37,77 @@ export class NotificationService {
   private wss: WebSocketServer;
   private connections: Map<string, AuthenticatedConnection> = new Map();
   private channels: Map<string, Set<string>> = new Map(); // channel -> connectionIds
+  private config: any;
 
   constructor(server: Server) {
+    // Load Phase 8 configuration
+    this.config = loadEnv(process.env);
+    
+    if (!this.config.WS_ENABLED) {
+      logger.info('WebSocket service disabled by configuration');
+      return;
+    }
+
     this.wss = new WebSocketServer({ 
       server,
-      path: '/ws/notifications',
-      clientTracking: true
+      path: this.config.WS_PATH,
+      clientTracking: true,
+      maxPayload: 16 * 1024, // 16KB max message size
+      perMessageDeflate: true // Enable compression
     });
     
     this.setupWebSocketServer();
     this.startHeartbeat();
+    this.setupConnectionLimiter();
+    
+    logger.info('WebSocket notification service initialized', {
+      path: this.config.WS_PATH,
+      maxConnections: this.config.WS_MAX_CONNECTIONS,
+      heartbeatInterval: this.config.WS_HEARTBEAT_INTERVAL
+    });
+  }
+
+  private setupConnectionLimiter() {
+    // Check connection limits
+    setInterval(() => {
+      const connectionCount = this.connections.size;
+      if (connectionCount > this.config.WS_MAX_CONNECTIONS) {
+        logger.warn('WebSocket connection limit exceeded', { 
+          current: connectionCount, 
+          limit: this.config.WS_MAX_CONNECTIONS 
+        });
+        // Close oldest connections
+        const connectionsToClose = connectionCount - this.config.WS_MAX_CONNECTIONS;
+        const connectionIds = Array.from(this.connections.keys()).slice(0, connectionsToClose);
+        connectionIds.forEach(id => this.handleDisconnection(id));
+      }
+    }, 30000); // Check every 30 seconds
   }
 
   private setupWebSocketServer() {
     this.wss.on('connection', (ws: WebSocket, request) => {
       const connectionId = this.generateConnectionId();
-      logger.info('WebSocket connection established', { connectionId });
+      const clientIp = request.socket.remoteAddress || 'unknown';
+      
+      // Security audit for new connection
+      securityAuditService.logNetworkEvent('suspicious_request', {
+        ipAddress: clientIp,
+        userAgent: request.headers['user-agent'],
+        path: request.url
+      }, { connectionType: 'websocket' });
+      
+      // Check if IP is suspicious
+      if (securityAuditService.isIpSuspicious(clientIp)) {
+        logger.warn('WebSocket connection from suspicious IP', { connectionId, clientIp });
+        ws.close(1008, 'Access denied');
+        return;
+      }
+      
+      logger.info('WebSocket connection established', { 
+        connectionId, 
+        clientIp,
+        totalConnections: this.connections.size + 1
+      });
 
       // Set up connection event handlers
       ws.on('message', (data: Buffer) => {
@@ -433,17 +491,57 @@ export class NotificationService {
     }, 30000); // 30 seconds
   }
 
+  // Statistics and monitoring
   public getStats() {
+    const totalConnections = this.connections.size;
+    const totalClients = this.wss.clients.size;
+    const channelCount = this.channels.size;
+    
+    // Calculate connection health
+    let healthyConnections = 0;
+    this.connections.forEach(connection => {
+      if (connection.ws.readyState === WebSocket.OPEN) {
+        healthyConnections++;
+      }
+    });
+
+    // Get channel statistics
+    const channelStats = Array.from(this.channels.entries()).map(([channel, connectionIds]) => ({
+      channel,
+      subscriberCount: connectionIds.size
+    }));
+
     return {
-      totalConnections: this.connections.size,
-      totalChannels: this.channels.size,
-      channels: Object.fromEntries(
-        Array.from(this.channels.entries()).map(([channel, subscribers]) => [
-          channel,
-          subscribers.size
-        ])
-      )
+      connections: {
+        total: totalConnections,
+        healthy: healthyConnections,
+        clients: totalClients,
+        healthRate: totalConnections > 0 ? (healthyConnections / totalConnections) * 100 : 100
+      },
+      channels: {
+        total: channelCount,
+        details: channelStats
+      },
+      config: {
+        enabled: this.config?.WS_ENABLED || false,
+        path: this.config?.WS_PATH || '/ws/notifications',
+        maxConnections: this.config?.WS_MAX_CONNECTIONS || 1000,
+        heartbeatInterval: this.config?.WS_HEARTBEAT_INTERVAL || 30000
+      },
+      timestamp: new Date().toISOString()
     };
+  }
+
+  // Get connection details (admin only)
+  getConnectionDetails() {
+    return Array.from(this.connections.entries()).map(([connectionId, connection]) => ({
+      connectionId,
+      userId: connection.userId,
+      storeId: connection.storeId,
+      subscriptions: Array.from(connection.subscriptions),
+      isHealthy: connection.ws.readyState === WebSocket.OPEN,
+      readyState: connection.ws.readyState
+    }));
   }
 
   public close() {

@@ -42,6 +42,18 @@ export async function registerRoutes(app: Express) {
   await registerAdminRoutes(app);
   await registerBillingRoutes(app);
   await registerWebhookRoutes(app);
+  
+  // Phase 8: Enhanced Observability Routes
+  const { registerObservabilityRoutes } = await import('./routes.observability');
+  await registerObservabilityRoutes(app);
+  
+  // Phase 8: AI Analytics Routes  
+  const { registerAIAnalyticsRoutes } = await import('./routes.ai-analytics');
+  await registerAIAnalyticsRoutes(app);
+  
+  // Phase 8: Offline Sync Routes
+  const { registerOfflineSyncRoutes } = await import('./routes.offline-sync');
+  await registerOfflineSyncRoutes(app);
   app.get('/api/billing/plans', (_req, res) => {
     res.json({ ok: true });
   });
