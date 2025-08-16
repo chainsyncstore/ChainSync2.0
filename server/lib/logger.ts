@@ -263,7 +263,7 @@ export const logger = new Logger();
 export const pinoHttpMiddleware = pinoHttp({
   logger: (logger as any).pino,
   redact: {
-    paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', 'req.body.password'],
+    paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]', 'req.body.password'],
     remove: true,
   },
   customProps: (req) => ({

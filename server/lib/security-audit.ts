@@ -211,7 +211,7 @@ class SecurityAuditService {
 
     // Resource sensitivity
     if (resource.includes('admin') || resource.includes('billing') || resource.includes('user')) {
-      risk += 20;
+      risk += 10;
     }
 
     return Math.min(risk, 100);
@@ -265,7 +265,7 @@ class SecurityAuditService {
 
     // Base risk by event type
     switch (event) {
-      case 'sql_injection_attempt': risk += 90; break;
+      case 'sql_injection_attempt': risk += 75; break;
       case 'xss_attempt': risk += 70; break;
       case 'csrf_violation': risk += 60; break;
       case 'file_upload_suspicious': risk += 50; break;
@@ -313,10 +313,11 @@ class SecurityAuditService {
     // Track failed logins per IP
     if (event === 'login_failed') {
       const currentRisk = this.ipRiskScores.get(context.ipAddress) || 0;
-      this.ipRiskScores.set(context.ipAddress, Math.min(currentRisk + 10, 100));
-      
+      const newRisk = Math.min(currentRisk + 10, 100);
+      this.ipRiskScores.set(context.ipAddress, newRisk);
+
       // Mark IP as suspicious after multiple failures
-      if (currentRisk > 50) {
+      if (newRisk >= 50) {
         this.suspiciousIps.add(context.ipAddress);
       }
     } else if (event === 'login_success') {
