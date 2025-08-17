@@ -9,6 +9,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { TrendingUp, TrendingDown, Brain, Zap, AlertTriangle, CheckCircle, Clock, Target, BarChart3, LineChart as LineChartIcon } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/pos-utils";
 import { apiRequest } from "@/lib/queryClient";
+import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 interface ForecastData {
@@ -64,23 +65,64 @@ export default function DemandForecast({ storeId, className }: DemandForecastPro
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [chartType, setChartType] = useState("line");
 
-  // Fetch forecast models
+  // Fetch forecast models from AI status (mocked list via status)
   const { data: models = [] } = useQuery<ForecastModel[]>({
-    queryKey: ["/api/stores", storeId, "ai/forecast-models"],
-    queryFn: () => apiRequest("GET", `/api/stores/${storeId}/ai/forecast-models`).then(res => res.json()),
+    queryKey: ["/api/ai/status", storeId],
+    queryFn: async () => {
+      const status: any = await apiClient.get<any>(`/ai/status`);
+      const m = status?.models?.forecasting
+        ? [{
+            id: 'forecasting-default',
+            name: 'Ensemble Forecasting',
+            modelType: status.models.forecasting.type || 'ensemble',
+            accuracy: status.models.forecasting.accuracy || 0.85,
+            lastTrained: status.models.forecasting.lastTrained || new Date().toISOString(),
+            isActive: true,
+          }]
+        : [];
+      return m as ForecastModel[];
+    },
   });
 
   // Fetch demand forecasts
   const { data: forecastData = [], isLoading } = useQuery<ForecastData[]>({
-    queryKey: ["/api/stores", storeId, "ai/demand-forecasts", forecastPeriod, selectedModel],
-    queryFn: () => apiRequest("GET", `/api/stores/${storeId}/ai/demand-forecasts?period=${forecastPeriod}&modelId=${selectedModel}`).then(res => res.json()),
-    enabled: !!storeId && !!selectedModel,
+    queryKey: ["/api/ai/forecast", storeId, forecastPeriod, selectedModel],
+    queryFn: async () => {
+      const resp: any = await apiClient.get<any>(`/ai/forecast`, {
+        storeId,
+        days: forecastPeriod,
+      });
+      // Server returns { enabled, forecasts, metadata }
+      const f = Array.isArray(resp?.forecasts) ? resp.forecasts : [];
+      // Map to chart-friendly structure if needed
+      return f.map((it: any, idx: number) => ({
+        date: it.forecastDate || new Date(Date.now() + (idx + 1) * 86400000).toISOString(),
+        actualDemand: it.historicalData?.slice(-1)?.[0]?.quantity ?? 0,
+        predictedDemand: Math.round(it.predictedDemand || 0),
+        confidenceLower: Math.max(0, Math.round((it.predictedDemand || 0) * 0.8)),
+        confidenceUpper: Math.round((it.predictedDemand || 0) * 1.2),
+        accuracy: Math.round(((it.confidence || 0.8) * 100)),
+      })) as ForecastData[];
+    },
+    enabled: !!storeId,
   });
 
   // Fetch AI insights
   const { data: insights = [] } = useQuery<AiInsight[]>({
-    queryKey: ["/api/stores", storeId, "ai/insights"],
-    queryFn: () => apiRequest("GET", `/api/stores/${storeId}/ai/insights`).then(res => res.json()),
+    queryKey: ["/api/ai/insights", storeId],
+    queryFn: async () => {
+      const resp: any = await apiClient.get<any>(`/ai/insights`, { storeId });
+      const raw = Array.isArray(resp?.insights) ? resp.insights : [];
+      return raw.map((ins: any, idx: number) => ({
+        id: ins.id || `${idx}-${ins.generatedAt || Date.now()}`,
+        insightType: ins.category || 'general',
+        title: ins.title || 'Insight',
+        description: ins.description || '',
+        severity: ins.priority || 'medium',
+        isRead: false,
+        createdAt: ins.generatedAt || new Date().toISOString(),
+      })) as AiInsight[];
+    },
   });
 
   // Auto-select first model when models are loaded

@@ -4,6 +4,7 @@ import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import { Send, Bot, User } from 'lucide-react';
+import { apiClient, handleApiError } from '@/lib/api-client';
 
 interface ChatMessage {
     id: string;
@@ -50,23 +51,11 @@ export default function ForecastChat({ storeId, className }: ForecastChatProps) 
         setIsLoading(true);
 
         try {
-            const response = await fetch('/api/openai/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: inputText,
-                    storeId,
-                    sessionId: `store-${storeId}-${Date.now()}`
-                })
+            const data: any = await apiClient.post('/openai/chat', {
+                message: inputText,
+                storeId,
+                sessionId: `store-${storeId}-${Date.now()}`
             });
-
-            if (!response.ok) {
-                throw new Error('Failed to get response');
-            }
-
-            const data = await response.json();
             
             const botMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
@@ -79,6 +68,7 @@ export default function ForecastChat({ storeId, className }: ForecastChatProps) 
             setMessages(prev => [...prev, botMessage]);
         } catch (error) {
             console.error('Chat error:', error);
+            handleApiError(error as unknown);
             const errorMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
                 text: "I'm sorry, I encountered an error. Please try again or check your connection.",

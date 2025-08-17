@@ -16,6 +16,7 @@ import { auditMiddleware } from '../middleware/validation';
 import rateLimit from 'express-rate-limit';
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { NotificationService } from '../websocket/notification-service';
+import { OpenAIService } from '../openai/service';
 
 export async function registerRoutes(app: Express) {
   const env = loadEnv(process.env);
@@ -46,6 +47,23 @@ export async function registerRoutes(app: Express) {
   await registerAdminRoutes(app);
   await registerBillingRoutes(app);
   await registerWebhookRoutes(app);
+
+  // OpenAI chat endpoint (ensure available in API router path)
+  const openaiService = process.env.NODE_ENV === 'test' ? (null as unknown as OpenAIService) : new OpenAIService();
+  app.post('/api/openai/chat', async (req, res) => {
+    try {
+      const { message, storeId } = req.body || {};
+      const openaiResponse = await openaiService.processChatMessage(message, storeId);
+      res.json({
+        fulfillmentText: openaiResponse.text,
+        payload: openaiResponse.payload,
+      });
+    } catch (error) {
+      res.status(500).json({
+        fulfillmentText: "I'm sorry, I encountered an error processing your request.",
+      });
+    }
+  });
   
   // Phase 8: Enhanced Observability Routes
   const { registerObservabilityRoutes } = await import('./routes.observability');

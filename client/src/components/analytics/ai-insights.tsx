@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Brain, Zap, AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown, Target, Lightbulb, BarChart3, Users, Package, DollarSign } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/pos-utils";
 import { apiRequest } from "@/lib/queryClient";
+import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 interface AiInsight {
@@ -60,10 +61,32 @@ export default function AiInsights({ storeId, className }: AiInsightsProps) {
   const [selectedSeverity, setSelectedSeverity] = useState("all");
   const [activeTab, setActiveTab] = useState("overview");
 
-  // Fetch AI insights
+  const queryClient = useQueryClient();
+
+  // Fetch AI insights from backend and normalize shape
   const { data: insights = [], isLoading } = useQuery<AiInsight[]>({
-    queryKey: ["/api/stores", storeId, "ai/insights"],
-    queryFn: () => apiRequest("GET", `/api/stores/${storeId}/ai/insights`).then(res => res.json()),
+    queryKey: ["/api/ai/insights", storeId],
+    queryFn: async () => {
+      const resp: any = await apiClient.get<any>(`/ai/insights`, { storeId });
+      // Server returns { enabled, insights, summary, metadata }
+      const rawInsights = Array.isArray(resp?.insights) ? resp.insights : [];
+      return rawInsights.map((ins: any, idx: number): AiInsight => ({
+        id: ins.id || `${idx}-${ins.generatedAt || Date.now()}`,
+        insightType: ins.category || "general",
+        title: ins.title || "Insight",
+        description: ins.description || "",
+        severity: ins.priority || "medium",
+        data: {
+          impact: typeof ins.impact === 'number' ? ins.impact : undefined,
+          confidence: typeof ins.confidence === 'number' ? Math.round((ins.confidence || 0) * 100) : undefined,
+          recommendations: ins.recommendedActions || [],
+          metrics: ins.metrics || {},
+        },
+        isRead: false,
+        isActioned: false,
+        createdAt: ins.generatedAt || new Date().toISOString(),
+      }));
+    },
   });
 
   // Calculate summary statistics
@@ -108,15 +131,18 @@ export default function AiInsights({ storeId, className }: AiInsightsProps) {
   };
 
   const markAsRead = async (insightId: string) => {
-    await apiRequest("PATCH", `/api/stores/${storeId}/ai/insights/${insightId}`, {
-      isRead: true,
+    // Optimistic local update as backend route doesn't exist yet
+    queryClient.setQueryData<AiInsight[]>(["/api/ai/insights", storeId], (prev) => {
+      if (!prev) return prev as any;
+      return prev.map(i => i.id === insightId ? { ...i, isRead: true } : i);
     });
   };
 
   const markAsActioned = async (insightId: string) => {
-    await apiRequest("PATCH", `/api/stores/${storeId}/ai/insights/${insightId}`, {
-      isActioned: true,
-      actionedAt: new Date().toISOString(),
+    // Optimistic local update as backend route doesn't exist yet
+    queryClient.setQueryData<AiInsight[]>(["/api/ai/insights", storeId], (prev) => {
+      if (!prev) return prev as any;
+      return prev.map(i => i.id === insightId ? { ...i, isActioned: true } : i);
     });
   };
 
