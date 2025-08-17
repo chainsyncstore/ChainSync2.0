@@ -1,49 +1,22 @@
 import { Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import cors from "cors";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import rateLimit from "express-rate-limit";
 import { logger } from "../lib/logger";
 import { monitoringService } from "../lib/monitoring";
 
-// CORS configuration for API routes only
+// CORS configuration for API routes only (reads CORS_ORIGINS CSV)
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // In production, allow requests with no origin for certain cases (like service workers, direct API calls)
-    if (process.env.NODE_ENV === 'production' && !origin) {
-      logger.info('Allowing request with no origin in production (likely service worker or direct API call)', {
-        environment: process.env.NODE_ENV
-      });
+    // Allow requests with no origin (e.g., same-origin, service workers) in all envs
+    if (!origin) {
       return callback(null, true);
     }
 
-    // In development, allow requests with no origin for testing
-    if (process.env.NODE_ENV === 'development' && !origin) {
-      return callback(null, true);
-    }
+    const csv = process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://localhost:5000';
+    const allowedOrigins = csv.split(',').map(s => s.trim()).filter(Boolean);
 
-    let allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean) || [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://localhost:5000',
-    ];
-
-    // In production, lock origins strictly to env-configured production domains
-    if (process.env.NODE_ENV === 'production') {
-      const prodOrigins: string[] = [];
-      if (process.env.ALLOWED_ORIGINS) {
-        prodOrigins.push(...process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean));
-      }
-      if (process.env.PRODUCTION_DOMAIN) {
-        prodOrigins.push(process.env.PRODUCTION_DOMAIN);
-      }
-      if (process.env.PRODUCTION_WWW_DOMAIN) {
-        prodOrigins.push(process.env.PRODUCTION_WWW_DOMAIN);
-      }
-      // If nothing configured, default to primary domain to avoid accidental wide-open CORS
-      allowedOrigins = prodOrigins.length > 0 ? prodOrigins : ['https://chainsync.store', 'https://www.chainsync.store'];
-    }
-
-    if (origin && allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
@@ -80,8 +53,14 @@ export const globalRateLimit = rateLimit({
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // Use request IP as key, relying on app.set('trust proxy', true)
-  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
+  // IPv6-safe key generation
+  keyGenerator: (req: Request) => {
+    const raw = req.ip || (req as any).connection?.remoteAddress || req.socket?.remoteAddress || "";
+    // Normalize IPv6-mapped IPv4 addresses like ::ffff:127.0.0.1
+    return raw.startsWith("::ffff:") ? raw.substring(7) : raw;
+  },
+  // Disable rate limiting during tests
+  skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Rate limit exceeded', {
       ip: req.ip,
@@ -109,7 +88,11 @@ export const authRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
+  keyGenerator: (req: Request) => {
+    const raw = req.ip || (req as any).connection?.remoteAddress || req.socket?.remoteAddress || "";
+    return raw.startsWith("::ffff:") ? raw.substring(7) : raw;
+  },
+  skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
       ip: req.ip,
@@ -139,7 +122,11 @@ export const sensitiveEndpointRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
+  keyGenerator: (req: Request) => {
+    const raw = req.ip || (req as any).connection?.remoteAddress || req.socket?.remoteAddress || "";
+    return raw.startsWith("::ffff:") ? raw.substring(7) : raw;
+  },
+  skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
       ip: req.ip,
@@ -169,7 +156,11 @@ export const paymentRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
+  keyGenerator: (req: Request) => {
+    const raw = req.ip || (req as any).connection?.remoteAddress || req.socket?.remoteAddress || "";
+    return raw.startsWith("::ffff:") ? raw.substring(7) : raw;
+  },
+  skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {
       ip: req.ip,

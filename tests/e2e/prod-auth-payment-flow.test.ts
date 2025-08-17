@@ -111,15 +111,15 @@ vi.mock('../../server/auth', () => ({
   }
 }));
 
-// Stub email sending
-const sendEmailMock = vi.fn(async () => true);
-vi.mock('../../server/email', async (orig) => {
-  const mod = await orig();
-  return {
-    ...mod,
-    sendEmail: sendEmailMock
-  };
-});
+// Stub email sending using vi.hoisted to avoid hoisting issues
+const { sendEmailMock } = vi.hoisted(() => ({
+  sendEmailMock: vi.fn(async () => true)
+}));
+vi.mock('../../server/email', () => ({
+  sendEmail: sendEmailMock,
+  generatePasswordResetEmail: vi.fn(() => ({})),
+  generatePasswordResetSuccessEmail: vi.fn(() => ({}))
+}));
 
 // Stub subscription service used in payment verify
 vi.mock('../../server/subscription/service', () => ({
