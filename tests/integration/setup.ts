@@ -1,6 +1,18 @@
 import { beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import dotenv from 'dotenv';
 import { cryptoModuleMock } from '../utils/crypto-mocks';
+import {
+  users as T_USERS,
+  stores as T_STORES,
+  products as T_PRODUCTS,
+  inventory as T_INVENTORY,
+  customers as T_CUSTOMERS,
+  loyaltyAccounts as T_LA,
+  loyaltyTransactions as T_LT,
+  sales as T_SALES,
+  saleItems as T_SALE_ITEMS,
+  auditLogs as T_AUDIT,
+} from '../../shared/prd-schema';
 
 // Load test environment variables
 dotenv.config({ path: '.env.test' });
@@ -9,44 +21,97 @@ dotenv.config({ path: '.env.test' });
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'error';
 
-// Mock the database module (fluent builder returning Promises/arrays where awaited)
+// Mock database with deterministic in-memory fixtures compatible with our API routes
+if (process.env.LOYALTY_REALDB !== '1') {
 vi.mock('../../server/db', () => {
-  function createQueryResult(result: any[] = []) {
-    const builder: any = {
-      innerJoin: vi.fn(() => builder),
-      leftJoin: vi.fn(() => builder),
-      where: vi.fn(() => Promise.resolve(result)),
-      orderBy: vi.fn(() => builder),
-      groupBy: vi.fn(() => builder),
-      limit: vi.fn(() => ({
-        offset: vi.fn(() => Promise.resolve(result))
-      })),
-      offset: vi.fn(() => Promise.resolve(result))
-    };
-    return builder;
+  type Row = Record<string, any>;
+  const store: Record<string, Row[]> = {
+    users: [],
+    stores: [],
+    products: [],
+    inventory: [],
+    customers: [],
+    loyalty_accounts: [],
+    loyalty_transactions: [],
+    sales: [],
+    sale_items: [],
+    audit_logs: [],
+  };
+
+  function tableName(t: any): keyof typeof store {
+    if (t === T_USERS) return 'users';
+    if (t === T_STORES) return 'stores';
+    if (t === T_PRODUCTS) return 'products';
+    if (t === T_INVENTORY) return 'inventory';
+    if (t === T_CUSTOMERS) return 'customers';
+    if (t === T_LA) return 'loyalty_accounts';
+    if (t === T_LT) return 'loyalty_transactions';
+    if (t === T_SALES) return 'sales';
+    if (t === T_SALE_ITEMS) return 'sale_items';
+    if (t === T_AUDIT) return 'audit_logs';
+    return 'audit_logs';
   }
 
-  const db = {
-    select: vi.fn(() => ({
-      from: vi.fn(() => createQueryResult([]))
-    })),
-    insert: vi.fn(() => ({
-      values: vi.fn(() => ({
-        returning: vi.fn(() => Promise.resolve([{}]))
-      }))
-    })),
-    update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn(() => ({ returning: vi.fn(() => Promise.resolve([{}])) }))
-      }))
-    })),
-    delete: vi.fn(() => ({
-      where: vi.fn(() => Promise.resolve({ rowCount: 0 }))
-    })),
-  } as any;
+  function genId(prefix: string) {
+    return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+  }
 
-  return { db, checkDatabaseHealth: vi.fn().mockResolvedValue(true) };
+  const select = vi.fn((projection?: any) => ({
+    from: (tbl: any) => {
+      const key = tableName(tbl);
+      const rows = store[key];
+      const result = rows.slice();
+      return {
+        innerJoin: () => this,
+        leftJoin: () => this,
+        orderBy: () => this,
+        groupBy: () => this,
+        where: (_expr?: any) => ({
+          limit: async (_n?: number) => result,
+        }),
+        limit: async (_n?: number) => result,
+      } as any;
+    },
+  }));
+
+  const insert = vi.fn((tbl?: any) => ({
+    values: (obj: any) => ({
+      returning: async () => {
+        const key = tableName(tbl);
+        const row = { id: obj.id || genId(key), ...obj } as Row;
+        store[key].push(row);
+        return [row];
+      },
+    }),
+  }));
+
+  const update = vi.fn((tbl?: any) => ({
+    set: (partial: any) => ({
+      where: (_expr?: any) => ({
+        returning: async () => {
+          const key = tableName(tbl);
+          const target = store[key][store[key].length - 1];
+          Object.assign(target || {}, partial);
+          return [target];
+        },
+      }),
+    }),
+  }));
+
+  const _db: any = { select, insert, update, delete: vi.fn(), execute: vi.fn(async () => []) };
+
+  function seed(fixtures: Partial<Record<keyof typeof store, Row[]>>) {
+    for (const k of Object.keys(store) as (keyof typeof store)[]) {
+      store[k] = fixtures[k]?.slice() || [];
+    }
+  }
+  function reset() {
+    seed({});
+  }
+
+  return { db: _db, checkDatabaseHealth: vi.fn().mockResolvedValue(true), __seed: seed, __reset: reset };
 });
+}
 
 // Do not mock storage to preserve full functionality used by integration tests
 
@@ -107,6 +172,19 @@ afterAll(async () => {
 beforeEach(async () => {
   // Clear all data before each test
   await clearTestData();
+  // Default seed minimal fixtures so API routes depending on stores/users work deterministically
+  try {
+    if (process.env.LOYALTY_REALDB !== '1') {
+      const dbmod: any = await import('../../server/db');
+      const seed = dbmod.__seed as (f: any) => void;
+      seed({
+        users: [{ id: 'u-test', orgId: 'org-test', email: 'user@test', isAdmin: true }],
+        stores: [{ id: '00000000-0000-0000-0000-000000000001', orgId: 'org-test', name: 'Test Store' }],
+        products: [{ id: '00000000-0000-0000-0000-000000000010', orgId: 'org-test', sku: 'SKU', name: 'P', costPrice: '0', salePrice: '100', vatRate: '0' }],
+        inventory: [{ id: 'inv-1', storeId: '00000000-0000-0000-0000-000000000001', productId: '00000000-0000-0000-0000-000000000010', quantity: 999 }],
+      });
+    }
+  } catch {}
 });
 
 // Per-test cleanup
@@ -147,6 +225,13 @@ async function clearTestData() {
   } catch (error) {
     console.warn('Error clearing test data:', error);
   }
+  try {
+    if (process.env.LOYALTY_REALDB !== '1') {
+      const dbmod: any = await import('../../server/db');
+      const reset = dbmod.__reset as () => void;
+      reset();
+    }
+  } catch {}
 }
 
 // Mock console methods to reduce noise in tests

@@ -1,10 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import { z } from 'zod';
+import PDFDocument from 'pdfkit';
 
 // Simple in-memory storage for testing
 const users = new Map<string, any>();
 const sessions = new Map<string, any>();
+let currentSessionId: string | null = null;
 
 // Validation schemas
 const SignupSchema = z.object({
@@ -29,8 +31,14 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Health endpoints
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ ok: true, uptime: process.uptime() });
+});
+
 // CSRF token endpoint
 app.get('/api/auth/csrf-token', (req, res) => {
+  // In real server, this would also set a cookie. For tests we just return a token.
   res.json({ csrfToken: 'test-csrf-token' });
 });
 
@@ -108,6 +116,41 @@ app.post('/api/auth/signup', (req, res) => {
       path: req.path
     });
   }
+});
+
+// Minimal auth endpoints for E2E tests
+app.post('/api/auth/login', (req, res) => {
+  const { email, username, password } = req.body || {};
+  const identifier = email || username || '';
+  const lower = String(identifier).toLowerCase();
+  const role = lower.includes('admin') ? 'admin' : lower.includes('manager') ? 'manager' : 'cashier';
+  const user = {
+    id: `user_${role}`,
+    email: identifier || `${role}@example.com`,
+    firstName: role.charAt(0).toUpperCase() + role.slice(1),
+    lastName: 'User',
+    role,
+  };
+  const sid = `sid_${Date.now()}`;
+  sessions.set(sid, user);
+  currentSessionId = sid;
+  res.cookie?.('chainsync.sid', sid, { httpOnly: false });
+  return res.json({ status: 'success', user });
+});
+
+app.get('/api/auth/me', (_req, res) => {
+  if (!currentSessionId) return res.status(401).json({ error: 'unauthorized' });
+  const user = sessions.get(currentSessionId);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  return res.json(user);
+});
+
+app.post('/api/auth/logout', (_req, res) => {
+  if (currentSessionId) {
+    sessions.delete(currentSessionId);
+    currentSessionId = null;
+  }
+  res.json({ ok: true });
 });
 
 // Complete signup endpoint
@@ -189,6 +232,53 @@ app.post('/api/payment/initialize', (req, res) => {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Mock stores and analytics endpoints for POS and analytics pages
+app.get('/api/stores', (_req, res) => {
+  res.json([
+    { id: 'store_1', name: 'Main Store' },
+    { id: 'store_2', name: 'Branch Store' },
+  ]);
+});
+
+app.get('/api/stores/:id/analytics/daily-sales', (req, res) => {
+  res.json({ transactions: 3, revenue: 315 });
+});
+
+// POS sales endpoint
+app.post('/api/pos/sales', (req, res) => {
+  const body = req.body || {};
+  if (!body || !body.items || !Array.isArray(body.items) || body.items.length === 0) {
+    return res.status(400).json({ error: 'invalid sale' });
+  }
+  res.json({ id: `sale_${Date.now()}`, total: body.total });
+});
+
+// Product lookup by barcode
+app.get('/api/products/barcode/:barcode', (req, res) => {
+  const { barcode } = req.params;
+  if (barcode === '12345') {
+    return res.json({ id: 'product_1', name: 'Test Product', barcode: '12345', price: '9.99' });
+  }
+  return res.status(404).json({ error: 'not found' });
+});
+
+// Analytics exports
+app.get('/api/analytics/export.csv', (_req, res) => {
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="analytics_export.csv"');
+  res.end(['date,revenue,discount,tax,transactions', '2024-01-01,105,0,5,1', '2024-01-02,210,0,10,1'].join('\n'));
+});
+
+app.get('/api/analytics/export.pdf', (_req, res) => {
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="analytics_report.pdf"');
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  doc.pipe(res);
+  doc.fontSize(16).text('Analytics Report (Test)');
+  doc.text('This is a test PDF export.');
+  doc.end();
 });
 
 // Start server

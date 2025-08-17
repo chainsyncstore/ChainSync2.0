@@ -116,8 +116,8 @@ export default function AdvancedCheckout({
         paymentMethod: selectedPaymentMethod,
         amountReceived,
         changeDue,
-        customerInfo,
-        discountInfo,
+        customerPhone: customerInfo.phone || undefined,
+        redeemPoints: discountInfo.type === 'loyalty' ? Math.max(0, Math.floor(discountInfo.value)) : 0,
         items: items.map(item => ({
           productId: item.productId,
           quantity: item.quantity,
@@ -126,7 +126,7 @@ export default function AdvancedCheckout({
         })),
       };
 
-      const response = await apiRequest("POST", "/api/transactions", transactionData);
+      const response = await apiRequest("POST", "/api/pos/sales", transactionData);
       return response.json();
     },
     onSuccess: (transaction) => {
@@ -181,28 +181,35 @@ export default function AdvancedCheckout({
     setIsDiscountModalOpen(false);
   };
 
-  const handleCustomerSearch = async (loyaltyNumber: string) => {
+  const handleCustomerSearch = async (phone: string) => {
     try {
-      const response = await apiRequest("GET", `/api/loyalty/customers/search?loyaltyNumber=${loyaltyNumber}`);
+      const response = await apiRequest("GET", `/api/customers?phone=${encodeURIComponent(phone)}`);
       const customer = await response.json();
       if (customer) {
         setCustomerInfo({
-          name: `${customer.firstName} ${customer.lastName}`,
-          email: customer.email || "",
+          name: customer.name || "",
+          email: "",
           phone: customer.phone || "",
-          loyaltyNumber: customer.loyaltyNumber,
+          loyaltyNumber: customer.id,
         });
         toast({
           title: "Customer Found",
-          description: `Welcome back, ${customer.firstName}!`,
+          description: `Attached customer ${customer.phone}`,
         });
       }
     } catch (error) {
-      toast({
-        title: "Customer Not Found",
-        description: "Please check the loyalty number",
-        variant: "destructive",
-      });
+      try {
+        const mod = await import('@/lib/idb-catalog');
+        const local = await mod.getCustomerByPhone(phone);
+        if (local) {
+          setCustomerInfo({ name: local.name || '', email: '', phone: local.phone, loyaltyNumber: local.id });
+          toast({ title: 'Customer (offline)', description: `Attached customer ${local.phone}` });
+        } else {
+          toast({ title: 'Customer Not Found', description: 'Please check the phone number', variant: 'destructive' });
+        }
+      } catch {
+        toast({ title: 'Customer Not Found', description: 'Please check the phone number', variant: 'destructive' });
+      }
     }
   };
 
@@ -604,19 +611,19 @@ export default function AdvancedCheckout({
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Loyalty Number</Label>
+              <Label>Customer Phone</Label>
               <div className="flex space-x-2">
                 <Input
-                  value={customerInfo.loyaltyNumber}
+                  value={customerInfo.phone}
                   onChange={(e) => setCustomerInfo(prev => ({ 
                     ...prev, 
-                    loyaltyNumber: e.target.value 
+                    phone: e.target.value 
                   }))}
-                  placeholder="Enter loyalty number"
+                  placeholder="Enter phone number"
                 />
                 <Button 
                   variant="outline"
-                  onClick={() => handleCustomerSearch(customerInfo.loyaltyNumber)}
+                  onClick={() => handleCustomerSearch(customerInfo.phone)}
                 >
                   Search
                 </Button>

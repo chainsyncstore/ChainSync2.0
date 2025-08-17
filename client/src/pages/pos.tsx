@@ -5,18 +5,24 @@ import BarcodeScanner from "@/components/pos/barcode-scanner";
 import ShoppingCart from "@/components/pos/shopping-cart";
 import CheckoutPanel from "@/components/pos/checkout-panel";
 import ProductSearchModal from "@/components/pos/product-search-modal";
+import SyncCenter from "@/components/pos/sync-center";
 import ToastSystem from "@/components/notifications/toast-system";
 import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
 import { useNotifications } from "@/hooks/use-notifications";
 import { apiRequest } from "@/lib/queryClient";
+import { enqueueOfflineSale, generateIdempotencyKey, getOfflineQueueCount, processQueueNow, getEscalatedCount, validateSalePayload } from "@/lib/offline-queue";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, LowStockAlert } from "@shared/schema";
+import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 
 export default function POS() {
   const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -71,39 +77,112 @@ export default function POS() {
     queryKey: ["/api/stores", selectedStore, "alerts"],
   });
 
-  // Transaction mutations
+  // Track offline sync state
+  const [queuedCount, setQueuedCount] = useState(0);
+  const [lastSync, setLastSync] = useState<{ attempted: number; synced: number } | null>(null);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [escalations, setEscalations] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const update = async () => { setQueuedCount(await getOfflineQueueCount()); setEscalations(await getEscalatedCount(5)); };
+    update();
+    const onMsg = (event: MessageEvent) => {
+      if (event.data?.type === 'SYNC_COMPLETED') {
+        setLastSync(event.data.data);
+        update();
+      } else if (event.data?.type === 'SYNC_SALE_OK') {
+        const sale = event.data?.data?.sale;
+        const receipt = sale?.receiptNumber || sale?.id || 'sale';
+        addNotification({
+          type: 'success',
+          title: 'Sale Synced',
+          message: `Receipt #${receipt}`,
+        });
+        update();
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onMsg as any);
+    const onOnline = async () => {
+      setIsOnline(true);
+      try {
+        await processQueueNow();
+        setQueuedCount(await getOfflineQueueCount());
+        setEscalations(await getEscalatedCount(5));
+        toast({ title: 'Back online', description: 'Sync started automatically.' });
+      } catch {}
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onMsg as any);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
+  const handleSyncNow = async () => {
+    try {
+      await processQueueNow();
+      setQueuedCount(await getOfflineQueueCount());
+      setEscalations(await getEscalatedCount(5));
+      toast({ title: 'Sync requested', description: 'Background sync triggered.' });
+    } catch (e) {
+      toast({ title: 'Sync failed to start', description: 'Please try again later.', variant: 'destructive' });
+    }
+  };
+
+  // POS sale mutation using /api/pos/sales with idempotency and offline fallback
   const createTransactionMutation = useMutation({
     mutationFn: async () => {
-      const transactionResponse = await apiRequest("POST", "/api/transactions", {
+      const idempotencyKey = generateIdempotencyKey();
+      const payload = {
         storeId: selectedStore,
-        cashierId: "user123", // In real app, get from auth
-        subtotal: summary.subtotal,
-        taxAmount: summary.tax,
-        total: summary.total,
+        subtotal: String(Number(summary.subtotal.toFixed(2))),
+        discount: String(0),
+        tax: String(Number(summary.tax.toFixed(2))),
+        total: String(Number(summary.total.toFixed(2))),
         paymentMethod: payment.method,
-        amountReceived: payment.amountReceived,
-        changeDue: payment.changeDue,
-      });
-      
-      const transaction = await transactionResponse.json();
-      
-      // Add items to transaction
-      for (const item of items) {
-        await apiRequest("POST", `/api/transactions/${transaction.id}/items`, {
-          productId: item.productId,
-          quantity: item.quantity,
-          unitPrice: item.price,
-          totalPrice: item.total,
-          storeId: selectedStore,
+        items: items.map((it) => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          unitPrice: String(Number(it.price.toFixed(2))),
+          lineDiscount: String(0),
+          lineTotal: String(Number(it.total.toFixed(2))),
+        })),
+      };
+
+      try {
+        const res = await fetch('/api/pos/sales', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify(payload),
+          credentials: 'include',
         });
+        if (!res.ok) throw new Error(`${res.status}`);
+        return await res.json();
+      } catch (err) {
+        // Offline fallback: enqueue and trigger background sync
+        const v = validateSalePayload(payload);
+        if (!v.valid) {
+          addNotification({ type: 'error', title: 'Cannot queue sale', message: v.errors.slice(0,3).join('; ') });
+          throw err;
+        }
+        await enqueueOfflineSale({ url: '/api/pos/sales', payload, idempotencyKey });
+        setQueuedCount(await getOfflineQueueCount());
+        addNotification({
+          type: 'info',
+          title: 'Saved Offline',
+          message: 'Sale saved locally and will sync when online.',
+        });
+        // Return a fake object to satisfy UI, with local id
+        return { id: `local_${Date.now()}`, idempotencyKey, total: payload.total } as any;
       }
-      
-      // Complete the transaction
-      await apiRequest("PUT", `/api/transactions/${transaction.id}/complete`);
-      
-      return transaction;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       addNotification({
         type: "success",
         title: "Sale Completed",
@@ -111,6 +190,9 @@ export default function POS() {
       });
       clearCart();
       queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"] });
+      // Try to process queue immediately (harmless if none)
+      await processQueueNow();
+      setQueuedCount(await getOfflineQueueCount());
     },
     onError: (error) => {
       addNotification({
@@ -121,6 +203,9 @@ export default function POS() {
       console.error("Transaction error:", error);
     },
   });
+
+  // Subscribe to realtime sales for POS store scope
+  useRealtimeSales({ orgId: null, storeId: selectedStore || null });
 
   // Barcode scanning
   const handleBarcodeScanned = async (barcode: string) => {
@@ -140,6 +225,16 @@ export default function POS() {
           message: `${product.name} added to cart`,
         });
       } else {
+        // fallback: try local catalog
+        try {
+          const mod = await import('@/lib/idb-catalog');
+          const local = await mod.getProductByBarcodeLocally(barcode);
+          if (local) {
+            addItem({ id: local.id, name: local.name, barcode: local.barcode || '', price: parseFloat(local.price) });
+            addNotification({ type: 'success', title: 'Product Added (offline)', message: `${local.name} added to cart` });
+            return;
+          }
+        } catch {}
         addNotification({
           type: "error",
           title: "Product Not Found",
@@ -147,11 +242,17 @@ export default function POS() {
         });
       }
     } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Scan Error",
-        message: "Failed to scan product. Please try again.",
-      });
+      // offline fallback
+      try {
+        const mod = await import('@/lib/idb-catalog');
+        const local = await mod.getProductByBarcodeLocally(barcode);
+        if (local) {
+          addItem({ id: local.id, name: local.name, barcode: local.barcode || '', price: parseFloat(local.price) });
+          addNotification({ type: 'success', title: 'Product Added (offline)', message: `${local.name} added to cart` });
+          return;
+        }
+      } catch {}
+      addNotification({ type: 'error', title: 'Scan Error', message: 'Failed to scan product. Please try again.' });
       console.error("Barcode scan error:", error);
     }
   };
@@ -218,6 +319,35 @@ export default function POS() {
 
   return (
     <>
+      {/* Sync/Connectivity status */}
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Badge variant={isOnline ? 'outline' : 'secondary'} className={isOnline ? 'text-green-700 border-green-300' : 'bg-amber-100 text-amber-800'}>
+            {isOnline ? 'Online' : 'Offline'}
+          </Badge>
+          {lastSync && (
+            <span className="text-xs text-slate-600">Last sync: attempted {lastSync.attempted}, synced {lastSync.synced}</span>
+          )}
+        </div>
+        {queuedCount > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-amber-700">
+              {queuedCount} pending sale{queuedCount > 1 ? 's' : ''}
+            </span>
+            <Button size="sm" variant="outline" onClick={handleSyncNow}>
+              Sync now
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setIsSyncCenterOpen(true)}>
+              View
+            </Button>
+          </div>
+        )}
+      </div>
+      {escalations > 0 && (
+        <div className="mb-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+          Some sales have failed to sync after multiple attempts. Please check connection or contact support.
+        </div>
+      )}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
         <div className="xl:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
           <BarcodeScanner
@@ -271,6 +401,8 @@ export default function POS() {
           });
         }}
       />
+
+      <SyncCenter open={isSyncCenterOpen} onClose={() => setIsSyncCenterOpen(false)} />
 
       <ToastSystem
         notifications={notifications}

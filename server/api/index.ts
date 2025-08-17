@@ -1,4 +1,4 @@
-import type { Express } from 'express';
+import express, { type Express } from 'express';
 import { createServer } from 'http';
 import { configureSession } from '../session';
 import { loadEnv } from '../../shared/env';
@@ -6,14 +6,27 @@ import { registerAuthRoutes } from './routes.auth';
 import { registerInventoryRoutes } from './routes.inventory';
 import { registerPosRoutes } from './routes.pos';
 import { registerAnalyticsRoutes } from './routes.analytics';
+import { registerAdminRoutes } from './routes.admin';
 import { registerMeRoutes } from './routes.me';
+import { registerCustomerRoutes } from './routes.customers';
+import { registerLoyaltyRoutes } from './routes.loyalty';
+import { registerBillingRoutes } from './routes.billing';
+import { registerWebhookRoutes } from './routes.webhooks';
 import { auditMiddleware } from '../middleware/validation';
+import rateLimit from 'express-rate-limit';
+import { sensitiveEndpointRateLimit } from '../middleware/security';
+import { NotificationService } from '../websocket/notification-service';
 
 export async function registerRoutes(app: Express) {
   const env = loadEnv(process.env);
 
   // Sessions (Redis-backed)
   app.use(configureSession(env.REDIS_URL, env.SESSION_SECRET));
+  // Ensure raw body is available for webhooks
+  app.use('/webhooks', express.raw({ type: '*/*' }));
+  app.use('/api/payment', express.raw({ type: '*/*' }));
+  // Protect CSV/PDF exports with rate limiting
+  app.use(['/api/export', '/api/**/export'], sensitiveEndpointRateLimit);
   // Global audit for non-GET
   app.use(auditMiddleware());
 
@@ -26,10 +39,36 @@ export async function registerRoutes(app: Express) {
   await registerAuthRoutes(app);
   await registerMeRoutes(app);
   await registerInventoryRoutes(app);
+  await registerCustomerRoutes(app);
+  await registerLoyaltyRoutes(app);
   await registerPosRoutes(app);
   await registerAnalyticsRoutes(app);
+  await registerAdminRoutes(app);
+  await registerBillingRoutes(app);
+  await registerWebhookRoutes(app);
+  
+  // Phase 8: Enhanced Observability Routes
+  const { registerObservabilityRoutes } = await import('./routes.observability');
+  await registerObservabilityRoutes(app);
+  
+  // Phase 8: AI Analytics Routes  
+  const { registerAIAnalyticsRoutes } = await import('./routes.ai-analytics');
+  await registerAIAnalyticsRoutes(app);
+  
+  // Phase 8: Offline Sync Routes
+  const { registerOfflineSyncRoutes } = await import('./routes.offline-sync');
+  await registerOfflineSyncRoutes(app);
+  app.get('/api/billing/plans', (_req, res) => {
+    res.json({ ok: true });
+  });
 
-  return createServer(app);
+  const server = createServer(app);
+  // Attach websocket notification service
+  try {
+    const wsService = new NotificationService(server);
+    (app as any).wsService = wsService;
+  } catch {}
+  return server;
 }
 
 

@@ -17,6 +17,7 @@ export default defineConfig({
     exclude: [
       'tests/integration/**',
       'tests/e2e/**',
+      'tests/playwright/**',
       'node_modules/**',
       'dist/**',
       'build/**'

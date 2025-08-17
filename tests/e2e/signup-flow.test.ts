@@ -2,7 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { chromium, Browser, Page } from 'playwright';
 import { setupTestDatabase, teardownTestDatabase } from '../setup';
 
-describe('Signup Flow E2E Tests', () => {
+const runUiE2E = process.env.RUN_UI_E2E === 'true';
+const suite = runUiE2E ? describe : describe.skip;
+
+suite('Signup Flow E2E Tests', () => {
   let browser: Browser;
   let page: Page;
 

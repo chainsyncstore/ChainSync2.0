@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { serviceWorkerManager } from "./lib/service-worker";
+import { enqueueOfflineSale } from "./lib/offline-queue";
 
 // Render the app
 createRoot(document.getElementById("root")!).render(<App />);
@@ -32,3 +33,12 @@ serviceWorkerManager.register()
       });
     }
   });
+
+// Expose test helper for E2E
+// @ts-ignore
+if (typeof window !== 'undefined') window.enqueueTestSale = async (payload) => {
+  const { generateIdempotencyKey } = await import('./lib/offline-queue');
+  const idempotencyKey = generateIdempotencyKey();
+  await enqueueOfflineSale({ url: '/api/pos/sales', payload, idempotencyKey });
+  return true;
+};

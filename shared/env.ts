@@ -20,6 +20,18 @@ export const envSchema = z.object({
   WEBHOOK_SECRET_FLW: z.string().min(1).optional(),
   // AI (optional)
   OPENAI_API_KEY: z.string().min(1).optional(),
+  // Phase 8: Enhanced Observability & Security
+  WS_ENABLED: z.string().transform((v) => v === 'true').default('true' as any),
+  WS_PATH: z.string().default('/ws/notifications'),
+  WS_HEARTBEAT_INTERVAL: z.string().transform((v) => parseInt(v) || 30000).default('30000' as any),
+  WS_MAX_CONNECTIONS: z.string().transform((v) => parseInt(v) || 1000).default('1000' as any),
+  AI_ANALYTICS_ENABLED: z.string().transform((v) => v === 'true').default('false' as any),
+  AI_MODEL_CACHE_TTL: z.string().transform((v) => parseInt(v) || 3600).default('3600' as any),
+  OFFLINE_SYNC_ENABLED: z.string().transform((v) => v === 'true').default('true' as any),
+  OFFLINE_SYNC_INTERVAL: z.string().transform((v) => parseInt(v) || 30000).default('30000' as any),
+  SECURITY_AUDIT_ENABLED: z.string().transform((v) => v === 'true').default('true' as any),
+  MONITORING_ALERT_WEBHOOK: z.string().url().optional(),
+  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug', 'trace']).default('info'),
   // Feature flags
   ENABLE_OFFLINE_POS: z.string().transform((v) => v === 'true').default('true' as any),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -28,6 +40,14 @@ export const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema> & {
   ENABLE_OFFLINE_POS: boolean;
+  WS_ENABLED: boolean;
+  WS_HEARTBEAT_INTERVAL: number;
+  WS_MAX_CONNECTIONS: number;
+  AI_ANALYTICS_ENABLED: boolean;
+  AI_MODEL_CACHE_TTL: number;
+  OFFLINE_SYNC_ENABLED: boolean;
+  OFFLINE_SYNC_INTERVAL: number;
+  SECURITY_AUDIT_ENABLED: boolean;
   BASE_URL?: string;
   FLUTTERWAVE_SECRET_KEY?: string;
   FLUTTERWAVE_PUBLIC_KEY?: string;

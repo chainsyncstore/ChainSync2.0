@@ -1,3 +1,38 @@
+## Logging
+
+Structured JSON logging is standardized on Pino. Each log entry includes request-scoped fields when available: `requestId`, `userId`, `orgId`, `storeId`, plus HTTP request details. Errors are captured to Sentry automatically when `SENTRY_DSN` is set.
+
+## Content Security Policy (CSP)
+
+Server sets CSP via Helmet with allowlists aligned to frontend assets and external services used:
+
+- Styles/Fonts: Google Fonts
+- Scripts/Frames: Google reCAPTCHA
+- Connect: OpenAI API (AI analytics), payment APIs (Paystack, Flutterwave), optional Sentry ingest
+- Images/Data/Workers/Media: self, data:, blob:
+
+If you add new CDNs or third-party endpoints in the client, update `server/middleware/security.ts` CSP directives accordingly.
+
+## Rate limiting
+
+Per-endpoint limits are applied for authentication attempts, payment actions, imports/exports, and other sensitive APIs. Limits are configurable via environment variables:
+
+- RATE_LIMIT_GLOBAL_WINDOW_MS, RATE_LIMIT_GLOBAL_MAX
+- RATE_LIMIT_AUTH_WINDOW_MS, RATE_LIMIT_AUTH_MAX
+- RATE_LIMIT_SENSITIVE_WINDOW_MS, RATE_LIMIT_SENSITIVE_MAX
+- RATE_LIMIT_PAYMENT_WINDOW_MS, RATE_LIMIT_PAYMENT_MAX
+
+## CSRF Strategy
+
+All authenticated APIs use same-site, httpOnly session cookies with `SameSite=Lax` and are consumed by a first-party SPA served from the same origin. Under this model, modern browsers do not attach session cookies on cross-site top-level POSTs and subresource requests, significantly reducing CSRF risk. We therefore omit CSRF double-submit tokens for these JSON APIs and rely on:
+
+- SameSite session cookies (Lax)
+- Origin and Content-Type checks as applicable
+- CORS disallows third-party origins by default
+
+Exceptions: if any endpoint must be consumed cross-site or changes to `SameSite=None`, CSRF tokens must be reintroduced for those endpoints. We also avoid CSRF checks for static assets and read-only requests.
+
+This rationale is aligned with current browser behavior and OWASP guidance when using strict session cookie scope and first-party SPAs.
 # ChainSync Security Documentation
 
 ## 🔐 Security Overview
