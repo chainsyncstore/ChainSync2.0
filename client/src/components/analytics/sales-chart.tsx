@@ -54,14 +54,19 @@ export default function SalesChart({ storeId, className }: ChartProps) {
 
   // Fetch sales data
   const { data: salesData = [], isLoading } = useQuery<SalesData[]>({
-    queryKey: ["/api/stores", storeId, "analytics/sales", startDate, endDate],
+    queryKey: ["/api/analytics/timeseries", storeId, dateRange, startDate?.toISOString(), endDate?.toISOString()],
     queryFn: async () => {
-      const start = startDate?.toISOString().split('T')[0];
-      const end = endDate?.toISOString().split('T')[0];
-      const response = await apiRequest("GET", `/api/stores/${storeId}/analytics/sales?startDate=${start}&endDate=${end}`);
+      const start = startDate?.toISOString();
+      const end = endDate?.toISOString();
+      const params = new URLSearchParams();
+      params.set('interval', 'day');
+      if (storeId) params.set('store_id', storeId);
+      if (start) params.set('date_from', start);
+      if (end) params.set('date_to', end);
+      const response = await apiRequest("GET", `/api/analytics/timeseries?${params.toString()}`);
       return response.json();
     },
-    enabled: !!storeId && !!startDate && !!endDate,
+    enabled: !!startDate && !!endDate,
   });
 
   // Calculate summary statistics
@@ -391,6 +396,40 @@ export default function SalesChart({ storeId, className }: ChartProps) {
 
         {/* Chart */}
         {renderChart()}
+
+        {/* Exports */}
+        <div className="mt-4 flex items-center space-x-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              const start = startDate?.toISOString();
+              const end = endDate?.toISOString();
+              const params = new URLSearchParams();
+              params.set('interval', 'day');
+              if (storeId) params.set('store_id', storeId);
+              if (start) params.set('date_from', start);
+              if (end) params.set('date_to', end);
+              window.open(`/api/analytics/export.csv?${params.toString()}`, '_blank');
+            }}
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const start = startDate?.toISOString();
+              const end = endDate?.toISOString();
+              const params = new URLSearchParams();
+              params.set('interval', 'day');
+              if (storeId) params.set('store_id', storeId);
+              if (start) params.set('date_from', start);
+              if (end) params.set('date_to', end);
+              window.open(`/api/analytics/export.pdf?${params.toString()}`, '_blank');
+            }}
+          >
+            Export PDF
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

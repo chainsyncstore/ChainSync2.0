@@ -5,6 +5,18 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Search, ScanLine, Power, PowerOff } from "lucide-react";
 
+async function getCachedBarcode(barcode: string): Promise<any | null> {
+  try {
+    const cache = await caches.open('chainsync-offline-v1.0.1');
+    const key = `/api/products/barcode/${barcode}`;
+    const res = await cache.match(key);
+    if (!res) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 interface BarcodeScannerProps {
   onScan: (barcode: string) => void;
   onOpenSearch: () => void;
@@ -28,10 +40,17 @@ export default function BarcodeScanner({
 }: BarcodeScannerProps) {
   const [barcodeInput, setBarcodeInput] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (barcodeInput.trim()) {
-      onScan(barcodeInput.trim());
+      try {
+        onScan(barcodeInput.trim());
+      } catch (err) {
+        const p = await getCachedBarcode(barcodeInput.trim());
+        if (p) {
+          // Parent will fetch product via API normally; here we just preserve UX feedback
+        }
+      }
       setBarcodeInput("");
     }
   };

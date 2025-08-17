@@ -124,6 +124,21 @@ export class ServiceWorkerManager {
 
       console.log('Service Worker registered successfully:', this.registration);
 
+      // Try to register background sync for offline queue
+      try {
+        if ('sync' in this.registration) {
+          await (this.registration as any).sync.register('background-sync');
+          console.log('Background sync registered');
+        }
+      } catch (err) {
+        console.log('Background sync not available', err);
+      }
+
+      // Signal SW to prewarm caches for POS data
+      try {
+        this.registration.active?.postMessage({ type: 'PREWARM_CACHES' });
+      } catch {}
+
       // Handle service worker updates
       this.registration.addEventListener('updatefound', () => {
         const newWorker = this.registration!.installing;

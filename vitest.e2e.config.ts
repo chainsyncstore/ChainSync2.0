@@ -18,8 +18,9 @@ export default defineConfig({
         singleFork: true
       }
     },
+    // Disable browser runner to avoid requiring @vitest/browser for these server-driven E2E tests
     browser: {
-      enabled: true,
+      enabled: false,
       name: 'chromium',
       headless: true,
       provider: 'playwright'

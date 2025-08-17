@@ -3,6 +3,8 @@ import { z, ZodError } from "zod";
 import { sendErrorResponse } from "../lib/errors";
 import { ValidationError } from "../lib/errors";
 import { LogContext } from "../lib/logger";
+import { db } from "../db";
+import { auditLogs } from "@shared/prd-schema";
 
 /**
  * Middleware to validate request body against a Zod schema
@@ -196,4 +198,41 @@ export function extractLogContext(req: Request, additional?: Partial<LogContext>
     storeId: (req.session as any)?.user?.storeId,
     ...(additional || {})
   } as LogContext;
+}
+
+// Audit middleware: write a row for all non-GET requests
+export function auditMiddleware() {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    if (req.method === 'GET') return next();
+    const started = Date.now();
+    const userId: string | undefined = (req.session as any)?.userId || (req.session as any)?.user?.id;
+    const orgId: string | undefined = (req as any).orgId || (req.session as any)?.orgId;
+    const ip = req.ip || (req as any).connection?.remoteAddress;
+    const userAgent = req.get('User-Agent');
+
+    // Defer insert until response finished to attach status
+    _res.on('finish', async () => {
+      try {
+        const entity = req.path.split('/').filter(Boolean)[1] || 'unknown';
+        const action = `${req.method}`;
+        await db.insert(auditLogs).values({
+          orgId: orgId as any,
+          userId: userId as any,
+          action,
+          entity,
+          entityId: undefined as any,
+          meta: {
+            path: req.path,
+            status: _res.statusCode,
+            durationMs: Date.now() - started,
+            bodyKeys: Object.keys(req.body || {}),
+            query: req.query || {},
+          } as any,
+          ip: ip as any,
+          userAgent: userAgent as any,
+        } as any);
+      } catch {}
+    });
+    next();
+  };
 }

@@ -5,45 +5,18 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { logger } from "../lib/logger";
 import { monitoringService } from "../lib/monitoring";
 
-// CORS configuration for API routes only
+// CORS configuration for API routes only (reads CORS_ORIGINS CSV)
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // In production, allow requests with no origin for certain cases (like service workers, direct API calls)
-    if (process.env.NODE_ENV === 'production' && !origin) {
-      logger.info('Allowing request with no origin in production (likely service worker or direct API call)', {
-        environment: process.env.NODE_ENV
-      });
+    // Allow requests with no origin (e.g., same-origin, service workers) in all envs
+    if (!origin) {
       return callback(null, true);
     }
 
-    // In development, allow requests with no origin for testing
-    if (process.env.NODE_ENV === 'development' && !origin) {
-      return callback(null, true);
-    }
+    const csv = process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://localhost:5000';
+    const allowedOrigins = csv.split(',').map(s => s.trim()).filter(Boolean);
 
-    let allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean) || [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://localhost:5000',
-    ];
-
-    // In production, lock origins strictly to env-configured production domains
-    if (process.env.NODE_ENV === 'production') {
-      const prodOrigins: string[] = [];
-      if (process.env.ALLOWED_ORIGINS) {
-        prodOrigins.push(...process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean));
-      }
-      if (process.env.PRODUCTION_DOMAIN) {
-        prodOrigins.push(process.env.PRODUCTION_DOMAIN);
-      }
-      if (process.env.PRODUCTION_WWW_DOMAIN) {
-        prodOrigins.push(process.env.PRODUCTION_WWW_DOMAIN);
-      }
-      // If nothing configured, default to primary domain to avoid accidental wide-open CORS
-      allowedOrigins = prodOrigins.length > 0 ? prodOrigins : ['https://chainsync.store', 'https://www.chainsync.store'];
-    }
-
-    if (origin && allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
@@ -70,18 +43,20 @@ const corsOptions = {
 
 
 
-// Global rate limiting (200 requests per 15 minutes)
+// Global rate limiting (configurable via env)
 export const globalRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // limit each IP to 200 requests per windowMs
+  windowMs: Number(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS || 15 * 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_GLOBAL_MAX || 200),
   message: {
     error: 'Too many requests from this IP, please try again later.',
     retryAfter: Math.ceil(15 * 60 / 60) // minutes
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // Use request IP as key, relying on app.set('trust proxy', true)
-  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
+  // IPv6-safe key generation
+  keyGenerator: ipKeyGenerator as unknown as (req: Request) => string,
+  // Disable rate limiting during tests
+  skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Rate limit exceeded', {
       ip: req.ip,
@@ -99,17 +74,18 @@ export const globalRateLimit = rateLimit({
   }
 });
 
-// Auth-specific rate limiting (10 requests per 10 minutes)
+// Auth-specific rate limiting (configurable)
 export const authRateLimit = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 10, // limit each IP to 10 requests per windowMs
+  windowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS || 10 * 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_AUTH_MAX || 10),
   message: {
     error: 'Too many authentication attempts, please try again later.',
     retryAfter: Math.ceil(10 * 60 / 60) // minutes
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
+  keyGenerator: ipKeyGenerator as unknown as (req: Request) => string,
+  skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
       ip: req.ip,
@@ -129,17 +105,18 @@ export const authRateLimit = rateLimit({
   skipSuccessfulRequests: true
 });
 
-// Sensitive endpoints rate limiting (5 requests per minute)
+// Sensitive endpoints rate limiting (configurable)
 export const sensitiveEndpointRateLimit = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5, // limit each IP to 5 requests per minute
+  windowMs: Number(process.env.RATE_LIMIT_SENSITIVE_WINDOW_MS || 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_SENSITIVE_MAX || 5),
   message: {
     error: 'Too many requests to sensitive endpoint, please try again later.',
     retryAfter: Math.ceil(60 / 60) // minutes
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
+  keyGenerator: ipKeyGenerator as unknown as (req: Request) => string,
+  skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
       ip: req.ip,
@@ -159,17 +136,18 @@ export const sensitiveEndpointRateLimit = rateLimit({
   skipSuccessfulRequests: false
 });
 
-// Payment-specific rate limiting (3 requests per minute)
+// Payment-specific rate limiting (configurable)
 export const paymentRateLimit = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 3, // limit each IP to 3 payment requests per minute
+  windowMs: Number(process.env.RATE_LIMIT_PAYMENT_WINDOW_MS || 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_PAYMENT_MAX || 3),
   message: {
     error: 'Too many payment attempts, please try again later.',
     retryAfter: Math.ceil(60 / 60) // minutes
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => req.ip || (req as any).connection?.remoteAddress || '',
+  keyGenerator: ipKeyGenerator as unknown as (req: Request) => string,
+  skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {
       ip: req.ip,
@@ -207,7 +185,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   const cookieToken = req.cookies['csrf-token']; // Use consistent cookie name
   
   // Log CSRF validation details for debugging
-  console.log('CSRF Validation:', {
+  logger.debug('CSRF validation', {
     path: req.path,
     method: req.method,
     hasHeaderToken: !!csrfToken,
@@ -217,7 +195,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   });
   
   if (!csrfToken || !cookieToken) {
-    console.warn('CSRF validation failed - missing tokens:', {
+    logger.warn('CSRF validation failed - missing tokens', {
       path: req.path,
       hasHeaderToken: !!csrfToken,
       hasCookieToken: !!cookieToken
@@ -241,7 +219,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   }
   
   if (csrfToken !== cookieToken) {
-    console.warn('CSRF validation failed - token mismatch:', {
+    logger.warn('CSRF validation failed - token mismatch', {
       path: req.path,
       headerToken: csrfToken?.substring(0, 8) + '...',
       cookieToken: cookieToken?.substring(0, 8) + '...'
@@ -265,7 +243,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   }
   
   // CSRF validation passed
-  console.log('CSRF validation passed for:', req.path);
+  logger.debug('CSRF validation passed', { path: req.path });
   next();
 };
 
@@ -284,7 +262,13 @@ export const helmetConfig = helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://replit.com", "https://www.google.com", "https://www.gstatic.com", "https://www.recaptcha.net"],
+      scriptSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        "https://www.google.com",
+        "https://www.gstatic.com",
+        "https://www.recaptcha.net",
+      ],
       connectSrc: [
         "'self'",
         "https://api.openai.com",
@@ -294,7 +278,9 @@ export const helmetConfig = helmet({
         "https://www.google.com/recaptcha/api2/clr",
         // Payment APIs for client-side callbacks if needed
         "https://api.paystack.co",
-        "https://api.flutterwave.com"
+        "https://api.flutterwave.com",
+        // Sentry (optional)
+        "https://o*.ingest.sentry.io",
       ],
       frameSrc: [
         "'self'",
@@ -312,6 +298,8 @@ export const helmetConfig = helmet({
         "https://*.flutterwave.com"
       ],
       workerSrc: ["'self'", "blob:"],
+      mediaSrc: ["'self'", "blob:"],
+      frameAncestors: ["'none'"],
       objectSrc: ["'none'"]
     }
   },
