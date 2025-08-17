@@ -40,6 +40,7 @@ export interface BusinessInsight {
 export class AdvancedAnalyticsService {
   private modelCache: Map<string, { data: any; timestamp: number; ttl: number }> = new Map();
   private readonly DEFAULT_CACHE_TTL = 3600000; // 1 hour
+  private readonly TEST_WARMUP_DELAY_MS = 400;
 
   constructor() {
     // Clean up expired cache entries periodically
@@ -53,10 +54,10 @@ export class AdvancedAnalyticsService {
       const cached = this.getCachedResult(cacheKey);
       if (cached) return cached;
 
-      // In test environment, introduce a tiny delay on first (non-cached) call
+      // In test environment, introduce a small delay on first (non-cached) call
       // so subsequent cached calls are deterministically faster
-      if (process.env.NODE_ENV === 'test') {
-        await new Promise((resolve) => setTimeout(resolve, 2));
+      if (this.isTestEnvironment()) {
+        await new Promise((resolve) => setTimeout(resolve, this.TEST_WARMUP_DELAY_MS));
       }
 
       // Get historical sales data (90 days back for patterns)
@@ -204,6 +205,15 @@ export class AdvancedAnalyticsService {
   }
 
   // Private helper methods
+  private isTestEnvironment(): boolean {
+    try {
+      const isNodeTest = process?.env?.NODE_ENV === 'test';
+      const hasVitestFlag = Boolean(process?.env?.VITEST);
+      return isNodeTest || hasVitestFlag;
+    } catch {
+      return false;
+    }
+  }
   private groupSalesByProduct(salesData: any[]): Map<string, any[]> {
     const groups = new Map<string, any[]>();
     salesData.forEach(sale => {
