@@ -40,7 +40,7 @@ export interface BusinessInsight {
 export class AdvancedAnalyticsService {
   private modelCache: Map<string, { data: any; timestamp: number; ttl: number }> = new Map();
   private readonly DEFAULT_CACHE_TTL = 3600000; // 1 hour
-  private readonly TEST_WARMUP_DELAY_MS = 400;
+  private readonly TEST_WARMUP_DELAY_MS = 800;
 
   constructor() {
     // Clean up expired cache entries periodically
