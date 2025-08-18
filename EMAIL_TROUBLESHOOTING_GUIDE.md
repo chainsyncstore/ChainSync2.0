@@ -23,12 +23,10 @@ SMTP transporter verification failed: Error: Invalid login: 535-5.7.8 Username a
 ```
 
 **Root Cause:**
-The Gmail SMTP credentials configured in Render are either:
-- Using a regular Gmail password (no longer supported)
-- Missing or incorrect App Password
-- Incorrect email address
+SMTP credentials or connection parameters are incorrect for the selected provider.
+In production, the app reads `SMTP_*` variables (see `server/email.ts`). Defaults in code point to a placeholder provider (`smtp.mailersend.net`).
 
-## Solution: Configure Gmail App Password
+## Solution: Configure SMTP Provider
 
 ### Step 1: Enable 2-Factor Authentication on Gmail
 
@@ -45,17 +43,17 @@ The Gmail SMTP credentials configured in Render are either:
 5. Click "Generate"
 6. Copy the 16-character password (format: `xxxx xxxx xxxx xxxx`)
 
-### Step 3: Update Render Environment Variables
+### Step 3: Update Environment Variables
 
 In your Render dashboard, update these environment variables:
 
-```bash
-# Gmail SMTP Configuration
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your-gmail-address@gmail.com
-SMTP_PASS=your-16-character-app-password
+```env
+# Generic SMTP configuration (set according to your provider)
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587         # 465 implies secure=true by default
+SMTP_SECURE=false     # set true iff using port 465 or your provider requires it
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password-or-api-key
 SMTP_FROM=noreply@chainsync.store
 ```
 
@@ -64,7 +62,7 @@ SMTP_FROM=noreply@chainsync.store
 - `SMTP_PASS` must be the 16-character App Password (remove spaces)
 - `SMTP_FROM` can be different from `SMTP_USER` for branding
 
-### Step 4: Alternative Email Providers
+### Provider Examples
 
 If Gmail continues to have issues, consider these alternatives:
 
@@ -98,40 +96,52 @@ SMTP_PASS=your-ses-secret-key
 SMTP_FROM=noreply@chainsync.store
 ```
 
+#### Gmail (App Password required)
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-gmail-address@gmail.com
+SMTP_PASS=your-16-character-app-password   # requires 2FA + App Password
+SMTP_FROM=noreply@chainsync.store
+```
+
 ## Testing Email Configuration
 
-### Option 1: Check Render Logs
-After updating the environment variables and redeploying:
+### Option 1: Check Server Logs
+On startup `verifyEmailTransporter()` runs (see `server/index.ts`):
 ```
-==> Deploying...
-==> Running 'npm run start'
-...
-{"timestamp":"...","level":"info","message":"SMTP transporter verified successfully."}
+[email] SMTP transporter verified OK
+```
+If it fails you'll see:
+```
+[email] SMTP transporter verification failed: Error: Invalid login ...
 ```
 
-### Option 2: Manual Test Script
-Create a test script to verify email sending:
+### Option 2: Manual Test (tsx)
+Create a minimal test script and run with `npx tsx`:
 
-```javascript
-// test-email.js
-import { sendEmail } from './server/email.js';
+```ts
+// scripts/test-email.ts
+import { sendEmail } from '../server/email.ts';
 
-const testEmail = {
-  to: 'test@example.com',
-  subject: 'Test Email from ChainSync',
-  html: '<p>If you receive this, email configuration is working!</p>',
-  text: 'If you receive this, email configuration is working!'
-};
-
-sendEmail(testEmail)
-  .then(success => {
-    console.log('Email test result:', success ? 'SUCCESS' : 'FAILED');
-    process.exit(success ? 0 : 1);
-  })
-  .catch(error => {
-    console.error('Email test error:', error);
-    process.exit(1);
+async function main() {
+  const ok = await sendEmail({
+    to: 'test@example.com',
+    subject: 'ChainSync SMTP Test',
+    html: '<p>If you receive this, SMTP is working.</p>',
+    text: 'If you receive this, SMTP is working.'
   });
+  console.log('Email test result:', ok ? 'SUCCESS' : 'FAILED');
+  process.exit(ok ? 0 : 1);
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
+```
+
+Run:
+```bash
+npx tsx scripts/test-email.ts
 ```
 
 ## Email Features in ChainSync
@@ -143,13 +153,11 @@ The following features depend on email service:
 3. **Password reset confirmation** - Sent after successful password change
 4. **Email verification** (if `REQUIRE_EMAIL_VERIFICATION=true`)
 
-## Current Email Configuration
+## Email Implementation Notes
 
-The system is configured to:
-- Use Gmail SMTP by default (`smtp.gmail.com:587`)
-- Fall back gracefully if email fails (logs error but continues)
-- Support HTML and text email formats
-- Include proper branding and styling
+- Transport is created from env in `server/email.ts` with defaults to MailerSend placeholders.
+- `verifyEmailTransporter()` updates lightweight health returned by `GET /healthz` via `getEmailHealth()`.
+- Errors while sending are logged but do not crash the app.
 
 ## Security Considerations
 
@@ -162,7 +170,7 @@ The system is configured to:
 ## Next Steps
 
 1. ✅ Fix IPv6 rate limiting errors (completed)
-2. ❌ Configure Gmail App Password in Render environment variables
+2. ❌ Configure SMTP provider credentials in environment variables
 3. ❌ Test email functionality after deployment
 4. ❌ Consider migrating to professional email service for better deliverability
 

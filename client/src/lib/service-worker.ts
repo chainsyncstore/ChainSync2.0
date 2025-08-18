@@ -4,16 +4,24 @@
 export class ServiceWorkerManager {
   private static instance: ServiceWorkerManager;
   private registration: ServiceWorkerRegistration | null = null;
-  private isDevelopment = process.env.NODE_ENV === 'development' || 
-                          typeof window !== 'undefined' && (
-                            window.location.hostname === 'localhost' || 
-                            window.location.hostname === '127.0.0.1' || 
-                            window.location.hostname.includes('replit') ||
-                            window.location.hostname.includes('dev') ||
-                            window.location.port === '3000' ||
-                            window.location.port === '5173' ||
-                            window.location.port === '8080'
-                          );
+  private isDevelopment = (
+    // Treat only explicit development as dev. Allow tests to override.
+    import.meta.env.MODE === 'development' &&
+    // If tests explicitly want SW enabled, skip dev behavior
+    !(typeof window !== 'undefined' && (window as any).__E2E_ENABLE_SW === true)
+  ) || (
+    typeof window !== 'undefined' && (
+      (
+        (window.location.hostname === 'localhost' || 
+        window.location.hostname === '127.0.0.1' || 
+        window.location.hostname.includes('replit') ||
+        window.location.hostname.includes('dev') ||
+        window.location.port === '3000' ||
+        window.location.port === '5173' ||
+        window.location.port === '8080')
+      ) && (window as any)?.__E2E_ENABLE_SW !== true
+    )
+  );
 
   private constructor() {}
 

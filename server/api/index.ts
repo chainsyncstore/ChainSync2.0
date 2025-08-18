@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import { configureSession } from '../session';
 import { loadEnv } from '../../shared/env';
+import { getEmailHealth } from '../email';
 import { registerAuthRoutes } from './routes.auth';
 import { registerInventoryRoutes } from './routes.inventory';
 import { registerPosRoutes } from './routes.pos';
@@ -45,7 +46,8 @@ export async function registerRoutes(app: Express) {
 
   // Healthcheck
   app.get('/healthz', (_req, res) => {
-    res.status(200).json({ ok: true, uptime: process.uptime() });
+    const email = getEmailHealth();
+    res.status(200).json({ ok: true, uptime: process.uptime(), email });
   });
 
   // API routes

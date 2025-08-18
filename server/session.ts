@@ -18,6 +18,14 @@ export function configureSession(redisUrl: string | undefined, sessionSecret: st
 		console.warn('REDIS_URL not set; using in-memory session store (not recommended for production).');
 	}
 
+    // Cookie policy:
+    // - sameSite: 'lax' keeps SPA navigation and third-party redirects working while
+    //   mitigating CSRF for top-level POSTs from other sites. Non-GETs are still protected
+    //   by our header+cookie CSRF validation in `server/middleware/security.ts`.
+    // - secure: true only in production so cookies are sent over HTTPS. With
+    //   `app.set('trust proxy', 1)` in production (see `server/index.ts`), Express correctly
+    //   detects HTTPS behind the load balancer and sets the Secure flag.
+    // - httpOnly: true prevents JavaScript access to the session cookie.
 	return session({
 		...(store ? { store } : {}),
 		secret: sessionSecret,
@@ -32,5 +40,3 @@ export function configureSession(redisUrl: string | undefined, sessionSecret: st
 		},
 	});
 }
-
-

@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+
+# Block committing env files
+STAGED_ENV_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(.*\/)?\.env(\..*)?$' || true)
+if [ -n "$STAGED_ENV_FILES" ]; then
+  echo "[pre-commit] Blocking commit: .env* files detected in staging:" >&2
+  echo "$STAGED_ENV_FILES" >&2
+  echo "Please remove these from the commit or use a secure secret manager." >&2
+  exit 1
+fi
+
+# Run secret scan on staged files
+node scripts/secret-scan.js --staged
+STATUS=$?
+if [ $STATUS -ne 0 ]; then
+  echo "[pre-commit] Secret scan failed. Fix findings before committing." >&2
+  exit $STATUS
+fi
+
+echo "[pre-commit] Passed."

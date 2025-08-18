@@ -59,26 +59,26 @@ LOG_LEVEL=error
 DATABASE_URL=postgresql://test_user:test_password@localhost:5432/chainsync_test
 
 # Test Session Secret
-SESSION_SECRET=test-session-secret-key-for-testing-only
+SESSION_SECRET=TEST_SESSION_SECRET_CHANGE_ME
 
 # Test Paystack Configuration
-PAYSTACK_SECRET_KEY=sk_live_98f75f62f6820bc965c76a580775c5cca80d7e34
-PAYSTACK_PUBLIC_KEY=pk_live_724a3f810e189dba909ca21bec4f3a2d0b04b2d8
+PAYSTACK_SECRET_KEY=sk_test_your_paystack_secret_key_here
+PAYSTACK_PUBLIC_KEY=pk_test_your_paystack_public_key_here
 
 # Test Flutterwave Configuration
-FLUTTERWAVE_SECRET_KEY=FLWSECK-aae73f4445dabe479bee62c0a76f0cee-1989803c0e3vt-X
-FLUTTERWAVE_ENCRYPTION_KEY=aae73f4445dafd4c7a11aa60
-FLUTTERWAVE_PUBLIC_KEY=FLWPUBK-c78096411d3d0415787155b94593e7ae-X
+FLUTTERWAVE_SECRET_KEY=FLWSECK_TEST_your_flutterwave_secret_key_here
+FLUTTERWAVE_ENCRYPTION_KEY=your_flutterwave_encryption_key_here
+FLUTTERWAVE_PUBLIC_KEY=FLWPUBK_TEST_your_flutterwave_public_key_here
 
 # Test Email Configuration
 SMTP_HOST=smtp.mailtrap.io
 SMTP_PORT=2525
-SMTP_USER=test_user
-SMTP_PASS=test_password
+SMTP_USER=your_smtp_username
+SMTP_PASS=your_smtp_password
 FROM_EMAIL=test@chainsync.com
 
 # Test OpenAI Configuration
-OPENAI_API_KEY=sk-test-key
+OPENAI_API_KEY=sk_test_your_openai_key_here
 
 # Test Base URL
 BASE_URL=http://localhost:5001
@@ -325,12 +325,31 @@ The project includes GitHub Actions workflows for:
 
 ### Pre-commit Hooks
 
-Install pre-commit hooks:
+Pre-commit hooks prevent committing secrets and `.env*` files, and scan staged files for high-entropy strings.
+
+Setup (runs automatically via `"prepare": "husky"` in `package.json`):
 
 ```bash
-npm install -g husky
+# Install dependencies (triggers Husky setup)
+npm install
+
+# If needed, (re)enable Husky manually
 npx husky install
-npx husky add .husky/pre-commit "npm run test:run"
+
+# Try a commit to see the hook run
+git add -A && git commit -m "test hooks"
+```
+
+Hook behavior (`.husky/pre-commit`):
+
+- Blocks any staged `.env*` files
+- Runs `node scripts/secret-scan.js --staged` to detect secrets
+- Fails the commit if any findings are detected
+
+Manual secret scan:
+
+```bash
+npm run secret:scan
 ```
 
 ## Performance Testing

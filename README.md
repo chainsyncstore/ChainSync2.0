@@ -71,3 +71,77 @@ Advanced:
 - Windows: prefer `npm ci` in PowerShell. All scripts are cross-platform (no Bash required for dev).
 
 
+
+### Architecture and Entrypoints
+- **Canonical server entrypoint**: `server/index.ts` boots Express, security middleware, monitoring, serves client, and listens on `PORT` (default 5000).
+- **API registration**: `server/api/index.ts` configures sessions/cookies/CSRF/rate limits and registers all route modules.
+- **Client (Vite)**: `client/` served in dev on 5173; in production static assets are served by the server.
+
+### Auth Service and Core API Routes
+- Auth endpoints in `server/api/routes.auth.ts`:
+  - `POST /api/auth/signup`
+  - `POST /api/auth/login` (rate-limited)
+  - `GET /api/auth/csrf-token`
+  - `POST /api/auth/2fa/setup`, `POST /api/auth/2fa/verify`
+  - `POST /api/auth/logout`, `GET /api/auth/realtime-token`, `GET /api/auth/me`
+- Other notable routes are registered in `server/api/index.ts` (inventory, POS, analytics, admin, billing, payment, webhooks, observability, offline sync).
+
+### Security, CORS, Cookies, CSP
+- See `server/middleware/security.ts` for:
+  - Helmet security headers and detailed CSP (script/style/font/img/connect/frame/form-action) including payment providers and reCAPTCHA.
+  - CORS: allowed origins derived from env (`shared/env.ts`). API path `/api` is CORS-protected.
+  - CSRF: `csrfProtection` applied to `/api` routes, not to webhook raw endpoints.
+  - Rate limiting: global, auth, sensitive export endpoints, and webhook-specific.
+- Cookies: `server/lib/cookies.ts` sets `httpOnly`, `secure` (prod), and `sameSite` (strict in prod) where applicable.
+
+### Webhooks (Payments)
+- Implementation: `server/api/routes.webhooks.ts`.
+- Endpoints (raw body required):
+  - Paystack: `POST /webhooks/paystack` and `POST /api/payment/paystack-webhook`
+  - Flutterwave: `POST /webhooks/flutterwave` and `POST /api/payment/flutterwave-webhook`
+- Required headers:
+  - Common: `x-event-id` (unique), `x-event-timestamp` (skew-checked; default ±5m).
+  - Paystack: `x-paystack-signature` (HMAC-SHA512 with `WEBHOOK_SECRET_PAYSTACK` or `PAYSTACK_SECRET_KEY`).
+  - Flutterwave: `verif-hash` (HMAC-SHA256 with `WEBHOOK_SECRET_FLW` or `FLUTTERWAVE_SECRET_KEY`).
+- Idempotency:
+  - Header `x-event-id` is cached (TTL default 10m) and events are also recorded in `webhookEvents` table; duplicates return `{ idempotent: true }`.
+
+### Health and Metrics
+- Liveness: `GET /healthz` (see `server/api/index.ts`) returns uptime and SMTP health.
+- Detailed health: `GET /api/observability/health` (see `server/api/routes.observability.ts`) with DB latency and metrics.
+- Metrics and security analytics (admin-only):
+  - `GET /api/observability/metrics`
+  - `GET /api/observability/security/events`
+  - `GET /api/observability/performance`
+  - `GET /api/observability/websocket/stats`
+  - `POST /api/observability/metrics/clear`
+
+### Offline Sync
+- Endpoints in `server/api/routes.offline-sync.ts` (auth required unless noted):
+  - `POST /api/sync/upload` — upload batched offline sales/inventory updates; conflict-safe writes; records metrics/audit.
+  - `GET /api/sync/download?storeId=...&lastSync=...` — download delta data for products/inventory.
+  - `GET /api/sync/status?storeId=...&deviceId=...` — current sync health/metrics.
+  - `POST /api/sync/resolve-conflicts` — resolve conflicts with a strategy.
+  - `GET /api/sync/health` — sync service health.
+
+### SMTP
+- Transport defined in `server/email.ts` with env-driven host/port/secure/auth and startup verification in `server/index.ts`.
+- Env vars: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`.
+
+
+### Relevant Tests
+- **Webhooks**
+  - `tests/integration/subscriptions.webhooks.test.ts` — signature verification, headers, idempotency behavior
+  - `tests/e2e/prod-auth-payment-flow.test.ts` — full auth + payment flow, webhook integration
+- **Offline Sync**
+  - `tests/e2e/offline-sync.test.ts` — upload/download flows, conflict handling, status checks
+- **Auth & Security**
+  - `tests/auth/auth-service.test.ts` — core auth service
+  - `tests/auth/lockout-behavior.test.ts` — rate limiting/lockout scenarios
+  - `tests/auth/signup-validation-behavior.test.ts` — signup validation
+  - `tests/integration/auth-validation.test.ts` — end-to-end auth route validations
+- **Admin/Analytics**
+  - `tests/integration/admin.test.ts` — admin route protections
+  - `tests/integration/analytics.test.ts` — analytics endpoints
+
+Tip: see `tests/config/test-environment.ts` for the test bootstrap and env expectations.

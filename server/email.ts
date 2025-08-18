@@ -19,6 +19,19 @@ const emailConfig = {
 // Create transporter
 const transporter = nodemailer.createTransport(emailConfig);
 
+// Lightweight, non-sensitive health state for SMTP transporter
+let emailTransporterStatus = {
+  ok: false,
+  lastChecked: 0,
+};
+
+export function getEmailHealth() {
+  return {
+    ok: emailTransporterStatus.ok,
+    lastChecked: emailTransporterStatus.lastChecked,
+  };
+}
+
 export interface EmailOptions {
   to: string;
   subject: string;
@@ -47,9 +60,12 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
 export async function verifyEmailTransporter(): Promise<boolean> {
   try {
     await transporter.verify();
+    emailTransporterStatus = { ok: true, lastChecked: Date.now() };
+    console.log('[email] SMTP transporter verified OK');
     return true;
   } catch (error) {
-    console.error('SMTP transporter verification failed:', error);
+    emailTransporterStatus = { ok: false, lastChecked: Date.now() };
+    console.error('[email] SMTP transporter verification failed:', error);
     return false;
   }
 }

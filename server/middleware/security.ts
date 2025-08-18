@@ -3,9 +3,21 @@ import helmet from "helmet";
 import cors from "cors";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { logger } from "../lib/logger";
+import { loadEnv, parseCorsOrigins } from "../../shared/env";
 import { monitoringService } from "../lib/monitoring";
+// Determine environment early for conditional security config
+const isDev = process.env.NODE_ENV !== 'production';
+// Discover app origins from env to permit SPA assets when hosted separately
+const appUrl = process.env.APP_URL?.trim();
+const frontendUrl = process.env.FRONTEND_URL?.trim();
+const dynamicOrigins = [appUrl, frontendUrl, isDev ? 'http://localhost:5173' : undefined]
+  .filter(Boolean) as string[];
 
-// CORS configuration for API routes only (reads CORS_ORIGINS CSV)
+// Load validated env once at boot and parse allowed CORS origins
+const envForCors = loadEnv(process.env);
+const allowedCorsOrigins = parseCorsOrigins(envForCors.CORS_ORIGINS);
+
+// CORS configuration for API routes only (reads validated CORS_ORIGINS CSV)
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
     // Allow requests with no origin (e.g., same-origin, service workers) in all envs
@@ -13,16 +25,13 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    const csv = process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://localhost:5000';
-    const allowedOrigins = csv.split(',').map(s => s.trim()).filter(Boolean);
-
-    if (allowedOrigins.includes(origin)) {
+    if (allowedCorsOrigins.includes(origin)) {
       return callback(null, true);
     }
 
     logger.warn('CORS blocked request from unauthorized origin', {
       origin,
-      allowedOrigins,
+      allowedOrigins: allowedCorsOrigins,
       environment: process.env.NODE_ENV
     });
     return callback(new Error('Not allowed by CORS'));
@@ -38,7 +47,9 @@ const corsOptions = {
     'Origin'
   ],
   exposedHeaders: ['X-CSRF-Token'],
-  maxAge: 86400 // 24 hours
+  maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
 
@@ -263,62 +274,112 @@ export const csrfErrorHandler = (err: any, req: Request, res: Response, next: Ne
 
 // Helmet configuration with CSP
 export const helmetConfig = helmet({
+  // Content Security Policy tailored for SPA + payment providers
   contentSecurityPolicy: {
     directives: {
+      // Default to same-origin for everything
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https:"],
+
+      // Scripts: self + payment SDKs. We minimize 'unsafe-inline'.
+      // - Paystack SDK: js.paystack.co
+      // - Flutterwave checkout: checkout.flutterwave.com
+      // - ReCAPTCHA (if used): www.google.com, www.gstatic.com, www.recaptcha.net
+      // Dev relaxations (vite/HMR): 'unsafe-inline' (only dev), 'unsafe-eval' (only dev)
       scriptSrc: [
         "'self'",
-        "'unsafe-inline'",
+        ...(isDev ? ["'unsafe-inline'", "'unsafe-eval'"] : []),
+        ...dynamicOrigins,
+        "https://js.paystack.co",
+        "https://checkout.flutterwave.com",
         "https://www.google.com",
         "https://www.gstatic.com",
         "https://www.recaptcha.net",
       ],
+
+      // Styles: allow Google Fonts and minimal inline styles (some libs inject style tags)
+      styleSrc: [
+        "'self'",
+        "'unsafe-inline'", // Note: required for some component libs; review periodically
+        "https://fonts.googleapis.com",
+        ...dynamicOrigins
+      ],
+
+      // Fonts: Google Fonts static
+      fontSrc: [
+        "'self'",
+        "https://fonts.gstatic.com"
+      ],
+
+      // Images: allow data URIs for inline icons and https for external logos
+      imgSrc: ["'self'", "data:", "https:"],
+
+      // XHR/fetch/WebSocket endpoints
+      // - Self for API
+      // - Payment APIs for client-side verification/polling: api.paystack.co, api.flutterwave.com
+      // - Sentry ingestion (if enabled)
+      // - WebSockets for notifications/HMR: wss: always, ws: only in dev
       connectSrc: [
         "'self'",
-        "https://api.openai.com",
-        "https://www.google.com",
-        "https://www.gstatic.com",
-        "https://www.recaptcha.net",
-        "https://www.google.com/recaptcha/api2/clr",
-        // Payment APIs for client-side callbacks if needed
+        "wss:",
+        ...(isDev ? ["ws:"] : []),
+        ...dynamicOrigins,
         "https://api.paystack.co",
         "https://api.flutterwave.com",
-        // Sentry (optional)
         "https://o*.ingest.sentry.io",
-      ],
-      frameSrc: [
-        "'self'",
         "https://www.google.com",
         "https://www.gstatic.com",
         "https://www.recaptcha.net",
-        // Allow payment provider hosted pages/popups if embedded
-        "https://*.paystack.com",
-        "https://*.flutterwave.com"
+        "https://www.google.com/recaptcha/api2/clr"
       ],
+
+      // Allow provider-hosted iframes/popups
+      // - Paystack may open checkout on *.paystack.com
+      // - Flutterwave hosts checkout on *.flutterwave.com
+      frameSrc: [
+        "'self'",
+        ...dynamicOrigins,
+        "https://*.paystack.com",
+        "https://*.flutterwave.com",
+        // Legacy Flutterwave modal host (rare/optional)
+        "https://ravemodal.flwv.io",
+        "https://www.google.com",
+        "https://www.gstatic.com",
+        "https://www.recaptcha.net"
+      ],
+
+      // Allow form POST redirects to providers if flow uses full-page redirects
       formAction: [
         "'self'",
-        // Allow forms to post to payment providers during redirects if used
         "https://*.paystack.com",
         "https://*.flutterwave.com"
       ],
+
+      // Workers/media for SPA features
       workerSrc: ["'self'", "blob:"],
       mediaSrc: ["'self'", "blob:"],
+
+      // Clickjacking protection (also enforced by frameguard)
       frameAncestors: ["'none'"],
+
+      // Forbid plugins
       objectSrc: ["'none'"]
     }
   },
-  hsts: {
-    maxAge: 31536000, // 1 year
-    includeSubDomains: true,
-    preload: true
-  },
+
+  // HSTS ONLY in production to avoid issues on localhost/dev
+  hsts: isDev
+    ? false
+    : {
+        maxAge: 31536000, // 1 year
+        includeSubDomains: true,
+        preload: true
+      },
+
+  // Classic headers
   noSniff: true,
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-  frameguard: { action: 'deny' },
-  xssFilter: true
+  frameguard: { action: 'deny' }
+  // NOTE: helmet@8 removed xssFilter. We set X-XSS-Protection in securityHeaders for legacy UAs.
 });
 
 // CORS middleware - only apply to API routes
@@ -333,6 +394,10 @@ export const corsMiddleware = (req: Request, res: Response, next: NextFunction) 
   }
   
   // Apply CORS only to API routes
+  // Handle explicit OPTIONS preflight quickly to avoid other middleware
+  if (req.method === 'OPTIONS') {
+    return cors(corsOptions)(req, res, () => res.sendStatus(204));
+  }
   return cors(corsOptions)(req, res, next);
 };
 

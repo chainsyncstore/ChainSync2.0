@@ -177,10 +177,6 @@ export async function registerPaymentRoutes(app: Express) {
     if (!hasData) return res.status(400).json({ message: 'Invalid webhook data' });
     return res.json({ message: 'Webhook processed successfully' });
   });
-
-  // Duplicate webhook endpoints for tests (simple ack) to avoid 404 if security handlers are bypassed
-  app.post('/api/payment/paystack-webhook', (_req: Request, res: Response) => res.status(200).json({ status: 'success' }));
-  app.post('/api/payment/flutterwave-webhook', (_req: Request, res: Response) => res.status(200).json({ status: 'success' }));
 }
 
 

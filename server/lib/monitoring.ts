@@ -40,6 +40,8 @@ class MonitoringService {
   private lastResetTime: number = Date.now();
   private readonly MAX_SAMPLES = 1000;
   private readonly RESET_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+  // Throttle alerts per metric to avoid spam
+  private lastAlertSent: Map<string, number> = new Map();
 
   constructor() {
     // Initialize metrics storage
@@ -49,6 +51,27 @@ class MonitoringService {
     setInterval(() => {
       this.resetMetrics();
     }, this.RESET_INTERVAL);
+  }
+
+  // Optional webhook alerting if MONITORING_ALERT_WEBHOOK is set
+  private async sendAlert(title: string, details: Record<string, any>): Promise<void> {
+    const webhook = process.env.MONITORING_ALERT_WEBHOOK;
+    if (!webhook) return;
+
+    try {
+      const fetchFn: any = (globalThis as any).fetch;
+      if (!fetchFn) return; // No fetch available in this runtime
+
+      await fetchFn(webhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, severity: 'warning', source: 'monitoringService', ...details })
+      });
+    } catch (err) {
+      try {
+        logger.error('Failed to send monitoring webhook', err as Error);
+      } catch {}
+    }
   }
 
   private initializeMetrics(): void {
@@ -109,6 +132,14 @@ class MonitoringService {
     const count = this.getRecentCount(name, 60 * 1000);
     if (count >= threshold) {
       logger.warn('Spike detected in metric', { metric: name, count, threshold, ...details });
+
+      // Throttle alerts per metric (60s)
+      const now = Date.now();
+      const last = this.lastAlertSent.get(name) || 0;
+      if (now - last >= 60_000) {
+        this.lastAlertSent.set(name, now);
+        void this.sendAlert('Spike detected in metric', { metric: name, count, threshold, details });
+      }
     }
   }
 

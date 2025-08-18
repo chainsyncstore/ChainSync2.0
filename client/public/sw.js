@@ -18,8 +18,8 @@ const isDevelopment = () => {
   );
 };
 
-// Check if we're in development mode
-if (isDevelopment()) {
+// Check if we're in development mode (allow override for E2E)
+if (isDevelopment() && !(self && self.__E2E_ENABLE_SW === true)) {
   console.log('Service Worker disabled in development mode');
   // Don't register any other event listeners in development
   // Use a function to avoid illegal return statement

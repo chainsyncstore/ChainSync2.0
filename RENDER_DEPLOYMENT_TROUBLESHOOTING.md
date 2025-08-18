@@ -1,3 +1,26 @@
+### **5. Webhook Delivery Logs**
+- Check provider dashboards (Paystack/Flutterwave) for delivery attempts and signatures.
+
+## ⚡ Webhook Troubleshooting (Paystack/Flutterwave)
+
+- Ensure raw-body endpoints are used: `/webhooks/*` or `/api/payment/*-webhook`.
+- Required headers:
+  - Paystack: `x-paystack-signature`
+  - Flutterwave: `verif-hash`
+- Add `x-event-id` and `x-event-timestamp` for idempotency and replay protection.
+- Verify secrets in env: `WEBHOOK_SECRET_PAYSTACK`, `WEBHOOK_SECRET_FLW`.
+- Duplicate events return idempotent responses; check logs/DB before retrying.
+
+## 📴 Offline Sync Troubleshooting
+
+- Endpoints: `/api/sync/upload`, `/api/sync/download`, `/api/sync/status`.
+- Confirm auth cookie is present and CSRF token is valid for `/api`.
+- Check conflict responses and use `/api/sync/resolve-conflicts` as needed.
+
+## ✉️ SMTP Verification
+
+- On startup, `server/index.ts` verifies the transporter.
+- Success message: "SMTP transporter verified successfully"; otherwise check `SMTP_*` env and see `EMAIL_TROUBLESHOOTING_GUIDE.md`.
 # Render Deployment Troubleshooting Guide
 
 ## 🚨 **Critical Issues & Solutions**
@@ -18,15 +41,15 @@ This error typically occurs when:
 2. Select your service
 3. Go to "Environment" tab
 4. Ensure these variables are set:
-
 ```env
 NODE_ENV=production
 PORT=5000
+APP_URL=https://your-app.onrender.com
+CORS_ORIGINS=https://your-app.onrender.com,https://www.yourdomain.com
 DATABASE_URL=your_database_connection_string
 SESSION_SECRET=your_secure_session_secret
-JWT_SECRET=your_jwt_secret
-JWT_REFRESH_SECRET=your_refresh_secret
-CSRF_SECRET=your_csrf_secret
+# Optional in prod: JWT_SECRET
+# Required in prod: REDIS_URL
 ```
 
 ##### **Step 2: Verify Database Connection**
@@ -53,19 +76,19 @@ This error occurs when:
 
 #### **Immediate Solutions**
 
-##### **Step 1: Test Health Check Endpoint**
-Visit: `https://your-app.onrender.com/api/health`
+##### **Step 1: Test Health Check Endpoints**
+Visit liveness: `https://your-app.onrender.com/healthz`
+Visit detailed: `https://your-app.onrender.com/api/observability/health`
 
-Expected response:
+Expected liveness response:
 ```json
 {
-  "status": "healthy",
-  "database": "connected",
-  "timestamp": "2024-01-01T00:00:00.000Z"
+  "ok": true,
+  "uptime": 123.45,
+  "email": {"verified": true, ...}
 }
 ```
-
-If database shows "disconnected", your DATABASE_URL is incorrect.
+For detailed health, ensure `database.status` is `connected`; if not, check `DATABASE_URL` and network/SSL.
 
 ##### **Step 2: Check Database Schema**
 Ensure your database has the required tables:
@@ -90,7 +113,7 @@ Ensure your database user has:
 - SELECT permissions
 - USAGE permissions on schema
 
-### **3. CORS Issues**
+### **3. CORS/CSRF Issues**
 
 #### **Symptoms**
 - Browser console shows CORS errors
@@ -100,10 +123,10 @@ Ensure your database user has:
 #### **Solutions**
 
 ##### **Step 1: Check CORS Configuration**
-The app automatically allows Render domains, but verify:
-1. Your domain is in `ALLOWED_ORIGINS`
-2. `PRODUCTION_DOMAIN` is set correctly
-3. Render environment variables are set
+Configured in `server/middleware/security.ts` using `CORS_ORIGINS` from env. Verify:
+1. Your frontend origin is present in `CORS_ORIGINS`
+2. Requests are sent with credentials as needed
+3. No mixed HTTP/HTTPS between frontend/backend
 
 ##### **Step 2: Test CORS with Browser DevTools**
 1. Open browser DevTools
@@ -124,7 +147,6 @@ The app automatically allows Render domains, but verify:
 Ensure these environment variables are set:
 ```env
 SESSION_SECRET=your_secure_session_secret
-CSRF_SECRET=your_csrf_secret
 ```
 
 ##### **Step 2: Check Cookie Settings**
@@ -164,8 +186,8 @@ Check logs for:
 - [ ] Strong secrets generated
 
 ### **Step 2: Post-Deployment Verification**
-- [ ] Health check endpoint responds
-- [ ] Database shows "connected"
+- [ ] `/healthz` responds with `{ ok: true }`
+- [ ] `/api/observability/health` shows database `connected`
 - [ ] No CORS errors in browser console
 - [ ] Signup form loads without errors
 
@@ -182,20 +204,27 @@ Check logs for:
 ```env
 NODE_ENV=production
 PORT=5000
+APP_URL=https://your-app.onrender.com
+CORS_ORIGINS=https://your-app.onrender.com,https://www.yourdomain.com
 DATABASE_URL=postgresql://user:pass@host:port/db?sslmode=require
 SESSION_SECRET=64-character-random-string
-JWT_SECRET=64-character-random-string
-JWT_REFRESH_SECRET=64-character-random-string
-CSRF_SECRET=64-character-random-string
+# Production requirement
+REDIS_URL=redis://default:pass@host:6379
 ```
 
 ### **Optional Variables**
 ```env
-PRODUCTION_DOMAIN=https://yourdomain.com
-PRODUCTION_WWW_DOMAIN=https://www.yourdomain.com
+# SMTP
 SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
 SMTP_USER=your-email@gmail.com
 SMTP_PASS=your-app-password
+SMTP_FROM=noreply@chainsync.store
+
+# Payment webhooks
+WEBHOOK_SECRET_PAYSTACK=...
+WEBHOOK_SECRET_FLW=...
 ```
 
 ## 🚀 **Quick Fix Commands**
@@ -205,10 +234,7 @@ SMTP_PASS=your-app-password
 # Generate SESSION_SECRET
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 
-# Generate JWT_SECRET
-node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
-
-# Generate CSRF_SECRET
+# (Optional) Generate JWT_SECRET
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
 
@@ -232,7 +258,7 @@ pool.query('SELECT 1', (err, res) => {
 ## 📞 **Support Information**
 
 ### **When to Contact Support**
-- Health check shows database "disconnected"
+- Health endpoints show database "disconnected"
 - All environment variables are correct
 - Database is accessible from other clients
 - Render logs show no obvious errors
@@ -246,11 +272,9 @@ pool.query('SELECT 1', (err, res) => {
 
 ## 🔍 **Debugging Tools**
 
-### **1. Health Check Endpoint**
-- URL: `/api/health`
-- Shows database status
-- Displays environment info
-- Memory usage and uptime
+### **1. Health Endpoints**
+- Liveness: `/healthz`
+- Detailed: `/api/observability/health` (DB latency, memory, uptime, version)
 
 ### **2. Render Logs**
 - Real-time application logs

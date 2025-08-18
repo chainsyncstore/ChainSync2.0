@@ -62,7 +62,8 @@ npm run seed:demo
 
 ```bash
 # Development mode (with hot reload)
-npm run dev
+npm run dev:server   # backend on http://localhost:5000
+npm run dev:web      # frontend on http://localhost:5173
 
 # Or build and start in production mode
 npm run build
@@ -72,7 +73,8 @@ npm start
 ## Step 5: Access the Application
 
 Open your browser and navigate to:
-- **Development**: http://localhost:5000
+- **Frontend (dev)**: http://localhost:5173
+- **Backend API (dev)**: http://localhost:5000
 - **Production**: http://localhost:5000
 
 ## Login Credentials
@@ -110,6 +112,56 @@ After running `npm run seed:demo`, you can use:
 - Clear the `dist` folder: `rm -rf dist`
 - Reinstall dependencies: `rm -rf node_modules && npm install`
 
+## Environment Configuration (Source of Truth)
+
+- Canonical schema: `shared/env.ts`.
+- Required: `DATABASE_URL`, `SESSION_SECRET`, `APP_URL`, `CORS_ORIGINS`.
+- Production-only requirement: `REDIS_URL`.
+- Optional (dev): payment keys (Paystack/Flutterwave), WebSocket, AI, offline flags.
+
+Example .env for local dev:
+```env
+APP_URL=http://localhost:5000
+CORS_ORIGINS=http://localhost:5173,http://localhost:5000
+DATABASE_URL=postgresql://user:pass@localhost:5432/chainsync
+SESSION_SECRET=change-me-dev-secret
+```
+
+## Health and Metrics
+
+- Liveness: `GET /healthz` (see `server/api/index.ts`).
+- Detailed health: `GET /api/observability/health` with DB latency, memory, uptime (see `server/api/routes.observability.ts`).
+- Metrics (admin): `GET /api/observability/metrics` and related endpoints.
+
+## Webhooks (Payments)
+
+- Raw-body endpoints (see `server/api/routes.webhooks.ts`):
+  - Paystack: `POST /webhooks/paystack`, `POST /api/payment/paystack-webhook`
+  - Flutterwave: `POST /webhooks/flutterwave`, `POST /api/payment/flutterwave-webhook`
+- Headers:
+  - Common: `x-event-id`, `x-event-timestamp`
+  - Paystack: `x-paystack-signature` (HMAC-SHA512)
+  - Flutterwave: `verif-hash` (HMAC-SHA256)
+- Env secrets: `WEBHOOK_SECRET_PAYSTACK`, `WEBHOOK_SECRET_FLW` (or provider secret keys).
+
+## Offline Sync
+
+Key endpoints (see `server/api/routes.offline-sync.ts`):
+- `POST /api/sync/upload`
+- `GET /api/sync/download`
+- `GET /api/sync/status`
+- `POST /api/sync/resolve-conflicts`
+- `GET /api/sync/health`
+
+## Triage Runbooks (Quick)
+
+- CSRF/CORS:
+  1) Confirm `CORS_ORIGINS` contains frontend origin. 2) Call `GET /api/auth/csrf-token` and check cookie/header. 3) Review `server/middleware/security.ts`.
+- Webhooks:
+  1) Check signature headers present. 2) Verify secrets in env. 3) Look for idempotent responses in logs/DB.
+- SMTP:
+  1) Verify `SMTP_*` vars. 2) Check startup logs for transporter verification. 3) See `EMAIL_TROUBLESHOOTING_GUIDE.md`.
+
 ## Features Available
 
 - **POS System**: Real-time sales and inventory management
@@ -117,4 +169,4 @@ After running `npm run seed:demo`, you can use:
 - **Analytics Dashboard**: Sales reports and performance metrics
 - **Multi-Store Support**: Manage multiple store locations
 - **User Management**: Role-based access control
-- **Data Import**: CSV upload for bulk data migration 
+- **Data Import**: CSV upload for bulk data migration

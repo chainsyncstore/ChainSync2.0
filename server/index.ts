@@ -20,7 +20,9 @@ import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, schedule
 const app = express();
 
 // Trust proxy for proper IP handling behind load balancers (important for Render)
-app.set('trust proxy', true);
+// In production, explicitly trust the first proxy ("1") so secure cookies and IPs work correctly.
+// In development/test, allow true to support local reverse proxies (e.g., Vite, dev tunnels).
+app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : true);
 
 // Request ID middleware for log correlation
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -64,8 +66,8 @@ app.use(requestLogger);
 
     // WebSocket init moved to PRD-compliant implementation
 
-    // Verify SMTP transporter in production to catch misconfiguration early
-    if (app.get("env") === "production") {
+    // Kick off non-blocking SMTP verification; do not block startup
+    (async () => {
       try {
         const { verifyEmailTransporter } = await import('./email');
         const ok = await verifyEmailTransporter();
@@ -77,7 +79,7 @@ app.use(requestLogger);
       } catch (e) {
         logger.error('Failed to verify SMTP transporter', { error: e instanceof Error ? e.message : String(e) });
       }
-    }
+    })();
 
     // importantly only setup vite in development and after
     // setting up all the other routes so the catch-all route

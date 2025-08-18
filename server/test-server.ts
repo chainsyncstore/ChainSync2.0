@@ -246,13 +246,31 @@ app.get('/api/stores/:id/analytics/daily-sales', (req, res) => {
   res.json({ transactions: 3, revenue: 315 });
 });
 
-// POS sales endpoint
+// Simple in-memory idempotency tracking for tests
+const idempAccepts: Map<string, { count: number; response: any }> = new Map();
+
+// POS sales endpoint (idempotent for E2E)
 app.post('/api/pos/sales', (req, res) => {
   const body = req.body || {};
   if (!body || !body.items || !Array.isArray(body.items) || body.items.length === 0) {
     return res.status(400).json({ error: 'invalid sale' });
   }
-  res.json({ id: `sale_${Date.now()}`, total: body.total });
+  const key = String(req.headers['idempotency-key'] || '');
+  if (key && idempAccepts.has(key)) {
+    const rec = idempAccepts.get(key)!;
+    rec.count += 1;
+    return res.status(200).json(rec.response);
+  }
+  const resp = { id: `sale_${Date.now()}`, total: body.total, acceptedAt: new Date().toISOString() };
+  if (key) idempAccepts.set(key, { count: 1, response: resp });
+  return res.status(201).json(resp);
+});
+
+// Inspection endpoint for E2E to assert single acceptance by key
+app.get('/__idemp/:key', (req, res) => {
+  const key = String(req.params.key || '');
+  const rec = idempAccepts.get(key);
+  res.json({ key, count: rec?.count || 0 });
 });
 
 // Product lookup by barcode
