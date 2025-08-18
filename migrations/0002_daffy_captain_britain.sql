@@ -1,8 +1,16 @@
-CREATE TYPE "public"."role" AS ENUM('ADMIN', 'MANAGER', 'CASHIER');--> statement-breakpoint
-CREATE TYPE "public"."sale_status" AS ENUM('COMPLETED', 'RETURNED');--> statement-breakpoint
-CREATE TYPE "public"."subscription_provider" AS ENUM('PAYSTACK', 'FLW');--> statement-breakpoint
-CREATE TYPE "public"."subscription_status" AS ENUM('ACTIVE', 'PAST_DUE', 'CANCELLED');--> statement-breakpoint
-CREATE TABLE "audit_logs" (
+DO $$ BEGIN
+  CREATE TYPE "public"."role" AS ENUM('ADMIN', 'MANAGER', 'CASHIER');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."sale_status" AS ENUM('COMPLETED', 'RETURNED');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."subscription_provider" AS ENUM('PAYSTACK', 'FLW');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."subscription_status" AS ENUM('ACTIVE', 'PAST_DUE', 'CANCELLED');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "audit_logs" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
 	"user_id" uuid,
@@ -15,7 +23,7 @@ CREATE TABLE "audit_logs" (
 	"created_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "ip_whitelist" (
+CREATE TABLE IF NOT EXISTS "ip_whitelist" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
 	"role" "role" NOT NULL,
@@ -24,7 +32,7 @@ CREATE TABLE "ip_whitelist" (
 	"created_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "loyalty_accounts" (
+CREATE TABLE IF NOT EXISTS "loyalty_accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
 	"customer_id" uuid NOT NULL,
@@ -32,14 +40,14 @@ CREATE TABLE "loyalty_accounts" (
 	"tier" varchar(64)
 );
 --> statement-breakpoint
-CREATE TABLE "organizations" (
+CREATE TABLE IF NOT EXISTS "organizations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" varchar(255) NOT NULL,
 	"currency" varchar(8) DEFAULT 'NGN' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "price_changes" (
+CREATE TABLE IF NOT EXISTS "price_changes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
 	"store_id" uuid,
@@ -50,7 +58,7 @@ CREATE TABLE "price_changes" (
 	"created_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "returns" (
+CREATE TABLE IF NOT EXISTS "returns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"sale_id" uuid NOT NULL,
 	"reason" text,
@@ -58,7 +66,7 @@ CREATE TABLE "returns" (
 	"occurred_at" timestamp with time zone DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "sale_items" (
+CREATE TABLE IF NOT EXISTS "sale_items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"sale_id" uuid NOT NULL,
 	"product_id" uuid NOT NULL,
@@ -68,7 +76,7 @@ CREATE TABLE "sale_items" (
 	"line_total" numeric(12, 2) NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "sales" (
+CREATE TABLE IF NOT EXISTS "sales" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
 	"store_id" uuid NOT NULL,
@@ -83,7 +91,7 @@ CREATE TABLE "sales" (
 	"idempotency_key" varchar(128) NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "stock_alerts" (
+CREATE TABLE IF NOT EXISTS "stock_alerts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"product_id" uuid NOT NULL,
@@ -93,7 +101,7 @@ CREATE TABLE "stock_alerts" (
 	"resolved" boolean DEFAULT false NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "subscriptions" (
+CREATE TABLE IF NOT EXISTS "subscriptions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
 	"provider" "subscription_provider" NOT NULL,
@@ -106,7 +114,7 @@ CREATE TABLE "subscriptions" (
 	"last_event_raw" jsonb
 );
 --> statement-breakpoint
-CREATE TABLE "user_roles" (
+CREATE TABLE IF NOT EXISTS "user_roles" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
 	"org_id" uuid NOT NULL,
@@ -153,26 +161,27 @@ ALTER TABLE "products" ALTER COLUMN "sku" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "products" ALTER COLUMN "barcode" SET DATA TYPE varchar(128);--> statement-breakpoint
 ALTER TABLE "products" ALTER COLUMN "created_at" SET DATA TYPE timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "stores" ALTER COLUMN "created_at" SET DATA TYPE timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "users" ALTER COLUMN "email" SET NOT NULL;--> statement-breakpoint
+-- Skip forcing NOT NULL on existing column to avoid failing on existing data
+-- ALTER TABLE "users" ALTER COLUMN "email" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ALTER COLUMN "created_at" SET DATA TYPE timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "customers" ADD COLUMN "org_id" uuid NOT NULL;--> statement-breakpoint
+ALTER TABLE "customers" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
 ALTER TABLE "customers" ADD COLUMN "name" varchar(255);--> statement-breakpoint
 ALTER TABLE "inventory" ADD COLUMN "reorder_level" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "loyalty_transactions" ADD COLUMN "loyalty_account_id" uuid NOT NULL;--> statement-breakpoint
 ALTER TABLE "loyalty_transactions" ADD COLUMN "points" integer NOT NULL;--> statement-breakpoint
 ALTER TABLE "loyalty_transactions" ADD COLUMN "reason" varchar(255) NOT NULL;--> statement-breakpoint
-ALTER TABLE "products" ADD COLUMN "org_id" uuid NOT NULL;--> statement-breakpoint
+ALTER TABLE "products" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
 ALTER TABLE "products" ADD COLUMN "cost_price" numeric(12, 2) DEFAULT '0' NOT NULL;--> statement-breakpoint
 ALTER TABLE "products" ADD COLUMN "sale_price" numeric(12, 2) DEFAULT '0' NOT NULL;--> statement-breakpoint
 ALTER TABLE "products" ADD COLUMN "vat_rate" numeric(5, 2) DEFAULT '0' NOT NULL;--> statement-breakpoint
-ALTER TABLE "stores" ADD COLUMN "org_id" uuid NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "password_hash" varchar(255) NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "is_admin" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "requires_2fa" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "totp_secret" varchar(255);--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "last_login_at" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "email_verified" boolean DEFAULT false;--> statement-breakpoint
+ALTER TABLE "stores" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "password_hash" varchar(255);--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "is_admin" boolean DEFAULT false;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "requires_2fa" boolean DEFAULT false;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "totp_secret" varchar(255);--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "last_login_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email_verified" boolean DEFAULT false;--> statement-breakpoint
 CREATE INDEX "audit_logs_org_idx" ON "audit_logs" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX "audit_logs_created_idx" ON "audit_logs" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "ip_whitelist_org_idx" ON "ip_whitelist" USING btree ("org_id");--> statement-breakpoint
@@ -250,6 +259,6 @@ ALTER TABLE "users" DROP COLUMN "role";--> statement-breakpoint
 ALTER TABLE "users" DROP COLUMN "store_id";--> statement-breakpoint
 ALTER TABLE "users" DROP COLUMN "is_active";--> statement-breakpoint
 ALTER TABLE "users" DROP COLUMN "updated_at";--> statement-breakpoint
-DROP TYPE "public"."payment_method";--> statement-breakpoint
-DROP TYPE "public"."transaction_status";--> statement-breakpoint
-DROP TYPE "public"."user_role";
+DROP TYPE IF EXISTS "public"."payment_method";--> statement-breakpoint
+DROP TYPE IF EXISTS "public"."transaction_status";--> statement-breakpoint
+DROP TYPE IF EXISTS "public"."user_role";

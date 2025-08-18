@@ -1,7 +1,13 @@
-CREATE TYPE "public"."payment_method" AS ENUM('cash', 'card', 'digital');--> statement-breakpoint
-CREATE TYPE "public"."transaction_status" AS ENUM('pending', 'completed', 'voided', 'held');--> statement-breakpoint
-CREATE TYPE "public"."user_role" AS ENUM('cashier', 'manager', 'admin');--> statement-breakpoint
-CREATE TABLE "ai_insights" (
+DO $$ BEGIN
+  CREATE TYPE "public"."payment_method" AS ENUM('cash', 'card', 'digital');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."transaction_status" AS ENUM('pending', 'completed', 'voided', 'held');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."user_role" AS ENUM('cashier', 'manager', 'admin');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "ai_insights" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"insight_type" varchar(100) NOT NULL,
@@ -15,7 +21,7 @@ CREATE TABLE "ai_insights" (
 	"actioned_at" timestamp
 );
 --> statement-breakpoint
-CREATE TABLE "customers" (
+CREATE TABLE IF NOT EXISTS "customers" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"first_name" varchar(255) NOT NULL,
@@ -32,7 +38,7 @@ CREATE TABLE "customers" (
 	CONSTRAINT "customers_loyalty_number_unique" UNIQUE("loyalty_number")
 );
 --> statement-breakpoint
-CREATE TABLE "demand_forecasts" (
+CREATE TABLE IF NOT EXISTS "demand_forecasts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"product_id" uuid NOT NULL,
@@ -47,7 +53,7 @@ CREATE TABLE "demand_forecasts" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "external_factors" (
+CREATE TABLE IF NOT EXISTS "external_factors" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"factor_type" varchar(100) NOT NULL,
@@ -61,7 +67,7 @@ CREATE TABLE "external_factors" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "forecast_models" (
+CREATE TABLE IF NOT EXISTS "forecast_models" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"name" varchar(255) NOT NULL,
@@ -75,7 +81,7 @@ CREATE TABLE "forecast_models" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "inventory" (
+CREATE TABLE IF NOT EXISTS "inventory" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"product_id" uuid NOT NULL,
 	"store_id" uuid NOT NULL,
@@ -86,7 +92,7 @@ CREATE TABLE "inventory" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "low_stock_alerts" (
+CREATE TABLE IF NOT EXISTS "low_stock_alerts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"product_id" uuid NOT NULL,
@@ -97,7 +103,7 @@ CREATE TABLE "low_stock_alerts" (
 	"resolved_at" timestamp
 );
 --> statement-breakpoint
-CREATE TABLE "loyalty_tiers" (
+CREATE TABLE IF NOT EXISTS "loyalty_tiers" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"name" varchar(255) NOT NULL,
@@ -110,7 +116,7 @@ CREATE TABLE "loyalty_tiers" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "loyalty_transactions" (
+CREATE TABLE IF NOT EXISTS "loyalty_transactions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"customer_id" uuid NOT NULL,
 	"transaction_id" uuid NOT NULL,
@@ -123,7 +129,7 @@ CREATE TABLE "loyalty_transactions" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "products" (
+CREATE TABLE IF NOT EXISTS "products" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" varchar(255) NOT NULL,
 	"sku" varchar(255),
@@ -140,7 +146,7 @@ CREATE TABLE "products" (
 	CONSTRAINT "products_barcode_unique" UNIQUE("barcode")
 );
 --> statement-breakpoint
-CREATE TABLE "seasonal_patterns" (
+CREATE TABLE IF NOT EXISTS "seasonal_patterns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"product_id" uuid,
@@ -153,13 +159,13 @@ CREATE TABLE "seasonal_patterns" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "session" (
+CREATE TABLE IF NOT EXISTS "session" (
 	"sid" varchar(255) PRIMARY KEY NOT NULL,
 	"sess" text NOT NULL,
 	"expire" timestamp NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "stores" (
+CREATE TABLE IF NOT EXISTS "stores" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" varchar(255) NOT NULL,
 	"address" text,
@@ -170,7 +176,7 @@ CREATE TABLE "stores" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "transaction_items" (
+CREATE TABLE IF NOT EXISTS "transaction_items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"transaction_id" uuid NOT NULL,
 	"product_id" uuid NOT NULL,
@@ -179,7 +185,7 @@ CREATE TABLE "transaction_items" (
 	"total_price" numeric(10, 2) NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "transactions" (
+CREATE TABLE IF NOT EXISTS "transactions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"store_id" uuid NOT NULL,
 	"cashier_id" uuid NOT NULL,
@@ -196,7 +202,7 @@ CREATE TABLE "transactions" (
 	CONSTRAINT "transactions_receipt_number_unique" UNIQUE("receipt_number")
 );
 --> statement-breakpoint
-CREATE TABLE "user_store_permissions" (
+CREATE TABLE IF NOT EXISTS "user_store_permissions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
 	"store_id" uuid NOT NULL,
@@ -204,7 +210,7 @@ CREATE TABLE "user_store_permissions" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "users" (
+CREATE TABLE IF NOT EXISTS "users" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"username" varchar(255) NOT NULL,
 	"email" varchar(255),

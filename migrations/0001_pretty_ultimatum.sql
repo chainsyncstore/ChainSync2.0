@@ -1,4 +1,4 @@
-CREATE TABLE "ip_whitelist_logs" (
+CREATE TABLE IF NOT EXISTS "ip_whitelist_logs" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"ip_address" varchar(45) NOT NULL,
 	"user_id" uuid,
@@ -10,7 +10,7 @@ CREATE TABLE "ip_whitelist_logs" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "ip_whitelists" (
+CREATE TABLE IF NOT EXISTS "ip_whitelists" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"ip_address" varchar(45) NOT NULL,
 	"description" varchar(255),
@@ -23,11 +23,11 @@ CREATE TABLE "ip_whitelists" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-ALTER TABLE "stores" ADD COLUMN "owner_id" uuid;--> statement-breakpoint
-ALTER TABLE "stores" ADD COLUMN "email" varchar(255);--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "password" varchar(255);--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "phone" varchar(50);--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "company_name" varchar(255);--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "tier" varchar(50);--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "location" varchar(50);--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "trial_ends_at" timestamp;
+ALTER TABLE "stores" ADD COLUMN IF NOT EXISTS "owner_id" uuid;--> statement-breakpoint
+ALTER TABLE "stores" ADD COLUMN IF NOT EXISTS "email" varchar(255);--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "password" varchar(255);--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "phone" varchar(50);--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "company_name" varchar(255);--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "tier" varchar(50);--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "location" varchar(50);--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "trial_ends_at" timestamp;
