@@ -13,11 +13,13 @@ import { useToast } from '../hooks/use-toast';
 import type { Store } from '@shared/schema';
 
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { toast } = useToast();
   const [exporting, setExporting] = useState<string | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string>('');
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchStores = async () => {
@@ -95,6 +97,28 @@ export default function Settings() {
       });
     } finally {
       setExporting(null);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirm !== 'Delete') {
+      toast({
+        title: 'Confirmation required',
+        description: "Type 'Delete' exactly to confirm.",
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!user?.id) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error('Failed');
+      toast({ title: 'Account deleted', description: 'Your account has been permanently deleted.' });
+      await logout();
+    } catch (error) {
+      toast({ title: 'Deletion failed', description: 'Unable to delete account. Try again.', variant: 'destructive' });
+      setIsDeleting(false);
     }
   };
 
@@ -245,6 +269,35 @@ export default function Settings() {
               </CardHeader>
               <CardContent>
                 <IpWhitelistManager />
+              </CardContent>
+            </Card>
+          )}
+
+          {user.role === 'admin' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-red-600">Delete Account</CardTitle>
+                <CardDescription>
+                  Permanently delete your admin account. This action cannot be undone.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <Label htmlFor="deleteConfirm" className="whitespace-nowrap">Type Delete to confirm</Label>
+                  <Input
+                    id="deleteConfirm"
+                    value={deleteConfirm}
+                    onChange={(e) => setDeleteConfirm(e.target.value)}
+                    placeholder="Delete"
+                  />
+                  <Button
+                    variant="destructive"
+                    disabled={deleteConfirm !== 'Delete' || isDeleting}
+                    onClick={handleDeleteAccount}
+                  >
+                    {isDeleting ? 'Deleting…' : 'Delete Account'}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
