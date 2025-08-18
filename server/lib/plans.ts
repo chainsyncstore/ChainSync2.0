@@ -14,6 +14,8 @@ export interface PlanDefinition {
   currency: 'NGN' | 'USD';
   amountSmallestUnit: number; // kobo for NGN, cents for USD
   provider: Provider;
+  // Environment variable that stores the provider's plan/payment_plan ID
+  providerPlanIdEnv: string;
 }
 
 export const PLANS: Record<PlanCode, PlanDefinition> = {
@@ -23,6 +25,7 @@ export const PLANS: Record<PlanCode, PlanDefinition> = {
     currency: 'NGN',
     amountSmallestUnit: 3000000,
     provider: 'PAYSTACK',
+    providerPlanIdEnv: 'PAYSTACK_PLAN_BASIC',
   },
   PRO_NGN: {
     code: 'PRO_NGN',
@@ -30,6 +33,7 @@ export const PLANS: Record<PlanCode, PlanDefinition> = {
     currency: 'NGN',
     amountSmallestUnit: 10000000,
     provider: 'PAYSTACK',
+    providerPlanIdEnv: 'PAYSTACK_PLAN_PRO',
   },
   ENTERPRISE_NGN: {
     code: 'ENTERPRISE_NGN',
@@ -37,6 +41,7 @@ export const PLANS: Record<PlanCode, PlanDefinition> = {
     currency: 'NGN',
     amountSmallestUnit: 50000000,
     provider: 'PAYSTACK',
+    providerPlanIdEnv: 'PAYSTACK_PLAN_ENTERPRISE',
   },
   BASIC_USD: {
     code: 'BASIC_USD',
@@ -44,6 +49,7 @@ export const PLANS: Record<PlanCode, PlanDefinition> = {
     currency: 'USD',
     amountSmallestUnit: 3000,
     provider: 'FLW',
+    providerPlanIdEnv: 'FLW_PLAN_BASIC',
   },
   PRO_USD: {
     code: 'PRO_USD',
@@ -51,6 +57,7 @@ export const PLANS: Record<PlanCode, PlanDefinition> = {
     currency: 'USD',
     amountSmallestUnit: 10000,
     provider: 'FLW',
+    providerPlanIdEnv: 'FLW_PLAN_PRO',
   },
   ENTERPRISE_USD: {
     code: 'ENTERPRISE_USD',
@@ -58,6 +65,7 @@ export const PLANS: Record<PlanCode, PlanDefinition> = {
     currency: 'USD',
     amountSmallestUnit: 50000,
     provider: 'FLW',
+    providerPlanIdEnv: 'FLW_PLAN_ENTERPRISE',
   },
 };
 

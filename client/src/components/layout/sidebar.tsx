@@ -12,6 +12,7 @@ import {
 	Link as LinkIcon,
 	Crown,
 	ListChecks,
+    CreditCard,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -48,6 +49,7 @@ const getNavigationItems = (userRole: string) => {
 	if (userRole === "admin") {
 		items.splice(-1, 0, { path: "/multi-store", icon: Building2, label: "Multi-Store" });
 		items.splice(-1, 0, { path: "/admin/audit", icon: ListChecks, label: "Audit" });
+		items.splice(-1, 0, { path: "/admin/billing", icon: CreditCard, label: "Billing" });
 	}
 	return items;
 };

@@ -28,6 +28,7 @@ export const organizations = pgTable('organizations', {
   currency: varchar('currency', { length: 8 }).notNull().default('NGN'),
   isActive: boolean('is_active').notNull().default(false),
   lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  billingEmail: varchar('billing_email', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
@@ -223,6 +224,50 @@ export const subscriptions = pgTable('subscriptions', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 }, (t) => ({
   orgIdx: index('subscriptions_org_idx').on(t.orgId),
+}));
+
+export const subscriptionPayments = pgTable('subscription_payments', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid('org_id').notNull(),
+  provider: subscriptionProviderEnum('provider').notNull(),
+  planCode: varchar('plan_code', { length: 128 }).notNull(),
+  externalSubId: varchar('external_sub_id', { length: 255 }),
+  externalInvoiceId: varchar('external_invoice_id', { length: 255 }),
+  reference: varchar('reference', { length: 255 }),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  currency: varchar('currency', { length: 8 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull(),
+  eventType: varchar('event_type', { length: 64 }),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow(),
+  raw: jsonb('raw'),
+}, (t) => ({
+  orgIdx: index('subscription_payments_org_idx').on(t.orgId),
+  uniqInvoice: uniqueIndex('subscription_payments_provider_invoice_unique').on(t.provider, t.externalInvoiceId),
+  uniqReference: uniqueIndex('subscription_payments_provider_reference_unique').on(t.provider, t.reference),
+}));
+
+export const webhookEvents = pgTable('webhook_events', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  provider: subscriptionProviderEnum('provider').notNull(),
+  eventId: varchar('event_id', { length: 255 }).notNull(),
+  receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  uniqProviderEvent: uniqueIndex('webhook_events_provider_event_unique').on(t.provider, t.eventId),
+}));
+
+export const dunningEvents = pgTable('dunning_events', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid('org_id').notNull(),
+  subscriptionId: uuid('subscription_id').notNull(),
+  attempt: integer('attempt').notNull(),
+  status: varchar('status', { length: 32 }).notNull(),
+  reason: text('reason'),
+  sentAt: timestamp('sent_at', { withTimezone: true }).defaultNow(),
+  nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+}, (t) => ({
+  orgIdx: index('dunning_events_org_idx').on(t.orgId),
+  subIdx: index('dunning_events_subscription_idx').on(t.subscriptionId),
+  uniqAttempt: uniqueIndex('dunning_events_subscription_attempt_unique').on(t.subscriptionId, t.attempt),
 }));
 
 export const auditLogs = pgTable('audit_logs', {

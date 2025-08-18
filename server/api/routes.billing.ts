@@ -30,6 +30,11 @@ export async function registerBillingRoutes(app: Express) {
     const reference = service.generateReference(plan.provider === 'PAYSTACK' ? 'paystack' : 'flutterwave');
     const callbackUrl = `${process.env.BASE_URL || process.env.APP_URL}/payment/callback?orgId=${orgId}&planCode=${plan.code}`;
 
+    const providerPlanId = process.env[plan.providerPlanIdEnv];
+    if (!providerPlanId) {
+      return res.status(500).json({ error: `Missing provider plan id env: ${plan.providerPlanIdEnv}` });
+    }
+
     const resp = plan.provider === 'PAYSTACK'
       ? await service.initializePaystackPayment({
           email,
@@ -38,6 +43,7 @@ export async function registerBillingRoutes(app: Express) {
           reference,
           callback_url: callbackUrl,
           metadata: { orgId, planCode: plan.code },
+          providerPlanId,
         })
       : await service.initializeFlutterwavePayment({
           email,
@@ -46,6 +52,7 @@ export async function registerBillingRoutes(app: Express) {
           reference,
           callback_url: callbackUrl,
           metadata: { orgId, planCode: plan.code },
+          providerPlanId,
         });
 
     res.json({

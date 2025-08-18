@@ -1,11 +1,13 @@
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
-import { users, ipWhitelist, products, priceChanges } from '@shared/prd-schema';
-import { eq, and, sql, like } from 'drizzle-orm';
+import { users, ipWhitelist, products, priceChanges, subscriptions, subscriptionPayments, dunningEvents, organizations } from '@shared/prd-schema';
+import { eq, and, sql, like, gte, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import multer from 'multer';
 import { requireAuth, requireRole, enforceIpWhitelist } from '../middleware/authz';
+import { getPlan } from '../lib/plans';
+import { PaymentService } from '../payment/service';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
@@ -136,6 +138,169 @@ export async function registerAdminRoutes(app: Express) {
     const id = req.params.id;
     await db.execute(sql`DELETE FROM ip_whitelist WHERE id = ${id}`);
     res.status(204).end();
+  });
+
+  // Get current org billing settings
+  app.get('/api/admin/org/billing', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+    let me = (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any;
+    if (!me && process.env.NODE_ENV === 'test') {
+      me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
+    }
+    const org = (await db.select().from(organizations).where(eq(organizations.id as any, me.orgId as any)))[0] as any;
+    res.json({ org: { id: org?.id, billingEmail: org?.billingEmail } });
+  });
+
+  const UpdateBillingSchema = z.object({
+    billingEmail: z.string().email(),
+  });
+
+  // Update current org billing email
+  app.patch('/api/admin/org/billing', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const parsed = UpdateBillingSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+    let me = (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any;
+    if (!me && process.env.NODE_ENV === 'test') {
+      me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
+    }
+    const updated = await db.execute(sql`UPDATE organizations SET billing_email = ${parsed.data.billingEmail} WHERE id = ${me.orgId} RETURNING id, billing_email`);
+    res.json({ org: (updated as any).rows?.[0] });
+  });
+
+  // List subscriptions with filters
+  app.get('/api/admin/subscriptions', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+    let me = (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any;
+    if (!me && process.env.NODE_ENV === 'test') {
+      me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
+    }
+    const { status, provider } = req.query as any;
+    const conditions: any[] = [eq(subscriptions.orgId as any, me.orgId as any)];
+    if (status) conditions.push(eq(subscriptions.status as any, status as any));
+    if (provider) conditions.push(eq(subscriptions.provider as any, provider as any));
+    const list = await db.select().from(subscriptions).where(and(...conditions)).limit(200);
+    res.json({ subscriptions: list });
+  });
+
+  // List subscription payments with filters
+  app.get('/api/admin/subscription-payments', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+    let me = (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any;
+    if (!me && process.env.NODE_ENV === 'test') {
+      me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
+    }
+    const { from, to, status, provider } = req.query as any;
+    const conditions: any[] = [eq(subscriptionPayments.orgId as any, me.orgId as any)];
+    if (status) conditions.push(eq(subscriptionPayments.status as any, status as any));
+    if (provider) conditions.push(eq(subscriptionPayments.provider as any, provider as any));
+    let rowsQuery: any = db.select().from(subscriptionPayments).where(and(...conditions)).orderBy((subscriptionPayments as any).occurredAt as any).limit(500);
+    if (from || to) {
+      const start = from ? new Date(from) : new Date(Date.now() - 30*24*60*60*1000);
+      const end = to ? new Date(to) : new Date();
+      rowsQuery = db.select().from(subscriptionPayments).where(and(...conditions, gte(subscriptionPayments.occurredAt as any, start as any), lte(subscriptionPayments.occurredAt as any, end as any))).orderBy((subscriptionPayments as any).occurredAt as any).limit(500);
+    }
+    const rows = await rowsQuery;
+    res.json({ payments: rows });
+  });
+
+  // Admin action: mark dunning resolved (e.g., after manual payment)
+  app.post('/api/admin/dunning/:subscriptionId/resolve', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const subscriptionId = req.params.subscriptionId;
+    // Clear pending next attempts
+    await db.execute(sql`UPDATE dunning_events SET next_attempt_at = NULL WHERE subscription_id = ${subscriptionId}`);
+    res.json({ ok: true });
+  });
+
+  // Retry dunning immediately for a subscription
+  app.post('/api/admin/dunning/:subscriptionId/retry', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const subscriptionId = req.params.subscriptionId;
+    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.id as any, subscriptionId as any)))[0] as any;
+    if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+    const org = (await db.select().from(organizations).where(eq(organizations.id as any, sub.orgId as any)))[0] as any;
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || undefined;
+    const me = currentUserId ? (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any : undefined;
+    const to = org?.billingEmail || me?.email || process.env.BILLING_FALLBACK_EMAIL || 'billing@chainsync.com';
+    // Count previous attempts
+    const previousAttempts = await db.select().from(dunningEvents).where(eq(dunningEvents.subscriptionId as any, sub.id as any));
+    const attempt = (previousAttempts?.length || 0) + 1;
+    // Send email
+    const { sendEmail } = await import('../email');
+    await sendEmail({
+      to,
+      subject: `Action required: Update payment method (attempt ${attempt})`,
+      html: `<p>Your subscription is past due. Please update your payment method to avoid service interruption.</p>`,
+      text: `Your subscription is past due. Please update your payment method.`
+    });
+    // Record event
+    await db.insert(dunningEvents).values({
+      orgId: sub.orgId as any,
+      subscriptionId: sub.id as any,
+      attempt,
+      status: 'sent' as any,
+      nextAttemptAt: new Date(Date.now() + Math.min(7, attempt) * 24 * 60 * 60 * 1000) as any,
+    } as any);
+    res.json({ ok: true, attempt });
+  });
+
+  // List dunning events (optionally filter by subscriptionId)
+  app.get('/api/admin/dunning-events', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+    let me = (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any;
+    if (!me && process.env.NODE_ENV === 'test') {
+      me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
+    }
+    const { subscriptionId } = req.query as any;
+    let q = db.select().from(dunningEvents).where(eq(dunningEvents.orgId as any, me.orgId as any)).orderBy((dunningEvents as any).sentAt as any).limit(200);
+    if (subscriptionId) {
+      q = db.select().from(dunningEvents).where(and(eq(dunningEvents.orgId as any, me.orgId as any), eq(dunningEvents.subscriptionId as any, subscriptionId as any))).orderBy((dunningEvents as any).sentAt as any).limit(200);
+    }
+    const rows = await q;
+    res.json({ events: rows });
+  });
+
+  // Admin action: generate update payment link (re-auth) for a subscription
+  app.post('/api/admin/subscriptions/:id/update-payment', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const id = req.params.id;
+    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.id as any, id as any)))[0] as any;
+    if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+    const plan = getPlan(sub.planCode);
+    if (!plan) return res.status(400).json({ error: 'Invalid plan mapping' });
+    const providerPlanId = process.env[(plan as any).providerPlanIdEnv];
+    if (!providerPlanId) return res.status(500).json({ error: `Missing provider plan id env: ${(plan as any).providerPlanIdEnv}` });
+    const org = (await db.select().from(organizations).where(eq(organizations.id as any, sub.orgId as any)))[0] as any;
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || undefined;
+    const me = currentUserId ? (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any : undefined;
+    const email = org?.billingEmail || me?.email;
+    if (!email) return res.status(400).json({ error: 'No billing email available' });
+    const service = new PaymentService();
+    const reference = service.generateReference(plan.provider === 'PAYSTACK' ? 'paystack' : 'flutterwave');
+    const callbackUrl = `${process.env.BASE_URL || process.env.APP_URL}/payment/callback?orgId=${sub.orgId}&planCode=${plan.code}`;
+    const resp = plan.provider === 'PAYSTACK'
+      ? await service.initializePaystackPayment({
+          email,
+          amount: plan.amountSmallestUnit,
+          currency: 'NGN',
+          reference,
+          callback_url: callbackUrl,
+          metadata: { orgId: sub.orgId, planCode: plan.code, reason: 'update_payment_method' },
+          providerPlanId,
+        })
+      : await service.initializeFlutterwavePayment({
+          email,
+          amount: plan.amountSmallestUnit,
+          currency: 'USD',
+          reference,
+          callback_url: callbackUrl,
+          metadata: { orgId: sub.orgId, planCode: plan.code, reason: 'update_payment_method' },
+          providerPlanId,
+        });
+    res.json({ redirectUrl: (resp.data as any).authorization_url || (resp.data as any).link, reference, provider: plan.provider });
   });
 
   // Bulk pricing apply via JSON filters

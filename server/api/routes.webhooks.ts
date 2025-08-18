@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response } from 'express';
 import crypto from 'crypto';
 import { db } from '../db';
-import { subscriptions, organizations } from '@shared/prd-schema';
+import { subscriptions, subscriptionPayments, organizations, webhookEvents } from '@shared/prd-schema';
 import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 
@@ -34,15 +34,46 @@ export async function registerWebhookRoutes(app: Express) {
     try {
       const evt = JSON.parse(raw);
       const { data } = evt;
-      // Expect metadata with orgId and planCode
-      const orgId = data?.metadata?.orgId as string | undefined;
-      const planCode = data?.metadata?.planCode as string | undefined;
-      if (!orgId || !planCode) return res.status(400).json({ error: 'Missing metadata' });
+      const providerEventId = (evt?.event || '') + ':' + String(data?.id || data?.reference || data?.transaction_reference || '');
+      // Idempotency: skip already-processed events
+      try {
+        await db.insert(webhookEvents).values({ provider: 'PAYSTACK' as any, eventId: providerEventId } as any);
+      } catch {
+        return res.json({ received: true, idempotent: true });
+      }
+      // Try reading orgId/planCode from metadata first
+      let orgId = data?.metadata?.orgId as string | undefined;
+      let planCode = data?.metadata?.planCode as string | undefined;
+      // Fallback: resolve via existing subscription using external ids when metadata missing
+      if (!orgId || !planCode) {
+        const externalSubIdCandidate = (data?.subscription) || (data?.subscription_code);
+        const externalCustomerCandidate = (data?.customer?.customer_code) || (data?.customer?.id);
+        if (externalSubIdCandidate || externalCustomerCandidate) {
+          const bySub = externalSubIdCandidate
+            ? await db.select().from(subscriptions).where(eq(subscriptions.externalSubId, externalSubIdCandidate)).then(r => r[0])
+            : undefined;
+          const byCustomer = !bySub && externalCustomerCandidate
+            ? await db.select().from(subscriptions).where(eq(subscriptions.externalCustomerId, externalCustomerCandidate)).then(r => r[0])
+            : undefined;
+          const matched = bySub || byCustomer;
+          if (matched) {
+            orgId = matched.orgId as any;
+            planCode = matched.planCode as any;
+          }
+        }
+      }
+      if (!orgId || !planCode) return res.status(400).json({ error: 'Missing subscription identifiers' });
 
       const rows = await db.select().from(organizations).where(eq(organizations.id, orgId));
       if (!rows[0]) return res.status(404).json({ error: 'Org not found' });
 
       const status = (data?.status === 'success') ? 'ACTIVE' : (data?.status === 'failed' ? 'CANCELLED' : 'PAST_DUE');
+
+      // Extract optional identifiers/periods
+      const externalCustomerId = (data?.customer?.customer_code) || (data?.customer?.id) || undefined;
+      const externalSubId = (data?.subscription) || (data?.subscription_code) || undefined;
+      const startedAt = data?.paid_at ? new Date(data.paid_at) : (data?.createdAt ? new Date(data.createdAt) : undefined);
+      const currentPeriodEnd = data?.next_payment_date ? new Date(data.next_payment_date) : undefined;
 
       // Upsert by (orgId)
       const existing = await db.select().from(subscriptions).where(eq(subscriptions.orgId, orgId));
@@ -51,6 +82,10 @@ export async function registerWebhookRoutes(app: Express) {
           planCode,
           provider: 'PAYSTACK' as any,
           status: status as any,
+          externalCustomerId: externalCustomerId as any,
+          externalSubId: externalSubId as any,
+          startedAt: (startedAt as any) ?? existing[0].startedAt,
+          currentPeriodEnd: (currentPeriodEnd as any) ?? existing[0].currentPeriodEnd,
           lastEventRaw: evt as any,
           updatedAt: new Date() as any,
         } as any).where(eq(subscriptions.orgId, orgId));
@@ -60,8 +95,32 @@ export async function registerWebhookRoutes(app: Express) {
           planCode,
           provider: 'PAYSTACK' as any,
           status: status as any,
+          externalCustomerId: externalCustomerId as any,
+          externalSubId: externalSubId as any,
+          startedAt: startedAt as any,
+          currentPeriodEnd: currentPeriodEnd as any,
           lastEventRaw: evt as any,
         } as any);
+      }
+
+      // Record payment events when applicable
+      if (data?.status === 'success' || data?.status === 'failed') {
+        const amountMajor = (Number(data?.amount ?? 0) / 100).toFixed(2);
+        try {
+          await db.insert(subscriptionPayments).values({
+            orgId,
+            provider: 'PAYSTACK' as any,
+            planCode,
+            externalSubId: data?.subscription || undefined,
+            externalInvoiceId: data?.invoice || undefined,
+            reference: data?.reference || data?.id,
+            amount: amountMajor as any,
+            currency: data?.currency || 'NGN',
+            status: data?.status,
+            eventType: evt?.event,
+            raw: evt as any,
+          } as any);
+        } catch {}
       }
 
       // Activate or lock org based on status
@@ -90,14 +149,45 @@ export async function registerWebhookRoutes(app: Express) {
     try {
       const evt = JSON.parse(raw);
       const data = evt?.data;
-      const orgId = data?.meta?.orgId as string | undefined;
-      const planCode = data?.meta?.planCode as string | undefined;
-      if (!orgId || !planCode) return res.status(400).json({ error: 'Missing metadata' });
+      const providerEventId = (evt?.event || '') + ':' + String(data?.id || data?.tx_ref || '');
+      // Idempotency: skip already-processed events
+      try {
+        await db.insert(webhookEvents).values({ provider: 'FLW' as any, eventId: providerEventId } as any);
+      } catch {
+        return res.json({ received: true, idempotent: true });
+      }
+      // Try metadata first
+      let orgId = data?.meta?.orgId as string | undefined;
+      let planCode = data?.meta?.planCode as string | undefined;
+      // Fallback resolution via existing subscriptions
+      if (!orgId || !planCode) {
+        const externalSubIdCandidate = (data?.plan) || (data?.payment_plan);
+        const externalCustomerCandidate = data?.customer?.id;
+        if (externalSubIdCandidate || externalCustomerCandidate) {
+          const bySub = externalSubIdCandidate
+            ? await db.select().from(subscriptions).where(eq(subscriptions.externalSubId, String(externalSubIdCandidate))).then(r => r[0])
+            : undefined;
+          const byCustomer = !bySub && externalCustomerCandidate
+            ? await db.select().from(subscriptions).where(eq(subscriptions.externalCustomerId, String(externalCustomerCandidate))).then(r => r[0])
+            : undefined;
+          const matched = bySub || byCustomer;
+          if (matched) {
+            orgId = matched.orgId as any;
+            planCode = matched.planCode as any;
+          }
+        }
+      }
+      if (!orgId || !planCode) return res.status(400).json({ error: 'Missing subscription identifiers' });
 
       const rows = await db.select().from(organizations).where(eq(organizations.id, orgId));
       if (!rows[0]) return res.status(404).json({ error: 'Org not found' });
 
       const status = (data?.status === 'successful') ? 'ACTIVE' : (data?.status === 'failed' ? 'CANCELLED' : 'PAST_DUE');
+
+      const externalCustomerId = (data?.customer?.id) || undefined;
+      const externalSubId = (data?.plan) || (data?.payment_plan) || undefined;
+      const startedAt = data?.created_at ? new Date(data.created_at) : undefined;
+      const currentPeriodEnd = (data?.next_due_date ? new Date(data.next_due_date) : undefined) as Date | undefined;
 
       const existing = await db.select().from(subscriptions).where(eq(subscriptions.orgId, orgId));
       if (existing[0]) {
@@ -105,6 +195,10 @@ export async function registerWebhookRoutes(app: Express) {
           planCode,
           provider: 'FLW' as any,
           status: status as any,
+          externalCustomerId: externalCustomerId as any,
+          externalSubId: externalSubId as any,
+          startedAt: (startedAt as any) ?? existing[0].startedAt,
+          currentPeriodEnd: (currentPeriodEnd as any) ?? existing[0].currentPeriodEnd,
           lastEventRaw: evt as any,
           updatedAt: new Date() as any,
         } as any).where(eq(subscriptions.orgId, orgId));
@@ -114,8 +208,32 @@ export async function registerWebhookRoutes(app: Express) {
           planCode,
           provider: 'FLW' as any,
           status: status as any,
+          externalCustomerId: externalCustomerId as any,
+          externalSubId: externalSubId as any,
+          startedAt: startedAt as any,
+          currentPeriodEnd: currentPeriodEnd as any,
           lastEventRaw: evt as any,
         } as any);
+      }
+
+      // Record payment events when applicable
+      if (data?.status === 'successful' || data?.status === 'failed') {
+        const amountMajor = (Number(data?.amount ?? 0)).toFixed(2); // Flutterwave sends in major units
+        try {
+          await db.insert(subscriptionPayments).values({
+            orgId,
+            provider: 'FLW' as any,
+            planCode,
+            externalSubId: data?.plan || undefined,
+            externalInvoiceId: data?.id || undefined,
+            reference: data?.tx_ref || data?.id,
+            amount: amountMajor as any,
+            currency: data?.currency || 'USD',
+            status: data?.status,
+            eventType: evt?.event,
+            raw: evt as any,
+          } as any);
+        } catch {}
       }
 
       if (status === 'ACTIVE') {

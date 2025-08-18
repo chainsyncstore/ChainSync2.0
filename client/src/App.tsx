@@ -27,6 +27,7 @@ const AdminAudit = lazy(() => import("@/pages/admin/audit"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminIp = lazy(() => import("@/pages/admin/ip-whitelist"));
 const AdminBulk = lazy(() => import("@/pages/admin/bulk-pricing"));
+const AdminBilling = lazy(() => import("@/pages/admin/billing"));
 const PostOnboarding = lazy(() => import("@/pages/post-onboarding"));
 const Loyalty = lazy(() => import("@/pages/loyalty"));
 const Alerts = lazy(() => import("@/pages/alerts"));
@@ -63,6 +64,7 @@ function Dashboard({ userRole }: { userRole: string }) {
             <Route path="/admin/users" component={AdminUsers} />
             <Route path="/admin/ip-whitelist" component={AdminIp} />
             <Route path="/admin/bulk-pricing" component={AdminBulk} />
+            <Route path="/admin/billing" component={AdminBilling} />
             <Route path="/loyalty" component={Loyalty} />
             <Route path="/alerts" component={Alerts} />
             <Route path="/data-import" component={DataImport} />

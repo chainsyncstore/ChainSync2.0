@@ -26,6 +26,10 @@ export async function registerRoutes(app: Express) {
   // Ensure raw body is available for webhooks
   app.use('/webhooks', express.raw({ type: '*/*' }));
   app.use('/api/payment', express.raw({ type: '*/*' }));
+  // Basic rate limiting on webhook endpoints
+  const webhookLimiter = rateLimit({ windowMs: 60_000, limit: 120 });
+  app.use('/webhooks', webhookLimiter);
+  app.use('/api/payment', webhookLimiter);
   // Protect CSV/PDF exports with rate limiting
   app.use(['/api/export', '/api/**/export'], sensitiveEndpointRateLimit);
   // Global audit for non-GET

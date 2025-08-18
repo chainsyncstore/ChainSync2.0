@@ -15,7 +15,7 @@ import {
   securityLogging,
   redirectSecurityCheck
 } from "./middleware/security";
-import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts } from "./jobs/cleanup";
+import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, scheduleSubscriptionReconciliation, scheduleDunning } from "./jobs/cleanup";
 // WebSocket service will be set up after core APIs are migrated to PRD schema
 
 const app = express();
@@ -133,6 +133,10 @@ app.use(requestLogger);
     scheduleAbandonedSignupCleanup();
     // Schedule nightly low stock alerts generation
     scheduleNightlyLowStockAlerts();
+    // Schedule daily subscription reconciliation
+    scheduleSubscriptionReconciliation();
+    // Schedule daily dunning notices
+    scheduleDunning();
 
     server.listen({
       port,
