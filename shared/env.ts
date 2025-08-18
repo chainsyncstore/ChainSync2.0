@@ -54,7 +54,32 @@ export type Env = z.infer<typeof envSchema> & {
 };
 
 export function loadEnv(raw: NodeJS.ProcessEnv): Env {
-  const parsed = envSchema.safeParse(raw);
+  // Provide sensible defaults during test runs to reduce boilerplate
+  const isTest = raw.NODE_ENV === 'test';
+  const testDefaults: Record<string, string> = isTest ? {
+    APP_URL: 'http://localhost:5001',
+    BASE_URL: 'http://localhost:5001',
+    CORS_ORIGINS: 'http://localhost:5173,http://localhost:3000,http://localhost:5000',
+    SESSION_SECRET: 'test-session-secret-123456',
+    JWT_SECRET: 'test-jwt-secret-123456',
+    DATABASE_URL: raw.DATABASE_URL || 'postgresql://test:test@localhost:5432/chainsync_test',
+  } : {};
+
+  const merged = { ...testDefaults, ...raw } as NodeJS.ProcessEnv;
+  // Normalize URL-like envs that might be set to string 'undefined' or empty
+  const isInvalidUrlString = (v: any) => typeof v !== 'string' || v.trim().length === 0 || v === 'undefined' || v === 'null';
+  if (isInvalidUrlString(merged.APP_URL)) {
+    merged.APP_URL = 'http://localhost:5001';
+  }
+  if (isInvalidUrlString(merged.BASE_URL)) {
+    delete (merged as any).BASE_URL;
+  }
+  // Force canonical base in tests to avoid flaky values
+  if (isTest) {
+    merged.BASE_URL = merged.APP_URL as string;
+  }
+
+  const parsed = envSchema.safeParse(merged);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);

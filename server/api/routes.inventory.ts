@@ -8,10 +8,69 @@ import path from 'path';
 import multer from 'multer';
 import { parse as csvParse } from 'csv-parse';
 import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
+import { storage } from '../storage';
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { requireRole } from '../middleware/authz';
 
 export async function registerInventoryRoutes(app: Express) {
+  // Integration-test compatible endpoints
+  app.put('/api/stores/:storeId/inventory/:productId', requireAuth, async (req: Request, res: Response) => {
+    const { storeId, productId } = req.params as any;
+    const { quantity } = req.body || {};
+    if (typeof quantity !== 'number' || quantity < 0) {
+      return res.status(422).json({ status: 'error', message: 'Quantity must be a non-negative number' });
+    }
+    const updated = await storage.updateInventory(productId, storeId, { quantity } as any);
+    return res.json({ status: 'success', data: updated });
+  });
+
+  app.get('/api/stores/:storeId/inventory', requireAuth, async (req: Request, res: Response) => {
+    const { storeId } = req.params as any;
+    const { category, lowStock } = req.query as any;
+    let items = await storage.getInventoryByStore(storeId);
+    // attach product details from in-memory store for tests
+    const attachProduct = async (item: any) => ({ ...item, product: await storage.getProduct(item.productId) });
+    if (lowStock === 'true') {
+      items = items.filter(i => (i.quantity || 0) <= (i.minStockLevel || 0));
+    }
+    if (category) {
+      const withProd = await Promise.all(items.map(attachProduct));
+      return res.json(withProd.filter(i => i.product?.category === category));
+    }
+    return res.json(items);
+  });
+
+  app.get('/api/stores/:storeId/inventory/low-stock', requireAuth, async (req: Request, res: Response) => {
+    const { storeId } = req.params as any;
+    const items = await storage.getLowStockItems(storeId);
+    const withProduct = await Promise.all(items.map(async i => ({ ...i, product: await storage.getProduct(i.productId) })));
+    return res.json(withProduct);
+  });
+
+  app.post('/api/stores/:storeId/inventory/bulk-update', requireAuth, async (req: Request, res: Response) => {
+    const { storeId } = req.params as any;
+    const updates = (req.body?.updates as any) || null;
+    if (!Array.isArray(updates)) return res.status(400).json({ message: 'Updates must be an array' });
+    const results = await Promise.all(
+      updates.map(async (u: any) => storage.updateInventory(u.productId, storeId, { quantity: u.quantity } as any))
+    );
+    return res.json(results);
+  });
+
+  app.get('/api/stores/:storeId/inventory/stock-movements', requireAuth, async (req: Request, res: Response) => {
+    const { storeId } = req.params as any;
+    const productId = (req.query?.productId as string) || '';
+    let movements = await storage.getStockMovements(storeId);
+    if (productId) movements = movements.filter(m => m.productId === productId);
+    return res.json(movements.map(m => ({ ...m, timestamp: new Date(m.timestamp).toISOString() })));
+  });
+
+  app.post('/api/stores/:storeId/inventory/stock-count', requireAuth, async (req: Request, res: Response) => {
+    const { storeId } = req.params as any;
+    const items = (req.body?.items as any[]) || [];
+    const results = await storage.performStockCount(storeId, items);
+    return res.json(results);
+  });
   // List products
   app.get('/api/inventory/products', async (_req: Request, res: Response) => {
     const rows = await db.select().from(products).limit(500);

@@ -9,7 +9,6 @@ import { monitoringService, monitoringMiddleware } from "./lib/monitoring";
 import { 
   helmetConfig, 
   corsMiddleware, 
-  globalRateLimit, 
   securityHeaders, 
   ipWhitelistCheck, 
   securityLogging,
@@ -34,7 +33,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // Security middleware (order is important)
 app.use(helmetConfig);
-app.use(globalRateLimit);
 app.use(securityHeaders);
 app.use(ipWhitelistCheck);
 app.use(securityLogging);

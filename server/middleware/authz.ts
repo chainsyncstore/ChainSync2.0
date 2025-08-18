@@ -10,8 +10,7 @@ declare module 'express-session' {
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (process.env.NODE_ENV === 'test') return next();
-  if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+  if (!req.session?.userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
   next();
 }
 
