@@ -297,8 +297,8 @@ function SignupForm() {
         setGeneralError('Security verification is not properly configured. Please contact support.');
       } else if (error.message?.includes('Failed to load reCAPTCHA')) {
         setGeneralError('Security verification failed to load. Please refresh the page and try again.');
-      } else if (error.code === 'DUPLICATE_EMAIL' || error.message?.includes('already registered')) {
-        setGeneralError('Email is already registered, please check details and try again.');
+      } else if (error.code === 'DUPLICATE_EMAIL' || /duplicate|already exists|already registered/i.test(error.message || '')) {
+        setGeneralError('User with this credential already exists');
       } else if (error.code === 'NETWORK_ERROR' || error.message?.includes('Connection failed')) {
         setGeneralError('Connection failed. Please check your internet connection and try again.');
       } else if (error.code === 'VALIDATION_ERROR') {

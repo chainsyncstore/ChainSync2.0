@@ -176,9 +176,9 @@ class ApiClient {
 
       throw new Error('Invalid response format');
     } catch (error) {
-      if (error instanceof Error && 'status' in error) {
+      if (error && typeof error === 'object' && 'status' in (error as any)) {
         // This is an API error we already handled
-        throw error;
+        throw error as any;
       }
 
       // Handle network errors
@@ -229,7 +229,7 @@ class ApiClient {
         userMessage = 'Please check your input and try again.';
         break;
       case 'DUPLICATE_EMAIL':
-        userMessage = 'Email is already registered, please check details and try again.';
+        userMessage = 'User with this credential already exists';
         break;
       case 'RATE_LIMIT_EXCEEDED':
         userMessage = 'Too many requests. Please wait a moment and try again.';
