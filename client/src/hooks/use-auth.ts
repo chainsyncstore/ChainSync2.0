@@ -56,7 +56,8 @@ export function useAuth(): AuthState & AuthActions {
         }
         const response = await fetch("/api/auth/me", { credentials: "include" });
         if (response.ok) {
-          const userData = await response.json();
+          const payload = await response.json();
+          const userData = (payload as any)?.data || payload;
           setUser(userData as any);
           saveSession(userData as any);
           refreshSession();
@@ -98,10 +99,11 @@ export function useAuth(): AuthState & AuthActions {
       }
       const me = await fetch("/api/auth/me", { credentials: 'include' });
       if (!me.ok) throw new Error('Failed to fetch user');
-      const userData = await me.json();
+      const payload = await me.json();
+      const userData = (payload as any)?.data || payload;
       setUser(userData as any);
       saveSession(userData as any);
-      const role = (userData as any)?.role || "cashier";
+      const role = (userData as any)?.role || ((userData as any)?.isAdmin ? 'admin' : 'cashier');
       let defaultPath = "/pos";
       if (role === "admin") defaultPath = "/analytics";
       else if (role === "manager") defaultPath = "/inventory";

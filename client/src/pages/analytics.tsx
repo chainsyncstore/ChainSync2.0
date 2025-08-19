@@ -20,7 +20,7 @@ export default function Analytics() {
   const [selectedPeriod, setSelectedPeriod] = useState("30");
 
   const userData = {
-    role: user?.role || "manager",
+    role: (user as any)?.role || ((user as any)?.isAdmin ? 'admin' : 'manager'),
     name: `${user?.firstName || "User"} ${user?.lastName || ""}`.trim(),
     initials: `${user?.firstName?.[0] || "U"}${user?.lastName?.[0] || ""}`,
   };

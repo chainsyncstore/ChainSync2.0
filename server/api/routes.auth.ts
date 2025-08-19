@@ -214,10 +214,13 @@ export async function registerAuthRoutes(app: Express) {
 
       req.session!.userId = user.id;
       
-      // Determine primary role for backward compatibility
-      let role: 'admin' | 'manager' | 'cashier' = (user as any).isAdmin ? 'admin' : 'cashier';
+      // Determine role considering both legacy enum role and isAdmin flag
+      let role: 'admin' | 'manager' | 'cashier' =
+        (user as any).isAdmin === true || String((user as any).role || '').toLowerCase() === 'admin'
+          ? 'admin'
+          : ((String((user as any).role || '').toLowerCase() as any) || 'cashier');
       let primary: any = undefined;
-      if (!(user as any).isAdmin) {
+      if (role !== 'admin') {
         const rows = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, user.id));
         primary = rows[0];
         if (primary) role = (primary.role as any).toLowerCase();
@@ -327,9 +330,12 @@ export async function registerAuthRoutes(app: Express) {
       // Return user for client hydration
       const urows = await db.select().from(users).where(eq(users.id, userId));
       const u = urows[0]!;
-      let role: 'admin' | 'manager' | 'cashier' = (u as any).isAdmin ? 'admin' : 'cashier';
+      let role: 'admin' | 'manager' | 'cashier' =
+        (u as any).isAdmin === true || String((u as any).role || '').toLowerCase() === 'admin'
+          ? 'admin'
+          : ((String((u as any).role || '').toLowerCase() as any) || 'cashier');
       let primary: any = undefined;
-      if (!(u as any).isAdmin) {
+      if (role !== 'admin') {
         const rows = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, userId));
         primary = rows[0];
         if (primary) role = (primary.role as any).toLowerCase();
@@ -415,13 +421,16 @@ export async function registerAuthRoutes(app: Express) {
       u = rows[0];
     }
     if (!u) return res.status(404).json({ error: 'User not found' });
-    let role: 'admin' | 'manager' | 'cashier' = (u as any).isAdmin ? 'admin' : 'cashier';
-    if (!(u as any).isAdmin) {
+    let role: 'admin' | 'manager' | 'cashier' =
+      (u as any).isAdmin === true || String((u as any).role || '').toLowerCase() === 'admin'
+        ? 'admin'
+        : ((String((u as any).role || '').toLowerCase() as any) || 'cashier');
+    if (role !== 'admin') {
       const r = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, userId));
       const primary = r[0];
       if (primary) role = (primary.role as any).toLowerCase();
     }
-    res.json({ status: 'success', data: { id: u.id, email: u.email } });
+    res.json({ status: 'success', data: { id: u.id, email: u.email, role, isAdmin: (u as any).isAdmin === true } });
   });
 }
 
