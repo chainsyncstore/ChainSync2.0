@@ -60,7 +60,9 @@ export const SignupSchema = z.object({
   companyName: companyNameSchema,
   password: passwordSchema,
   tier: tierSchema,
-  location: locationSchema
+  location: locationSchema,
+  // Optional bot-prevention token from client; allow it so strict schema doesn't reject
+  recaptchaToken: z.string().min(1).optional()
 }).strict().refine((v) => true, {
   message: 'All fields are required'
 });
