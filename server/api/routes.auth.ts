@@ -74,6 +74,12 @@ export async function registerAuthRoutes(app: Express) {
       store: { id: store.id, name: store.name }
     });
   });
+  
+  // Pending signup check used by the SPA on mount
+  // Returns a simple payload indicating no pending signup by default
+  app.get('/api/auth/pending-signup', async (_req: Request, res: Response) => {
+    return res.status(200).json({ pendingSignupId: null });
+  });
   // CSRF token endpoint for the SPA client
   app.get('/api/auth/csrf-token', async (req: Request, res: Response) => {
     const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -100,7 +106,8 @@ export async function registerAuthRoutes(app: Express) {
     
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
-      securityAuditService.logApplicationEvent('input_validation_failed', context, 'login_schema', {
+      securityAuditService.logApplicationEvent('input_validation_failed', context, {
+        category: 'login_schema',
         errors: parsed.error.errors
       });
       return res.status(400).json({ error: 'Invalid payload' });
@@ -137,7 +144,7 @@ export async function registerAuthRoutes(app: Express) {
       }
 
       // Admins require 2FA
-      if (user.isAdmin && user.requires2fa && !req.session?.twofaVerified) {
+      if ((user as any).isAdmin && (user as any).requires2fa && !req.session?.twofaVerified) {
         req.session!.pendingUserId = user.id;
         securityAuditService.logAuthenticationEvent('mfa_challenge', {
           ...context,
@@ -149,9 +156,9 @@ export async function registerAuthRoutes(app: Express) {
       req.session!.userId = user.id;
       
       // Determine primary role for backward compatibility
-      let role: 'admin' | 'manager' | 'cashier' = user.isAdmin ? 'admin' : 'cashier';
+      let role: 'admin' | 'manager' | 'cashier' = (user as any).isAdmin ? 'admin' : 'cashier';
       let primary: any = undefined;
-      if (!user.isAdmin) {
+      if (!(user as any).isAdmin) {
         const rows = await db.select().from(userRoles).where(eq(userRoles.userId, user.id));
         primary = rows[0];
         if (primary) role = (primary.role as any).toLowerCase();
@@ -180,7 +187,8 @@ export async function registerAuthRoutes(app: Express) {
       res.json({ status: 'success', data: { id: user.id, email: user.email } });
     } catch (error) {
       logger.error('Login error', context, error as Error);
-      securityAuditService.logApplicationEvent('error_enumeration', context, 'login', {
+      securityAuditService.logApplicationEvent('error_enumeration', context, {
+        action: 'login',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       // Treat unexpected lookup failures as invalid credentials for tests
@@ -260,12 +268,13 @@ export async function registerAuthRoutes(app: Express) {
       // Return user for client hydration
       const urows = await db.select().from(users).where(eq(users.id, userId));
       const u = urows[0]!;
-    let role: 'admin' | 'manager' | 'cashier' = u.isAdmin ? 'admin' : 'cashier';
-    if (!u.isAdmin) {
-      const rows = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
-      const primary = rows[0];
-      if (primary) role = (primary.role as any).toLowerCase();
-    }
+      let role: 'admin' | 'manager' | 'cashier' = (u as any).isAdmin ? 'admin' : 'cashier';
+      let primary: any = undefined;
+      if (!(u as any).isAdmin) {
+        const rows = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+        primary = rows[0];
+        if (primary) role = (primary.role as any).toLowerCase();
+      }
       
       // Log successful 2FA verification
       securityAuditService.logAuthenticationEvent('mfa_success', {
@@ -290,10 +299,11 @@ export async function registerAuthRoutes(app: Express) {
         role
       });
       
-      res.json({ success: true, user: { id: u.id, email: u.email, role, isAdmin: u.isAdmin } });
+      res.json({ success: true, user: { id: u.id, email: u.email, role, isAdmin: (u as any).isAdmin } });
     } catch (error) {
       logger.error('2FA verification error', { ...context, userId }, error as Error);
-      securityAuditService.logApplicationEvent('error_enumeration', { ...context, userId }, '2fa_verify', {
+      securityAuditService.logApplicationEvent('error_enumeration', { ...context, userId }, {
+        action: '2fa_verify',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       res.status(500).json({ error: 'Internal server error' });
@@ -340,14 +350,14 @@ export async function registerAuthRoutes(app: Express) {
     const userId = req.session?.userId as string | undefined;
     if (!userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
     // Prefer storage lookup in tests for in-memory users
-    let u = await storage.getUserById(userId);
+    let u: any = await storage.getUserById(userId);
     if (!u) {
       const rows = await db.select().from(users).where(eq(users.id, userId));
       u = rows[0];
     }
     if (!u) return res.status(404).json({ error: 'User not found' });
-    let role: 'admin' | 'manager' | 'cashier' = u.isAdmin ? 'admin' : 'cashier';
-    if (!u.isAdmin) {
+    let role: 'admin' | 'manager' | 'cashier' = (u as any).isAdmin ? 'admin' : 'cashier';
+    if (!(u as any).isAdmin) {
       const r = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
       const primary = r[0];
       if (primary) role = (primary.role as any).toLowerCase();

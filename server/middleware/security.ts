@@ -325,7 +325,7 @@ export const helmetConfig = helmet({
         ...dynamicOrigins,
         "https://api.paystack.co",
         "https://api.flutterwave.com",
-        "https://o*.ingest.sentry.io",
+        "https://*.ingest.sentry.io",
         "https://www.google.com",
         "https://www.gstatic.com",
         "https://www.recaptcha.net",
