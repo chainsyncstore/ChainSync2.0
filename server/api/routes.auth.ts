@@ -397,6 +397,23 @@ export async function registerAuthRoutes(app: Express) {
       });
     }
     
+    try {
+      // Proactively clear session and CSRF cookies so the browser stops sending them
+      res.clearCookie('chainsync.sid', {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+      });
+      // CSRF cookie is client-readable; clear it to avoid stale tokens
+      res.clearCookie('csrf-token', {
+        httpOnly: false,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+      });
+    } catch {}
+
     req.session?.destroy(() => {
       res.json({ status: 'success', message: 'Logged out successfully' });
     });
