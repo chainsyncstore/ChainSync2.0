@@ -12,6 +12,7 @@ import { securityAuditService } from '../lib/security-audit';
 import { monitoringService } from '../lib/monitoring';
 import { logger, extractLogContext } from '../lib/logger';
 import { authRateLimit } from '../middleware/security';
+import { signupBotPrevention } from '../middleware/bot-prevention';
 // duplicate import removed
 
 const LoginSchema = z.union([
@@ -20,8 +21,8 @@ const LoginSchema = z.union([
 ]);
 
 export async function registerAuthRoutes(app: Express) {
-  // Signup endpoint expected by tests
-  app.post('/api/auth/signup', async (req: Request, res: Response) => {
+  // Signup endpoint with bot prevention
+  app.post('/api/auth/signup', signupBotPrevention, async (req: Request, res: Response) => {
     try {
       // Record signup attempt for observability
       const attemptContext = extractLogContext(req);

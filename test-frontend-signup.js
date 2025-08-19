@@ -1,67 +1,97 @@
 import fetch from 'node-fetch';
 
-const testFrontendSignup = async () => {
+async function testFrontendSignup() {
   try {
-    console.log('🧪 Testing signup through frontend proxy...');
+    console.log('🧪 Testing frontend-style signup...');
     
-    // Step 1: Get CSRF token through frontend proxy
-    console.log('📡 Step 1: Fetching CSRF token through frontend...');
-    const csrfResponse = await fetch('http://localhost:5173/api/auth/csrf-token', {
+    // First, get a CSRF token
+    console.log('🔑 Fetching CSRF token...');
+    const csrfResponse = await fetch('https://chainsync.store/api/auth/csrf-token', {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      }
+      credentials: 'include',
     });
     
-    console.log('📊 CSRF Response status:', csrfResponse.status);
-    
     if (!csrfResponse.ok) {
-      console.error('❌ CSRF token request failed:', csrfResponse.status, csrfResponse.statusText);
+      console.error('❌ Failed to get CSRF token:', csrfResponse.status, csrfResponse.statusText);
       return;
     }
     
     const csrfData = await csrfResponse.json();
-    console.log('✅ CSRF token received:', csrfData.csrfToken ? 'Yes' : 'No');
+    const csrfToken = csrfData.csrfToken;
+    console.log('✅ CSRF token received:', csrfToken ? 'Yes' : 'No');
     
-    if (!csrfData.csrfToken) {
-      console.error('❌ No CSRF token in response');
-      return;
-    }
+    // Get cookies from the response
+    const cookies = csrfResponse.headers.get('set-cookie');
+    console.log('🍪 Cookies received:', cookies ? 'Yes' : 'No');
     
-    // Step 2: Test signup with CSRF token through frontend proxy
-    console.log('📡 Step 2: Testing signup through frontend proxy...');
-    const uniqueEmail = `test${Date.now()}@example.com`;
-    const signupResponse = await fetch('http://localhost:5173/api/auth/signup', {
+    // Simulate the exact data the frontend would send
+    const signupData = {
+      firstName: "Test",
+      lastName: "User",
+      email: `test${Date.now()}@example.com`,
+      phone: "+1234567890",
+      companyName: "Test Company",
+      password: "TestPass123!", // This should meet the new requirements
+      tier: "basic",
+      location: "nigeria",
+      recaptchaToken: `dev-token-signup-${Date.now()}` // Simulate the fallback token
+    };
+    
+    console.log('📤 Sending frontend-style signup request with data:', {
+      ...signupData,
+      password: '[HIDDEN]'
+    });
+    
+    const response = await fetch('https://chainsync.store/api/auth/signup', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfData.csrfToken
+        'X-CSRF-Token': csrfToken,
+        'Cookie': cookies || '',
       },
-      body: JSON.stringify({
-        firstName: 'Test',
-        lastName: 'User',
-        email: uniqueEmail,
-        phone: '+1234567890',
-        companyName: 'Test Company',
-        password: 'TestPassword123!',
-        tier: 'basic',
-        location: 'nigeria'
-      })
+      credentials: 'include',
+      body: JSON.stringify(signupData)
     });
     
-    console.log('📊 Signup response status:', signupResponse.status);
+    console.log('📥 Response status:', response.status);
+    console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
     
-    if (signupResponse.ok) {
-      const responseData = await signupResponse.json();
-      console.log('✅ Signup successful:', responseData);
+    const responseText = await response.text();
+    console.log('📥 Response body:', responseText);
+    
+    if (response.ok) {
+      console.log('✅ Frontend-style signup successful!');
+      try {
+        const data = JSON.parse(responseText);
+        console.log('📊 Response data:', data);
+      } catch (e) {
+        console.log('⚠️ Response is not valid JSON');
+      }
     } else {
-      const errorData = await signupResponse.text();
-      console.log('❌ Signup failed with error:', errorData);
+      console.log('❌ Frontend-style signup failed with status:', response.status);
+      try {
+        const errorData = JSON.parse(responseText);
+        console.log('🚨 Error details:', errorData);
+        
+        // Show validation details if available
+        if (errorData.details && Array.isArray(errorData.details)) {
+          console.log('🔍 Validation errors:');
+          errorData.details.forEach((detail, index) => {
+            console.log(`  ${index + 1}. Field: ${detail.field}, Message: ${detail.message}`);
+          });
+        }
+      } catch (e) {
+        console.log('⚠️ Error response is not valid JSON');
+      }
     }
     
   } catch (error) {
-    console.error('❌ Test failed with error:', error.message);
+    console.error('💥 Test failed with error:', error.message);
+    if (error.code) {
+      console.error('Error code:', error.code);
+    }
   }
-};
+}
 
+// Run the test
 testFrontendSignup();
