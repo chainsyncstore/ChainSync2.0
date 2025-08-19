@@ -69,20 +69,6 @@ export async function registerAuthRoutes(app: Express) {
         });
       }
 
-      // Additional password validation (redundant but provides extra security)
-      const pwOk = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/.test(password);
-      if (!pwOk) {
-        return res.status(400).json({ 
-          message: 'Password does not meet security requirements', 
-          error: 'password', 
-          errors: ['weak_password'],
-          details: [{
-            field: 'password',
-            message: 'Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'
-          }]
-        });
-      }
-
       const user = await storage.createUser({
         username: email,
         email,

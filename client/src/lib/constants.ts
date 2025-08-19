@@ -68,7 +68,7 @@ export const VALID_TIERS = ['basic', 'pro', 'enterprise'] as const;
 export const VALID_LOCATIONS = ['nigeria', 'international'] as const;
 
 // E.164 phone validation regex
-export const PHONE_REGEX = /^\+[1-9]\d{6,15}$/;
+export const PHONE_REGEX = /^\+[1-9]\d{1,14}$/;
 
 // reCAPTCHA v3 site key (should be set in environment variables)
 export const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';

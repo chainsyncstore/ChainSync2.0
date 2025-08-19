@@ -3,7 +3,7 @@ import { Input } from './input';
 import { cn } from '@/lib/utils';
 
 // E.164 phone validation regex (same as backend)
-const PHONE_REGEX = /^\+[1-9]\d{6,15}$/;
+const PHONE_REGEX = /^\+[1-9]\d{1,14}$/;
 
 interface PhoneInputProps {
   value: string;

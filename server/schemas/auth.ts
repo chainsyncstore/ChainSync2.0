@@ -21,7 +21,7 @@ const passwordSchema = z
 const phoneSchema = z
   .string({ required_error: "Phone number is required" })
   .min(1, "Phone number is required")
-  .regex(/^\+?[1-9]\d{6,15}$/, "Phone number must be a valid international format (e.g., +1234567890 or 1234567890)")
+  .regex(/^\+?[1-9]\d{1,14}$/, "Phone number must be a valid international format (e.g., +1234567890 or 1234567890)")
   .transform(val => {
     // Ensure it starts with + for E.164 compliance
     const cleaned = val.replace(/\s/g, ''); // Remove any spaces
