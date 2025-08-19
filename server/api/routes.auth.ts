@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
-import { users, userRoles } from '@shared/schema';
+import { users, userStorePermissions } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
@@ -175,7 +175,7 @@ export async function registerAuthRoutes(app: Express) {
       let role: 'admin' | 'manager' | 'cashier' = (user as any).isAdmin ? 'admin' : 'cashier';
       let primary: any = undefined;
       if (!(user as any).isAdmin) {
-        const rows = await db.select().from(userRoles).where(eq(userRoles.userId, user.id));
+        const rows = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, user.id));
         primary = rows[0];
         if (primary) role = (primary.role as any).toLowerCase();
       }
@@ -287,7 +287,7 @@ export async function registerAuthRoutes(app: Express) {
       let role: 'admin' | 'manager' | 'cashier' = (u as any).isAdmin ? 'admin' : 'cashier';
       let primary: any = undefined;
       if (!(u as any).isAdmin) {
-        const rows = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+        const rows = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, userId));
         primary = rows[0];
         if (primary) role = (primary.role as any).toLowerCase();
       }
@@ -374,7 +374,7 @@ export async function registerAuthRoutes(app: Express) {
     if (!u) return res.status(404).json({ error: 'User not found' });
     let role: 'admin' | 'manager' | 'cashier' = (u as any).isAdmin ? 'admin' : 'cashier';
     if (!(u as any).isAdmin) {
-      const r = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+      const r = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, userId));
       const primary = r[0];
       if (primary) role = (primary.role as any).toLowerCase();
     }
