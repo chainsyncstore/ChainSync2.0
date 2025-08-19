@@ -246,6 +246,7 @@ export async function registerAuthRoutes(app: Express) {
         email
       });
       
+      res.set('Cache-Control', 'no-store');
       res.json({ status: 'success', data: { id: user.id, email: user.email } });
     } catch (error) {
       logger.error('Login error', context, error as Error);
@@ -415,6 +416,7 @@ export async function registerAuthRoutes(app: Express) {
     } catch {}
 
     req.session?.destroy(() => {
+      res.set('Cache-Control', 'no-store');
       res.json({ status: 'success', message: 'Logged out successfully' });
     });
   });
@@ -447,6 +449,7 @@ export async function registerAuthRoutes(app: Express) {
       const primary = r[0];
       if (primary) role = (primary.role as any).toLowerCase();
     }
+    res.set('Cache-Control', 'no-store');
     res.json({ status: 'success', data: { id: u.id, email: u.email, role, isAdmin: (u as any).isAdmin === true } });
   });
 }

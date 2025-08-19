@@ -136,6 +136,17 @@ class ApiClient {
         headers: Object.fromEntries(response.headers.entries())
       });
 
+      // Prevent caching of auth responses by consumers (defense-in-depth)
+      try {
+        const noStore = response.headers.get('cache-control');
+        if (!noStore) {
+          // Nothing to set on Response object here, but we can log for visibility
+          if (endpoint.startsWith('/auth/')) {
+            console.log('Auth response missing Cache-Control header; server should set no-store');
+          }
+        }
+      } catch {}
+
       let data: ApiResponse<T>;
       try {
         data = await response.json();

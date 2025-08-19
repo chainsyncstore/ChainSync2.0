@@ -145,11 +145,27 @@ app.get('/api/auth/me', (_req, res) => {
   return res.json(user);
 });
 
-app.post('/api/auth/logout', (_req, res) => {
+app.post('/api/auth/logout', (req, res) => {
   if (currentSessionId) {
     sessions.delete(currentSessionId);
     currentSessionId = null;
   }
+  try {
+    // Clear the mock session cookie so the browser stops sending it
+    res.clearCookie('chainsync.sid', {
+      httpOnly: false,
+      sameSite: 'lax',
+      secure: false,
+      path: '/',
+    });
+    // Clear CSRF token cookie if present
+    res.clearCookie('csrf-token', {
+      httpOnly: false,
+      sameSite: 'lax',
+      secure: false,
+      path: '/',
+    });
+  } catch {}
   res.json({ ok: true });
 });
 

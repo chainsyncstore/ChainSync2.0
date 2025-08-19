@@ -184,14 +184,19 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   if (process.env.NODE_ENV === 'test') {
     return next();
   }
+  // Use originalUrl to match full path even when this middleware is mounted under '/api'
+  const fullPath = (req as any).originalUrl || req.url || req.path;
+
   // Skip CSRF validation for static files and root path
   if (req.path === '/' || 
       req.path === '/favicon.ico' || 
       req.path.startsWith('/static') || 
       req.path.startsWith('/assets') ||
+      // Allow logout without CSRF to ensure sessions can always be terminated
+      req.path === '/auth/logout' || fullPath === '/api/auth/logout' ||
       // Skip provider callbacks and webhooks that require raw bodies
-      req.path.startsWith('/api/payment') ||
-      req.path.startsWith('/webhooks') ||
+      req.path.startsWith('/payment') || fullPath.startsWith('/api/payment') ||
+      fullPath.startsWith('/webhooks') ||
       req.method === 'GET' || 
       req.method === 'HEAD' || 
       req.method === 'OPTIONS') {

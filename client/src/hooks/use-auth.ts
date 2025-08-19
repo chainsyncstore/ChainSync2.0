@@ -119,10 +119,17 @@ export function useAuth(): AuthState & AuthActions {
     try {
       await post("/auth/logout");
     } catch {}
+    // Clear client state and storage first
     setUser(null);
     setError(null);
     clearSession();
-    window.location.reload();
+    // Navigate to login without hard reload to avoid reusing any cached responses
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    } else {
+      // If already on login, do a soft reload to clear in-memory state
+      window.history.replaceState(null, '', '/login');
+    }
   };
 
   return { user: user as any, isLoading, isAuthenticated: !!user, login, logout, error };
