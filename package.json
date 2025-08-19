@@ -11,6 +11,7 @@
     "dev:client": "vite",
     "dev:test": "cross-env NODE_ENV=development tsx server/test-server.ts",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --log-level=warning",
+    "build:production": "npm run build",
     "build:simple": "npm run build || (echo 'Build failed, trying alternative approach' && vite build && npm run build:server)",
     "build:server": "esbuild server/index.ts --platform=node --external:@neondatabase/serverless --bundle --format=esm --outdir=dist",
     "build:verify": "npm run build && node scripts/verify-build.js",
@@ -44,7 +45,6 @@
     "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e",
     "test:watch": "vitest --watch",
     "test:debug": "vitest --inspect-brk",
-    "prepare": "husky",
     "secret:scan": "node scripts/secret-scan.js"
   },
   "dependencies": {
