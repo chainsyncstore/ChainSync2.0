@@ -7,12 +7,12 @@ const resolvedSecure = process.env.SMTP_SECURE
   : resolvedPort === 465;
 
 const emailConfig = {
-  host: process.env.SMTP_HOST || 'smtp.mailersend.net',
+  host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
   port: resolvedPort,
   secure: resolvedSecure, // true for 465, false for other ports unless overridden
   auth: {
-    user: process.env.SMTP_USER || 'your-mailersend-username',
-    pass: process.env.SMTP_PASS || 'your-mailersend-api-key',
+    user: process.env.SMTP_USER || 'your-brevo-username',
+    pass: process.env.SMTP_PASS || 'your-brevo-smtp-key',
   },
 };
 
