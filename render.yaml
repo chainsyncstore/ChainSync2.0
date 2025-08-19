@@ -3,7 +3,7 @@ services:
     name: chainsync-server
     runtime: node
     plan: free
-    buildCommand: npm ci && npx drizzle-kit generate && npx drizzle-kit migrate && npm run build:production
+    buildCommand: npm install && npm run build:production
     startCommand: npm run start:render
     healthCheckPath: /healthz
     envVars:
