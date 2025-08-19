@@ -22,49 +22,65 @@ const LoginSchema = z.union([
 export async function registerAuthRoutes(app: Express) {
   // Signup endpoint expected by tests
   app.post('/api/auth/signup', async (req: Request, res: Response) => {
-    const parse = SignupSchema.safeParse(req.body);
-    if (!parse.success) {
-      const providedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
-      if (providedPassword.length > 0 && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(providedPassword)) {
-        return res.status(400).json({ message: 'Password does not meet security requirements', error: 'password', errors: ['weak_password'] });
+    try {
+      // Record signup attempt for observability
+      const attemptContext = extractLogContext(req);
+      monitoringService.recordSignupEvent('attempt', attemptContext);
+      const parse = SignupSchema.safeParse(req.body);
+      if (!parse.success) {
+        const providedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+        if (providedPassword.length > 0 && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(providedPassword)) {
+          return res.status(400).json({ message: 'Password does not meet security requirements', error: 'password', errors: ['weak_password'] });
+        }
+        const firstIssue = parse.error.issues[0];
+        return res.status(400).json({
+          message: 'All fields are required',
+          error: String(firstIssue?.path?.[0] || 'validation')
+        });
       }
-      const firstIssue = parse.error.issues[0];
-      return res.status(400).json({
-        message: 'All fields are required',
-        error: String(firstIssue?.path?.[0] || 'validation')
-      });
+      const { firstName, lastName, email, phone, companyName, password, tier, location } = parse.data;
+      const exists = await storage.getUserByEmail(email);
+      if (exists) {
+        monitoringService.recordSignupEvent('duplicate', attemptContext);
+        return res.status(400).json({ message: 'User with this email already exists' });
+      }
+      const pwOk = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
+      if (!pwOk) return res.status(400).json({ message: 'Password does not meet security requirements', error: 'password', errors: ['weak_password'] });
+
+      const user = await storage.createUser({
+        username: email,
+        email,
+        password,
+        firstName,
+        lastName,
+        phone,
+        companyName,
+        role: 'admin' as any,
+        tier: tier as any,
+        location: location as any,
+        isActive: true,
+      } as any);
+      const store = await storage.createStore({
+        name: companyName,
+        ownerId: user.id,
+        address: '',
+        phone,
+        email,
+        isActive: true,
+      } as any);
+      const response = {
+        message: 'Account created successfully',
+        user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, tier: (user as any).tier },
+        store: { id: store.id, name: store.name }
+      };
+      monitoringService.recordSignupEvent('success', attemptContext);
+      return res.status(201).json(response);
+    } catch (err) {
+      const context = extractLogContext(req);
+      logger.error('Signup error', context, err as Error);
+      // No dedicated "failed" signup metric; errors will reflect in http error metrics
+      return res.status(500).json({ message: 'Internal server error' });
     }
-    const { firstName, lastName, email, phone, companyName, password, tier, location } = parse.data;
-    const exists = await storage.getUserByEmail(email);
-    if (exists) return res.status(400).json({ message: 'User with this email already exists' });
-    const pwOk = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
-    if (!pwOk) return res.status(400).json({ message: 'Password does not meet security requirements', error: 'password', errors: ['weak_password'] });
-    const user = await storage.createUser({
-      username: email,
-      email,
-      password,
-      firstName,
-      lastName,
-      phone,
-      companyName,
-      role: 'admin' as any,
-      tier: tier as any,
-      location: location as any,
-      isActive: true,
-    } as any);
-    const store = await storage.createStore({
-      name: companyName,
-      ownerId: user.id,
-      address: '',
-      phone,
-      email,
-      isActive: true,
-    } as any);
-    return res.status(201).json({
-      message: 'Account created successfully',
-      user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, tier: (user as any).tier },
-      store: { id: store.id, name: store.name }
-    });
   });
   
   // Pending signup check used by the SPA on mount

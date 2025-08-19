@@ -408,7 +408,8 @@ export const securityHeaders = (req: Request, res: Response, next: NextFunction)
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
+  // Allow geolocation on same-origin to avoid policy violation logs if the app requests it
+  res.setHeader('Permissions-Policy', 'geolocation=(self), microphone=(), camera=(), payment=()');
   
   // Remove server information
   res.removeHeader('X-Powered-By');
