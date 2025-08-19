@@ -10,12 +10,12 @@ const emailSchema = z
   .max(254, "Email must be 254 characters or less")
   .email("Invalid email format");
 
-// Password validation (8-128 characters) - require lowercase, uppercase, and number (aligns with tests)
+// Password validation (8-128 characters) - require lowercase, uppercase, number, and special character (aligns with frontend)
 const passwordSchema = z
   .string({ required_error: "Password is required" })
   .min(8, "Password must be at least 8 characters")
   .max(128, "Password must be 128 characters or less")
-  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, "Password must contain at least one lowercase letter, one uppercase letter, and one number");
+  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character");
 
 // Phone validation (E.164 format, 7-16 digits)
 const phoneSchema = z

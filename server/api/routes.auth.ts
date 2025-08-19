@@ -29,7 +29,7 @@ export async function registerAuthRoutes(app: Express) {
       const parse = SignupSchema.safeParse(req.body);
       if (!parse.success) {
         const providedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
-        if (providedPassword.length > 0 && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(providedPassword)) {
+        if (providedPassword.length > 0 && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/.test(providedPassword)) {
           return res.status(400).json({ message: 'Password does not meet security requirements', error: 'password', errors: ['weak_password'] });
         }
         const firstIssue = parse.error.issues[0];
@@ -44,7 +44,7 @@ export async function registerAuthRoutes(app: Express) {
         monitoringService.recordSignupEvent('duplicate', attemptContext);
         return res.status(400).json({ message: 'User with this email already exists' });
       }
-      const pwOk = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
+      const pwOk = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/.test(password);
       if (!pwOk) return res.status(400).json({ message: 'Password does not meet security requirements', error: 'password', errors: ['weak_password'] });
 
       const user = await storage.createUser({
