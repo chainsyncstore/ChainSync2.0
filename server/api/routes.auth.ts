@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
-import { users, userRoles } from '@shared/prd-schema';
+import { users, userRoles } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
