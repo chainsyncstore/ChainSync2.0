@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import pino, { Logger as PinoLogger } from 'pino';
 import pinoHttp from 'pino-http';
 import * as Sentry from '@sentry/node';
+import { createRequire } from 'module';
 
 export enum LogLevel {
   ERROR = 'error',
@@ -47,6 +48,18 @@ class Logger {
       env: process.env.NODE_ENV,
     };
 
+    // Enable pretty logs in development only if pino-pretty is available
+    const require = createRequire(import.meta.url);
+    let hasPretty = false;
+    if (this.isDevelopment) {
+      try {
+        require.resolve('pino-pretty');
+        hasPretty = true;
+      } catch {
+        hasPretty = false;
+      }
+    }
+
     this.pino = pino({
       level: pinoLevel,
       base,
@@ -54,10 +67,12 @@ class Logger {
         level: (label) => ({ level: label }),
         bindings: (bindings) => ({ pid: bindings.pid, hostname: bindings.hostname }),
       },
-      transport: this.isDevelopment ? {
-        target: 'pino-pretty',
-        options: { colorize: true, translateTime: 'SYS:standard' }
-      } : undefined,
+      transport: this.isDevelopment && hasPretty
+        ? {
+            target: 'pino-pretty',
+            options: { colorize: true, translateTime: 'SYS:standard' },
+          }
+        : undefined,
     });
 
     if (process.env.SENTRY_DSN) {
