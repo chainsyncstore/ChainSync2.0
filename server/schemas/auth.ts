@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-// E.164 phone format validation (7-16 digits)
-const phoneRegex = /^\+?[1-9]\d{6,15}$/;
+// E.164 phone format validation (7-16 digits, must start with +)
+const phoneRegex = /^\+[1-9]\d{6,15}$/;
 
 // Email validation with max 254 characters
 const emailSchema = z
@@ -61,9 +61,7 @@ export const SignupSchema = z.object({
   location: locationSchema,
   // Optional bot-prevention token from client; allow it so strict schema doesn't reject
   recaptchaToken: z.string().min(1).optional()
-}).strict().refine((v) => true, {
-  message: 'All fields are required'
-});
+}).strict();
 
 // Login schema
 export const LoginSchema = z.object({
