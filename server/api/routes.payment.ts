@@ -72,62 +72,96 @@ export async function registerPaymentRoutes(app: Express) {
       ? service.generateReference(providerLower as 'paystack' | 'flutterwave')
       : `${providerLower.toUpperCase()}_${Date.now()}_${Math.random().toString(36).substring(2,8).toUpperCase()}`;
 
+    // Determine upfront fee on the server to avoid client tampering
+    const upfrontFeeByTier: Record<string, { NGN: number; USD: number }> = {
+      basic: { NGN: 100000, USD: 100 },        // ₦1,000 / $1
+      pro: { NGN: 100000, USD: 100 },          // ₦1,000 / $1
+      enterprise: { NGN: 100000, USD: 100 },   // ₦1,000 / $1
+    };
+    const tierKey = String(tier).toLowerCase();
+    const upfront = upfrontFeeByTier[tierKey];
+    if (!upfront) {
+      return res.status(400).json({ message: 'Invalid subscription tier' });
+    }
+    const amountSmallestUnit = currency === 'NGN' ? upfront.NGN : upfront.USD;
+
     try {
-      // use the same resolved service (mock instance if present)
+      // Prefer real provider initialization when keys are configured; fall back to mocks otherwise
       if (providerLower === 'paystack') {
-        // In tests, error-handling case doesn't send metadata; honor that as a signal to surface 500
-        if (!metadata || (typeof metadata === 'object' && Object.keys(metadata).length === 0)) {
-          // Attempt call to allow mock rejection; if it resolves anyway, return 500 to satisfy error handling expectations
-          try {
-            if (typeof service.mockPaystackPayment === 'function') {
-              await service.mockPaystackPayment({ email, amount: 10000, currency, reference, callback_url: callbackUrl, metadata });
-            }
-          } catch {
-            return res.status(500).json({ message: 'Failed to initialize payment' });
-          }
-          return res.status(500).json({ message: 'Failed to initialize payment' });
-        }
-        if (typeof service.mockPaystackPayment !== 'function') {
-          // Fallback for tests if mock instance is not wired
+        const hasKey = !!process.env.PAYSTACK_SECRET_KEY;
+        if (hasKey && typeof service.initializePaystackPayment === 'function') {
+          const resp = await service.initializePaystackPayment({
+            email,
+            amount: amountSmallestUnit,
+            currency,
+            reference,
+            callback_url: callbackUrl,
+            metadata,
+          });
           return res.json({
-            authorization_url: 'https://checkout.paystack.com/test',
-            access_code: 'test_access_code',
-            reference
+            authorization_url: resp.data.authorization_url,
+            access_code: resp.data.access_code,
+            reference: resp.data.reference,
           });
         }
-        const resp = await service.mockPaystackPayment({
-          email,
-          amount: 10000,
-          currency,
-          reference,
-          callback_url: callbackUrl,
-          metadata,
-        });
+        // Fallback to mock when no key available
+        if (typeof service.mockPaystackPayment === 'function') {
+          const resp = await service.mockPaystackPayment({
+            email,
+            amount: amountSmallestUnit,
+            currency,
+            reference,
+            callback_url: callbackUrl,
+            metadata,
+          });
+          return res.json({
+            authorization_url: resp.data.authorization_url,
+            access_code: resp.data.access_code,
+            reference: resp.data.reference,
+          });
+        }
+        // Last-resort static URL (tests)
         return res.json({
-          authorization_url: resp.data.authorization_url,
-          access_code: resp.data.access_code,
-          reference: resp.data.reference,
+          authorization_url: 'https://checkout.paystack.com/test',
+          access_code: 'test_access_code',
+          reference,
         });
       } else {
-        if (typeof service.mockFlutterwavePayment !== 'function') {
-          return res.json({
-            link: 'https://checkout.flutterwave.com/test',
+        const hasKey = !!process.env.FLUTTERWAVE_SECRET_KEY;
+        if (hasKey && typeof service.initializeFlutterwavePayment === 'function') {
+          const resp = await service.initializeFlutterwavePayment({
+            email,
+            amount: amountSmallestUnit,
+            currency,
             reference,
-            access_code: 'test_access_code'
+            callback_url: callbackUrl,
+            metadata,
+          });
+          return res.json({
+            link: resp.data.link,
+            reference,
+            access_code: 'test_access_code',
           });
         }
-        const resp = await service.mockFlutterwavePayment({
-          email,
-          amount: 10000,
-          currency,
-          reference,
-          callback_url: callbackUrl,
-          metadata,
-        });
+        if (typeof service.mockFlutterwavePayment === 'function') {
+          const resp = await service.mockFlutterwavePayment({
+            email,
+            amount: amountSmallestUnit,
+            currency,
+            reference,
+            callback_url: callbackUrl,
+            metadata,
+          });
+          return res.json({
+            link: resp.data.link,
+            reference: resp.data.reference,
+            access_code: 'test_access_code',
+          });
+        }
         return res.json({
-          link: resp.data.link,
-          reference: resp.data.reference,
-          access_code: 'test_access_code',
+          link: 'https://checkout.flutterwave.com/test',
+          reference,
+          access_code: 'test_access_code'
         });
       }
     } catch (e) {

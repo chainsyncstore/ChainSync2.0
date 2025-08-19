@@ -28,7 +28,13 @@ export async function registerAuthRoutes(app: Express) {
       const attemptContext = extractLogContext(req);
       monitoringService.recordSignupEvent('attempt', attemptContext);
       
-      const parse = SignupSchema.safeParse(req.body);
+      // Explicitly ignore any client-supplied role to prevent privilege escalation attempts
+      const incoming = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+      if ('role' in (incoming as any)) {
+        delete (incoming as any).role;
+      }
+
+      const parse = SignupSchema.safeParse(incoming);
       if (!parse.success) {
         // Provide more detailed validation error messages
         const firstIssue = parse.error.issues[0];
