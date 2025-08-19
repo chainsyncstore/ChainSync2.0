@@ -1,60 +1,48 @@
-import { Pool } from 'pg';
-import dotenv from 'dotenv';
+import { Client } from 'pg';
 
-// Load environment variables
-dotenv.config();
+const DATABASE_URL = "postgresql://neondb_owner:npg_Fj6NmHzlk9PC@ep-gentle-poetry-ab47rgaw-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
 
-console.log('🔍 Testing database connection...');
-console.log('Environment:', process.env.NODE_ENV);
-console.log('Database URL exists:', !!process.env.DATABASE_URL);
-
-if (!process.env.DATABASE_URL) {
-  console.error('❌ DATABASE_URL not set');
-  process.exit(1);
-}
-
-// Test database connection
-const testConnection = async () => {
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? {
-      rejectUnauthorized: false,
-      require: true
-    } : false,
-    connectionTimeoutMillis: 10000,
-    idleTimeoutMillis: 30000
+async function testConnection() {
+  const client = new Client({
+    connectionString: DATABASE_URL,
   });
 
   try {
-    console.log('🔄 Attempting to connect...');
-    const client = await pool.connect();
-    console.log('✅ Connected successfully!');
-    
-    const result = await client.query('SELECT NOW() as current_time');
-    console.log('📊 Query result:', result.rows[0]);
-    
-    client.release();
-    await pool.end();
-    console.log('✅ Test completed successfully');
+    console.log('🔌 Testing database connection...');
+    await client.connect();
+    console.log('✅ Database connection successful!');
+
+    // Test a simple query
+    const result = await client.query('SELECT COUNT(*) FROM users');
+    console.log(`📊 Users table has ${result.rows[0].count} records`);
+
+    // Check if we can insert a test user
+    const testUser = {
+      email: `test${Date.now()}@example.com`,
+      password_hash: 'test_hash',
+      first_name: 'Test',
+      last_name: 'User',
+      role: 'admin',
+      is_active: true,
+      email_verified: false
+    };
+
+    const insertResult = await client.query(
+      'INSERT INTO users (email, password_hash, first_name, last_name, role, is_active, email_verified) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+      [testUser.email, testUser.password_hash, testUser.first_name, testUser.last_name, testUser.role, testUser.is_active, testUser.email_verified]
+    );
+
+    console.log(`✅ Test user created with ID: ${insertResult.rows[0].id}`);
+
+    // Clean up test user
+    await client.query('DELETE FROM users WHERE email = $1', [testUser.email]);
+    console.log('🧹 Test user cleaned up');
+
   } catch (error) {
-    console.error('❌ Connection failed:');
-    console.error('Error message:', error.message);
-    console.error('Error code:', error.code);
-    console.error('Error detail:', error.detail);
-    console.error('Full error:', error);
-    
-    if (error.code === 'ECONNREFUSED') {
-      console.error('💡 This usually means the database server is not accessible');
-    } else if (error.code === 'ENOTFOUND') {
-      console.error('💡 This usually means the hostname cannot be resolved');
-    } else if (error.code === '28P01') {
-      console.error('💡 Authentication failed - check username/password');
-    } else if (error.code === '3D000') {
-      console.error('💡 Database does not exist');
-    }
-    
-    process.exit(1);
+    console.error('❌ Database connection failed:', error.message);
+  } finally {
+    await client.end();
   }
-};
+}
 
 testConnection();

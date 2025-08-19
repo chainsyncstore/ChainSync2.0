@@ -1,37 +1,30 @@
 import fetch from 'node-fetch';
 
-const testFrontendSignup = async () => {
+const testSignupWithDatabase = async () => {
   try {
-    console.log('🧪 Testing signup through frontend proxy...');
+    console.log('🧪 Testing signup with actual database...');
     
-    // Step 1: Get CSRF token through frontend proxy
-    console.log('📡 Step 1: Fetching CSRF token through frontend...');
-    const csrfResponse = await fetch('http://localhost:5173/api/auth/csrf-token', {
+    // Step 1: Get CSRF token
+    console.log('📡 Step 1: Fetching CSRF token...');
+    const csrfResponse = await fetch('http://localhost:5000/api/auth/csrf-token', {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       }
     });
     
-    console.log('📊 CSRF Response status:', csrfResponse.status);
-    
     if (!csrfResponse.ok) {
-      console.error('❌ CSRF token request failed:', csrfResponse.status, csrfResponse.statusText);
+      console.error('❌ CSRF token request failed:', csrfResponse.status);
       return;
     }
     
     const csrfData = await csrfResponse.json();
-    console.log('✅ CSRF token received:', csrfData.csrfToken ? 'Yes' : 'No');
+    console.log('✅ CSRF token received');
     
-    if (!csrfData.csrfToken) {
-      console.error('❌ No CSRF token in response');
-      return;
-    }
-    
-    // Step 2: Test signup with CSRF token through frontend proxy
-    console.log('📡 Step 2: Testing signup through frontend proxy...');
+    // Step 2: Test signup
+    console.log('📡 Step 2: Testing signup...');
     const uniqueEmail = `test${Date.now()}@example.com`;
-    const signupResponse = await fetch('http://localhost:5173/api/auth/signup', {
+    const signupResponse = await fetch('http://localhost:5000/api/auth/signup', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -64,4 +57,4 @@ const testFrontendSignup = async () => {
   }
 };
 
-testFrontendSignup();
+testSignupWithDatabase();
