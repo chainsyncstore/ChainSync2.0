@@ -68,6 +68,14 @@ export async function registerAuthRoutes(app: Express) {
         email,
         isActive: true,
       } as any);
+      // Authenticate the new user by establishing a session
+      try {
+        if (req.session) {
+          req.session.userId = user.id;
+          // Persist the session to avoid 401s on immediate follow-up requests
+          await new Promise<void>((resolve) => req.session!.save(() => resolve()));
+        }
+      } catch {}
       const response = {
         message: 'Account created successfully',
         user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, tier: (user as any).tier },

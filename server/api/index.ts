@@ -63,6 +63,15 @@ export async function registerRoutes(app: Express) {
   await registerPaymentRoutes(app);
   await registerWebhookRoutes(app);
 
+  // Final API 404 handler for unmatched routes (all methods)
+  app.all('/api/*', (req, res) => {
+    return res.status(404).json({
+      error: 'API endpoint not found',
+      path: req.path,
+      message: 'The requested API endpoint could not be found'
+    });
+  });
+
   // OpenAI chat endpoint (ensure available in API router path)
   const openaiService = process.env.NODE_ENV === 'test' ? (null as unknown as OpenAIService) : new OpenAIService();
   app.post('/api/openai/chat', async (req, res) => {
