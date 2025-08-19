@@ -178,7 +178,8 @@ export async function registerAdminRoutes(app: Express) {
     if (!me && process.env.NODE_ENV === 'test') {
       me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
     }
-    const { status, provider } = req.query as any;
+    const status = String((req.query as any)?.status || '').trim();
+    const provider = String((req.query as any)?.provider || '').trim();
     const conditions: any[] = [eq(subscriptions.orgId as any, me.orgId as any)];
     if (status) conditions.push(eq(subscriptions.status as any, status as any));
     if (provider) conditions.push(eq(subscriptions.provider as any, provider as any));
@@ -194,14 +195,17 @@ export async function registerAdminRoutes(app: Express) {
     if (!me && process.env.NODE_ENV === 'test') {
       me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
     }
-    const { from, to, status, provider } = req.query as any;
+    const fromStr = String((req.query as any)?.from || '').trim();
+    const toStr = String((req.query as any)?.to || '').trim();
+    const status = String((req.query as any)?.status || '').trim();
+    const provider = String((req.query as any)?.provider || '').trim();
     const conditions: any[] = [eq(subscriptionPayments.orgId as any, me.orgId as any)];
     if (status) conditions.push(eq(subscriptionPayments.status as any, status as any));
     if (provider) conditions.push(eq(subscriptionPayments.provider as any, provider as any));
     let rowsQuery: any = db.select().from(subscriptionPayments).where(and(...conditions)).orderBy((subscriptionPayments as any).occurredAt as any).limit(500);
-    if (from || to) {
-      const start = from ? new Date(from) : new Date(Date.now() - 30*24*60*60*1000);
-      const end = to ? new Date(to) : new Date();
+    if (fromStr || toStr) {
+      const start = fromStr ? new Date(fromStr) : new Date(Date.now() - 30*24*60*60*1000);
+      const end = toStr ? new Date(toStr) : new Date();
       rowsQuery = db.select().from(subscriptionPayments).where(and(...conditions, gte(subscriptionPayments.occurredAt as any, start as any), lte(subscriptionPayments.occurredAt as any, end as any))).orderBy((subscriptionPayments as any).occurredAt as any).limit(500);
     }
     const rows = await rowsQuery;
@@ -255,7 +259,7 @@ export async function registerAdminRoutes(app: Express) {
     if (!me && process.env.NODE_ENV === 'test') {
       me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
     }
-    const { subscriptionId } = req.query as any;
+    const subscriptionId = String((req.query as any)?.subscriptionId || '').trim();
     let q = db.select().from(dunningEvents).where(eq(dunningEvents.orgId as any, me.orgId as any)).orderBy((dunningEvents as any).sentAt as any).limit(200);
     if (subscriptionId) {
       q = db.select().from(dunningEvents).where(and(eq(dunningEvents.orgId as any, me.orgId as any), eq(dunningEvents.subscriptionId as any, subscriptionId as any))).orderBy((dunningEvents as any).sentAt as any).limit(200);

@@ -22,6 +22,7 @@
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "start:render": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
+    "check:auth": "tsc -p tsconfig.auth.json",
     "check:env": "node scripts/check-deployment-env.js",
     "test:payment": "node scripts/test-payment-endpoint.js",
     "test:upfront-fee": "node scripts/test-upfront-fee.js",

@@ -231,7 +231,11 @@ export async function registerPosRoutes(app: Express) {
 				// Redeem first
 				if (redeemDiscount > 0 && redeemPoints > 0) {
 					const newBal = Number(account.points) - redeemPoints;
-					const upd = await db.update(loyaltyAccounts).set({ points: newBal }).where(eq(loyaltyAccounts.id, account.id)).returning();
+					const upd = await db
+						.update(loyaltyAccounts)
+						.set({ points: newBal } as any)
+						.where(eq(loyaltyAccounts.id, account.id))
+						.returning();
 					account = upd[0];
 					await db.insert(loyaltyTransactions).values({ loyaltyAccountId: account.id, points: -redeemPoints, reason: 'redeem' } as any);
 				}
@@ -239,7 +243,11 @@ export async function registerPosRoutes(app: Express) {
 				const spendBase = Math.max(0, subtotalNum - effectiveDiscount);
 				const pointsEarned = Math.floor(spendBase);
 				if (pointsEarned > 0) {
-					const upd = await db.update(loyaltyAccounts).set({ points: Number(account.points) + pointsEarned }).where(eq(loyaltyAccounts.id, account.id)).returning();
+					const upd = await db
+						.update(loyaltyAccounts)
+						.set({ points: Number(account.points) + pointsEarned } as any)
+						.where(eq(loyaltyAccounts.id, account.id))
+						.returning();
 					account = upd[0];
 					await db.insert(loyaltyTransactions).values({ loyaltyAccountId: account.id, points: pointsEarned, reason: 'earn' } as any);
 				}

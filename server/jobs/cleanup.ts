@@ -2,12 +2,9 @@ import { pool } from "../db";
 import { logger } from "../lib/logger";
 import axios from "axios";
 import { db } from "../db";
-import { subscriptions, subscriptionPayments, dunningEvents, organizations } from "@shared/prd-schema";
-import { and, eq, sql as dsql, lte } from "drizzle-orm";
+import { subscriptions, subscriptionPayments, dunningEvents, organizations, inventory, stockAlerts } from "@shared/prd-schema";
+import { and, eq, lt, sql as dsql } from "drizzle-orm";
 import { sendEmail } from "../email";
-import { db } from "../db";
-import { inventory, lowStockAlerts } from "@shared/schema";
-import { and, lt, eq } from "drizzle-orm";
 
 async function runCleanupOnce(): Promise<void> {
 	try {
@@ -76,14 +73,20 @@ async function runLowStockAlertOnce(): Promise<void> {
         const rows = await db.select().from(inventory).where(lt(inventory.quantity, inventory.reorderLevel));
         let created = 0;
         for (const row of rows as any[]) {
-            const existing = await db.select().from(lowStockAlerts)
-                .where(and(eq(lowStockAlerts.storeId, row.storeId), eq(lowStockAlerts.productId, row.productId), eq(lowStockAlerts.isResolved, false)));
+            const existing = await db.select().from(stockAlerts)
+                .where(
+                    and(
+                        eq(stockAlerts.storeId, row.storeId),
+                        eq(stockAlerts.productId, row.productId),
+                        eq(stockAlerts.resolved, false)
+                    )
+                );
             if (existing.length === 0) {
-                await db.insert(lowStockAlerts).values({
+                await db.insert(stockAlerts).values({
                     storeId: row.storeId,
                     productId: row.productId,
-                    currentStock: row.quantity,
-                    minStockLevel: row.reorderLevel,
+                    currentQty: row.quantity,
+                    reorderLevel: row.reorderLevel,
                 } as any);
                 created++;
             }

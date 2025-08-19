@@ -31,8 +31,10 @@ export async function registerAIAnalyticsRoutes(app: Express) {
     try {
       const context = extractLogContext(req);
       const { storeId, productId, days = '30', modelType = 'ensemble' } = req.query;
+      const storeIdStr = String(storeId);
+      const productIdStr = productId != null ? String(productId) : undefined;
       
-      if (!storeId) {
+      if (!storeIdStr) {
         return res.status(400).json({ error: 'storeId is required' });
       }
 
@@ -43,15 +45,15 @@ export async function registerAIAnalyticsRoutes(app: Express) {
 
       logger.info('AI forecast requested', {
         ...context,
-        storeId,
-        productId,
+        storeId: storeIdStr,
+        productId: productIdStr,
         days: forecastDays,
         modelType
       });
 
       const forecasts = await analyticsService.generateDemandForecast(
-        storeId as string,
-        productId as string,
+        storeIdStr as string,
+        productIdStr as string,
         forecastDays
       );
 
@@ -59,8 +61,8 @@ export async function registerAIAnalyticsRoutes(app: Express) {
         enabled: true,
         forecasts,
         metadata: {
-          storeId,
-          productId,
+          storeId: storeIdStr,
+          productId: productIdStr,
           days: forecastDays,
           modelType,
           generatedAt: new Date().toISOString(),
@@ -82,6 +84,9 @@ export async function registerAIAnalyticsRoutes(app: Express) {
     try {
       const context = extractLogContext(req);
       const { storeId, severity, type } = req.query;
+      const storeIdStr = String(storeId);
+      const severityStr = severity != null ? String(severity) : undefined;
+      const typeStr = type != null ? String(type) : undefined;
       
       if (!storeId) {
         return res.status(400).json({ error: 'storeId is required' });
@@ -89,21 +94,21 @@ export async function registerAIAnalyticsRoutes(app: Express) {
 
       logger.info('AI anomaly detection requested', {
         ...context,
-        storeId,
-        severity,
-        type
+        storeId: storeIdStr,
+        severity: severityStr,
+        type: typeStr
       });
 
-      let anomalies = await analyticsService.detectAnomalies(storeId as string);
+      let anomalies = await analyticsService.detectAnomalies(storeIdStr as string);
 
       // Filter by severity if specified
-      if (severity) {
-        anomalies = anomalies.filter(a => a.severity === severity);
+      if (severityStr) {
+        anomalies = anomalies.filter(a => a.severity === severityStr);
       }
 
       // Filter by type if specified
-      if (type) {
-        anomalies = anomalies.filter(a => a.type === type);
+      if (typeStr) {
+        anomalies = anomalies.filter(a => a.type === typeStr);
       }
 
       // Categorize anomalies by severity
@@ -120,8 +125,8 @@ export async function registerAIAnalyticsRoutes(app: Express) {
         anomalies,
         summary,
         metadata: {
-          storeId,
-          filters: { severity, type },
+          storeId: storeIdStr,
+          filters: { severity: severityStr, type: typeStr },
           generatedAt: new Date().toISOString()
         }
       });
@@ -140,6 +145,10 @@ export async function registerAIAnalyticsRoutes(app: Express) {
     try {
       const context = extractLogContext(req);
       const { storeId, category, priority, actionableOnly = 'false' } = req.query;
+      const storeIdStr = String(storeId);
+      const categoryStr = category != null ? String(category) : undefined;
+      const priorityStr = priority != null ? String(priority) : undefined;
+      const actionableOnlyStr = String(actionableOnly);
       
       if (!storeId) {
         return res.status(400).json({ error: 'storeId is required' });
@@ -147,26 +156,26 @@ export async function registerAIAnalyticsRoutes(app: Express) {
 
       logger.info('AI insights requested', {
         ...context,
-        storeId,
-        category,
-        priority,
-        actionableOnly
+        storeId: storeIdStr,
+        category: categoryStr,
+        priority: priorityStr,
+        actionableOnly: actionableOnlyStr
       });
 
-      let insights = await analyticsService.generateInsights(storeId as string);
+      let insights = await analyticsService.generateInsights(storeIdStr as string);
 
       // Filter by category if specified
-      if (category) {
-        insights = insights.filter(i => i.category === category);
+      if (categoryStr) {
+        insights = insights.filter(i => i.category === categoryStr);
       }
 
       // Filter by priority if specified
-      if (priority) {
-        insights = insights.filter(i => i.priority === priority);
+      if (priorityStr) {
+        insights = insights.filter(i => i.priority === priorityStr);
       }
 
       // Filter by actionable if specified
-      if (actionableOnly === 'true') {
+      if (actionableOnlyStr === 'true') {
         insights = insights.filter(i => i.actionable);
       }
 
@@ -185,7 +194,7 @@ export async function registerAIAnalyticsRoutes(app: Express) {
         insights,
         summary,
         metadata: {
-          storeId,
+          storeId: storeIdStr,
           filters: { category, priority, actionableOnly },
           generatedAt: new Date().toISOString()
         }
@@ -280,18 +289,19 @@ export async function registerAIAnalyticsRoutes(app: Express) {
     try {
       const context = extractLogContext(req);
       const { storeId } = req.query;
+      const storeIdStr = String(storeId);
       
       if (!storeId) {
         return res.status(400).json({ error: 'storeId is required' });
       }
 
-      logger.info('AI dashboard data requested', { ...context, storeId });
+      logger.info('AI dashboard data requested', { ...context, storeId: storeIdStr });
 
       // Get all AI data in parallel
       const [forecasts, anomalies, insights] = await Promise.all([
-        analyticsService.generateDemandForecast(storeId as string, undefined, 7), // 7-day forecast
-        analyticsService.detectAnomalies(storeId as string),
-        analyticsService.generateInsights(storeId as string)
+        analyticsService.generateDemandForecast(storeIdStr as string, undefined, 7), // 7-day forecast
+        analyticsService.detectAnomalies(storeIdStr as string),
+        analyticsService.generateInsights(storeIdStr as string)
       ]);
 
       // Prepare dashboard summary
@@ -312,7 +322,7 @@ export async function registerAIAnalyticsRoutes(app: Express) {
           performanceScore: Math.round(85 + Math.random() * 10) // Mock performance score
         },
         metadata: {
-          storeId,
+          storeId: storeIdStr,
           generatedAt: new Date().toISOString(),
           dataFreshness: 'real-time'
         }

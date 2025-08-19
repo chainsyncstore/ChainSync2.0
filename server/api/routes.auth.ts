@@ -19,14 +19,6 @@ const LoginSchema = z.union([
   z.object({ username: z.string().min(3), password: z.string().min(8) }),
 ]);
 
-declare module 'express-session' {
-  interface SessionData {
-    userId?: string;
-    pendingUserId?: string;
-    twofaVerified?: boolean;
-  }
-}
-
 export async function registerAuthRoutes(app: Express) {
   // Signup endpoint expected by tests
   app.post('/api/auth/signup', async (req: Request, res: Response) => {

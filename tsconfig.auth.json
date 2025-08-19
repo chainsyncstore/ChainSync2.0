@@ -1,0 +1,31 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "shared/**/*",
+    "server/api/routes.auth.ts",
+    "server/lib/**/*",
+    "server/middleware/**/*",
+    "server/schemas/**/*",
+    "server/types/**/*",
+    "server/storage.ts",
+    "server/db.ts",
+    "client/src/types/**/*",
+    "client/src/lib/api-client.ts",
+    "client/src/components/auth/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "build",
+    "dist"
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+    "types": [
+      "node",
+      "vite/client",
+      "react",
+      "react-dom",
+      "express-session"
+    ]
+  }
+}

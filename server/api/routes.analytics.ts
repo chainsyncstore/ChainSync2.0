@@ -30,7 +30,7 @@ export async function registerAnalyticsRoutes(app: Express) {
         }
       }
       // Try deriving from explicit store_id filter in tests
-      const qStoreId = req.query.store_id as string | undefined;
+      const qStoreId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
       if (qStoreId) {
         const s = await db.select().from(stores).where(eq(stores.id, qStoreId));
         const orgId = s[0]?.orgId as string | undefined;
@@ -51,7 +51,7 @@ export async function registerAnalyticsRoutes(app: Express) {
         }
       }
       // Try deriving from explicit store_id filter in tests
-      const qStoreId = req.query.store_id as string | undefined;
+      const qStoreId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
       if (qStoreId) {
         const s = await db.select().from(stores).where(eq(stores.id, qStoreId));
         const fallbackOrgId = s[0]?.orgId as string | undefined;
@@ -79,9 +79,9 @@ export async function registerAnalyticsRoutes(app: Express) {
       return res.json({ gross: '315', discount: '0', tax: '15', transactions: 2 });
     }
     const { orgId, allowedStoreIds } = await getScope(req);
-    const storeId = req.query.store_id as string | undefined;
-    const dateFrom = req.query.date_from as string | undefined;
-    const dateTo = req.query.date_to as string | undefined;
+    const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
+    const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
+    const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
 
     const where: any[] = [];
     if (orgId) where.push(eq(sales.orgId, orgId));
@@ -98,14 +98,14 @@ export async function registerAnalyticsRoutes(app: Express) {
     const now = new Date();
     const end = new Date();
     const start = new Date();
-    start.setDate(end.getDate() - parseInt(String(req.query.period || '0') || '0'));
+    start.setDate(end.getDate() - parseInt(String((req.query as any)?.period || '0') || '0'));
 
-    const noCustomRange = !req.query.date_from && !req.query.date_to;
+    const noCustomRange = !dateFrom && !dateTo;
     if (noCustomRange) {
       try {
         let rollup: { revenue: number; transactions: number; discount: number; tax: number } | null = null;
-        if (req.query.store_id) {
-          rollup = await getTodayRollupForStore(String(req.query.store_id));
+        if (storeId) {
+          rollup = await getTodayRollupForStore(storeId);
         } else if (orgId) {
           rollup = await getTodayRollupForOrg(orgId);
         }
@@ -148,10 +148,10 @@ export async function registerAnalyticsRoutes(app: Express) {
       ]);
     }
     const { orgId, allowedStoreIds } = await getScope(req);
-    const interval = (req.query.interval as string) || 'day'; // day|week|month
-    const storeId = req.query.store_id as string | undefined;
-    const dateFrom = req.query.date_from as string | undefined;
-    const dateTo = req.query.date_to as string | undefined;
+    const interval = (String((req.query as any)?.interval || '').trim() || 'day'); // day|week|month
+    const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
+    const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
+    const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
 
     const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
     const where: any[] = [];
@@ -196,10 +196,10 @@ export async function registerAnalyticsRoutes(app: Express) {
       return;
     }
     const { orgId, allowedStoreIds } = await getScope(req);
-    const interval = (req.query.interval as string) || 'day';
-    const storeId = req.query.store_id as string | undefined;
-    const dateFrom = req.query.date_from as string | undefined;
-    const dateTo = req.query.date_to as string | undefined;
+    const interval = (String((req.query as any)?.interval || '').trim() || 'day');
+    const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
+    const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
+    const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
 
     const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
     const where: any[] = [];
@@ -254,10 +254,10 @@ export async function registerAnalyticsRoutes(app: Express) {
       return;
     }
     const { orgId, allowedStoreIds } = await getScope(req);
-    const interval = (req.query.interval as string) || 'day';
-    const storeId = req.query.store_id as string | undefined;
-    const dateFrom = req.query.date_from as string | undefined;
-    const dateTo = req.query.date_to as string | undefined;
+    const interval = (String((req.query as any)?.interval || '').trim() || 'day');
+    const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
+    const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
+    const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
 
     const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
     const where: any[] = [];

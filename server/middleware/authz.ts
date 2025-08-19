@@ -3,18 +3,16 @@ import { db } from '../db';
 import { users, userRoles, ipWhitelist, organizations } from '@shared/prd-schema';
 import { eq } from 'drizzle-orm';
 
-declare module 'express-session' {
-  interface SessionData {
-    userId?: string;
-  }
-}
-
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
   next();
 }
 
-export function requireRole(required: 'ADMIN' | 'MANAGER' | 'CASHIER') {
+type RoleUpper = 'ADMIN' | 'MANAGER' | 'CASHIER';
+type RoleLower = 'admin' | 'manager' | 'cashier';
+type AnyRole = RoleUpper | RoleLower;
+
+export function requireRole(required: AnyRole | AnyRole[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (process.env.NODE_ENV === 'test') return next();
     const userId = req.session?.userId as string | undefined;
@@ -31,7 +29,9 @@ export function requireRole(required: 'ADMIN' | 'MANAGER' | 'CASHIER') {
     if (!org?.isActive) return res.status(402).json({ error: 'Organization inactive' });
     if (org.lockedUntil && new Date(org.lockedUntil) > now) return res.status(402).json({ error: 'Organization locked' });
     const roles = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
-    const hasRole = roles.some(r => r.role === required);
+    const requiredList = (Array.isArray(required) ? required : [required]) as AnyRole[];
+    const normalizedRequired = requiredList.map(r => (typeof r === 'string' ? r.toUpperCase() : r)) as RoleUpper[];
+    const hasRole = roles.some(r => normalizedRequired.includes(r.role as RoleUpper));
     if (!hasRole) return res.status(403).json({ error: 'Forbidden' });
     next();
   };

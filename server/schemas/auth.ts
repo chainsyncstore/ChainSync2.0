@@ -69,9 +69,19 @@ export const SignupSchema = z.object({
 
 // Login schema
 export const LoginSchema = z.object({
-  username: z.string({ required_error: 'Username is required' }).min(1, "Username is required"),
-  password: z.string({ required_error: 'Password is required' }).min(1, "Password is required")
-});
+  // Support login with either email or username to match client behavior and route logic
+  // Keep password policy consistent with auth route (min 8)
+}).or(
+  z.object({
+    email: emailSchema,
+    password: z.string({ required_error: 'Password is required' }).min(8, "Password must be at least 8 characters"),
+  })
+).or(
+  z.object({
+    username: z.string({ required_error: 'Username is required' }).min(3, "Username must be at least 3 characters"),
+    password: z.string({ required_error: 'Password is required' }).min(8, "Password must be at least 8 characters"),
+  })
+);
 
 // Password reset schema
 export const PasswordResetSchema = z.object({

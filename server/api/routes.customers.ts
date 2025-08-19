@@ -51,7 +51,7 @@ export async function registerCustomerRoutes(app: Express) {
         orgId = me?.orgId || undefined;
       }
       if (!orgId && (req.body?.storeId || req.query?.storeId)) {
-        const storeId = String(req.body?.storeId || req.query?.storeId);
+        const storeId = String(req.body?.storeId || (req.query as any)?.storeId || '').trim();
         const s = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
         orgId = s[0]?.orgId;
       }

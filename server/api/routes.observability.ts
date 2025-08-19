@@ -89,15 +89,13 @@ export async function registerObservabilityRoutes(app: Express) {
   // Security Events (Admin only)
   app.get('/api/observability/security/events', requireAuth, requireRole(['admin']), async (req: Request, res: Response) => {
     try {
-      const { 
-        type, 
-        severity, 
-        userId, 
-        storeId, 
-        limit = '100',
-        startDate,
-        endDate
-      } = req.query;
+      const type = String((req.query as any)?.type || '').trim();
+      const severity = String((req.query as any)?.severity || '').trim();
+      const userId = String((req.query as any)?.userId || '').trim();
+      const storeId = String((req.query as any)?.storeId || '').trim();
+      const limitStr = String((req.query as any)?.limit || '100').trim();
+      const startDate = String((req.query as any)?.startDate || '').trim();
+      const endDate = String((req.query as any)?.endDate || '').trim();
 
       const filters: any = {};
       
@@ -105,7 +103,7 @@ export async function registerObservabilityRoutes(app: Express) {
       if (severity) filters.severity = severity as string;
       if (userId) filters.userId = userId as string;
       if (storeId) filters.storeId = storeId as string;
-      if (limit) filters.limit = parseInt(limit as string);
+      if (limitStr) filters.limit = parseInt(limitStr, 10);
       
       if (startDate && endDate) {
         filters.timeRange = {
@@ -137,7 +135,7 @@ export async function registerObservabilityRoutes(app: Express) {
   // Performance Monitoring (Manager+ only)
   app.get('/api/observability/performance', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
     try {
-      const { timeRange = '1h' } = req.query;
+      const timeRange = String((req.query as any)?.timeRange || '1h').trim();
       
       const performanceMetrics = monitoringService.getPerformanceMetrics();
       const businessMetrics = monitoringService.getBusinessMetrics();
@@ -199,9 +197,11 @@ export async function registerObservabilityRoutes(app: Express) {
       logger.warn('Metrics cleared by admin', extractLogContext(req));
       
       // Security audit for administrative action
-      securityAuditService.logApplicationEvent('configuration', extractLogContext(req), 'metrics_cleared', {
+      // Use a valid application event type and pass details as the third argument
+      securityAuditService.logApplicationEvent('error_enumeration', extractLogContext(req), {
         action: 'clear_metrics',
-        severity: 'medium'
+        severity: 'medium',
+        operation: 'metrics_cleared'
       });
 
       res.json({
@@ -218,7 +218,9 @@ export async function registerObservabilityRoutes(app: Express) {
   // Log Analytics (Admin only)
   app.get('/api/observability/logs/analytics', requireAuth, requireRole(['admin']), async (req: Request, res: Response) => {
     try {
-      const { level = 'error', limit = '50', timeRange = '24h' } = req.query;
+      const level = String((req.query as any)?.level || 'error').trim();
+      const limit = String((req.query as any)?.limit || '50').trim();
+      const timeRange = String((req.query as any)?.timeRange || '24h').trim();
       
       // This would typically query a log aggregation service
       // For now, return mock analytics data

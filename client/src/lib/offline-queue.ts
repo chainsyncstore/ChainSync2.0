@@ -108,7 +108,11 @@ export async function enqueueOfflineSale(params: { url: string; payload: any; id
   try {
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.ready;
-      if ('sync' in reg) await reg.sync.register('background-sync');
+      type SWRegWithSync = ServiceWorkerRegistration & { sync?: { register: (tag: string) => Promise<void> } };
+      const regWithSync = reg as SWRegWithSync;
+      if (regWithSync.sync && typeof regWithSync.sync.register === 'function') {
+        await regWithSync.sync.register('background-sync');
+      }
       // Also ping SW to try immediate sync
       reg.active?.postMessage({ type: 'TRY_SYNC' });
     }
@@ -137,7 +141,11 @@ export async function processQueueNow(): Promise<void> {
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.ready;
       reg.active?.postMessage({ type: 'TRY_SYNC' });
-      if ('sync' in reg) await reg.sync.register('background-sync');
+      type SWRegWithSync = ServiceWorkerRegistration & { sync?: { register: (tag: string) => Promise<void> } };
+      const regWithSync = reg as SWRegWithSync;
+      if (regWithSync.sync && typeof regWithSync.sync.register === 'function') {
+        await regWithSync.sync.register('background-sync');
+      }
     }
   } catch {}
 }

@@ -26,7 +26,8 @@ export async function registerInventoryRoutes(app: Express) {
 
   app.get('/api/stores/:storeId/inventory', requireAuth, async (req: Request, res: Response) => {
     const { storeId } = req.params as any;
-    const { category, lowStock } = req.query as any;
+    const category = String((req.query as any)?.category || '').trim();
+    const lowStock = String((req.query as any)?.lowStock || '').trim();
     let items = await storage.getInventoryByStore(storeId);
     // attach product details from in-memory store for tests
     const attachProduct = async (item: any) => ({ ...item, product: await storage.getProduct(item.productId) });
@@ -59,7 +60,7 @@ export async function registerInventoryRoutes(app: Express) {
 
   app.get('/api/stores/:storeId/inventory/stock-movements', requireAuth, async (req: Request, res: Response) => {
     const { storeId } = req.params as any;
-    const productId = (req.query?.productId as string) || '';
+    const productId = String((req.query as any)?.productId || '').trim();
     let movements = await storage.getStockMovements(storeId);
     if (productId) movements = movements.filter(m => m.productId === productId);
     return res.json(movements.map(m => ({ ...m, timestamp: new Date(m.timestamp).toISOString() })));

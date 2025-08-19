@@ -1,6 +1,6 @@
 import { logger } from '../lib/logger';
 import { db } from '../db';
-import { sales, products, inventory } from '@shared/prd-schema';
+import { sales, saleItems, products, inventory } from '@shared/prd-schema';
 import { eq, and, gte, sql, desc } from 'drizzle-orm';
 
 export interface DemandForecast {
@@ -66,21 +66,22 @@ export class AdvancedAnalyticsService {
 
       const salesQuery = db
         .select({
-          productId: sales.productId,
-          date: sales.createdAt,
-          quantity: sales.quantity,
+          productId: saleItems.productId,
+          date: sales.occurredAt,
+          quantity: saleItems.quantity,
           productName: products.name
         })
         .from(sales)
-        .innerJoin(products, eq(sales.productId, products.id))
+        .innerJoin(saleItems, eq(saleItems.saleId, sales.id))
+        .innerJoin(products, eq(saleItems.productId, products.id))
         .where(
           and(
             eq(sales.storeId, storeId),
-            gte(sales.createdAt, lookbackDate.toISOString()),
-            productId ? eq(sales.productId, productId) : undefined
+            gte(sales.occurredAt, lookbackDate),
+            productId ? eq(saleItems.productId, productId) : undefined
           )
         )
-        .orderBy(desc(sales.createdAt));
+        .orderBy(desc(sales.occurredAt));
 
       let salesData: any[] = [];
       const executeFn = (salesQuery as any)?.execute;
@@ -164,9 +165,9 @@ export class AdvancedAnalyticsService {
       // Light DB check to surface DB failures in tests and real envs
       try {
         const probe = db
-          .select({ id: products.id })
-          .from(products)
-          .where(eq(products.storeId, storeId as any));
+          .select({ id: inventory.productId })
+          .from(inventory)
+          .where(eq(inventory.storeId, storeId as any));
         const execProbe = (probe as any)?.execute;
         if (typeof execProbe === 'function') {
           await (probe as any).execute();
@@ -293,15 +294,15 @@ export class AdvancedAnalyticsService {
         .select({
           productId: inventory.productId,
           productName: products.name,
-          currentStock: inventory.currentStock,
+          currentStock: inventory.quantity,
           reorderLevel: inventory.reorderLevel
         })
         .from(inventory)
         .innerJoin(products, eq(inventory.productId, products.id))
         .where(
           and(
-            eq(products.storeId, storeId),
-            sql`${inventory.currentStock} < ${inventory.reorderLevel} * 0.5`
+            eq(inventory.storeId, storeId),
+            sql`${inventory.quantity} < ${inventory.reorderLevel} * 0.5`
           )
         );
       const lowStockQuery: any[] = typeof (invQuery as any)?.execute === 'function'

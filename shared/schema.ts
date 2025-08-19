@@ -53,10 +53,9 @@ export const users = pgTable("users", {
   signupAttempts: integer("signup_attempts").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  // Admin 2FA fields
-  twoFactorEnabled: boolean("two_factor_enabled").default(false),
-  twoFactorSecret: varchar("two_factor_secret", { length: 255 }),
-  twoFactorRecoveryCodes: text("two_factor_recovery_codes"),
+  // 2FA fields (aligned with migrations and production schema)
+  requires2fa: boolean("requires_2fa").default(false),
+  totpSecret: varchar("totp_secret", { length: 255 }),
   subscriptionId: uuid("subscription_id"),
 }, (table) => ({
   storeIdIdx: index("users_store_id_idx").on(table.storeId),

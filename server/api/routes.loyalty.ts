@@ -67,7 +67,11 @@ export async function registerLoyaltyRoutes(app: Express) {
         }
 
         const newPoints = Number(account.points) + parsed.data.points;
-        const [updated] = await db.update(loyaltyAccounts).set({ points: newPoints }).where(eq(loyaltyAccounts.id, account.id)).returning();
+        const [updated] = await db
+          .update(loyaltyAccounts)
+          .set({ points: newPoints } as any)
+          .where(eq(loyaltyAccounts.id, account.id))
+          .returning();
 
         await db.insert(loyaltyTransactions).values({
           loyaltyAccountId: account.id,
@@ -114,7 +118,11 @@ export async function registerLoyaltyRoutes(app: Express) {
         }
 
         const newPoints = Number(acct.points) - parsed.data.points;
-        const [updated] = await db.update(loyaltyAccounts).set({ points: newPoints }).where(eq(loyaltyAccounts.id, acct.id)).returning();
+        const [updated] = await db
+          .update(loyaltyAccounts)
+          .set({ points: newPoints } as any)
+          .where(eq(loyaltyAccounts.id, acct.id))
+          .returning();
 
         await db.insert(loyaltyTransactions).values({
           loyaltyAccountId: acct.id,
