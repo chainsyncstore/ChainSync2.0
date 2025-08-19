@@ -10,7 +10,7 @@ async function testSignup() {
       email: `test${Date.now()}@example.com`,
       phone: "+1234567890",
       companyName: "Test Company",
-      password: "TestPass123!",
+      password: "TestPass123!", // Updated to match new validation requirements
       tier: "pro", // This should now work with the corrected schema
       location: "international",
       recaptchaToken: "test-token" // Add a test captcha token

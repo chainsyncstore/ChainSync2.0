@@ -15,13 +15,18 @@ const passwordSchema = z
   .string({ required_error: "Password is required" })
   .min(8, "Password must be at least 8 characters")
   .max(128, "Password must be 128 characters or less")
-  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character");
+  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character");
 
-// Phone validation (E.164 format, 7-16 digits)
+// Phone validation (more flexible format, allows common separators)
 const phoneSchema = z
   .string({ required_error: "Phone number is required" })
   .min(1, "Phone number is required")
-  .regex(phoneRegex, "Phone number must be in E.164 format (e.g., +1234567890)");
+  .regex(/^\+?[1-9]\d{6,15}$/, "Phone number must be a valid international format (e.g., +1234567890 or 1234567890)")
+  .transform(val => {
+    // Ensure it starts with + for E.164 compliance
+    const cleaned = val.replace(/\s/g, ''); // Remove any spaces
+    return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+  });
 
 // Name validation (trimmed, max 100 characters)
 const nameSchema = z

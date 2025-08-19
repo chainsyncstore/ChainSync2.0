@@ -3,7 +3,7 @@ import { Input } from './input';
 import { cn } from '@/lib/utils';
 
 // E.164 phone validation regex (same as backend)
-const PHONE_REGEX = /^\+?[1-9]\d{6,15}$/;
+const PHONE_REGEX = /^\+[1-9]\d{6,15}$/;
 
 interface PhoneInputProps {
   value: string;
@@ -73,18 +73,22 @@ export function PhoneInput({
     // Handle country code format
     if (input.startsWith('+')) {
       // Allow plus sign and spaces for country code format
-      onChange(input);
-      setDisplayValue(formatPhoneNumber(input));
-      setIsValid(!input || PHONE_REGEX.test(input));
+      // Store the clean E.164 format for the backend
+      const cleanPhone = input.replace(/\s/g, '');
+      onChange(cleanPhone);
+      setDisplayValue(formatPhoneNumber(cleanPhone));
+      setIsValid(!cleanPhone || PHONE_REGEX.test(cleanPhone));
     } else {
       // Fallback to original behavior for numbers without country code
       const cleaned = input.replace(/\D/g, '');
       
       // Limit to 15 digits (international standard)
       if (cleaned.length <= 15) {
-        onChange(cleaned);
-        setDisplayValue(formatPhoneNumber(cleaned));
-        setIsValid(!cleaned || PHONE_REGEX.test(cleaned));
+        // Ensure it has a country code for E.164 compliance
+        const phoneWithCountryCode = cleaned.length > 0 ? `+${cleaned}` : cleaned;
+        onChange(phoneWithCountryCode);
+        setDisplayValue(formatPhoneNumber(phoneWithCountryCode));
+        setIsValid(!phoneWithCountryCode || PHONE_REGEX.test(phoneWithCountryCode));
       }
     }
   };
@@ -130,17 +134,20 @@ export function PhoneInput({
     
     // Handle country code format
     if (pastedText.startsWith('+')) {
-      onChange(pastedText);
-      setDisplayValue(formatPhoneNumber(pastedText));
-      setIsValid(!pastedText || PHONE_REGEX.test(pastedText));
+      const cleanPhone = pastedText.replace(/\s/g, '');
+      onChange(cleanPhone);
+      setDisplayValue(formatPhoneNumber(cleanPhone));
+      setIsValid(!cleanPhone || PHONE_REGEX.test(cleanPhone));
     } else {
       // Fallback to original behavior
       const cleaned = pastedText.replace(/\D/g, '');
       
       if (cleaned.length <= 15) {
-        onChange(cleaned);
-        setDisplayValue(formatPhoneNumber(cleaned));
-        setIsValid(!cleaned || PHONE_REGEX.test(cleaned));
+        // Ensure it has a country code for E.164 compliance
+        const phoneWithCountryCode = cleaned.length > 0 ? `+${cleaned}` : cleaned;
+        onChange(phoneWithCountryCode);
+        setDisplayValue(formatPhoneNumber(phoneWithCountryCode));
+        setIsValid(!phoneWithCountryCode || PHONE_REGEX.test(phoneWithCountryCode));
       }
     }
   };

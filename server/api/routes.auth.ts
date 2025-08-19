@@ -26,26 +26,62 @@ export async function registerAuthRoutes(app: Express) {
       // Record signup attempt for observability
       const attemptContext = extractLogContext(req);
       monitoringService.recordSignupEvent('attempt', attemptContext);
+      
       const parse = SignupSchema.safeParse(req.body);
       if (!parse.success) {
-        const providedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
-        if (providedPassword.length > 0 && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/.test(providedPassword)) {
-          return res.status(400).json({ message: 'Password does not meet security requirements', error: 'password', errors: ['weak_password'] });
-        }
+        // Provide more detailed validation error messages
         const firstIssue = parse.error.issues[0];
+        const fieldName = firstIssue?.path?.[0] || 'unknown';
+        const errorMessage = firstIssue?.message || 'Validation failed';
+        
+        // Special handling for password validation
+        if (fieldName === 'password') {
+          return res.status(400).json({ 
+            message: 'Password does not meet security requirements', 
+            error: 'password', 
+            errors: ['weak_password'],
+            details: [{
+              field: 'password',
+              message: 'Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'
+            }]
+          });
+        }
+        
         return res.status(400).json({
-          message: 'All fields are required',
-          error: String(firstIssue?.path?.[0] || 'validation')
+          message: `Invalid ${fieldName}: ${errorMessage}`,
+          error: String(fieldName),
+          details: parse.error.issues.map(issue => ({
+            field: issue.path?.[0] || 'unknown',
+            message: issue.message
+          }))
         });
       }
+      
       const { firstName, lastName, email, phone, companyName, password, tier, location } = parse.data;
+      
+      // Check if user already exists
       const exists = await storage.getUserByEmail(email);
       if (exists) {
         monitoringService.recordSignupEvent('duplicate', attemptContext);
-        return res.status(400).json({ message: 'User with this email already exists' });
+        return res.status(400).json({ 
+          message: 'User with this email already exists',
+          code: 'DUPLICATE_EMAIL'
+        });
       }
-      const pwOk = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/.test(password);
-      if (!pwOk) return res.status(400).json({ message: 'Password does not meet security requirements', error: 'password', errors: ['weak_password'] });
+
+      // Additional password validation (redundant but provides extra security)
+      const pwOk = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/.test(password);
+      if (!pwOk) {
+        return res.status(400).json({ 
+          message: 'Password does not meet security requirements', 
+          error: 'password', 
+          errors: ['weak_password'],
+          details: [{
+            field: 'password',
+            message: 'Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'
+          }]
+        });
+      }
 
       const user = await storage.createUser({
         username: email,
@@ -53,13 +89,14 @@ export async function registerAuthRoutes(app: Express) {
         password,
         firstName,
         lastName,
-        phone,
+        phone, // Phone is already transformed by schema
         companyName,
         role: 'admin' as any,
         tier: tier as any,
         location: location as any,
         isActive: true,
       } as any);
+      
       const store = await storage.createStore({
         name: companyName,
         ownerId: user.id,
@@ -68,6 +105,7 @@ export async function registerAuthRoutes(app: Express) {
         email,
         isActive: true,
       } as any);
+      
       // Authenticate the new user by establishing a session
       try {
         if (req.session) {
@@ -76,16 +114,28 @@ export async function registerAuthRoutes(app: Express) {
           await new Promise<void>((resolve) => req.session!.save(() => resolve()));
         }
       } catch {}
+      
       const response = {
         message: 'Account created successfully',
         user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, tier: (user as any).tier },
         store: { id: store.id, name: store.name }
       };
+      
       monitoringService.recordSignupEvent('success', attemptContext);
       return res.status(201).json(response);
     } catch (err) {
       const context = extractLogContext(req);
       logger.error('Signup error', context, err as Error);
+      
+      // Handle specific storage errors
+      if (err instanceof Error && err.message.includes('Password validation failed')) {
+        return res.status(400).json({ 
+          message: 'Password does not meet security requirements',
+          error: 'password',
+          errors: ['weak_password']
+        });
+      }
+      
       // No dedicated "failed" signup metric; errors will reflect in http error metrics
       return res.status(500).json({ message: 'Internal server error' });
     }
