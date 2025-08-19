@@ -44,12 +44,10 @@ const tierSchema = z.enum(["basic", "pro", "enterprise"], {
   errorMap: () => ({ message: "Tier must be one of: basic, pro, enterprise" })
 });
 
-// Location validation - free text up to 50 chars (trimmed)
-const locationSchema = z
-  .string({ required_error: "Location is required" })
-  .min(1, "Location is required")
-  .max(50, "Location must be 50 characters or less")
-  .transform(val => val.trim());
+// Location validation - enum to match frontend expectations
+const locationSchema = z.enum(["nigeria", "international"], {
+  errorMap: () => ({ message: "Location must be either 'nigeria' or 'international'" })
+});
 
 // Main signup schema
 export const SignupSchema = z.object({
