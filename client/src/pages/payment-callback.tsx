@@ -18,8 +18,9 @@ export default function PaymentCallback() {
         const urlParams = new URLSearchParams(window.location.search);
         const reference = urlParams.get('reference');
         const trxref = urlParams.get('trxref'); // Paystack
-        const trx_ref = urlParams.get('trx_ref'); // Flutterwave
-        const status = urlParams.get('status');
+        const trx_ref = urlParams.get('trx_ref'); // Legacy/typo variants
+        const tx_ref = urlParams.get('tx_ref');   // Flutterwave (correct)
+        const status = urlParams.get('status') || undefined;
         const userIdParam = urlParams.get('userId');
         const tierParam = urlParams.get('tier');
         const locationParam = urlParams.get('location');
@@ -29,13 +30,14 @@ export default function PaymentCallback() {
           reference,
           trxref,
           trx_ref,
+          tx_ref,
           status,
           fullUrl: window.location.href,
           searchParams: window.location.search
         });
         
         // Paystack uses 'reference' and 'trxref', Flutterwave uses 'trx_ref'
-        const paymentReference = reference || trxref || trx_ref;
+        const paymentReference = reference || trxref || trx_ref || tx_ref;
         
         if (!paymentReference) {
           console.error('No payment reference found in URL parameters');
@@ -69,7 +71,7 @@ export default function PaymentCallback() {
         // Verify payment with backend including onboarding context
         const data = await apiClient.post<{ success: boolean; message?: string }>('/payment/verify', {
           reference: paymentReference,
-          status: status,
+          status,
           userId,
           tier,
           location
