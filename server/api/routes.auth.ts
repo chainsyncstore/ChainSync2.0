@@ -5,9 +5,10 @@ import { eq, or, sql } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { storage } from '../storage';
-import { SignupSchema, LoginSchema as ValidationLoginSchema } from '../schemas/auth';
+import { SignupSchema, LoginSchema as ValidationLoginSchema, PasswordResetSchema, PasswordResetConfirmSchema } from '../schemas/auth';
 import { authenticator } from 'otplib';
 import jwt from 'jsonwebtoken';
+import { sendEmail, generatePasswordResetEmail, generatePasswordResetSuccessEmail } from '../email';
 import { securityAuditService } from '../lib/security-audit';
 import { monitoringService } from '../lib/monitoring';
 import { logger, extractLogContext } from '../lib/logger';
@@ -271,12 +272,81 @@ export async function registerAuthRoutes(app: Express) {
     }
   });
 
-  // Minimal forgot password endpoint for tests
+  // Forgot password: generate token and send email (do not reveal existence)
   app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
-    const email = String(req.body?.email || '').trim();
-    if (!email) return res.status(400).json({ message: 'Email is required' });
-    // Do not reveal if email exists
-    return res.status(200).json({ message: 'Password reset email sent' });
+    try {
+      const parsed = PasswordResetSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: 'Email is required' });
+      }
+      const emailRaw = parsed.data.email;
+      const email = String(emailRaw).trim();
+      const emailLower = email.toLowerCase();
+
+      // Lookup user by email case-insensitively
+      let u = await storage.getUserByEmail(email);
+      if (!u) {
+        const rows = await db.select().from(users).where(sql`LOWER(${users.email}) = ${emailLower}`);
+        u = rows[0];
+      }
+
+      if (u?.id) {
+        try {
+          const token = await storage.createPasswordResetToken(u.id);
+          const msg = generatePasswordResetEmail(u.email || email, token.token, u.firstName || 'User');
+          await sendEmail(msg);
+        } catch {}
+      }
+
+      // Always return success to avoid account enumeration
+      return res.status(200).json({ message: 'If an account exists for this email, a reset link has been sent.' });
+    } catch (error) {
+      return res.status(200).json({ message: 'If an account exists for this email, a reset link has been sent.' });
+    }
+  });
+
+  // Validate password reset token
+  app.get('/api/auth/validate-reset-token/:token', async (req: Request, res: Response) => {
+    try {
+      const token = String(req.params.token || '').trim();
+      if (!token) return res.status(400).json({ message: 'Invalid token' });
+      const rec = await storage.getPasswordResetToken(token);
+      if (!rec) return res.status(400).json({ message: 'Invalid or expired reset link' });
+      if ((rec as any).isUsed === true) return res.status(400).json({ message: 'Invalid or expired reset link' });
+      if ((rec as any).expiresAt && new Date((rec as any).expiresAt) < new Date()) {
+        return res.status(400).json({ message: 'Invalid or expired reset link' });
+      }
+      return res.status(200).json({ message: 'Token valid' });
+    } catch {
+      return res.status(400).json({ message: 'Invalid or expired reset link' });
+    }
+  });
+
+  // Reset password
+  app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+    try {
+      const parsed = PasswordResetConfirmSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: 'Invalid request' });
+      const { token, password } = parsed.data as any;
+      const rec = await storage.getPasswordResetToken(token);
+      if (!rec) return res.status(400).json({ message: 'Invalid or expired reset link' });
+      if ((rec as any).isUsed === true) return res.status(400).json({ message: 'Invalid or expired reset link' });
+      if ((rec as any).expiresAt && new Date((rec as any).expiresAt) < new Date()) {
+        return res.status(400).json({ message: 'Invalid or expired reset link' });
+      }
+
+      const updated = await storage.updateUserPassword((rec as any).userId, password);
+      await storage.invalidatePasswordResetToken(token);
+
+      try {
+        const msg = generatePasswordResetSuccessEmail(updated.email || '', updated.firstName || 'User');
+        await sendEmail(msg);
+      } catch {}
+
+      return res.status(200).json({ message: 'Password has been reset successfully' });
+    } catch (error) {
+      return res.status(400).json({ message: 'Failed to reset password' });
+    }
   });
 
   app.post('/api/auth/2fa/setup', async (req: Request, res: Response) => {
