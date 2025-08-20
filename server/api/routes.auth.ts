@@ -13,6 +13,7 @@ import { securityAuditService } from '../lib/security-audit';
 import { monitoringService } from '../lib/monitoring';
 import { logger, extractLogContext } from '../lib/logger';
 import { authRateLimit } from '../middleware/security';
+import { PendingSignup } from './pending-signup';
 import { signupBotPrevention } from '../middleware/bot-prevention';
 // duplicate import removed
 
@@ -66,7 +67,7 @@ export async function registerAuthRoutes(app: Express) {
       }
       
       const { firstName, lastName, email, phone, companyName, password, tier, location } = parse.data;
-      
+
       // Check if user already exists
       const exists = await storage.getUserByEmail(email);
       if (exists) {
@@ -77,46 +78,28 @@ export async function registerAuthRoutes(app: Express) {
         });
       }
 
-      const user = await storage.createUser({
-        username: email,
-        email,
-        password,
-        firstName,
-        lastName,
-        phone, // Phone is already transformed by schema
-        companyName,
-        role: 'admin' as any,
-        tier: tier as any,
-        location: location as any,
-        isActive: true,
-      } as any);
-      
-      const store = await storage.createStore({
-        name: companyName,
-        ownerId: user.id,
-        address: '',
-        phone,
-        email,
-        isActive: true,
-      } as any);
-      
-      // Authenticate the new user by establishing a session
+      // Defer user creation until payment verification
+      const pendingToken = PendingSignup.create({ firstName, lastName, email, phone, companyName, password, tier, location });
       try {
-        if (req.session) {
-          req.session.userId = user.id;
-          // Persist the session to avoid 401s on immediate follow-up requests
-          await new Promise<void>((resolve) => req.session!.save(() => resolve()));
-        }
+        res.cookie('pending_signup', pendingToken, {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          path: '/',
+          maxAge: 30 * 60 * 1000, // 30 minutes
+        });
+        // Set cache headers to avoid storing sensitive responses
+        res.set('Cache-Control', 'no-store');
       } catch {}
-      
+
       const response = {
-        message: 'Account created successfully',
-        user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, tier: (user as any).tier },
-        store: { id: store.id, name: store.name }
-      };
-      
-      monitoringService.recordSignupEvent('success', attemptContext);
-      return res.status(201).json(response);
+        message: 'Signup details validated. Proceed to payment to complete account creation.',
+        user: { id: null, email, firstName, lastName, tier },
+        isResume: false
+      } as const;
+
+      monitoringService.recordSignupEvent('validated', attemptContext);
+      return res.status(200).json(response);
     } catch (err) {
       const context = extractLogContext(req);
       logger.error('Signup error', context, err as Error);
@@ -136,8 +119,8 @@ export async function registerAuthRoutes(app: Express) {
   });
   
   // Pending signup check used by the SPA on mount
-  // Returns a simple payload indicating no pending signup by default
   app.get('/api/auth/pending-signup', async (_req: Request, res: Response) => {
+    // We rely on payment verification to complete signup; do not auto-complete from client
     return res.status(200).json({ pendingSignupId: null });
   });
   // CSRF token endpoint for the SPA client

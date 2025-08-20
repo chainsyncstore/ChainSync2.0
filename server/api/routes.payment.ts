@@ -1,6 +1,8 @@
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 import { PaymentService } from '@server/payment/service';
+import { PendingSignup } from './pending-signup';
+import { storage } from '../storage';
 
 const InitializeSchema = z.object({
   email: z.string().email({ message: 'Invalid email format' }),
@@ -66,7 +68,8 @@ export async function registerPaymentRoutes(app: Express) {
       // Do not fail hard; tests focus on positive path with USD
     }
 
-    const callbackUrl = `${process.env.BASE_URL || process.env.APP_URL}/payment/callback`;
+    const baseUrl = process.env.BASE_URL || process.env.APP_URL || '';
+    const callbackUrl = baseUrl ? `${baseUrl}/payment/callback` : undefined;
     const service = resolveService();
     const reference = (typeof service.generateReference === 'function')
       ? service.generateReference(providerLower as 'paystack' | 'flutterwave')
@@ -98,11 +101,15 @@ export async function registerPaymentRoutes(app: Express) {
             callback_url: callbackUrl,
             metadata,
           });
-          return res.json({
+          const payload = {
             authorization_url: resp.data.authorization_url,
             access_code: resp.data.access_code,
             reference: resp.data.reference,
-          });
+          };
+          // Associate the pending signup token (from cookie) with the reference for completion later
+          const token = (req as any).cookies?.pending_signup as string | undefined;
+          if (token) PendingSignup.associateReference(token, payload.reference);
+          return res.json(payload);
         }
         // Fallback to mock when no key available
         if (typeof service.mockPaystackPayment === 'function') {
@@ -114,18 +121,24 @@ export async function registerPaymentRoutes(app: Express) {
             callback_url: callbackUrl,
             metadata,
           });
-          return res.json({
+          const payload = {
             authorization_url: resp.data.authorization_url,
             access_code: resp.data.access_code,
             reference: resp.data.reference,
-          });
+          };
+          const token = (req as any).cookies?.pending_signup as string | undefined;
+          if (token) PendingSignup.associateReference(token, payload.reference);
+          return res.json(payload);
         }
         // Last-resort static URL (tests)
-        return res.json({
+        const payload = {
           authorization_url: 'https://checkout.paystack.com/test',
           access_code: 'test_access_code',
           reference,
-        });
+        };
+        const token = (req as any).cookies?.pending_signup as string | undefined;
+        if (token) PendingSignup.associateReference(token, payload.reference);
+        return res.json(payload);
       } else {
         const hasKey = !!process.env.FLUTTERWAVE_SECRET_KEY;
         if (hasKey && typeof service.initializeFlutterwavePayment === 'function') {
@@ -137,11 +150,14 @@ export async function registerPaymentRoutes(app: Express) {
             callback_url: callbackUrl,
             metadata,
           });
-          return res.json({
+          const payload = {
             link: resp.data.link,
             reference,
             access_code: 'test_access_code',
-          });
+          };
+          const token = (req as any).cookies?.pending_signup as string | undefined;
+          if (token) PendingSignup.associateReference(token, payload.reference);
+          return res.json(payload);
         }
         if (typeof service.mockFlutterwavePayment === 'function') {
           const resp = await service.mockFlutterwavePayment({
@@ -152,17 +168,24 @@ export async function registerPaymentRoutes(app: Express) {
             callback_url: callbackUrl,
             metadata,
           });
-          return res.json({
+          const payload = {
             link: resp.data.link,
             reference: resp.data.reference,
             access_code: 'test_access_code',
-          });
+          } as any;
+          const token = (req as any).cookies?.pending_signup as string | undefined;
+          const ref = (payload as any).reference || reference;
+          if (token && ref) PendingSignup.associateReference(token, ref);
+          return res.json(payload);
         }
-        return res.json({
+        const payload = {
           link: 'https://checkout.flutterwave.com/test',
           reference,
           access_code: 'test_access_code'
-        });
+        };
+        const token = (req as any).cookies?.pending_signup as string | undefined;
+        if (token) PendingSignup.associateReference(token, reference);
+        return res.json(payload);
       }
     } catch (e) {
       return res.status(500).json({ message: 'Failed to initialize payment' });
@@ -196,6 +219,36 @@ export async function registerPaymentRoutes(app: Express) {
         : Promise.resolve(true);
       ok = isPaystack ? await paystackVerify : await flutterVerify;
       if (ok) {
+        // If there is a pending signup associated with this reference, create the user now
+        const pending = await (PendingSignup as any).getByReferenceAsync?.(reference) || PendingSignup.getByReference(reference);
+        if (pending) {
+          // Ensure user still does not exist
+          const existing = await storage.getUserByEmail(pending.email);
+          if (!existing) {
+            const user = await storage.createUser({
+              username: pending.email,
+              email: pending.email,
+              password: pending.password,
+              firstName: pending.firstName,
+              lastName: pending.lastName,
+              phone: pending.phone,
+              companyName: pending.companyName,
+              role: 'admin' as any,
+              tier: pending.tier as any,
+              location: pending.location as any,
+              isActive: true,
+            } as any);
+            await storage.createStore({
+              name: pending.companyName,
+              ownerId: user.id,
+              address: '',
+              phone: pending.phone,
+              email: pending.email,
+              isActive: true,
+            } as any);
+          }
+          PendingSignup.clearByReference(reference);
+        }
         return res.json({ status: 'success', data: { success: true }, message: 'Payment verified successfully' });
       }
       return res.status(400).json({ status: 'error', message: 'Payment verification failed' });
