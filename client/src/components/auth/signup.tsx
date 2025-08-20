@@ -400,6 +400,14 @@ function SignupForm() {
       
       console.log('Payment response received:', paymentData);
       
+      // Persist the payment reference locally in case provider omits it on redirect
+      try {
+        const referenceCandidate = (paymentData as any)?.reference || (paymentData as any)?.data?.reference;
+        if (referenceCandidate) {
+          localStorage.setItem('chainsync_payment_reference', String(referenceCandidate));
+        }
+      } catch {}
+
       // Validate payment URL before redirecting for security
       // Extract redirect URL robustly for both providers and response shapes
       let paymentUrl: string | undefined;

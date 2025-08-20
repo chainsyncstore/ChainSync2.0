@@ -37,7 +37,15 @@ export default function PaymentCallback() {
         });
         
         // Paystack uses 'reference' and 'trxref', Flutterwave uses 'trx_ref'
-        const paymentReference = reference || trxref || trx_ref || tx_ref;
+        let paymentReference = reference || trxref || trx_ref || tx_ref;
+
+        // Fallback: some Paystack redirects drop reference; recover from localStorage
+        if (!paymentReference) {
+          try {
+            const cachedRef = localStorage.getItem('chainsync_payment_reference');
+            if (cachedRef) paymentReference = cachedRef;
+          } catch {}
+        }
         
         if (!paymentReference) {
           console.error('No payment reference found in URL parameters');
