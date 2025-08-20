@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertCircle, Mail, ArrowLeft } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { apiClient } from "@/lib/api-client";
 
 interface ForgotPasswordProps {
   onBackToLogin: () => void;
@@ -23,24 +24,13 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
     setMessage(null);
 
     try {
-      const response = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setMessage({ type: 'success', text: data.message });
-        setEmail("");
-      } else {
-        setMessage({ type: 'error', text: data.message || "Failed to send reset email" });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: "Network error. Please try again." });
+      // Use centralized API client to include CSRF token and credentials
+      const data: any = await apiClient.post('/auth/forgot-password', { email });
+      setMessage({ type: 'success', text: data.message || 'Password reset email sent' });
+      setEmail("");
+    } catch (error: any) {
+      const text = error?.message || 'Failed to send reset email';
+      setMessage({ type: 'error', text });
     } finally {
       setIsLoading(false);
     }

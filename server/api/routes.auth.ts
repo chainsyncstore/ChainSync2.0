@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
 import { users, userStorePermissions } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+import { eq, or, sql } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { storage } from '../storage';
@@ -173,15 +173,27 @@ export async function registerAuthRoutes(app: Express) {
     }
     
     const { password } = (parsed.data as any);
-    const email = (parsed.data as any).email || (parsed.data as any).username;
+    const identifierRaw = (parsed.data as any).email || (parsed.data as any).username;
+    const identifier = String(identifierRaw || '').trim();
+    const identifierLower = identifier.toLowerCase();
     
     try {
-      // Prefer in-memory storage during tests; fall back to DB
-      const user = (await storage.getUserByUsername(email)) || (await storage.getUserByEmail(email)) || (await db.select().from(users).where(eq(users.email, email)).then(r => r[0]));
+      // Prefer in-memory storage during tests; then try exact matches; finally case-insensitive lookup
+      let user = (await storage.getUserByUsername(identifier))
+        || (await storage.getUserByEmail(identifier));
+      if (!user) {
+        const rows = await db.select().from(users).where(
+          or(
+            sql`LOWER(${users.email}) = ${identifierLower}`,
+            sql`LOWER(${users.username}) = ${identifierLower}`
+          )
+        );
+        user = rows[0];
+      }
       
       if (!user) {
         securityAuditService.logAuthenticationEvent('login_failed', context, {
-          email,
+          email: identifier,
           reason: 'user_not_found'
         });
         monitoringService.recordAuthEvent('login_failed', context);
@@ -195,7 +207,7 @@ export async function registerAuthRoutes(app: Express) {
           ...context, 
           userId: user.id 
         }, {
-          email,
+          email: identifier,
           reason: 'invalid_password'
         });
         monitoringService.recordAuthEvent('login_failed', { ...context, userId: user.id });
