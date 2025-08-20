@@ -89,17 +89,25 @@ export async function registerRoutes(app: Express) {
     }
   });
   
-  // Phase 8: Enhanced Observability Routes
-  const { registerObservabilityRoutes } = await import('./routes.observability');
-  await registerObservabilityRoutes(app);
-  
-  // Phase 8: AI Analytics Routes  
-  const { registerAIAnalyticsRoutes } = await import('./routes.ai-analytics');
-  await registerAIAnalyticsRoutes(app);
-  
-  // Phase 8: Offline Sync Routes
-  const { registerOfflineSyncRoutes } = await import('./routes.offline-sync');
-  await registerOfflineSyncRoutes(app);
+  // Phase 8: Enhanced Observability Routes (best-effort)
+  try {
+    const { registerObservabilityRoutes } = await import('./routes.observability');
+    await registerObservabilityRoutes(app);
+  } catch {}
+
+  // Phase 8: AI Analytics Routes (guarded by feature flag)
+  try {
+    if (process.env.AI_ANALYTICS_ENABLED === 'true') {
+      const { registerAIAnalyticsRoutes } = await import('./routes.ai-analytics');
+      await registerAIAnalyticsRoutes(app);
+    }
+  } catch {}
+
+  // Phase 8: Offline Sync Routes (best-effort)
+  try {
+    const { registerOfflineSyncRoutes } = await import('./routes.offline-sync');
+    await registerOfflineSyncRoutes(app);
+  } catch {}
   app.get('/api/billing/plans', (_req, res) => {
     res.json({ ok: true });
   });
