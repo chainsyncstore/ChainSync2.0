@@ -37,6 +37,7 @@ export const stores = pgTable('stores', {
   orgId: uuid('org_id').notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   address: text('address'),
+  currency: varchar('currency', { length: 3 }).default('NGN'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (t) => ({
   orgIdx: index('stores_org_idx').on(t.orgId),

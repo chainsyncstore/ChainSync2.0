@@ -33,7 +33,6 @@ const getNavigationItems = (userRole: string) => {
 	if (userRole === "cashier") {
 		return [
 			{ path: "/pos", icon: ScanBarcode, label: "POS" },
-			{ path: "/settings", icon: Settings, label: "Settings" },
 		];
 	}
 

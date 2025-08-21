@@ -9,6 +9,7 @@ import { registerInventoryRoutes } from './routes.inventory';
 import { registerPosRoutes } from './routes.pos';
 import { registerAnalyticsRoutes } from './routes.analytics';
 import { registerAdminRoutes } from './routes.admin';
+import { registerStoreRoutes } from './routes.stores';
 import { registerMeRoutes } from './routes.me';
 import { registerCustomerRoutes } from './routes.customers';
 import { registerLoyaltyRoutes } from './routes.loyalty';
@@ -54,6 +55,7 @@ export async function registerRoutes(app: Express) {
   await registerAuthRoutes(app);
   await registerMeRoutes(app);
   await registerInventoryRoutes(app);
+  await registerStoreRoutes(app);
   await registerCustomerRoutes(app);
   await registerLoyaltyRoutes(app);
   await registerPosRoutes(app);

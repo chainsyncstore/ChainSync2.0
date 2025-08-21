@@ -77,6 +77,9 @@ export default function POS() {
     queryKey: ["/api/stores", selectedStore, "alerts"],
   });
 
+  const currentStore = stores.find((s) => s.id === selectedStore) as any;
+  const currency: 'USD' | 'NGN' = (currentStore?.currency === 'NGN' ? 'NGN' : 'USD');
+
   // Track offline sync state
   const [queuedCount, setQueuedCount] = useState(0);
   const [lastSync, setLastSync] = useState<{ attempted: number; synced: number } | null>(null);
@@ -366,6 +369,7 @@ export default function POS() {
             onUpdateQuantity={updateQuantity}
             onRemoveItem={removeItem}
             onClearCart={clearCart}
+            currency={currency}
           />
         </div>
 
@@ -380,6 +384,7 @@ export default function POS() {
             onHoldTransaction={handleHoldTransaction}
             onVoidTransaction={handleVoidTransaction}
             isProcessing={createTransactionMutation.isPending}
+            currency={currency}
           />
         </div>
       </div>

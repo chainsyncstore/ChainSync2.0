@@ -73,6 +73,7 @@ export const stores = pgTable("stores", {
   address: text("address"),
   phone: varchar("phone", { length: 50 }),
   email: varchar("email", { length: 255 }),
+  currency: varchar("currency", { length: 3 }).default('USD'),
   taxRate: decimal("tax_rate", { precision: 5, scale: 4 }).default("0.085"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),

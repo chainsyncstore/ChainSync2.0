@@ -17,6 +17,7 @@ interface CheckoutPanelProps {
   onHoldTransaction: () => void;
   onVoidTransaction: () => void;
   isProcessing?: boolean;
+  currency?: 'USD' | 'NGN';
 }
 
 export default function CheckoutPanel({
@@ -29,6 +30,7 @@ export default function CheckoutPanel({
   onHoldTransaction,
   onVoidTransaction,
   isProcessing,
+  currency = 'USD',
 }: CheckoutPanelProps) {
   const [amountReceived, setAmountReceived] = useState("");
   const [amountError, setAmountError] = useState("");
@@ -95,16 +97,16 @@ export default function CheckoutPanel({
           </div>
           <div className="flex justify-between">
             <span className="text-slate-600">Subtotal</span>
-            <span className="font-medium">{formatCurrency(summary.subtotal)}</span>
+            <span className="font-medium">{formatCurrency(summary.subtotal, currency)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-slate-600">Tax (8.5%)</span>
-            <span className="font-medium">{formatCurrency(summary.tax)}</span>
+            <span className="font-medium">{formatCurrency(summary.tax, currency)}</span>
           </div>
           <div className="border-t border-slate-200 pt-3">
             <div className="flex justify-between items-center">
               <span className="text-lg font-semibold text-slate-800">Total</span>
-              <span className="text-xl sm:text-2xl font-bold text-primary">{formatCurrency(summary.total)}</span>
+              <span className="text-xl sm:text-2xl font-bold text-primary">{formatCurrency(summary.total, currency)}</span>
             </div>
           </div>
         </div>
@@ -154,7 +156,7 @@ export default function CheckoutPanel({
             </div>
             <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
               <span className="text-slate-600">Change Due</span>
-              <span className="text-lg sm:text-xl font-bold text-green-600">{formatCurrency(changeDue)}</span>
+              <span className="text-lg sm:text-xl font-bold text-green-600">{formatCurrency(changeDue, currency)}</span>
             </div>
           </div>
         )}
@@ -208,7 +210,7 @@ export default function CheckoutPanel({
           <div className="flex justify-between items-center">
             <div>
               <p className="text-sm text-slate-600">Revenue</p>
-              <p className="text-xl sm:text-2xl font-bold text-green-600">{formatCurrency(dailyStats.revenue)}</p>
+              <p className="text-xl sm:text-2xl font-bold text-green-600">{formatCurrency(dailyStats.revenue, currency)}</p>
             </div>
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-lg flex items-center justify-center">
               <Banknote className="text-green-600 w-5 h-5 sm:w-6 sm:h-6" />

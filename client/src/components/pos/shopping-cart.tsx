@@ -8,6 +8,7 @@ interface ShoppingCartProps {
   onUpdateQuantity: (itemId: string, quantity: number) => void;
   onRemoveItem: (itemId: string) => void;
   onClearCart: () => void;
+  currency?: 'USD' | 'NGN';
 }
 
 export default function ShoppingCart({
@@ -15,6 +16,7 @@ export default function ShoppingCart({
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
+  currency = 'USD',
 }: ShoppingCartProps) {
   if (items.length === 0) {
     return (
@@ -83,8 +85,8 @@ export default function ShoppingCart({
                   </Button>
                 </div>
                 <div className="text-right">
-                  <p className="font-medium text-slate-800 text-sm sm:text-base">{formatCurrency(item.total)}</p>
-                  <p className="text-xs sm:text-sm text-slate-500">{formatCurrency(item.price)} each</p>
+                  <p className="font-medium text-slate-800 text-sm sm:text-base">{formatCurrency(item.total, currency)}</p>
+                  <p className="text-xs sm:text-sm text-slate-500">{formatCurrency(item.price, currency)} each</p>
                 </div>
                 <Button
                   size="sm"
