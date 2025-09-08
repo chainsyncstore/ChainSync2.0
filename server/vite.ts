@@ -38,7 +38,8 @@ export function log(message: string, source = "express") {
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    // Allow disabling HMR in headless/proxied test environments to avoid WS handshake issues
+    hmr: process.env.DISABLE_VITE_HMR === 'true' ? false : { server },
     allowedHosts: true as const,
   };
 
@@ -125,7 +126,7 @@ export function serveStatic(app: Express) {
         const ext = path.extname(filePath).toLowerCase();
         
         // Enhanced MIME type detection that handles edge cases
-        let contentType = null;
+        let contentType: string | null = null;
         
         // Check for JavaScript files first (most critical)
         if (filePath.includes('.js') || filePath.endsWith('.js') || ext === '.js') {
@@ -239,3 +240,5 @@ export function serveStatic(app: Express) {
     throw error;
   }
 }
+
+

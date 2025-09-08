@@ -65,6 +65,12 @@ export async function registerRoutes(app: Express) {
   await registerPaymentRoutes(app);
   await registerWebhookRoutes(app);
 
+  // Test-only utility routes
+  try {
+    const { registerTestRoutes } = await import('./routes.test');
+    await registerTestRoutes(app);
+  } catch {}
+
   // Final API 404 handler for unmatched routes (all methods)
   app.all('/api/*', (req, res) => {
     return res.status(404).json({

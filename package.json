@@ -35,6 +35,7 @@
     "seed:plans": "tsx scripts/seed-plans.ts",
     "seed:secure": "tsx scripts/seed-secure-users.ts",
     "seed:demo": "tsx scripts/seed-demo-users.ts",
+    "seed:ensure-admin": "tsx scripts/ensure-admin.ts",
     "db:delete-all-users": "cross-env NODE_ENV=maintenance tsx scripts/delete-all-users.ts",
     "test": "vitest",
     "test:ui": "vitest --ui",

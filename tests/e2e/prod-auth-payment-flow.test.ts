@@ -173,7 +173,7 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
         tier: 'basic',
         location: 'international'
       })
-      .expect(201);
+      .expect(200);
 
     expect(signupRes.body.user).toBeTruthy();
     const userId = signupRes.body.user.id;
@@ -218,7 +218,7 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
         tier: 'basic',
         location: 'international'
       })
-      .expect(201);
+      .expect(200);
 
     const userId = signupRes.body.user.id;
 

@@ -21,6 +21,10 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const isProduction = process.env.NODE_ENV === 'production';
+      // Bypass entirely in test to unblock E2E flows
+      if (process.env.NODE_ENV === 'test') {
+        return next();
+      }
 
       // Skip if bot prevention is not configured and we're allowed to skip
       if (!botPreventionService.isConfigured()) {

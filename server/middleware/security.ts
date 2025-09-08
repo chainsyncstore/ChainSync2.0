@@ -427,7 +427,7 @@ export const ipWhitelistCheck = (req: Request, res: Response, next: NextFunction
   const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
   
   // Skip IP check for development
-  if (process.env.NODE_ENV === 'development') {
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
     return next();
   }
   

@@ -1,0 +1,6 @@
+LOGIN_ERROR: Response status code does not indicate success: 401 (Unauthorized).
+ME_ERROR: Response status code does not indicate success: 401 (Unauthorized).
+OBS_ERROR: Response status code does not indicate success: 404 (Not Found).
+STORES_ERROR: Response status code does not indicate success: 401 (Unauthorized).
+NO_STORE_ID
+WEBHOOK_ERROR: Response status code does not indicate success: 401 (Unauthorized).

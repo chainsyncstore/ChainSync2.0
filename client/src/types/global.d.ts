@@ -2,6 +2,7 @@
 
 declare global {
   interface Window {
+    __TESTRUN__?: boolean;
     grecaptcha: {
       ready: (callback: () => void) => void;
       execute: (siteKey: string, options: { action: string }) => Promise<string>;

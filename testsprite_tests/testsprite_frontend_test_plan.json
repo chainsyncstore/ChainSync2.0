@@ -1,0 +1,561 @@
+[
+  {
+    "id": "TC001",
+    "title": "User signup with valid data and trial initiation",
+    "description": "Verify that a new user can successfully sign up with valid email, phone, and password, initiating a trial with optional upfront fee logic.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to signup page"
+      },
+      {
+        "type": "action",
+        "description": "Input valid email, phone number, and password"
+      },
+      {
+        "type": "action",
+        "description": "Submit the signup form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify signup success response with trial initiation"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm email/phone verification process is triggered"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "User signup failure with invalid email format",
+    "description": "Verify that signup fails when an invalid email format is submitted.",
+    "category": "error handling",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to signup page"
+      },
+      {
+        "type": "action",
+        "description": "Input invalid email format with valid phone and password"
+      },
+      {
+        "type": "action",
+        "description": "Submit the signup form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response with validation error for email format"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "User login success with valid credentials",
+    "description": "Verify that a user can log in successfully with correct username/email and password.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to login page"
+      },
+      {
+        "type": "action",
+        "description": "Input valid username/email and password"
+      },
+      {
+        "type": "action",
+        "description": "Submit login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login success and session creation"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "User login failure with incorrect password",
+    "description": "Verify login fails with invalid password and appropriate error is returned.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to login page"
+      },
+      {
+        "type": "action",
+        "description": "Input valid username/email and incorrect password"
+      },
+      {
+        "type": "action",
+        "description": "Submit login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login failure response with invalid credentials error"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "Login blocked due to IP whitelist enforcement",
+    "description": "Verify that login is blocked and access denied if user IP is not in whitelist after authentication.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Attempt login from an IP address not in whitelist"
+      },
+      {
+        "type": "action",
+        "description": "Input valid credentials"
+      },
+      {
+        "type": "action",
+        "description": "Submit login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access forbidden (403) due to IP whitelist enforcement"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "POS checkout normal flow",
+    "description": "Verify a complete POS checkout process with barcode scanning, discount application, multiple payment methods, receipt generation, and inventory update.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as cashier"
+      },
+      {
+        "type": "action",
+        "description": "Scan multiple items using barcode scanner"
+      },
+      {
+        "type": "action",
+        "description": "Apply valid discount codes to qualifying items"
+      },
+      {
+        "type": "action",
+        "description": "Select payment method (cash and card) and process payment"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify accurate updated cart total reflecting discounts and taxes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify payment success and receipt is generated with correct details"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify inventory quantities decremented appropriately in real time"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "POS checkout with duplicate sale idempotency key",
+    "description": "Ensure that submitting the same sale with identical idempotency key is rejected to prevent duplicate sales.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Perform a sale with a unique idempotency key"
+      },
+      {
+        "type": "action",
+        "description": "Resubmit the same sale payload with identical idempotency key"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the duplicate sale is rejected with an appropriate error message"
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Inventory management CRUD operations per store",
+    "description": "Verify inventory creation, reading, updating, and deleting at store level including correct stock tracking.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Authenticate as manager with permissions for store"
+      },
+      {
+        "type": "action",
+        "description": "Create new inventory product and assign quantity"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify product is created successfully and listed under inventory"
+      },
+      {
+        "type": "action",
+        "description": "Update quantity of the inventory item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify inventory quantity is updated correctly"
+      },
+      {
+        "type": "action",
+        "description": "Delete inventory item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify product is removed from inventory"
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Low stock alert generation in manager dashboard",
+    "description": "Verify that low stock alerts are generated and visible in the dashboard for inventory below threshold.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Set low stock threshold for a product in store inventory"
+      },
+      {
+        "type": "action",
+        "description": "Reduce inventory quantity below threshold via sales or manual update"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify alert is triggered and displayed in manager dashboard"
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "CSV inventory import with valid data",
+    "description": "Verify import of inventory data from CSV file with valid schema and data results in successful update.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Download CSV inventory template"
+      },
+      {
+        "type": "action",
+        "description": "Populate CSV with valid inventory data"
+      },
+      {
+        "type": "action",
+        "description": "Upload CSV file to inventory import endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify all rows are imported successfully with updated inventory counts"
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "CSV inventory import rejects malformed rows with error",
+    "description": "Verify that CSV imports with malformed rows are rejected with clear validation error messages specifying rows and issues.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Prepare CSV file with some rows missing required fields or incorrect formats"
+      },
+      {
+        "type": "action",
+        "description": "Upload CSV file to inventory import endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify rejection response with detailed error messages highlighting malformed rows"
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "Role-based access control enforcement for restricted APIs",
+    "description": "Verify that users without required roles receive 403 Forbidden when accessing restricted endpoints like store admin operations.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Authenticate as cashier user"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to access store admin-only API endpoints"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access is denied with 403 Forbidden"
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "Customer loyalty points increment and redemption validation",
+    "description": "Verify loyalty points increase correctly after transactions and redemption prevents overdrawing points.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Complete transaction for customer and earn loyalty points"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify customer loyalty points balance increments accordingly"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to redeem more points than balance"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify redemption is rejected with insufficient points error"
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "Subscription payment initialization and verification",
+    "description": "Verify subscription payments are initialized correctly via supported providers and payment verification works for success and failure cases.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Initialize subscription payment with valid plan via Paystack or Flutterwave"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify payment initialization is successful and returns payment reference"
+      },
+      {
+        "type": "action",
+        "description": "Verify payment using correct reference after payment completes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify payment verification returns success"
+      },
+      {
+        "type": "action",
+        "description": "Verify payment using invalid/failed payment reference"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify payment verification returns failure"
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "Subscription webhook signature validation and idempotent processing",
+    "description": "Verify webhook handlers validate signatures from Paystack and Flutterwave and respond idempotently to duplicate webhook events.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send valid webhook event with correct signature to Paystack webhook endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify webhook event accepted and processed"
+      },
+      {
+        "type": "action",
+        "description": "Send duplicate webhook event with same signature again"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify webhook handler responds idempotently with success response"
+      },
+      {
+        "type": "action",
+        "description": "Send webhook event with invalid signature"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify webhook event rejected with error due to signature failure"
+      }
+    ]
+  },
+  {
+    "id": "TC016",
+    "title": "Offline batch upload and download sync operations with conflict resolution",
+    "description": "Verify the offline synchronization APIs support uploading offline batch sales/inventory data, downloading data for offline use, checking sync status, and resolving conflicts properly.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Upload offline batch data via sync upload endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify upload is accepted and queued for processing"
+      },
+      {
+        "type": "action",
+        "description": "Download latest offline data via sync download endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify data returned matches latest centralized state"
+      },
+      {
+        "type": "action",
+        "description": "Query sync status via sync status endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify accurate status including pending uploads or conflicts"
+      },
+      {
+        "type": "action",
+        "description": "Submit conflict resolution data to endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify conflicts are resolved as expected and updated state is consistent"
+      }
+    ]
+  },
+  {
+    "id": "TC017",
+    "title": "Security mechanisms operation: session cookies, CSRF, rate limits, CSP",
+    "description": "Verify security features including session cookies management, CSRF protections on state-changing requests, rate limiting enforcement, and Content Security Policy headers.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Perform login and check session cookie properties (HttpOnly, Secure, SameSite)"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify session cookies set correctly with security flags"
+      },
+      {
+        "type": "action",
+        "description": "Submit state-changing requests without CSRF tokens"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify request is rejected due to CSRF protection"
+      },
+      {
+        "type": "action",
+        "description": "Perform a high volume of API requests within short period"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify rate limits are applied and excess requests are rejected"
+      },
+      {
+        "type": "action",
+        "description": "Inspect response headers for Content Security Policy presence"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify CSP headers are correctly set"
+      }
+    ]
+  },
+  {
+    "id": "TC018",
+    "title": "Observability health check and metrics reporting",
+    "description": "Verify observability endpoints return accurate system health, database latency, security event logs, performance metrics, and allow configuration management.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Request health check endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify system health status is returned with database connectivity and uptime"
+      },
+      {
+        "type": "action",
+        "description": "Request system metrics endpoint as admin"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify system metrics such as latency and throughput data are returned"
+      },
+      {
+        "type": "action",
+        "description": "Request security events logs endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify logs include recent security events like failed logins or CSRF violations"
+      },
+      {
+        "type": "action",
+        "description": "Request configuration overview endpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify current system configuration is accurately reflected"
+      }
+    ]
+  },
+  {
+    "id": "TC019",
+    "title": "AI-powered features accessibility with feature flags",
+    "description": "Verify that AI chat, insight cards, and forecasting models are only available and registered when the AI feature flag is enabled.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Set AI feature flag off in system config"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to access AI-powered API routes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify AI endpoints return 404 or not registered errors"
+      },
+      {
+        "type": "action",
+        "description": "Enable AI feature flag"
+      },
+      {
+        "type": "action",
+        "description": "Access AI-enabled chat and forecasting endpoints"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify AI features respond correctly with expected AI-generated content"
+      }
+    ]
+  }
+]

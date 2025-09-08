@@ -1,0 +1,282 @@
+{
+  "tech_stack": [
+    "TypeScript",
+    "Express",
+    "Vite (React)",
+    "Drizzle ORM",
+    "PostgreSQL",
+    "Redis",
+    "Vitest",
+    "Playwright"
+  ],
+  "features": [
+    {
+      "name": "Auth",
+      "description": "Signup, login, logout, session-based auth, CSRF token, 2FA endpoints.",
+      "files": [
+        "server/api/index.ts",
+        "server/api/routes.auth.ts",
+        "server/schemas/auth.ts",
+        "server/session.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Auth API", "version": "1.0.0" },
+        "paths": {
+          "/api/auth/signup": { "post": { "summary": "Validate signup and create pending token" } },
+          "/api/auth/login": { "post": { "summary": "Login with email/username and password" } },
+          "/api/auth/logout": { "post": { "summary": "Logout and clear session" } },
+          "/api/auth/me": { "get": { "summary": "Get current user" } },
+          "/api/auth/csrf-token": { "get": { "summary": "Get CSRF token cookie" } }
+        }
+      }
+    },
+    {
+      "name": "Inventory",
+      "description": "Inventory CRUD per store, low-stock alerts, CSV import and template.",
+      "files": [
+        "server/api/routes.inventory.ts",
+        "scripts/csv-templates/inventory_import_template.csv"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Inventory API", "version": "1.0.0" },
+        "paths": {
+          "/api/stores/{storeId}/inventory": { "get": { "summary": "List inventory by store" } },
+          "/api/stores/{storeId}/inventory/{productId}": { "put": { "summary": "Update quantity" } },
+          "/api/stores/{storeId}/inventory/bulk-update": { "post": { "summary": "Bulk quantity updates" } },
+          "/api/stores/{storeId}/inventory/low-stock": { "get": { "summary": "List low stock items" } },
+          "/api/inventory/products": { "get": { "summary": "List products" }, "post": { "summary": "Create product" } },
+          "/api/inventory/template.csv": { "get": { "summary": "Download CSV template" } },
+          "/api/inventory/import": { "post": { "summary": "Import inventory via CSV" } }
+        }
+      }
+    },
+    {
+      "name": "Payment",
+      "description": "Initialize and verify subscription payments (Paystack/Flutterwave).",
+      "files": [
+        "server/api/routes.payment.ts",
+        "server/api/routes.webhooks.ts",
+        "server/payment/service.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Payment API", "version": "1.0.0" },
+        "paths": {
+          "/api/payment/initialize": { "post": { "summary": "Initialize payment" } },
+          "/api/payment/verify": { "post": { "summary": "Verify payment by reference" } }
+        }
+      }
+    },
+    {
+      "name": "Webhooks",
+      "description": "Provider webhooks with signature validation and idempotent processing.",
+      "files": [
+        "server/api/routes.webhooks.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Webhook API", "version": "1.0.0" },
+        "paths": {
+          "/webhooks/paystack": { "post": { "summary": "Paystack webhook" } },
+          "/webhooks/flutterwave": { "post": { "summary": "Flutterwave webhook" } }
+        }
+      }
+    },
+    {
+      "name": "POS",
+      "description": "Point of Sale endpoints including idempotent sales create.",
+      "files": [
+        "server/api/routes.pos.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "POS API", "version": "1.0.0" },
+        "paths": {
+          "/api/pos/sales": { "post": { "summary": "Create sale (idempotent via Idempotency-Key)" } }
+        }
+      }
+    },
+    {
+      "name": "Customers",
+      "description": "Customer CRUD and search by phone within organization scope.",
+      "files": [
+        "server/api/routes.customers.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Customers API", "version": "1.0.0" },
+        "paths": {
+          "/api/customers": { "get": { "summary": "Find by phone" }, "post": { "summary": "Create customer" } }
+        }
+      }
+    },
+    {
+      "name": "Offline Sync",
+      "description": "Upload/download offline batches, status, and conflict resolution.",
+      "files": [
+        "server/api/routes.offline-sync.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Offline Sync API", "version": "1.0.0" },
+        "paths": {
+          "/api/sync/upload": { "post": { "summary": "Upload offline batch" } },
+          "/api/sync/download": { "get": { "summary": "Download data for offline use" } },
+          "/api/sync/status": { "get": { "summary": "Get sync status" } },
+          "/api/sync/resolve-conflicts": { "post": { "summary": "Resolve conflicts" } }
+        }
+      }
+    },
+    {
+      "name": "Observability",
+      "description": "Health and metrics endpoints for system observability.",
+      "files": [
+        "server/api/routes.observability.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Observability API", "version": "1.0.0" },
+        "paths": {
+          "/api/observability/health": { "get": { "summary": "Health check" } },
+          "/api/observability/metrics": { "get": { "summary": "System metrics (admin)" } }
+        }
+      }
+    }
+  ]
+}
+
+{
+  "tech_stack": [
+    "TypeScript",
+    "Express",
+    "Vite (React)",
+    "Drizzle ORM",
+    "PostgreSQL",
+    "Redis",
+    "Vitest",
+    "Playwright"
+  ],
+  "features": [
+    {
+      "name": "Auth",
+      "description": "Signup, login, logout, CSRF token, 2FA setup/verify, session-based auth.",
+      "files": [
+        "server/api/index.ts",
+        "server/api/routes.auth.ts",
+        "server/schemas/auth.ts",
+        "server/session.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Auth API", "version": "1.0.0" },
+        "paths": {
+          "/api/auth/signup": { "post": { "summary": "Validate signup and create pending token", "responses": { "200": { "description": "OK" }, "400": { "description": "Validation error" } } } },
+          "/api/auth/login": { "post": { "summary": "Login with email/username and password", "responses": { "200": { "description": "OK" }, "401": { "description": "Invalid credentials" } } } },
+          "/api/auth/logout": { "post": { "summary": "Logout and clear session" } },
+          "/api/auth/csrf-token": { "get": { "summary": "Get CSRF token cookie" } },
+          "/api/auth/2fa/setup": { "post": { "summary": "Setup TOTP secret (admin)" } },
+          "/api/auth/2fa/verify": { "post": { "summary": "Verify TOTP code" } },
+          "/api/auth/forgot-password": { "post": { "summary": "Request password reset" } },
+          "/api/auth/validate-reset-token/{token}": { "get": { "summary": "Validate reset token" } },
+          "/api/auth/reset-password": { "post": { "summary": "Reset password with token" } },
+          "/api/auth/me": { "get": { "summary": "Get current user" } }
+        }
+      }
+    },
+    {
+      "name": "Payment",
+      "description": "Initialize and verify payments (Paystack/Flutterwave), generic webhook, signup completion on success.",
+      "files": [
+        "server/api/routes.payment.ts",
+        "server/api/routes.webhooks.ts",
+        "server/payment/service.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Payment API", "version": "1.0.0" },
+        "paths": {
+          "/api/payment/initialize": { "post": { "summary": "Initialize payment", "responses": { "200": { "description": "OK" }, "400": { "description": "Validation error" } } } },
+          "/api/payment/verify": { "post": { "summary": "Verify payment by reference", "responses": { "200": { "description": "Success" }, "400": { "description": "Failed" } } } },
+          "/api/payment/webhook": { "post": { "summary": "Generic webhook ack" } },
+          "/webhooks/paystack": { "post": { "summary": "Paystack webhook with signature validation" } },
+          "/webhooks/flutterwave": { "post": { "summary": "Flutterwave webhook with signature validation" } }
+        }
+      }
+    },
+    {
+      "name": "Inventory",
+      "description": "Inventory CRUD endpoints, stock count, stock movements, CSV import, products list/create.",
+      "files": [
+        "server/api/routes.inventory.ts",
+        "scripts/csv-templates/inventory_import_template.csv"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Inventory API", "version": "1.0.0" },
+        "paths": {
+          "/api/stores/{storeId}/inventory": { "get": { "summary": "List inventory by store" } },
+          "/api/stores/{storeId}/inventory/{productId}": { "put": { "summary": "Update quantity" } },
+          "/api/stores/{storeId}/inventory/bulk-update": { "post": { "summary": "Bulk quantity updates" } },
+          "/api/stores/{storeId}/inventory/low-stock": { "get": { "summary": "List low stock items" } },
+          "/api/stores/{storeId}/inventory/stock-movements": { "get": { "summary": "Stock movements" } },
+          "/api/stores/{storeId}/inventory/stock-count": { "post": { "summary": "Perform stock count" } },
+          "/api/inventory/products": { "get": { "summary": "List products" }, "post": { "summary": "Create product" } },
+          "/api/inventory/template.csv": { "get": { "summary": "Download CSV template" } },
+          "/api/inventory/import": { "post": { "summary": "Import inventory via CSV" } }
+        }
+      }
+    },
+    {
+      "name": "Customers",
+      "description": "Search and create customers by phone within org scope.",
+      "files": ["server/api/routes.customers.ts"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Customers API", "version": "1.0.0" },
+        "paths": {
+          "/api/customers": { "get": { "summary": "Find by phone" }, "post": { "summary": "Create customer" } }
+        }
+      }
+    },
+    {
+      "name": "Offline Sync",
+      "description": "Upload/download offline sales and inventory updates, status, conflict resolution.",
+      "files": ["server/api/routes.offline-sync.ts"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Offline Sync API", "version": "1.0.0" },
+        "paths": {
+          "/api/sync/upload": { "post": { "summary": "Upload offline batch" } },
+          "/api/sync/download": { "get": { "summary": "Download data for offline use" } },
+          "/api/sync/status": { "get": { "summary": "Get sync status" } },
+          "/api/sync/resolve-conflicts": { "post": { "summary": "Resolve conflicts" } },
+          "/api/sync/health": { "get": { "summary": "Sync health" } }
+        }
+      }
+    },
+    {
+      "name": "Observability",
+      "description": "Health, metrics, logs analytics, alerts config, config overview.",
+      "files": [
+        "server/api/routes.observability.ts"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": { "title": "Observability API", "version": "1.0.0" },
+        "paths": {
+          "/api/observability/health": { "get": { "summary": "Health check" } },
+          "/api/observability/metrics": { "get": { "summary": "System metrics (admin)" } },
+          "/api/observability/security/events": { "get": { "summary": "Security events (admin)" } },
+          "/api/observability/performance": { "get": { "summary": "Performance metrics" } },
+          "/api/observability/websocket/stats": { "get": { "summary": "WebSocket stats" } },
+          "/api/observability/metrics/clear": { "post": { "summary": "Clear metrics (admin)" } },
+          "/api/observability/logs/analytics": { "get": { "summary": "Log analytics" } },
+          "/api/observability/alerts/config": { "get": { "summary": "Alerts config" } },
+          "/api/observability/config": { "get": { "summary": "System config" } }
+        }
+      }
+    }
+  ]
+}

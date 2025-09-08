@@ -1,0 +1,12 @@
+{"level":"info","time":1756131323662,"recaptchaConfigured":true,"hcaptchaConfigured":true,"recaptchaKeyLength":30,"hcaptchaKeyLength":29,"msg":"BotPreventionService initialized"}
+{"level":"info","time":1756131328681,"environment":"test","nodeVersion":"v20.18.1","cwd":"C:\\Users\\USER\\Downloads\\ChainSync-2","msg":"Starting server initialization..."}
+{"level":"info","time":1756131330410,"msg":"WebSocket service disabled by configuration"}
+{"level":"info","time":1756131330410,"msg":"Setting up static file serving..."}
+{"level":"info","time":1756131330411,"distPath":"C:\\Users\\USER\\Downloads\\ChainSync-2\\dist\\public","exists":true,"files":["assets","icons","index.html","manifest.json","sw.js"],"msg":"Setting up static file serving"}
+{"level":"info","time":1756131330412,"port":5000,"msg":"Starting server on port..."}
+{"level":"info","time":1756131330412,"runInMs":45869588,"msg":"Scheduling abandoned signup cleanup"}
+{"level":"info","time":1756131330413,"runInMs":42269587,"msg":"Scheduling nightly low stock alert scan"}
+{"level":"info","time":1756131330413,"runInMs":49469587,"msg":"Scheduling daily subscription reconciliation"}
+{"level":"info","time":1756131330414,"runInMs":53069586,"msg":"Scheduling daily dunning run"}
+{"level":"info","time":1756131330418,"port":5000,"environment":"test","nodeVersion":"v20.18.1","msg":"Server started successfully"}
+{"level":"error","time":1756131401828,"msg":"SMTP transporter verification failed. Emails will not be sent."}

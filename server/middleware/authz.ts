@@ -14,7 +14,9 @@ type AnyRole = RoleUpper | RoleLower;
 
 export function requireRole(required: AnyRole | AnyRole[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    if (process.env.NODE_ENV === 'test') return next();
+    // In test mode, do not bypass RBAC entirely. Enforce session and roles so tests get stable responses.
+    // Admins are always allowed. Non-admins must have one of the required roles.
+    // This mirrors production logic while remaining test-friendly.
     const userId = req.session?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
     const rows = await db.select().from(users).where(eq(users.id, userId));

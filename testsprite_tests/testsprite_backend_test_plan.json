@@ -1,0 +1,52 @@
+[
+  {
+    "id": "TC001",
+    "title": "test signup api with valid and invalid data",
+    "description": "Verify the /api/auth/signup endpoint correctly validates input data and creates a pending token on valid signup requests, and returns validation errors for invalid data."
+  },
+  {
+    "id": "TC002",
+    "title": "test login api with correct and incorrect credentials",
+    "description": "Verify the /api/auth/login endpoint allows login with valid email/username and password, and returns 401 for invalid credentials."
+  },
+  {
+    "id": "TC003",
+    "title": "test logout api clears session",
+    "description": "Verify the /api/auth/logout endpoint successfully logs out the user and clears the session data."
+  },
+  {
+    "id": "TC004",
+    "title": "test csrf token api returns token cookie",
+    "description": "Verify the /api/auth/csrf-token endpoint returns a valid CSRF token cookie for use in subsequent requests."
+  },
+  {
+    "id": "TC005",
+    "title": "test payment initialization with valid and invalid data",
+    "description": "Verify the /api/payment/initialize endpoint initializes payments correctly with valid data and returns validation errors for invalid requests."
+  },
+  {
+    "id": "TC006",
+    "title": "test payment verification by reference",
+    "description": "Verify the /api/payment/verify endpoint correctly verifies payments by reference and returns success or failure accordingly."
+  },
+  {
+    "id": "TC007",
+    "title": "test inventory list by store",
+    "description": "Verify the /api/stores/{storeId}/inventory endpoint returns the correct inventory list for the specified store."
+  },
+  {
+    "id": "TC008",
+    "title": "test offline sync upload batch",
+    "description": "Verify the /api/sync/upload endpoint correctly accepts and processes offline batch data uploads."
+  },
+  {
+    "id": "TC009",
+    "title": "test observability health check",
+    "description": "Verify the /api/observability/health endpoint returns accurate system health status including database latency and service availability."
+  },
+  {
+    "id": "TC010",
+    "title": "test customer creation and search by phone",
+    "description": "Verify the /api/customers endpoint allows creating a new customer and searching customers by phone within the organization scope."
+  }
+]
