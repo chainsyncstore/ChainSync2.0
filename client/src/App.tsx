@@ -138,60 +138,7 @@ function App() {
           <ScannerProvider>
             <TooltipProvider>
               <Toaster />
-              {!isAuthenticated ? (
-                <Suspense fallback={<PageLoader />}>
-                  <Switch>
-                    <Route path="/" component={Landing} />
-                    <Route path="/login" component={() => 
-                      showForgotPassword ? (
-                        <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
-                      ) : (
-                        <Login 
-                          onLogin={login} 
-                          onForgotPassword={() => setShowForgotPassword(true)}
-                          isLoading={isLoading} 
-                          error={error} 
-                        />
-                      )
-                    } />
-                    <Route path="/signup" component={Signup} />
-                    <Route path="/reset-password" component={({ params }: any) => {
-                      const urlParams = new URLSearchParams(window.location.search);
-                      const token = urlParams.get('token');
-                      return token ? (
-                        <ResetPassword 
-                          token={token} 
-                          onSuccess={() => window.location.href = '/login'} 
-                        />
-                      ) : (
-                        <Login 
-                          onLogin={login} 
-                          onForgotPassword={() => setShowForgotPassword(true)}
-                          isLoading={isLoading} 
-                          error={error} 
-                        />
-                      );
-                    }} />
-                    <Route path="/payment/callback" component={PaymentCallback} />
-            
-                    <Route path="/post-onboarding" component={PostOnboarding} />
-                    <Route component={() => 
-                      showForgotPassword ? (
-                        <ForgotPassword onBackToLogin={() => setShowForgotPassword(false)} />
-                      ) : (
-                        <Login 
-                          onLogin={login} 
-                          onForgotPassword={() => setShowForgotPassword(true)}
-                          isLoading={isLoading} 
-                          error={error} 
-                        />
-                      )
-                    } />
-                  </Switch>
-                </Suspense>
-              ) : (
-                <Dashboard userRole={user?.role || "cashier"} />
-              )}
+              <Dashboard userRole={"admin"} />
             </TooltipProvider>
           </ScannerProvider>
         </AIChatProvider>
