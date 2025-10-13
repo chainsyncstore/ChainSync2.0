@@ -15,6 +15,7 @@ import { PasswordStrength } from "@/components/ui/password-strength";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { apiClient } from "@/lib/api-client";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { useAuth } from "@/hooks/use-auth";
 
 // Zod schema for form validation
 const signupSchema = z.object({
@@ -145,6 +146,7 @@ const pricingTiers: PricingTier[] = [
 ];
 
 function SignupForm() {
+  const { login } = useAuth();
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'payment'>('form');
@@ -284,11 +286,8 @@ function SignupForm() {
         clearErrors();
       }
 
-      // Store user data for payment step
-      setUserData(responseData.user);
-
-      // Move to payment step
-      setStep('payment');
+      // Log the user in directly
+      await login(data.email, data.password);
     } catch (error: any) {
       console.error('Signup error:', error);
       
