@@ -138,7 +138,22 @@ function App() {
           <ScannerProvider>
             <TooltipProvider>
               <Toaster />
-              <Dashboard userRole={"admin"} />
+              {isLoading ? (
+                <PageLoader />
+              ) : isAuthenticated && user ? (
+                <Dashboard userRole={user.role} />
+              ) : (
+                <Suspense fallback={<PageLoader />}>
+                  <Switch>
+                    <Route path="/login" component={Login} />
+                    <Route path="/signup" component={Signup} />
+                    <Route path="/forgot-password" component={ForgotPassword} />
+                    <Route path="/reset-password" component={ResetPassword} />
+                    <Route path="/" component={Landing} />
+                    <Route component={NotFound} />
+                  </Switch>
+                </Suspense>
+              )}
             </TooltipProvider>
           </ScannerProvider>
         </AIChatProvider>

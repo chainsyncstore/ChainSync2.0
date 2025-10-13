@@ -1,0 +1,3 @@
+
+> rest-express@1.0.0 dev:test
+> cross-env NODE_ENV=development tsx server/test-server.ts

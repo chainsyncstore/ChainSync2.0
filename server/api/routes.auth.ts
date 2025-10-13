@@ -103,50 +103,35 @@ export async function registerAuthRoutes(app: Express) {
         });
       }
 
-      // Defer user creation until payment verification
-      const pendingToken = PendingSignup.create({ firstName, lastName, email, phone, companyName, password, tier, location });
-      try {
-        res.cookie('pending_signup', pendingToken, {
-          httpOnly: true,
-          sameSite: 'lax',
-          secure: process.env.NODE_ENV === 'production',
-          path: '/',
-          maxAge: 30 * 60 * 1000, // 30 minutes
-        });
-        // Set cache headers to avoid storing sensitive responses
-        res.set('Cache-Control', 'no-store');
-      } catch {}
+      const role = tier === 'enterprise' ? 'admin' : tier === 'pro' ? 'manager' : 'cashier';
 
-      const response: { message: string; user: { id: string | null; email: string; firstName: string; lastName: string; tier: any }; isResume: boolean } = {
-        message: 'Signup details validated. Proceed to payment to complete account creation.',
-        user: { id: null, email, firstName, lastName, tier },
-        isResume: false
-      };
+      const created = await storage.createUser({
+        username: email,
+        email,
+        password,
+        firstName,
+        lastName,
+        phone,
+        companyName,
+        role: role as any,
+        tier: tier as any,
+        location: location as any,
+        isActive: true,
+        emailVerified: true, // Bypass email verification for demo
+        signupCompleted: true,
+      } as any);
 
-      // In test mode, create a minimal user immediately to satisfy E2E flows
-      if (process.env.NODE_ENV === 'test') {
-        try {
-          const created = await storage.createUser({
-            username: email,
-            email,
-            password,
-            firstName,
-            lastName,
-            phone,
-            companyName,
-            role: 'admin' as any,
-            tier: tier as any,
-            location: location as any,
-            isActive: false,
-            emailVerified: false,
-            signupCompleted: false
-          } as any);
-          response.user.id = created?.id || null;
-        } catch {}
-      }
-
-      monitoringService.recordSignupEvent('validated', attemptContext);
-      return res.status(200).json(response);
+      monitoringService.recordSignupEvent('completed', attemptContext);
+      return res.status(201).json({
+        message: 'User created successfully',
+        user: {
+          id: created.id,
+          email: created.email,
+          firstName: created.firstName,
+          lastName: created.lastName,
+          tier
+        }
+      });
     } catch (err) {
       const context = extractLogContext(req);
       logger.error('Signup error', context, err as Error);
@@ -235,51 +220,12 @@ export async function registerAuthRoutes(app: Express) {
     const identifierLower = identifier.toLowerCase();
     
     try {
-      // Test-mode helpers: first, explicit admin bypass; then generic fallback
       if (process.env.NODE_ENV === 'test') {
-        const isAdminBypass = ((identifierLower === 'admin' || identifierLower === 'admin@chainsync.com') && password === 'admin123');
-        if (isAdminBypass) {
-          let admin = (await storage.getUserByUsername('admin')) || (await storage.getUserByEmail('admin@chainsync.com'));
-          if (!admin) {
-            admin = await storage.createUser({
-              username: 'admin',
-              email: 'admin@chainsync.com',
-              password: 'admin123',
-              firstName: 'Admin',
-              lastName: 'Test',
-              role: 'admin' as any,
-              isActive: true,
-            } as any);
-          }
-          req.session!.userId = (admin as any).id;
-          req.session!.twofaVerified = true;
-          res.set('Cache-Control', 'no-store');
-          return res.json({ status: 'success', data: { id: (admin as any).id, email: (admin as any).email } });
+        // In test mode, do not create users on login attempts
+        const user = await storage.getUserByEmail(identifier) || await storage.getUserByUsername(identifier);
+        if (!user) {
+          return res.status(401).json({ status: 'error', message: 'Invalid credentials' });
         }
-
-        // Generic test-mode bypass: ensure user exists and log in
-        const usernameOrEmail = (parsed.data as any).email || (parsed.data as any).username;
-        let u = await storage.getUserByEmail(usernameOrEmail);
-        if (!u && typeof (storage as any).getUserByUsername === 'function') {
-          u = await (storage as any).getUserByUsername(usernameOrEmail);
-        }
-        if (!u) {
-          u = await storage.createUser({
-            username: usernameOrEmail,
-            email: usernameOrEmail,
-            password,
-            firstName: 'Test',
-            lastName: 'User',
-            role: 'admin' as any,
-            isActive: true,
-            emailVerified: true,
-            signupCompleted: true
-          } as any);
-        }
-        req.session!.userId = (u as any).id;
-        req.session!.twofaVerified = true;
-        res.set('Cache-Control', 'no-store');
-        return res.json({ status: 'success', data: { id: (u as any).id, email: (u as any).email } });
       }
       // Prefer in-memory storage during tests; then try exact matches; finally case-insensitive lookup
 
@@ -354,24 +300,15 @@ export async function registerAuthRoutes(app: Express) {
 
       req.session!.userId = user.id;
       
-      // Determine role considering both legacy enum role and isAdmin flag
-      let role: 'admin' | 'manager' | 'cashier' =
-        (user as any).isAdmin === true || String((user as any).role || '').toLowerCase() === 'admin'
-          ? 'admin'
-          : ((String((user as any).role || '').toLowerCase() as any) || 'cashier');
-      let primary: any = undefined;
-      if (role !== 'admin') {
-        const rows = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, user.id));
-        primary = rows[0];
-        if (primary) role = (primary.role as any).toLowerCase();
-      }
+      const role = (user as any).role || 'cashier';
+      const primary: any = undefined;
       
       // Log successful authentication
       securityAuditService.logAuthenticationEvent('login_success', {
         ...context,
         userId: user.id,
         storeId: primary?.storeId
-      }, { email, role });
+      }, { email: user.email, role });
       
       monitoringService.recordAuthEvent('login', {
         ...context,
@@ -383,7 +320,7 @@ export async function registerAuthRoutes(app: Express) {
         ...context,
         userId: user.id,
         role,
-        email
+        email: user.email
       });
       
       res.set('Cache-Control', 'no-store');
@@ -692,15 +629,7 @@ export async function registerAuthRoutes(app: Express) {
       u = rows[0];
     }
     if (!u) return res.status(404).json({ error: 'User not found' });
-    let role: 'admin' | 'manager' | 'cashier' =
-      (u as any).isAdmin === true || String((u as any).role || '').toLowerCase() === 'admin'
-        ? 'admin'
-        : ((String((u as any).role || '').toLowerCase() as any) || 'cashier');
-    if (role !== 'admin') {
-      const r = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, userId));
-      const primary = r[0];
-      if (primary) role = (primary.role as any).toLowerCase();
-    }
+    const role = (u as any).role || 'cashier';
     res.set('Cache-Control', 'no-store');
     res.json({ status: 'success', data: { id: u.id, email: u.email, role, isAdmin: (u as any).isAdmin === true } });
   });
