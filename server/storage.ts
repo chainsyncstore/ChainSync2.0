@@ -182,6 +182,7 @@ export interface IStorage {
   // Loyalty Customer pagination
   getLoyaltyCustomersCount(storeId: string): Promise<number>;
   getLoyaltyCustomersPaginated(storeId: string, limit: number, offset: number): Promise<Customer[]>;
+  clear(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1967,6 +1968,20 @@ export class DatabaseStorage implements IStorage {
     .orderBy(desc(customers.createdAt))
     .limit(limit)
     .offset(offset);
+  }
+
+  async clear(): Promise<void> {
+    if (this.isTestEnv) {
+      this.mem.users.clear();
+      this.mem.stores.clear();
+      this.mem.products.clear();
+      this.mem.inventory.clear();
+      this.mem.transactions.clear();
+      this.mem.transactionItems.clear();
+      this.mem.lowStockAlerts.clear();
+      return;
+    }
+    await db.delete(users);
   }
 }
 

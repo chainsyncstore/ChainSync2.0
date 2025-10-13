@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import session from 'express-session';
@@ -9,8 +9,8 @@ import { AuthService } from '@server/auth';
 describe('Authentication Integration Tests', () => {
   let app: express.Application;
 
-  beforeEach(async () => {
-    // Create a fresh Express app for each test
+  beforeAll(async () => {
+    // Create a fresh Express app once for all tests
     app = express();
     app.use(express.json());
     app.use(express.urlencoded({ extended: false }));
@@ -27,7 +27,18 @@ describe('Authentication Integration Tests', () => {
     await registerRoutes(app);
   });
 
+  afterEach(async () => {
+    // Clear the storage after each test
+    await storage.clear();
+  });
+
   describe('POST /api/auth/signup', () => {
+    beforeEach(async () => {
+      // Clear the users table before each test
+      const { users } = await import('@shared/schema');
+      const { db } = await import('@server/db');
+      await db.delete(users);
+    });
     it('should create a new user account successfully', async () => {
       const userData = {
         firstName: 'Test',
@@ -72,6 +83,7 @@ describe('Authentication Integration Tests', () => {
       expect(response.body.errors).toBeDefined();
     });
 
+
     it('should reject duplicate email addresses', async () => {
       const userData = {
         firstName: 'Test',
@@ -99,17 +111,16 @@ describe('Authentication Integration Tests', () => {
       expect(response.body.message).toBe('User with this email already exists');
     });
 
-    it('should ignore any provided role and create a cashier', async () => {
-      const userData: any = {
-        firstName: 'Role',
-        lastName: 'Attempt',
-        email: 'role-attempt@example.com',
-        phone: '+12345678901',
-        companyName: 'Role Co',
+    it('should create the first user as an admin', async () => {
+      const userData = {
+        firstName: 'Admin',
+        lastName: 'User',
+        email: 'admin@example.com',
+        phone: '+1234567890',
+        companyName: 'Admin Company',
         password: 'StrongPass123!',
-        tier: 'basic',
-        location: 'international',
-        role: 'manager' // malicious/erroneous client attempt
+        tier: 'enterprise',
+        location: 'international'
       };
 
       const response = await request(app)
@@ -118,11 +129,43 @@ describe('Authentication Integration Tests', () => {
         .expect(201);
 
       expect(response.body.message).toBe('User created successfully');
-      expect(response.body.user).toHaveProperty('id');
+      const createdUser = await storage.getUserByEmail('admin@example.com');
+      expect(createdUser).toBeTruthy();
+      expect((createdUser as any).role).toBe('admin');
+    });
 
-      const created = await storage.getUserByEmail('role-attempt@example.com');
-      expect(created).toBeTruthy();
-      expect((created as any).role).toBe('cashier');
+    it('should block subsequent signups', async () => {
+      // First user (admin)
+      await request(app)
+        .post('/api/auth/signup')
+        .send({
+          firstName: 'Admin',
+          lastName: 'User',
+          email: 'first@example.com',
+          phone: '+1234567890',
+          companyName: 'Admin Company',
+          password: 'StrongPass123!',
+          tier: 'enterprise',
+          location: 'international'
+        })
+        .expect(201);
+
+      // Second user
+      const response = await request(app)
+        .post('/api/auth/signup')
+        .send({
+          firstName: 'Second',
+          lastName: 'User',
+          email: 'second@example.com',
+          phone: '+1234567891',
+          companyName: 'Second Company',
+          password: 'StrongPass123!',
+          tier: 'basic',
+          location: 'international'
+        })
+        .expect(403);
+
+      expect(response.body.message).toBe('Signup is disabled');
     });
     it('should require all fields', async () => {
       const response = await request(app)
@@ -137,11 +180,8 @@ describe('Authentication Integration Tests', () => {
   });
 
   describe('POST /api/auth/login', () => {
-    let testUser: any;
-
-    beforeEach(async () => {
-      // Create a test user
-      testUser = await storage.createUser({
+    it('should login successfully with valid credentials', async () => {
+      const testUser = await storage.createUser({
         username: 'testuser@example.com',
         password: 'StrongPass123!',
         email: 'testuser@example.com',
@@ -155,18 +195,6 @@ describe('Authentication Integration Tests', () => {
         isActive: true
       });
 
-      // Create a store for the user
-      await storage.createStore({
-        name: 'Test Store',
-        ownerId: testUser.id,
-        address: 'Test Address',
-        phone: '+1234567890',
-        email: 'testuser@example.com',
-        isActive: true
-      });
-    });
-
-    it('should login successfully with valid credentials', async () => {
       const response = await request(app)
         .post('/api/auth/login')
         .send({
@@ -182,6 +210,19 @@ describe('Authentication Integration Tests', () => {
     });
 
     it('should reject invalid credentials', async () => {
+      await storage.createUser({
+        username: 'testuser@example.com',
+        password: 'StrongPass123!',
+        email: 'testuser@example.com',
+        firstName: 'Test',
+        lastName: 'User',
+        phone: '+1234567890',
+        companyName: 'Test Company',
+        role: 'admin',
+        tier: 'basic',
+        location: 'international',
+        isActive: true
+      });
       const response = await request(app)
         .post('/api/auth/login')
         .send({
@@ -229,12 +270,8 @@ describe('Authentication Integration Tests', () => {
   });
 
   describe('GET /api/auth/me', () => {
-    let testUser: any;
-    let sessionCookie: string;
-
-    beforeEach(async () => {
-      // Create a test user
-      testUser = await storage.createUser({
+    it('should return user data when authenticated', async () => {
+      const testUser = await storage.createUser({
         username: 'testuser@example.com',
         password: 'StrongPass123!',
         email: 'testuser@example.com',
@@ -256,10 +293,7 @@ describe('Authentication Integration Tests', () => {
           password: 'StrongPass123!'
         });
 
-      sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';
-    });
-
-    it('should return user data when authenticated', async () => {
+      const sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';
       const response = await request(app)
         .get('/api/auth/me')
         .set('Cookie', sessionCookie)
@@ -281,10 +315,8 @@ describe('Authentication Integration Tests', () => {
   });
 
   describe('POST /api/auth/forgot-password', () => {
-    let testUser: any;
-
-    beforeEach(async () => {
-      testUser = await storage.createUser({
+    it('should send reset email for existing user', async () => {
+      await storage.createUser({
         username: 'testuser@example.com',
         password: 'StrongPass123!',
         email: 'testuser@example.com',
@@ -297,9 +329,6 @@ describe('Authentication Integration Tests', () => {
         location: 'international',
         isActive: true
       });
-    });
-
-    it('should send reset email for existing user', async () => {
       const response = await request(app)
         .post('/api/auth/forgot-password')
         .send({ email: 'testuser@example.com' })
@@ -325,5 +354,12 @@ describe('Authentication Integration Tests', () => {
 
       expect(response.body.message).toBe('Email is required');
     });
+  });
+
+  afterAll(async () => {
+    // Clear the users table after all tests
+    const { users } = await import('@shared/schema');
+    const { db } = await import('@server/db');
+    await db.delete(users);
   });
 }); 
