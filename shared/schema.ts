@@ -367,7 +367,6 @@ export const enhancedUserSchema = z.object({
     .regex(/\d/, "Password must contain at least one number")
     .regex(/[!@#$%^&*(),.?":{}|<>]/, "Password must contain at least one special character"),
   phone: z.string()
-    .min(10, "Phone number must be at least 10 digits")
     .max(20, "Phone number must be less than 20 characters")
     .regex(/^[\+]?[1-9][\d]{0,15}$/, "Invalid phone number format"),
   companyName: z.string()

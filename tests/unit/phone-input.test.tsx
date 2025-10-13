@@ -20,14 +20,14 @@ describe('PhoneInput Component', () => {
     render(<PhoneInput value="" onChange={mockOnChange} />);
     const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: '123' } });
-    expect(mockOnChange).toHaveBeenCalledWith('123');
+    expect(mockOnChange).toHaveBeenCalledWith('+123');
   });
 
   it('should format phone number as user types', () => {
     render(<PhoneInput value="" onChange={mockOnChange} />);
     const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: '1234567890' } });
-    expect(mockOnChange).toHaveBeenCalledWith('1234567890');
+    expect(mockOnChange).toHaveBeenCalledWith('+1234567890');
   });
 
   it('should handle backspace correctly', () => {
