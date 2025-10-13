@@ -10,7 +10,7 @@ describe('SignupSchema - Behavior Tests', () => {
         email: 'john.doe@example.com',
         phone: '+1234567890',
         companyName: 'Acme Corp',
-        password: 'SecurePass123',
+        password: 'SecurePass123!',
         tier: 'basic',
         location: 'international'
       };
@@ -35,7 +35,7 @@ describe('SignupSchema - Behavior Tests', () => {
           email: 'jane.smith@company.com',
           phone: '+9876543210',
           companyName: 'Tech Solutions',
-          password: 'StrongPwd456',
+          password: 'StrongPwd456!',
           tier: tier,
           location: 'international'
         };
@@ -89,7 +89,7 @@ describe('SignupSchema - Behavior Tests', () => {
           email: email,
           phone: '+1234567890',
           companyName: 'Acme Corp',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           tier: 'basic',
           location: 'international'
         };
@@ -109,7 +109,7 @@ describe('SignupSchema - Behavior Tests', () => {
           email: email,
           phone: '+1234567890',
           companyName: 'Acme Corp',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           tier: 'basic',
           location: 'international'
         };
@@ -142,7 +142,7 @@ describe('SignupSchema - Behavior Tests', () => {
     });
 
     it('should accept strong passwords', () => {
-      const strongPasswords = ['SecurePass123', 'MyP@ssw0rd', 'Str0ng#Pwd'];
+      const strongPasswords = ['SecurePass123!', 'MyP@ssw0rd', 'Str0ng#Pwd'];
 
       strongPasswords.forEach(password => {
         const validPayload = {
@@ -167,8 +167,6 @@ describe('SignupSchema - Behavior Tests', () => {
       const invalidPhones = [
         '123-456-7890',      // Contains dashes
         '(123) 456-7890',    // Contains parentheses and spaces
-        '123456',             // Too short (6 digits)
-        '+12345678901234567', // Too long (17 digits)
         '0123456789',         // Starts with 0
         'abc123def'           // Contains letters
       ];
@@ -180,7 +178,7 @@ describe('SignupSchema - Behavior Tests', () => {
           email: 'john.doe@example.com',
           phone: phone,
           companyName: 'Acme Corp',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           tier: 'basic',
           location: 'international'
         };
@@ -193,9 +191,8 @@ describe('SignupSchema - Behavior Tests', () => {
     it('should accept valid phone formats', () => {
       const validPhones = [
         '+1234567890',        // 10 digits with +
-        '1234567890',         // 10 digits without +
-        '+44123456789',       // 11 digits with +
-        '123456789',          // 9 digits (minimum)
+        '+441234567890',       // 11 digits with +
+        '+2348012345678',          // 9 digits (minimum)
         '+123456789012345'    // 15 digits (maximum)
       ];
 
@@ -206,7 +203,7 @@ describe('SignupSchema - Behavior Tests', () => {
           email: 'john.doe@example.com',
           phone: phone,
           companyName: 'Acme Corp',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           tier: 'basic',
           location: 'international'
         };

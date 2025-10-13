@@ -32,6 +32,7 @@
     "db:generate": "npx drizzle-kit generate",
     "db:migrate": "npx drizzle-kit migrate",
     "db:seed": "tsx scripts/seed.ts",
+    "db:seed:all": "tsx scripts/seed-database.ts",
     "seed:plans": "tsx scripts/seed-plans.ts",
     "seed:secure": "tsx scripts/seed-secure-users.ts",
     "seed:demo": "tsx scripts/seed-demo-users.ts",
