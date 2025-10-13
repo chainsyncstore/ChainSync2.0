@@ -97,13 +97,21 @@ export async function registerAuthRoutes(app: Express) {
       const exists = await storage.getUserByEmail(email);
       if (exists) {
         monitoringService.recordSignupEvent('duplicate', attemptContext);
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: 'User with this email already exists',
           code: 'DUPLICATE_EMAIL'
         });
       }
 
-      const role = tier === 'enterprise' ? 'admin' : tier === 'pro' ? 'manager' : 'cashier';
+      // Block signup if a user already exists
+      const allUsers = await db.select().from(users);
+      console.log('All users:', allUsers);
+      if (allUsers.length > 0) {
+        return res.status(403).json({ message: 'Signup is disabled' });
+      }
+
+      // First user is always admin
+      const role = 'admin';
 
       const created = await storage.createUser({
         username: email,
