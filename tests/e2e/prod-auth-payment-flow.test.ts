@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
 import express from 'express';
 import session from 'express-session';
 import request from 'supertest';
@@ -36,6 +36,11 @@ vi.mock('../../server/db', () => ({
 // Mock storage to avoid DB
 vi.mock('../../server/storage', () => ({
   storage: {
+    clear: vi.fn(async () => {
+      users.length = 0;
+      stores.length = 0;
+      emailTokens.clear();
+    }),
     async getUserByEmail(email: string) {
       return users.find(u => u.email === email);
     },
@@ -155,6 +160,11 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
     vi.restoreAllMocks();
   });
 
+  beforeEach(async () => {
+    const { storage } = await import('../../server/storage');
+    await storage.clear();
+  });
+
   it('CSRF → signup (201) → verification email stubbed → verify → login allowed', async () => {
     // CSRF is disabled in test environment; skip fetching token
 
@@ -173,7 +183,7 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
         tier: 'basic',
         location: 'international'
       })
-      .expect(200);
+      .expect(201);
 
     expect(signupRes.body.user).toBeTruthy();
     const userId = signupRes.body.user.id;
@@ -218,7 +228,7 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
         tier: 'basic',
         location: 'international'
       })
-      .expect(200);
+      .expect(201);
 
     const userId = signupRes.body.user.id;
 
@@ -256,5 +266,3 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
     expect(loginAttempt.body.status).toBe('success');
   }, 30000);
 });
-
-

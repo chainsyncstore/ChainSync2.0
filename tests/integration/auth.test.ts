@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import session from 'express-session';
@@ -25,38 +25,18 @@ describe('Authentication Integration Tests', () => {
 
     // Register routes
     await registerRoutes(app);
+  });
 
-    // Synchronize storage writes with DB in test env so route-level DB checks see created users
+  afterAll(async () => {
+    // Clear the users table after all tests
     const { users } = await import('@shared/schema');
     const { db } = await import('@server/db');
-    const originalCreateUser = (storage as any).createUser.bind(storage);
-    (storage as any).createUser = async (user: any) => {
-      const created = await originalCreateUser(user);
-      try {
-        await db.insert(users).values({
-          id: created.id,
-          username: created.username || created.email,
-          email: created.email,
-          firstName: created.firstName,
-          lastName: created.lastName,
-          password: created.password,
-          phone: created.phone,
-          companyName: created.companyName,
-          role: created.role,
-          tier: created.tier,
-          location: created.location,
-          isActive: created.isActive ?? true,
-          emailVerified: created.emailVerified ?? true,
-          signupCompleted: created.signupCompleted ?? true,
-          signupStartedAt: created.signupStartedAt || new Date(),
-          signupCompletedAt: created.signupCompletedAt || new Date(),
-          signupAttempts: created.signupAttempts ?? 1,
-        } as any);
-      } catch {
-        // ignore DB issues in tests
-      }
-      return created;
-    };
+    await db.delete(users);
+  });
+
+  beforeEach(async () => {
+    // Clear the storage and users table after each test
+    await storage.clear();
   });
 
   afterEach(async () => {
@@ -384,12 +364,5 @@ describe('Authentication Integration Tests', () => {
 
       expect(response.body.message).toBe('Email is required');
     });
-  });
-
-  afterAll(async () => {
-    // Clear the users table after all tests
-    const { users } = await import('@shared/schema');
-    const { db } = await import('@server/db');
-    await db.delete(users);
   });
 });

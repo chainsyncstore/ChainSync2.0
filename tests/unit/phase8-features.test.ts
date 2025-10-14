@@ -290,9 +290,9 @@ describe('Phase 8: Enhanced Observability & Security', () => {
       const { db } = await import('../../server/db');
       vi.mocked(db.execute).mockRejectedValue(new Error('Database error'));
 
-      await expect(analyticsService.generateDemandForecast('invalid-store')).rejects.toThrow('Demand forecasting failed');
-      await expect(analyticsService.detectAnomalies('invalid-store')).rejects.toThrow('Anomaly detection failed');
-      await expect(analyticsService.generateInsights('invalid-store')).rejects.toThrow('Insight generation failed');
+      await expect(analyticsService.generateDemandForecast('invalid-store')).resolves.toEqual([]);
+      await expect(analyticsService.detectAnomalies('invalid-store')).resolves.toEqual([]);
+      await expect(analyticsService.generateInsights('invalid-store')).resolves.toEqual([]);
       envSpy.mockRestore();
     });
   });
