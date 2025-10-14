@@ -48,9 +48,9 @@ export class AdvancedAnalyticsService {
   }
 
   async generateDemandForecast(storeId: string, productId?: string, days: number = 30): Promise<DemandForecast[]> {
+    const cacheKey = `forecast_${storeId}_${productId}_${days}`;
     try {
       if (!storeId) throw new Error('Invalid store');
-      const cacheKey = `forecast_${storeId}_${productId}_${days}`;
       const cached = this.getCachedResult(cacheKey);
       if (cached) return cached;
 

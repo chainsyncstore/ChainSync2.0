@@ -19,6 +19,7 @@ vi.mock('../../server/db', () => ({
 
 vi.mock('@shared/prd-schema', () => ({
   sales: { id: 'sales.id', productId: 'sales.productId', createdAt: 'sales.createdAt' },
+  saleItems: { saleId: 'saleItems.saleId', productId: 'saleItems.productId', quantity: 'saleItems.quantity' },
   products: { id: 'products.id', name: 'products.name', storeId: 'products.storeId' },
   inventory: { productId: 'inventory.productId', currentStock: 'inventory.currentStock' }
 }));
