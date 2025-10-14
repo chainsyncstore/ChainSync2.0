@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listQueuedSales, deleteQueuedSale, expediteQueuedSale, processQueueNow, updateQueuedSalePayload, validateSalePayload, type OfflineSaleRecord } from "@/lib/offline-queue";
+import type { OfflineSaleRecord } from "@/lib/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -17,6 +17,7 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
   const [editErrors, setEditErrors] = useState<string[]>([]);
 
   const refresh = async () => {
+    const { listQueuedSales } = await import("@/lib/offline-queue");
     setItems(await listQueuedSales());
   };
 
@@ -56,7 +57,7 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
             <div className="text-sm text-slate-600">Queued sales: {items.length}</div>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={refresh}>Refresh</Button>
-              <Button size="sm" onClick={async () => { setLoading(true); await processQueueNow(); await refresh(); setLoading(false); }} disabled={loading}>{loading ? 'Syncing...' : 'Sync now'}</Button>
+              <Button size="sm" onClick={async () => { setLoading(true); const { processQueueNow } = await import("@/lib/offline-queue"); await processQueueNow(); await refresh(); setLoading(false); }} disabled={loading}>{loading ? 'Syncing...' : 'Sync now'}</Button>
             </div>
           </div>
           {health && (
@@ -80,8 +81,8 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
                     } catch {}
                   }}>Export JSON</Button>
                   <Button size="sm" variant="outline" onClick={() => { setEditing(it); setEditJson(JSON.stringify(it.payload, null, 2)); setEditErrors([]);} }>Edit</Button>
-                  <Button size="sm" variant="outline" onClick={async () => { await expediteQueuedSale(it.id); await processQueueNow(); await refresh(); }}>Retry now</Button>
-                  <Button size="sm" variant="outline" onClick={async () => { await deleteQueuedSale(it.id); await refresh(); }}>Remove</Button>
+                  <Button size="sm" variant="outline" onClick={async () => { const { expediteQueuedSale, processQueueNow } = await import("@/lib/offline-queue"); await expediteQueuedSale(it.id); await processQueueNow(); await refresh(); }}>Retry now</Button>
+                  <Button size="sm" variant="outline" onClick={async () => { const { deleteQueuedSale } = await import("@/lib/offline-queue"); await deleteQueuedSale(it.id); await refresh(); }}>Remove</Button>
                 </div>
               </div>
             ))}
@@ -103,6 +104,7 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
                 <Button size="sm" onClick={async () => {
                   try {
                     const parsed = JSON.parse(editJson);
+                    const { validateSalePayload, updateQueuedSalePayload, processQueueNow } = await import("@/lib/offline-queue");
                     const v = validateSalePayload(parsed);
                     if (!v.valid) { setEditErrors(v.errors); return; }
                     await updateQueuedSalePayload(editing!.id, parsed);

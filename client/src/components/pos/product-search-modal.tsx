@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Package, Search, Plus } from "lucide-react";
 import { LoadingSpinner, ListSkeleton } from "@/components/ui/loading";
 import type { Product } from "@shared/schema";
-import { searchProductsLocally, putProducts } from "@/lib/idb-catalog";
 
 interface ProductSearchModalProps {
   isOpen: boolean;
@@ -26,7 +25,8 @@ export default function ProductSearchModal({ isOpen, onClose, onSelectProduct }:
         return;
       }
       setIsLoading(true);
-      // First try local search
+      // First try local search (lazy-load module)
+      const { searchProductsLocally, putProducts } = await import("@/lib/idb-catalog");
       const local = await searchProductsLocally(searchQuery, 50);
       if (!cancelled) {
         setProducts(local as any);
@@ -38,6 +38,7 @@ export default function ProductSearchModal({ isOpen, onClose, onSelectProduct }:
         if (res.ok) {
           const remote = await res.json();
           const mapped = (remote || []).map((p: any) => ({ id: p.id, name: p.name, barcode: p.barcode, price: String(p.price || p.salePrice || '0') }));
+          // Persist to local cache (reuse lazy-loaded module instance)
           await putProducts(mapped);
           if (!cancelled) setProducts(remote);
         }

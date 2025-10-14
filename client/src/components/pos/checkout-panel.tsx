@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/pos-utils";
 import { CheckCircle, Pause, X, CreditCard, Banknote } from "lucide-react";
 import type { CartSummary, PaymentData } from "@/types/pos";
-import { getOfflineQueueCount, processQueueNow } from "@/lib/offline-queue";
 
 interface CheckoutPanelProps {
   summary: CartSummary;
@@ -38,10 +37,14 @@ export default function CheckoutPanel({
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   useEffect(() => {
-    const load = async () => setQueuedCount(await getOfflineQueueCount());
+    const load = async () => {
+      const { getOfflineQueueCount } = await import("@/lib/offline-queue");
+      setQueuedCount(await getOfflineQueueCount());
+    };
     load();
     const onOnline = async () => {
       setIsOnline(true);
+      const { processQueueNow, getOfflineQueueCount } = await import("@/lib/offline-queue");
       await processQueueNow();
       setQueuedCount(await getOfflineQueueCount());
     };
@@ -84,7 +87,7 @@ export default function CheckoutPanel({
       <div className="flex items-center justify-between text-xs">
         <span className={`font-medium ${isOnline ? 'text-green-700' : 'text-amber-700'}`}>{isOnline ? 'Online' : 'Offline'}</span>
         {queuedCount > 0 && (
-          <button className="text-blue-600 hover:underline" onClick={async () => { await processQueueNow(); setQueuedCount(await getOfflineQueueCount()); }}>Sync pending ({queuedCount})</button>
+          <button className="text-blue-600 hover:underline" onClick={async () => { const { processQueueNow, getOfflineQueueCount } = await import("@/lib/offline-queue"); await processQueueNow(); setQueuedCount(await getOfflineQueueCount()); }}>Sync pending ({queuedCount})</button>
         )}
       </div>
       {/* Order Summary */}

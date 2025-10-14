@@ -11,7 +11,6 @@ import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
 import { useNotifications } from "@/hooks/use-notifications";
 import { apiRequest } from "@/lib/queryClient";
-import { enqueueOfflineSale, generateIdempotencyKey, getOfflineQueueCount, processQueueNow, getEscalatedCount, validateSalePayload } from "@/lib/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -87,7 +86,11 @@ export default function POS() {
   const [escalations, setEscalations] = useState(0);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const update = async () => { setQueuedCount(await getOfflineQueueCount()); setEscalations(await getEscalatedCount(5)); };
+    const update = async () => {
+      const { getOfflineQueueCount, getEscalatedCount } = await import('@/lib/offline-queue');
+      setQueuedCount(await getOfflineQueueCount());
+      setEscalations(await getEscalatedCount(5));
+    };
     update();
     const onMsg = (event: MessageEvent) => {
       if (event.data?.type === 'SYNC_COMPLETED') {
@@ -108,6 +111,7 @@ export default function POS() {
     const onOnline = async () => {
       setIsOnline(true);
       try {
+        const { processQueueNow, getOfflineQueueCount, getEscalatedCount } = await import('@/lib/offline-queue');
         await processQueueNow();
         setQueuedCount(await getOfflineQueueCount());
         setEscalations(await getEscalatedCount(5));
@@ -126,6 +130,7 @@ export default function POS() {
 
   const handleSyncNow = async () => {
     try {
+      const { processQueueNow, getOfflineQueueCount, getEscalatedCount } = await import('@/lib/offline-queue');
       await processQueueNow();
       setQueuedCount(await getOfflineQueueCount());
       setEscalations(await getEscalatedCount(5));
@@ -138,6 +143,7 @@ export default function POS() {
   // POS sale mutation using /api/pos/sales with idempotency and offline fallback
   const createTransactionMutation = useMutation({
     mutationFn: async () => {
+      const { generateIdempotencyKey, validateSalePayload, enqueueOfflineSale, getOfflineQueueCount } = await import('@/lib/offline-queue');
       const idempotencyKey = generateIdempotencyKey();
       const payload = {
         storeId: selectedStore,
@@ -194,6 +200,7 @@ export default function POS() {
       clearCart();
       queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"] });
       // Try to process queue immediately (harmless if none)
+      const { processQueueNow, getOfflineQueueCount } = await import('@/lib/offline-queue');
       await processQueueNow();
       setQueuedCount(await getOfflineQueueCount());
     },

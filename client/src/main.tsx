@@ -2,7 +2,6 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { serviceWorkerManager } from "./lib/service-worker";
-import { enqueueOfflineSale } from "./lib/offline-queue";
 
 async function init() {
   const isTestRun = import.meta.env.MODE === 'test' || (typeof window !== 'undefined' && (window as any).__TESTRUN__);
@@ -56,7 +55,7 @@ init();
 // Expose test helper for E2E
 // @ts-ignore
 if (typeof window !== 'undefined') window.enqueueTestSale = async (payload) => {
-  const { generateIdempotencyKey } = await import('./lib/offline-queue');
+  const { enqueueOfflineSale, generateIdempotencyKey } = await import('./lib/offline-queue');
   const idempotencyKey = generateIdempotencyKey();
   await enqueueOfflineSale({ url: '/api/pos/sales', payload, idempotencyKey });
   return idempotencyKey;

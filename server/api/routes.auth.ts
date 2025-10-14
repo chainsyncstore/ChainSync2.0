@@ -138,7 +138,7 @@ export async function registerAuthRoutes(app: Express) {
         signupCompleted: true,
       } as any);
 
-      monitoringService.recordSignupEvent('completed', attemptContext);
+      monitoringService.recordSignupEvent('success', attemptContext);
       return res.status(201).json({
         message: 'User created successfully',
         user: {
@@ -200,8 +200,9 @@ export async function registerAuthRoutes(app: Express) {
         return res.status(400).json({ success: false, message: result?.message || 'Invalid or expired verification token' });
       }
       try {
-        if (result?.userId) {
-          await storage.markEmailVerified(result.userId);
+        const rAny = result as any;
+        if (rAny?.userId) {
+          await storage.markEmailVerified(rAny.userId);
         }
       } catch {}
       return res.status(200).json({ success: true });
@@ -311,7 +312,7 @@ export async function registerAuthRoutes(app: Express) {
         securityAuditService.logAuthenticationEvent('mfa_challenge', {
           ...context,
           userId: user.id
-        }, { email, role: 'admin' });
+        }, { email: (user as any).email, role: 'admin' });
         return res.status(200).json({ status: 'otp_required' });
       }
 

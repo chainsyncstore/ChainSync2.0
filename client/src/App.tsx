@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -122,6 +122,7 @@ function Dashboard({ userRole }: { userRole: string }) {
 function App() {
   const { user, login, isAuthenticated, isLoading, error } = useAuth();
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [, setLocation] = useLocation();
 
   // Debug: Log reCAPTCHA site key
   console.log('App loaded, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
@@ -145,10 +146,27 @@ function App() {
               ) : (
                 <Suspense fallback={<PageLoader />}>
                   <Switch>
-                    <Route path="/login" component={Login} />
+                    <Route path="/login">{() => (
+                      <Login
+                        onLogin={login}
+                        onForgotPassword={() => setLocation('/forgot-password')}
+                        isLoading={isLoading}
+                        error={error || null}
+                      />
+                    )}</Route>
                     <Route path="/signup" component={Signup} />
-                    <Route path="/forgot-password" component={ForgotPassword} />
-                    <Route path="/reset-password" component={ResetPassword} />
+                    <Route path="/forgot-password">{() => (
+                      <ForgotPassword onBackToLogin={() => setLocation('/login')} />
+                    )}</Route>
+                    <Route path="/reset-password">{() => {
+                      const token = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('token') || '') : '';
+                      return (
+                        <ResetPassword
+                          token={token}
+                          onSuccess={() => setLocation('/login')}
+                        />
+                      );
+                    }}</Route>
                     <Route path="/" component={Landing} />
                     <Route component={NotFound} />
                   </Switch>
