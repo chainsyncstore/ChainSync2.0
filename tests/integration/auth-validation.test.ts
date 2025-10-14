@@ -1,16 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import session from 'express-session';
 import { registerRoutes } from '../../server/routes';
-import { db } from '../../server/db';
+import { storage } from '../../server/storage';
 
 describe('Auth Validation Integration Tests', () => {
   let app: express.Application;
   let server: any;
 
   beforeAll(async () => {
-    // Build a fresh app with in-memory session
     app = express();
     app.use(express.json());
     app.use(express.urlencoded({ extended: false }));
@@ -20,10 +19,13 @@ describe('Auth Validation Integration Tests', () => {
   });
 
   afterAll(async () => {
-    // Clean up
     if (server) {
       server.close();
     }
+  });
+
+  beforeEach(async () => {
+    await storage.clear();
   });
 
   describe('POST /api/auth/signup', () => {
@@ -37,7 +39,7 @@ describe('Auth Validation Integration Tests', () => {
           email: 'john.doe@example.com',
           phone: '+1234567890',
           companyName: 'Acme Corp',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           tier: 'basic',
           location: 'international'
         };
@@ -47,7 +49,7 @@ describe('Auth Validation Integration Tests', () => {
           .send(validPayload)
           .expect(201);
 
-        expect(response.body).toHaveProperty('message', 'Account created successfully');
+        expect(response.body).toHaveProperty('message', 'User created successfully');
         expect(response.body).toHaveProperty('user');
         expect(response.body).toHaveProperty('store');
       });
@@ -59,7 +61,7 @@ describe('Auth Validation Integration Tests', () => {
           email: 'jane.pro@company.com',
           phone: '+9876543210',
           companyName: 'Tech Solutions',
-          password: 'StrongPwd456',
+          password: 'StrongPwd456!',
           tier: 'pro',
           location: 'international'
         };
@@ -79,7 +81,7 @@ describe('Auth Validation Integration Tests', () => {
           email: 'bob.johnson@enterprise.com',
           phone: '+1122334455',
           companyName: 'Enterprise Inc',
-          password: 'EnterprisePass789',
+          password: 'EnterprisePass789!',
           tier: 'enterprise',
           location: 'international'
         };
@@ -101,7 +103,7 @@ describe('Auth Validation Integration Tests', () => {
             email: 'john.doe@example.com',
             phone: '+1234567890',
             companyName: 'Acme Corp',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'basic',
             location: 'international'
           };
@@ -121,7 +123,7 @@ describe('Auth Validation Integration Tests', () => {
             lastName: 'Doe',
             phone: '+1234567890',
             companyName: 'Acme Corp',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'basic',
             location: 'international'
           };
@@ -164,7 +166,7 @@ describe('Auth Validation Integration Tests', () => {
             email: 'invalid-email',
             phone: '+1234567890',
             companyName: 'Acme Corp',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'basic',
             location: 'international'
           };
@@ -186,7 +188,7 @@ describe('Auth Validation Integration Tests', () => {
             email: longEmail,
             phone: '+1234567890',
             companyName: 'Acme Corp',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'basic',
             location: 'international'
           };
@@ -253,7 +255,7 @@ describe('Auth Validation Integration Tests', () => {
             email: 'john.doe@example.com',
             phone: '123-456-7890',
             companyName: 'Acme Corp',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'basic',
             location: 'international'
           };
@@ -274,7 +276,7 @@ describe('Auth Validation Integration Tests', () => {
             email: 'john.doe@example.com',
             phone: '+123456',
             companyName: 'Acme Corp',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'basic',
             location: 'international'
           };
@@ -297,7 +299,7 @@ describe('Auth Validation Integration Tests', () => {
             email: 'john.doe@example.com',
             phone: '+1234567890',
             companyName: 'Acme Corp',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'invalid-tier',
             location: 'international'
           };
@@ -321,7 +323,7 @@ describe('Auth Validation Integration Tests', () => {
             email: 'john.doe@example.com',
             phone: '+1234567890',
             companyName: 'Acme Corp',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'basic',
             location: 'international'
           };
@@ -343,7 +345,7 @@ describe('Auth Validation Integration Tests', () => {
             email: 'john.doe@example.com',
             phone: '+1234567890',
             companyName: longCompany,
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
             tier: 'basic',
             location: 'international'
           };
@@ -367,7 +369,7 @@ describe('Auth Validation Integration Tests', () => {
           email: 'john.doe@example.com',
           phone: '+1234567890',
           companyName: 'Acme Corp',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           tier: 'basic',
           location: 'international'
         };
@@ -388,7 +390,7 @@ describe('Auth Validation Integration Tests', () => {
           email: 'john.doe@example.com',
           phone: '+1234567890',
           companyName: 'Acme Corp',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           tier: 'basic',
           location: 'international'
         };
@@ -409,7 +411,7 @@ describe('Auth Validation Integration Tests', () => {
           email: 'john.doe@example.com',
           phone: '+1234567890',
           companyName: 'Acme Corp',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           tier: 'basic',
           location: 'international'
         };
@@ -432,16 +434,13 @@ describe('Auth Validation Integration Tests', () => {
       it('should accept a valid login payload', async () => {
         const validPayload = {
           username: 'test@example.com',
-          password: 'TestPass123'
+          password: 'TestPass123!'
         };
 
-        // Note: This will likely fail due to user not existing, but we're testing validation
-        // The important thing is that it doesn't fail due to validation
         const response = await request(server)
           .post(baseUrl)
           .send(validPayload);
 
-        // Should not be a 400 validation error
         expect(response.status).not.toBe(400);
       });
     });
@@ -449,7 +448,7 @@ describe('Auth Validation Integration Tests', () => {
     describe('Invalid Login Payloads', () => {
       it('should reject login without username', async () => {
         const invalidPayload = {
-          password: 'TestPass123'
+          password: 'TestPass123!'
         };
 
         const response = await request(server)

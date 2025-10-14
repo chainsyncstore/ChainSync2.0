@@ -31,7 +31,8 @@ export function validateBody<T>(schema: z.ZodSchema<T>) {
         }));
         
         if (process.env.NODE_ENV === 'test') {
-          return res.status(400).json({ error: formattedErrors.map(e => e.field).join(', ') });
+          const detailedError = formattedErrors.map(e => `${e.field}: ${e.message}`).join(', ');
+          return res.status(400).json({ error: detailedError, details: formattedErrors });
         } else {
           const validationError = new ValidationError(
             "Validation failed",

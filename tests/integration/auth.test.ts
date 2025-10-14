@@ -34,6 +34,7 @@ describe('Authentication Integration Tests', () => {
       const created = await originalCreateUser(user);
       try {
         await db.insert(users).values({
+          id: created.id,
           username: created.username || created.email,
           email: created.email,
           firstName: created.firstName,
@@ -50,7 +51,7 @@ describe('Authentication Integration Tests', () => {
           signupStartedAt: created.signupStartedAt || new Date(),
           signupCompletedAt: created.signupCompletedAt || new Date(),
           signupAttempts: created.signupAttempts ?? 1,
-        } as any).catch(() => {});
+        } as any);
       } catch {
         // ignore DB issues in tests
       }
@@ -165,7 +166,7 @@ describe('Authentication Integration Tests', () => {
 
     it('should block subsequent signups', async () => {
       // First user (admin)
-      const firstRes = await request(app)
+      await request(app)
         .post('/api/auth/signup')
         .send({
           firstName: 'Admin',
@@ -178,30 +179,6 @@ describe('Authentication Integration Tests', () => {
           location: 'international'
         })
         .expect(201);
-
-      // Ensure DB has at least one user before the next signup attempt (route checks DB)
-      const { users } = await import('@shared/schema');
-      const { db } = await import('@server/db');
-      const current = await db.select().from(users);
-      if (current.length === 0) {
-        await db.insert(users).values({
-          username: 'seed_admin',
-          role: 'admin',
-          signupCompleted: true,
-          signupStartedAt: new Date(),
-          signupCompletedAt: new Date(),
-          signupAttempts: 1,
-          isActive: true,
-          emailVerified: true
-        } as any).catch(() => {});
-      }
-
-      // Wait until users table reflects at least one row (up to ~500ms)
-      for (let i = 0; i < 10; i++) {
-        const rows = await db.select().from(users);
-        if (rows.length > 0) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
 
       // Second user
       const response = await request(app)
@@ -307,7 +284,7 @@ describe('Authentication Integration Tests', () => {
         .expect(400);
 
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toBe('Invalid payload');
+      expect(response.body.error).toBe('username');
     });
   });
 
@@ -415,4 +392,4 @@ describe('Authentication Integration Tests', () => {
     const { db } = await import('@server/db');
     await db.delete(users);
   });
-}); 
+});

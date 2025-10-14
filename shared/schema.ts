@@ -347,7 +347,7 @@ export const enhancedUserSchema = z.object({
   username: z.string()
     .min(3, "Username must be at least 3 characters")
     .max(50, "Username must be less than 50 characters")
-    .regex(/^[a-zA-Z0-9_-]+$/, "Username can only contain letters, numbers, underscores, and hyphens"),
+    .regex(/^[a-zA-Z0-9_.-]+$/, "Username can only contain letters, numbers, underscores, hyphens, and periods"),
   email: z.string()
     .email("Invalid email format")
     .max(255, "Email must be less than 255 characters"),
@@ -367,8 +367,9 @@ export const enhancedUserSchema = z.object({
     .regex(/\d/, "Password must contain at least one number")
     .regex(/[!@#$%^&*(),.?":{}|<>]/, "Password must contain at least one special character"),
   phone: z.string()
+    .min(7, "Phone number must be at least 7 digits")
     .max(20, "Phone number must be less than 20 characters")
-    .regex(/^[\+]?[1-9][\d]{0,15}$/, "Invalid phone number format"),
+    .regex(/^[\+]?[1-9][\d]{6,15}$/, "Invalid phone number format"),
   companyName: z.string()
     .min(1, "Company name is required")
     .max(255, "Company name must be less than 255 characters"),

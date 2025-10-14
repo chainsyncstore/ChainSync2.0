@@ -20,8 +20,8 @@ const passwordSchema = z
 // Phone validation (more flexible format, allows common separators)
 const phoneSchema = z
   .string({ required_error: "Phone number is required" })
-  .min(1, "Phone number is required")
-  .regex(/^\+?[1-9]\d{1,14}$/, "Phone number must be a valid international format (e.g., +1234567890 or 1234567890)")
+  .min(7, "Phone number must be at least 7 digits")
+  .regex(/^\+?[1-9]\d{6,14}$/, "Phone number must be a valid international format (e.g., +1234567890)")
   .transform(val => {
     // Ensure it starts with + for E.164 compliance
     const cleaned = val.replace(/\s/g, ''); // Remove any spaces
@@ -69,20 +69,16 @@ export const SignupSchema = z.object({
 }).strict();
 
 // Login schema
-export const LoginSchema = z.object({
-  // Support login with either email or username to match client behavior and route logic
-  // Keep password policy consistent with auth route (min 8)
-}).or(
+export const LoginSchema = z.union([
   z.object({
     email: emailSchema,
     password: z.string({ required_error: 'Password is required' }).min(8, "Password must be at least 8 characters"),
-  })
-).or(
+  }),
   z.object({
     username: z.string({ required_error: 'Username is required' }).min(3, "Username must be at least 3 characters"),
     password: z.string({ required_error: 'Password is required' }).min(8, "Password must be at least 8 characters"),
   })
-);
+]);
 
 // Password reset schema
 export const PasswordResetSchema = z.object({

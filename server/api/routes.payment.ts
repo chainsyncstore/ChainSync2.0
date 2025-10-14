@@ -89,17 +89,6 @@ export async function registerPaymentRoutes(app: Express) {
     const amountSmallestUnit = currency === 'NGN' ? upfront.NGN : upfront.USD;
 
     try {
-      // In test environment, short-circuit with static payload to avoid provider dependencies
-      if (process.env.NODE_ENV === 'test') {
-        const providerLower = String(parsed.data.provider).toLowerCase();
-        const reference = `${providerLower.toUpperCase()}_${Date.now()}_${Math.random().toString(36).substring(2,8).toUpperCase()}`;
-        const payload = providerLower === 'paystack'
-          ? { authorization_url: 'https://checkout.paystack.com/test', access_code: 'test_access_code', reference }
-          : { link: 'https://checkout.flutterwave.com/test', reference, access_code: 'test_access_code' } as any;
-        const token = (req as any).cookies?.pending_signup as string | undefined;
-        if (token) PendingSignup.associateReference(token, reference);
-        return res.json(payload);
-      }
       // Prefer real provider initialization when keys are configured; fall back to mocks otherwise
       if (providerLower === 'paystack') {
         const hasKey = !!process.env.PAYSTACK_SECRET_KEY;

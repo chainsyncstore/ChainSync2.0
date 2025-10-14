@@ -80,9 +80,7 @@ export async function registerWebhookRoutes(app: Express) {
     if (!tsCheck.ok) return res.status(401).json({ error: tsCheck.error });
     const idCheck = requireEventId(req);
     if (!idCheck.ok) return res.status(400).json({ error: idCheck.error });
-    const ok = process.env.NODE_ENV === 'test'
-      ? true
-      : verifyPaystackSignature(raw, req.headers['x-paystack-signature'] as string | undefined);
+    const ok = verifyPaystackSignature(raw, req.headers['x-paystack-signature'] as string | undefined);
     if (!ok) return res.status(401).json({ error: 'Invalid signature' });
     try {
       const evt = JSON.parse(raw);
@@ -216,9 +214,7 @@ export async function registerWebhookRoutes(app: Express) {
     if (!tsCheck.ok) return res.status(401).json({ error: tsCheck.error });
     const idCheck = requireEventId(req);
     if (!idCheck.ok) return res.status(400).json({ error: idCheck.error });
-    const ok = process.env.NODE_ENV === 'test'
-      ? true
-      : verifyFlutterwaveSignature(raw, req.headers['verif-hash'] as string | undefined);
+    const ok = verifyFlutterwaveSignature(raw, req.headers['verif-hash'] as string | undefined);
     if (!ok) return res.status(401).json({ error: 'Invalid signature' });
     try {
       const evt = JSON.parse(raw);

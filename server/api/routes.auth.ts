@@ -138,6 +138,13 @@ export async function registerAuthRoutes(app: Express) {
         signupCompleted: true,
       } as any);
 
+      const store = await storage.createStore({
+        name: companyName,
+        ownerId: created.id,
+        email,
+        phone,
+      } as any);
+
       monitoringService.recordSignupEvent('success', attemptContext);
       return res.status(201).json({
         message: 'User created successfully',
@@ -147,7 +154,8 @@ export async function registerAuthRoutes(app: Express) {
           firstName: created.firstName,
           lastName: created.lastName,
           tier
-        }
+        },
+        store,
       });
     } catch (err) {
       const context = extractLogContext(req);
@@ -214,12 +222,17 @@ export async function registerAuthRoutes(app: Express) {
   app.post('/api/auth/login', authRateLimit, async (req: Request, res: Response) => {
     const baseParsed = ValidationLoginSchema.safeParse(req.body);
     if (!baseParsed.success) {
-      const usernameMissing = !('username' in (req.body || {}));
-      const passwordMissing = !('password' in (req.body || {}));
-      if (usernameMissing && passwordMissing) {
-        return res.status(422).json({ status: 'error', message: 'Username and password are required' });
+      const hasUsername = 'username' in (req.body || {});
+      const hasEmail = 'email' in (req.body || {});
+      const hasPassword = 'password' in (req.body || {});
+
+      if (!hasUsername && !hasEmail) {
+        return res.status(400).json({ error: 'username' });
       }
-      return res.status(400).json({ error: baseParsed.error.issues?.[0]?.path?.[0] || 'username' });
+      if (!hasPassword) {
+        return res.status(400).json({ error: 'password' });
+      }
+      return res.status(400).json({ error: 'Invalid payload' });
     }
     const context = extractLogContext(req);
     
