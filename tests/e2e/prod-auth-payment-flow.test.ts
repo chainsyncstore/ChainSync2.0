@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
 import express from 'express';
 import session from 'express-session';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
 // Ensure required env for routes
@@ -46,6 +47,9 @@ vi.mock('../../server/storage', () => ({
     },
     async getIncompleteUserByEmail(email: string) {
       return users.find(u => u.email === email && u.signupCompleted === false);
+    },
+    async getUserById(id: string) {
+      return users.find(u => u.id === id);
     },
     async updateUserSignupAttempts(id: string) {
       const u = users.find(u => u.id === id);
@@ -145,6 +149,7 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
 
   beforeAll(async () => {
     app = express();
+    app.use(cookieParser());
     app.use(express.json());
     app.use(express.urlencoded({ extended: false }));
     // Provide a session middleware before routes; registerRoutes also configures one, duplications are fine for tests
@@ -154,6 +159,14 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
 
     vi.spyOn(PaymentService.prototype, 'verifyFlutterwavePayment').mockResolvedValue(true as any);
     vi.spyOn(PaymentService.prototype, 'verifyPaystackPayment').mockResolvedValue(true as any);
+    vi.spyOn(PaymentService.prototype, 'initializeFlutterwavePayment').mockResolvedValue({
+      status: true,
+      message: 'Payment link generated',
+      data: {
+        link: 'https://checkout.flutterwave.com/v3/hosted/pay/mock_link',
+        reference: 'mock_reference'
+      }
+    } as any);
   });
 
   afterAll(() => {
