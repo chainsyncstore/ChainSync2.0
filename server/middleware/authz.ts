@@ -1,7 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import { db } from '../db';
-import { users, userRoles, ipWhitelist, organizations } from '@shared/prd-schema';
+import { users, userRoles, ipWhitelist, organizations, subscriptions } from '@shared/prd-schema';
 import { eq } from 'drizzle-orm';
+import { getPlan } from '../lib/plans';
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
@@ -30,9 +31,16 @@ export function requireRole(required: AnyRole | AnyRole[]) {
     const now = new Date();
     if (!org?.isActive) return res.status(402).json({ error: 'Organization inactive' });
     if (org.lockedUntil && new Date(org.lockedUntil) > now) return res.status(402).json({ error: 'Organization locked' });
-    const roles = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+
+    // Enforce subscription plan role limits
+    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.orgId, user.orgId)))[0];
+    const plan = getPlan(sub?.planCode || 'basic');
     const requiredList = (Array.isArray(required) ? required : [required]) as AnyRole[];
     const normalizedRequired = requiredList.map(r => (typeof r === 'string' ? r.toUpperCase() : r)) as RoleUpper[];
+    const roleIsAvailableInPlan = normalizedRequired.every(r => plan.availableRoles.includes(r));
+    if (!roleIsAvailableInPlan) return res.status(403).json({ error: 'Role not available in your plan' });
+
+    const roles = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
     const hasRole = roles.some(r => normalizedRequired.includes(r.role as RoleUpper));
     if (!hasRole) return res.status(403).json({ error: 'Forbidden' });
     next();

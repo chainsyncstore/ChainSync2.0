@@ -1,9 +1,10 @@
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
-import { stores, users } from '@shared/prd-schema';
-import { eq } from 'drizzle-orm';
+import { stores, users, subscriptions } from '@shared/prd-schema';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { requireAuth, requireRole, enforceIpWhitelist } from '../middleware/authz';
+import { getPlan } from '../lib/plans';
 
 const CreateStoreSchema = z.object({
   name: z.string().min(1),
@@ -30,6 +31,16 @@ export async function registerStoreRoutes(app: Express) {
     if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
     const me = (await db.select().from(users).where(eq(users.id, currentUserId)))[0] as any;
     if (!me?.orgId) return res.status(400).json({ error: 'Missing org' });
+
+    // Enforce subscription limits
+    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.orgId, me.orgId)))[0];
+    const plan = getPlan(sub?.planCode || 'basic');
+    const storeCountResult = await db.execute(sql`select count(*) from stores where org_id = ${me.orgId}`);
+    const storeCount = parseInt((storeCountResult.rows[0] as any).count, 10);
+
+    if (storeCount >= plan.maxStores) {
+      return res.status(403).json({ error: 'Store limit reached. Upgrade to add more stores.' });
+    }
 
     const [created] = await db.insert(stores).values({
       orgId: me.orgId,

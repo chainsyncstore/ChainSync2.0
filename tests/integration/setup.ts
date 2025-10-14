@@ -12,6 +12,7 @@ import {
   sales as T_SALES,
   saleItems as T_SALE_ITEMS,
   auditLogs as T_AUDIT,
+  subscriptions as T_SUBSCRIPTIONS,
 } from '../../shared/prd-schema';
 
 // Load test environment variables
@@ -28,6 +29,7 @@ vi.mock('../../server/db', () => {
   const store: Record<string, Row[]> = {
     users: [],
     stores: [],
+    subscriptions: [],
     products: [],
     inventory: [],
     customers: [],
@@ -49,6 +51,7 @@ vi.mock('../../server/db', () => {
     if (t === T_SALES) return 'sales';
     if (t === T_SALE_ITEMS) return 'sale_items';
     if (t === T_AUDIT) return 'audit_logs';
+    if (t === T_SUBSCRIPTIONS) return 'subscriptions';
     return 'audit_logs';
   }
 
@@ -59,17 +62,30 @@ vi.mock('../../server/db', () => {
   const select = vi.fn((projection?: any) => ({
     from: (tbl: any) => {
       const key = tableName(tbl);
-      const rows = store[key];
+      const rows = store[key] || [];
       const result = rows.slice();
+
+      const thenable = (res: any[]) => ({
+        limit: (n: number) => Promise.resolve(res.slice(0, n)),
+        then: (resolve: any) => resolve(res),
+      });
+
       return {
         innerJoin: () => this,
         leftJoin: () => this,
         orderBy: () => this,
         groupBy: () => this,
-        where: (_expr?: any) => ({
-          limit: async (_n?: number) => result,
-        }),
-        limit: async (_n?: number) => result,
+        where: (expr?: any) => {
+          // This is a hacky mock of the where clause to support the user lookup in authz.
+          // It assumes an `eq` expression on an `id` column.
+          if (expr && expr.right && expr.left?.name === 'id') {
+            const filtered = result.filter(row => row.id === expr.right);
+            return thenable(filtered);
+          }
+          return thenable(result);
+        },
+        limit: async (n?: number) => n ? result.slice(0, n) : result,
+        then: (resolve: any) => resolve(result),
       } as any;
     },
   }));
@@ -117,6 +133,15 @@ vi.mock('../../server/db', () => {
 
 // Mock crypto module for integration tests
 vi.mock('crypto', () => cryptoModuleMock);
+
+// Mock security middleware to bypass CSRF in tests
+vi.mock('../../server/middleware/security', async () => {
+  const mod = await vi.importActual<any>('../../server/middleware/security');
+  return {
+    ...mod,
+    csrfProtection: (_req: any, _res: any, next: any) => next(),
+  };
+});
 
 let testDb: any;
 
@@ -180,6 +205,7 @@ beforeEach(async () => {
       seed({
         users: [{ id: 'u-test', orgId: 'org-test', email: 'user@test', isAdmin: true }],
         stores: [{ id: '00000000-0000-0000-0000-000000000001', orgId: 'org-test', name: 'Test Store' }],
+        subscriptions: [{ id: 'sub-test', orgId: 'org-test', planCode: 'enterprise', status: 'ACTIVE' }],
         products: [{ id: '00000000-0000-0000-0000-000000000010', orgId: 'org-test', sku: 'SKU', name: 'P', costPrice: '0', salePrice: '100', vatRate: '0' }],
         inventory: [{ id: 'inv-1', storeId: '00000000-0000-0000-0000-000000000001', productId: '00000000-0000-0000-0000-000000000010', quantity: 999 }],
       });
@@ -205,6 +231,7 @@ async function clearTestData() {
       'loyalty_transactions',
       'transaction_items',
       'transactions',
+      'subscriptions',
       'low_stock_alerts',
       'inventory',
       'products',
