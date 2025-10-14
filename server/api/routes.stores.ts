@@ -12,6 +12,13 @@ const CreateStoreSchema = z.object({
   currency: z.enum(['NGN', 'USD']).optional().default('NGN'),
 });
 
+const UpdateStoreSchema = z.object({
+  name: z.string().min(1).optional(),
+  address: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().email().optional(),
+});
+
 export async function registerStoreRoutes(app: Express) {
   // List stores for current user's org
   app.get('/api/stores', requireAuth, async (req: Request, res: Response) => {
@@ -50,6 +57,33 @@ export async function registerStoreRoutes(app: Express) {
     } as any).returning();
 
     return res.status(201).json(created);
+  });
+
+  // Update a store
+  app.patch('/api/stores/:id', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const parsed = UpdateStoreSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+
+    const storeId = req.params.id;
+    const currentUserId = (req.session as any)?.userId as string | undefined;
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const me = (await db.select().from(users).where(eq(users.id, currentUserId)))[0] as any;
+    if (!me?.orgId) return res.status(400).json({ error: 'Missing org' });
+
+    const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
+    if (!store || store.orgId !== me.orgId) {
+      return res.status(404).json({ error: 'Store not found or access denied' });
+    }
+
+    const [updatedStore] = await db.update(stores)
+      .set(parsed.data)
+      .where(eq(stores.id, storeId))
+      .returning();
+
+    res.json(updatedStore);
   });
 }
 

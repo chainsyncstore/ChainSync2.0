@@ -48,6 +48,7 @@ export const users = pgTable('users', {
   orgId: uuid('org_id'),
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  settings: jsonb('settings').default({}),
   isAdmin: boolean('is_admin').notNull().default(false),
   requires2fa: boolean('requires_2fa').notNull().default(false),
   totpSecret: varchar('totp_secret', { length: 255 }),

@@ -5,6 +5,7 @@ import { configureSession } from '../session';
 import { loadEnv } from '../../shared/env';
 import { getEmailHealth } from '../email';
 import { registerAuthRoutes } from './routes.auth';
+import { registerSettingsRoutes } from './routes.settings';
 import { registerInventoryRoutes } from './routes.inventory';
 import { registerPosRoutes } from './routes.pos';
 import { registerAnalyticsRoutes } from './routes.analytics';
@@ -55,6 +56,7 @@ export async function registerRoutes(app: Express) {
   // API routes
   await registerAuthRoutes(app);
   await registerMeRoutes(app);
+  await registerSettingsRoutes(app);
   await registerInventoryRoutes(app);
   await registerStoreRoutes(app);
   await registerCustomerRoutes(app);

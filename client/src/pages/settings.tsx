@@ -18,6 +18,23 @@ export default function Settings() {
   const [exporting, setExporting] = useState<string | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
+
+  // Store settings form state
+  const [storeInfo, setStoreInfo] = useState({ name: '', address: '', phone: '', email: '' });
+  const [isSavingStore, setIsSavingStore] = useState(false);
+
+  // Password change form state
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // Notification settings state
+  const [notificationSettings, setNotificationSettings] = useState({ lowStockAlerts: false, salesReports: false, systemUpdates: false });
+  const [isSavingNotifications, setIsSavingNotifications] = useState(false);
+
+  // Integration settings state
+  const [integrationSettings, setIntegrationSettings] = useState({ paymentGateway: false, accountingSoftware: false, emailMarketing: false });
+  const [isSavingIntegrations, setIsSavingIntegrations] = useState(false);
+
   const [deleteConfirm, setDeleteConfirm] = useState<string>('');
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
@@ -39,12 +56,118 @@ export default function Settings() {
 
     if (user) {
       fetchStores();
+
+      const fetchSettings = async () => {
+        try {
+          const response = await fetch('/api/settings');
+          if (response.ok) {
+            const settings = await response.json();
+            setNotificationSettings(settings.notifications || { lowStockAlerts: false, salesReports: false, systemUpdates: false });
+            setIntegrationSettings(settings.integrations || { paymentGateway: false, accountingSoftware: false, emailMarketing: false });
+          }
+        } catch (error) {
+          console.error('Failed to fetch settings:', error);
+        }
+      };
+      fetchSettings();
     }
   }, [user]);
+
+  useEffect(() => {
+    const selectedStore = stores.find(s => s.id === selectedStoreId);
+    if (selectedStore) {
+      setStoreInfo({
+        name: selectedStore.name || '',
+        address: selectedStore.address || '',
+        phone: (selectedStore as any).phone || '',
+        email: (selectedStore as any).email || ''
+      });
+    }
+  }, [selectedStoreId, stores]);
 
   if (!user) {
     return <div>Loading...</div>;
   }
+
+  const handleSaveStoreSettings = async () => {
+    if (!selectedStoreId) {
+      toast({ title: "Error", description: "No store selected.", variant: "destructive" });
+      return;
+    }
+    setIsSavingStore(true);
+    try {
+      const response = await fetch(`/api/stores/${selectedStoreId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(storeInfo),
+      });
+      if (!response.ok) throw new Error('Failed to save store settings');
+      toast({ title: "Success", description: "Store settings saved successfully." });
+    } catch (error) {
+      toast({ title: "Error", description: "Could not save store settings.", variant: "destructive" });
+    } finally {
+      setIsSavingStore(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast({ title: "Error", description: "New passwords do not match.", variant: "destructive" });
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      const response = await fetch('/api/me/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(passwordForm),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to change password');
+      }
+      toast({ title: "Success", description: "Password changed successfully." });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handleSaveNotificationSettings = async () => {
+    setIsSavingNotifications(true);
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notifications: notificationSettings }),
+      });
+      if (!response.ok) throw new Error('Failed to save notification settings');
+      toast({ title: "Success", description: "Notification settings saved." });
+    } catch (error) {
+      toast({ title: "Error", description: "Could not save notification settings.", variant: "destructive" });
+    } finally {
+      setIsSavingNotifications(false);
+    }
+  };
+
+  const handleSaveIntegrationSettings = async () => {
+    setIsSavingIntegrations(true);
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integrations: integrationSettings }),
+      });
+      if (!response.ok) throw new Error('Failed to save integration settings');
+      toast({ title: "Success", description: "Integration settings saved." });
+    } catch (error) {
+      toast({ title: "Error", description: "Could not save integration settings.", variant: "destructive" });
+    } finally {
+      setIsSavingIntegrations(false);
+    }
+  };
 
   const handleExport = async (type: string) => {
     if (!selectedStoreId) {
@@ -166,25 +289,27 @@ export default function Settings() {
             <CardContent className="space-y-4">
               <div>
                 <Label htmlFor="storeName">Store Name</Label>
-                <Input id="storeName" defaultValue="Downtown Store" />
+                <Input id="storeName" value={storeInfo.name} onChange={e => setStoreInfo({ ...storeInfo, name: e.target.value })} />
               </div>
               
               <div>
                 <Label htmlFor="storeAddress">Address</Label>
-                <Input id="storeAddress" defaultValue="123 Main Street, Downtown" />
+                <Input id="storeAddress" value={storeInfo.address} onChange={e => setStoreInfo({ ...storeInfo, address: e.target.value })} />
               </div>
               
               <div>
                 <Label htmlFor="storePhone">Phone</Label>
-                <Input id="storePhone" defaultValue="(555) 123-4567" />
+                <Input id="storePhone" value={storeInfo.phone} onChange={e => setStoreInfo({ ...storeInfo, phone: e.target.value })} />
               </div>
               
               <div>
                 <Label htmlFor="storeEmail">Email</Label>
-                <Input id="storeEmail" type="email" defaultValue="store@chainsync.com" />
+                <Input id="storeEmail" type="email" value={storeInfo.email} onChange={e => setStoreInfo({ ...storeInfo, email: e.target.value })} />
               </div>
               
-              <Button>Save Store Settings</Button>
+              <Button onClick={handleSaveStoreSettings} disabled={isSavingStore}>
+                {isSavingStore ? 'Saving...' : 'Save Store Settings'}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -226,20 +351,22 @@ export default function Settings() {
             <CardContent className="space-y-4">
               <div>
                 <Label htmlFor="currentPassword">Current Password</Label>
-                <Input id="currentPassword" type="password" />
+                <Input id="currentPassword" type="password" value={passwordForm.currentPassword} onChange={e => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} />
               </div>
               
               <div>
                 <Label htmlFor="newPassword">New Password</Label>
-                <Input id="newPassword" type="password" />
+                <Input id="newPassword" type="password" value={passwordForm.newPassword} onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} />
               </div>
               
               <div>
                 <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                <Input id="confirmPassword" type="password" />
+                <Input id="confirmPassword" type="password" value={passwordForm.confirmPassword} onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} />
               </div>
               
-              <Button>Change Password</Button>
+              <Button onClick={handleChangePassword} disabled={isChangingPassword}>
+                {isChangingPassword ? 'Changing...' : 'Change Password'}
+              </Button>
             </CardContent>
           </Card>
 
@@ -315,7 +442,7 @@ export default function Settings() {
                   <p className="font-medium">Low Stock Alerts</p>
                   <p className="text-sm text-gray-600">Get notified when inventory is running low</p>
                 </div>
-                <Switch defaultChecked />
+                <Switch checked={notificationSettings.lowStockAlerts} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, lowStockAlerts: checked })} />
               </div>
               
               <div className="flex items-center justify-between">
@@ -323,7 +450,7 @@ export default function Settings() {
                   <p className="font-medium">Sales Reports</p>
                   <p className="text-sm text-gray-600">Receive daily sales summaries</p>
                 </div>
-                <Switch defaultChecked />
+                <Switch checked={notificationSettings.salesReports} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, salesReports: checked })} />
               </div>
               
               <div className="flex items-center justify-between">
@@ -331,10 +458,12 @@ export default function Settings() {
                   <p className="font-medium">System Updates</p>
                   <p className="text-sm text-gray-600">Get notified about system maintenance and updates</p>
                 </div>
-                <Switch />
+                <Switch checked={notificationSettings.systemUpdates} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, systemUpdates: checked })} />
               </div>
               
-              <Button>Save Preferences</Button>
+              <Button onClick={handleSaveNotificationSettings} disabled={isSavingNotifications}>
+                {isSavingNotifications ? 'Saving...' : 'Save Preferences'}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -351,7 +480,7 @@ export default function Settings() {
                   <p className="font-medium">Payment Gateway</p>
                   <p className="text-sm text-gray-600">Connect to Paystack/Flutterwave for payment processing</p>
                 </div>
-                <Switch defaultChecked />
+                <Switch checked={integrationSettings.paymentGateway} onCheckedChange={checked => setIntegrationSettings({ ...integrationSettings, paymentGateway: checked })} />
               </div>
               
               <div className="flex items-center justify-between">
@@ -359,7 +488,7 @@ export default function Settings() {
                   <p className="font-medium">Accounting Software</p>
                   <p className="text-sm text-gray-600">Sync with QuickBooks for accounting</p>
                 </div>
-                <Switch />
+                <Switch checked={integrationSettings.accountingSoftware} onCheckedChange={checked => setIntegrationSettings({ ...integrationSettings, accountingSoftware: checked })} />
               </div>
               
               <div className="flex items-center justify-between">
@@ -367,10 +496,12 @@ export default function Settings() {
                   <p className="font-medium">Email Marketing</p>
                   <p className="text-sm text-gray-600">Connect to Mailchimp for email campaigns</p>
                 </div>
-                <Switch />
+                <Switch checked={integrationSettings.emailMarketing} onCheckedChange={checked => setIntegrationSettings({ ...integrationSettings, emailMarketing: checked })} />
               </div>
               
-              <Button>Configure Integrations</Button>
+              <Button onClick={handleSaveIntegrationSettings} disabled={isSavingIntegrations}>
+                {isSavingIntegrations ? 'Saving...' : 'Configure Integrations'}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
