@@ -11,8 +11,8 @@ const isDev = process.env.NODE_ENV !== 'production';
 // Discover app origins from env to permit SPA assets when hosted separately
 const appUrl = process.env.APP_URL?.trim();
 const frontendUrl = process.env.FRONTEND_URL?.trim();
-const dynamicOrigins = [appUrl, frontendUrl, isDev ? 'http://localhost:5173' : undefined]
-  .filter(Boolean) as string[];
+const dynamicOrigins = [...new Set([appUrl, frontendUrl, isDev ? 'http://localhost:5173' : undefined]
+  .filter(Boolean) as string[])];
 
 // Load validated env once at boot and parse allowed CORS origins
 const envForCors = loadEnv(process.env);
@@ -229,7 +229,7 @@ export const helmetConfig = helmet({
       // - Flutterwave checkout: checkout.flutterwave.com
       // - ReCAPTCHA (if used): www.google.com, www.gstatic.com, www.recaptcha.net
       // Dev relaxations (vite/HMR): 'unsafe-inline' (only dev), 'unsafe-eval' (only dev)
-      scriptSrc: [
+      scriptSrc: Array.from(new Set([
         "'self'",
         ...(isDev ? ["'unsafe-inline'", "'unsafe-eval'"] : []),
         ...dynamicOrigins,
@@ -238,15 +238,15 @@ export const helmetConfig = helmet({
         "https://www.google.com",
         "https://www.gstatic.com",
         "https://www.recaptcha.net",
-      ],
+      ])),
 
       // Styles: allow Google Fonts and minimal inline styles (some libs inject style tags)
-      styleSrc: [
+      styleSrc: Array.from(new Set([
         "'self'",
         "'unsafe-inline'", // Note: required for some component libs; review periodically
         "https://fonts.googleapis.com",
         ...dynamicOrigins
-      ],
+      ])),
 
       // Fonts: Google Fonts static
       fontSrc: [
@@ -262,7 +262,7 @@ export const helmetConfig = helmet({
       // - Payment APIs for client-side verification/polling: api.paystack.co, api.flutterwave.com
       // - Sentry ingestion (if enabled)
       // - WebSockets for notifications/HMR: wss: always, ws: only in dev
-      connectSrc: [
+      connectSrc: Array.from(new Set([
         "'self'",
         "wss:",
         ...(isDev ? ["ws:"] : []),
@@ -274,12 +274,12 @@ export const helmetConfig = helmet({
         "https://www.gstatic.com",
         "https://www.recaptcha.net",
         "https://www.google.com/recaptcha/api2/clr"
-      ],
+      ])),
 
       // Allow provider-hosted iframes/popups
       // - Paystack may open checkout on *.paystack.com
       // - Flutterwave hosts checkout on *.flutterwave.com
-      frameSrc: [
+      frameSrc: Array.from(new Set([
         "'self'",
         ...dynamicOrigins,
         "https://*.paystack.com",
@@ -289,7 +289,7 @@ export const helmetConfig = helmet({
         "https://www.google.com",
         "https://www.gstatic.com",
         "https://www.recaptcha.net"
-      ],
+      ])),
 
       // Allow form POST redirects to providers if flow uses full-page redirects
       formAction: [
