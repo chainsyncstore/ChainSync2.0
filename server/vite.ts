@@ -59,6 +59,19 @@ export async function setupVite(app: Express, server: Server) {
     server: serverOptions,
     appType: "custom",
   });
+  // Serve manifest with correct MIME in development
+  try {
+    const devManifestPath = safePathResolve("..", "client", "public", "manifest.json");
+    app.get('/manifest.json', (req, res, next) => {
+      try {
+        if (fs.existsSync(devManifestPath)) {
+          res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+          return res.sendFile(devManifestPath);
+        }
+      } catch {}
+      next();
+    });
+  } catch {}
 
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
@@ -116,6 +129,18 @@ export function serveStatic(app: Express) {
         userAgent: req.get('User-Agent')
       });
       
+      next();
+    });
+
+    // Ensure manifest.json has the correct MIME type before static middleware
+    app.get('/manifest.json', (req, res, next) => {
+      try {
+        const manifestPath = path.join(distPath, 'manifest.json');
+        if (fs.existsSync(manifestPath)) {
+          res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+          return res.sendFile(manifestPath);
+        }
+      } catch {}
       next();
     });
 

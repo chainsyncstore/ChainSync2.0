@@ -474,31 +474,11 @@ async function syncOfflineItem(item) {
   return response;
 }
 
-// Prewarm caches for app shell + POS data when clients signal readiness
-self.addEventListener('message', (event) => {
-  try {
-    if (event.data && event.data.type === 'PREWARM_CACHES') {
-      event.waitUntil((async () => {
-        try {
-          const cache = await caches.open(OFFLINE_CACHE);
-          const urls = ['/api/products', '/api/stores', '/api/inventory'];
-          await Promise.all(urls.map(async (u) => {
-            try {
-              const res = await fetch(u, { credentials: 'include' });
-              if (res.ok) await cache.put(u, res.clone());
-            } catch {}
-          }));
-        } catch {}
-      })());
-    }
-  } catch {}
-});
-
 // Handle push notifications
 self.addEventListener('push', (event) => {
   if (event.data) {
     const data = event.data.json();
-    
+    // ...
     const options = {
       body: data.message,
       icon: '/icon-192x192.png',
@@ -566,6 +546,24 @@ self.addEventListener('message', (event) => {
       clearCache().then(() => {
         event.ports[0].postMessage({ success: true });
       });
+      break;
+    case 'PREWARM_CACHES':
+      // Only prewarm POS data when explicitly allowed by the client
+      // Accept either an authenticated signal or an explicit feature flag
+      event.waitUntil((async () => {
+        try {
+          const allowPrewarm = !!(data && (data.authenticated === true || data.allowPrewarm === true));
+          if (!allowPrewarm) return; // silent no-op when unauthenticated
+          const cache = await caches.open(OFFLINE_CACHE);
+          const urls = ['/api/products', '/api/stores', '/api/inventory'];
+          await Promise.all(urls.map(async (u) => {
+            try {
+              const res = await fetch(u, { credentials: 'include' });
+              if (res.ok) await cache.put(u, res.clone());
+            } catch {}
+          }));
+        } catch {}
+      })());
       break;
     case 'DISABLE':
       isDisabled = true;

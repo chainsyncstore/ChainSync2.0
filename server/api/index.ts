@@ -25,8 +25,9 @@ import { OpenAIService } from '../openai/service';
 export async function registerRoutes(app: Express) {
   const env = loadEnv(process.env);
 
-  // Sessions (Redis-backed)
-  app.use(configureSession(env.REDIS_URL, env.SESSION_SECRET));
+  // Sessions (Redis-backed; allow local bypass with LOCAL_DISABLE_REDIS)
+  const resolvedRedisUrl = process.env.LOCAL_DISABLE_REDIS === 'true' ? undefined : env.REDIS_URL;
+  app.use(configureSession(resolvedRedisUrl, env.SESSION_SECRET));
   // Cookie parser required before CSRF
   app.use(cookieParser());
   // Ensure raw body is available for webhooks
