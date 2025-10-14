@@ -9,11 +9,11 @@ import { AIChatProvider } from "@/hooks/use-ai-chat";
 import { ScannerProvider } from "@/hooks/use-barcode-scanner";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { PageLoading } from "@/components/ui/loading";
-import Login from "@/components/auth/login";
-import Signup from "@/components/auth/signup";
-import ForgotPassword from "@/components/auth/forgot-password";
-import ResetPassword from "@/components/auth/reset-password";
-import MainLayout from "@/components/layout/main-layout";
+const Login = lazy(() => import("@/components/auth/login"));
+const Signup = lazy(() => import("@/components/auth/signup"));
+const ForgotPassword = lazy(() => import("@/components/auth/forgot-password"));
+const ResetPassword = lazy(() => import("@/components/auth/reset-password"));
+const MainLayout = lazy(() => import("@/components/layout/main-layout"));
 import { useState } from "react";
 import { RECAPTCHA_SITE_KEY } from './lib/constants';
 
@@ -70,7 +70,11 @@ function Dashboard({ userRole }: { userRole: string }) {
             <Route path="/data-import" component={DataImport} />
             <Route path="/multi-store" component={MultiStore} />
             <Route path="/settings" component={Settings} />
-            <Route path="/pos" component={POS} />
+            <Route path="/pos">{() => (
+              <ScannerProvider>
+                <POS />
+              </ScannerProvider>
+            )}</Route>
             <Route path="/debug-csrf" component={DebugCsrf} />
             <Route component={NotFound} />
           </Switch>
@@ -109,9 +113,21 @@ function Dashboard({ userRole }: { userRole: string }) {
     <MainLayout userRole={role}>
       <Suspense fallback={<PageLoader />}>
         <Switch>
-          <Route path="/" component={POS} /> {/* Cashier sees POS as default */}
-          <Route path="/login" component={POS} /> {/* Redirect login to default */}
-          <Route path="/pos" component={POS} />
+          <Route path="/">{() => (
+            <ScannerProvider>
+              <POS />
+            </ScannerProvider>
+          )}</Route> {/* Cashier sees POS as default */}
+          <Route path="/login">{() => (
+            <ScannerProvider>
+              <POS />
+            </ScannerProvider>
+          )}</Route> {/* Redirect login to default */}
+          <Route path="/pos">{() => (
+            <ScannerProvider>
+              <POS />
+            </ScannerProvider>
+          )}</Route>
           <Route component={NotFound} />
         </Switch>
       </Suspense>
@@ -136,8 +152,7 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AIChatProvider>
-          <ScannerProvider>
-            <TooltipProvider>
+          <TooltipProvider>
               <Toaster />
               {isLoading ? (
                 <PageLoader />
@@ -173,7 +188,6 @@ function App() {
                 </Suspense>
               )}
             </TooltipProvider>
-          </ScannerProvider>
         </AIChatProvider>
       </QueryClientProvider>
     </ErrorBoundary>

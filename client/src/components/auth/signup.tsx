@@ -152,6 +152,7 @@ function SignupForm() {
   const [step, setStep] = useState<'form' | 'payment'>('form');
   const [userData, setUserData] = useState<any>(null);
   const [generalError, setGeneralError] = useState<string>('');
+  const [showStrength, setShowStrength] = useState(false);
 
   // Get URL parameters and validate them before setting form defaults
   const urlParams = new URLSearchParams(window.location.search);
@@ -796,6 +797,7 @@ function SignupForm() {
                   type="password"
                   autoComplete="new-password"
                   {...register('password')}
+                  onFocus={() => setShowStrength(true)}
                   onChange={(e) => handleInputChange('password', e.target.value)}
                   required
                   disabled={isLoading}
@@ -803,7 +805,9 @@ function SignupForm() {
                 {errors.password && (
                   <p className="text-sm text-red-500">{errors.password.message}</p>
                 )}
-                <PasswordStrength password={watchedValues.password} />
+                {showStrength && (
+                  <PasswordStrength password={watchedValues.password} />
+                )}
               </div>
               
               <div className="space-y-2">

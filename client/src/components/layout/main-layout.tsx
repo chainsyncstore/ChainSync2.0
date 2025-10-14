@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import { useLocation } from "wouter";
-import Sidebar from "./sidebar";
-import TopBar from "./topbar";
-import FloatingChat from "../ai/floating-chat";
+const Sidebar = lazy(() => import("./sidebar"));
+const TopBar = lazy(() => import("./topbar"));
+const FloatingChat = lazy(() => import("../ai/floating-chat"));
 import { useAuth } from "@/hooks/use-auth";
 import { formatDateTime } from "@/lib/pos-utils";
 
@@ -132,24 +132,8 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
   return (
     <div className="flex h-screen bg-slate-50">
       {/* Sidebar */}
-      <Sidebar
-        userRole={userRole}
-        userName={userName}
-        userInitials={userInitials}
-        selectedStore={selectedStore}
-        stores={stores}
-        onStoreChange={setSelectedStore}
-        alertCount={alertCount}
-      />
-      
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <TopBar
-          title={pageInfo.title}
-          subtitle={pageInfo.subtitle}
-          currentDateTime={currentDateTime}
-          onLogout={logout}
+      <Suspense fallback={null}>
+        <Sidebar
           userRole={userRole}
           userName={userName}
           userInitials={userInitials}
@@ -158,6 +142,26 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
           onStoreChange={setSelectedStore}
           alertCount={alertCount}
         />
+      </Suspense>
+      
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Bar */}
+        <Suspense fallback={null}>
+          <TopBar
+            title={pageInfo.title}
+            subtitle={pageInfo.subtitle}
+            currentDateTime={currentDateTime}
+            onLogout={logout}
+            userRole={userRole}
+            userName={userName}
+            userInitials={userInitials}
+            selectedStore={selectedStore}
+            stores={stores}
+            onStoreChange={setSelectedStore}
+            alertCount={alertCount}
+          />
+        </Suspense>
         
         {/* Page Content */}
         <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
@@ -165,8 +169,10 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
         </main>
       </div>
       
-      {/* Floating AI Chat */}
-      <FloatingChat storeId={selectedStore} />
+      {/* Floating AI Chat (lazy) */}
+      <Suspense fallback={null}>
+        <FloatingChat storeId={selectedStore} />
+      </Suspense>
     </div>
   );
-} 
+}

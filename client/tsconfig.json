@@ -6,7 +6,8 @@
     "types": ["react", "react-dom", "vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@shared/*": ["../shared/*"]
     }
   },
   "include": ["src/**/*"],

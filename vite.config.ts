@@ -47,13 +47,51 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Vendor chunks for better caching
-          vendor: ['react', 'react-dom'],
-          ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
-          charts: ['recharts'],
-          forms: ['react-hook-form', '@hookform/resolvers'],
-          utils: ['date-fns', 'clsx', 'tailwind-merge'],
+        manualChunks(id, { getModuleInfo }) {
+          // Preserve explicit groups first
+          const map: Record<string, string> = {
+            'recharts': 'charts',
+            'react-hook-form': 'forms',
+            '@hookform/resolvers': 'forms',
+            '@radix-ui/react-dialog': 'ui',
+            '@radix-ui/react-dropdown-menu': 'ui',
+            '@radix-ui/react-select': 'ui',
+            '@radix-ui/react-tabs': 'ui',
+            '@radix-ui/react-toast': 'ui',
+            '@radix-ui/react-popover': 'ui',
+            '@radix-ui/react-hover-card': 'ui',
+            'lucide-react': 'icons',
+            'wouter': 'router',
+            '@tanstack/react-query': 'reactQuery',
+            'react-day-picker': 'daypicker',
+            'date-fns': 'utils',
+            'clsx': 'utils',
+            'tailwind-merge': 'utils',
+            'react': 'vendor',
+            'react-dom': 'vendor',
+          };
+
+          if (id.includes('node_modules')) {
+            // Try to map to explicit groups first
+            for (const key of Object.keys(map)) {
+              if (id.includes(`${path.sep}node_modules${path.sep}${key}${path.sep}`)) return map[key];
+              if (id.includes(`/node_modules/${key}/`)) return map[key];
+            }
+
+            // Extract package name robustly on Windows/Unix
+            const nmIndex = id.lastIndexOf('node_modules');
+            const sub = id.slice(nmIndex + 'node_modules'.length + 1);
+            const parts = sub.split(/[/\\]/).filter(Boolean);
+            let pkg = parts[0] || 'vendor';
+            if (pkg.startsWith('@') && parts.length >= 2) {
+              pkg = `${pkg}/${parts[1]}`;
+            }
+            const name = pkg.replace(/[^a-zA-Z0-9@/_-]/g, '_').replace(/[\/]/g, '_');
+            return `vendor-${name}`;
+          }
+
+          // Default: let Rollup decide for app code
+          return undefined;
         },
         // Ensure proper asset handling
         assetFileNames: (assetInfo) => {

@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import SalesChart from "@/components/analytics/sales-chart";
+const SalesChart = lazy(() => import("@/components/analytics/sales-chart"));
 // PRD: Remove AI features from v1
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -205,7 +205,9 @@ export default function Analytics() {
 
             <TabsContent value="overview" className="space-y-6">
               {/* Sales Chart */}
-              <SalesChart storeId={selectedStore} className="w-full" />
+              <Suspense fallback={<ChartSkeleton />}>
+                <SalesChart storeId={selectedStore} className="w-full" />
+              </Suspense>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Popular Products */}
@@ -353,7 +355,9 @@ export default function Analytics() {
             </TabsContent>
 
             <TabsContent value="sales" className="space-y-6">
-              <SalesChart storeId={selectedStore} className="w-full" />
+              <Suspense fallback={<ChartSkeleton />}>
+                <SalesChart storeId={selectedStore} className="w-full" />
+              </Suspense>
             </TabsContent>
 
             
