@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { doubleCsrf } from "csrf-csrf";
 import { logger } from "../lib/logger";
 import { loadEnv, parseCorsOrigins } from "../../shared/env";
 import { monitoringService } from "../lib/monitoring";
@@ -178,103 +179,41 @@ export const paymentRateLimit = rateLimit({
   skipSuccessfulRequests: false
 });
 
-// CSRF protection configuration
-export const csrfProtection = (req: Request, res: Response, next: NextFunction) => {
-  // Skip CSRF entirely during automated test runs
-  if (process.env.NODE_ENV === 'test') {
-    return next();
-  }
-  // Use originalUrl to match full path even when this middleware is mounted under '/api'
-  const fullPath = (req as any).originalUrl || req.url || req.path;
+const env = loadEnv(process.env);
 
-  // Skip CSRF validation for static files and root path
-  if (req.path === '/' || 
-      req.path === '/favicon.ico' || 
-      req.path.startsWith('/static') || 
-      req.path.startsWith('/assets') ||
-      // Allow logout without CSRF to ensure sessions can always be terminated
-      req.path === '/auth/logout' || fullPath === '/api/auth/logout' ||
-      // Skip provider callbacks and webhooks that require raw bodies
-      req.path.startsWith('/payment') || fullPath.startsWith('/api/payment') ||
-      fullPath.startsWith('/webhooks') ||
-      req.method === 'GET' || 
-      req.method === 'HEAD' || 
-      req.method === 'OPTIONS') {
-    return next();
-  }
-  
-  // Custom CSRF validation with consistent cookie naming
-  const csrfToken = (req.headers['x-csrf-token'] as string) || (req.headers['X-CSRF-Token'] as string);
-  const cookieToken = req.cookies['csrf-token']; // Use consistent cookie name
-  
-  // Log CSRF validation details for debugging
-  logger.debug('CSRF validation', {
-    path: req.path,
-    method: req.method,
-    hasHeaderToken: !!csrfToken,
-    hasCookieToken: !!cookieToken,
-    headerTokenLength: csrfToken?.length || 0,
-    cookieTokenLength: cookieToken?.length || 0
-  });
-  
-  if (!csrfToken || !cookieToken) {
-    logger.warn('CSRF validation failed - missing tokens', {
-      path: req.path,
-      hasHeaderToken: !!csrfToken,
-      hasCookieToken: !!cookieToken
-    });
-    try {
-      monitoringService.recordCsrfFailure({
-        ipAddress: req.ip || (req as any).connection?.remoteAddress,
-        userAgent: req.get('User-Agent'),
-        path: req.path,
-        requestId: (req as any).requestId
-      });
-    } catch {}
-    return res.status(403).json({
-      error: 'CSRF token missing',
-      message: 'CSRF token is required for this request',
-      details: {
-        hasHeaderToken: !!csrfToken,
-        hasCookieToken: !!cookieToken
-      }
-    });
-  }
-  
-  if (csrfToken !== cookieToken) {
-    logger.warn('CSRF validation failed - token mismatch', {
-      path: req.path,
-      headerToken: csrfToken?.substring(0, 8) + '...',
-      cookieToken: cookieToken?.substring(0, 8) + '...'
-    });
-    try {
-      monitoringService.recordCsrfFailure({
-        ipAddress: req.ip || (req as any).connection?.remoteAddress,
-        userAgent: req.get('User-Agent'),
-        path: req.path,
-        requestId: (req as any).requestId
-      });
-    } catch {}
-    return res.status(403).json({
-      error: 'CSRF token invalid',
-      message: 'CSRF token validation failed',
-      details: {
-        headerTokenLength: csrfToken?.length || 0,
-        cookieTokenLength: cookieToken?.length || 0
-      }
-    });
-  }
-  
-  // CSRF validation passed
-  logger.debug('CSRF validation passed', { path: req.path });
-  next();
-};
+const {
+  invalidCsrfTokenError,
+  generateToken,
+  validateRequest,
+  doubleCsrfProtection,
+} = doubleCsrf({
+  getSecret: () => env.SESSION_SECRET,
+  cookieName: "csrf-token",
+  cookieOptions: {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: !isDev,
+  },
+});
+
+// CSRF protection configuration
+export const csrfProtection = doubleCsrfProtection;
 
 // CSRF error handler
 export const csrfErrorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
-  // This is now handled by the custom CSRF validation middleware
-  // Keep for backward compatibility but it should not be called
-  next(err);
+  if (err === invalidCsrfTokenError) {
+    logger.warn('CSRF validation failed', {
+      path: req.path,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+    });
+    res.status(403).json({
+      error: 'CSRF token invalid',
+      message: 'CSRF token validation failed',
+    });
+  } else {
+    next(err);
+  }
 };
 
 // Helmet configuration with CSP
