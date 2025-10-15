@@ -35,6 +35,18 @@ export default function Settings() {
   const [integrationSettings, setIntegrationSettings] = useState({ paymentGateway: false, accountingSoftware: false, emailMarketing: false });
   const [isSavingIntegrations, setIsSavingIntegrations] = useState(false);
 
+  // Profile form state
+  const [profileForm, setProfileForm] = useState({
+    firstName: user?.firstName || '',
+    lastName: user?.lastName || '',
+    email: user?.email || '',
+    phone: user?.phone || '',
+    companyName: user?.companyName || '',
+    location: user?.location || '',
+    password: '', // for re-auth if email changes
+  });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
   const [deleteConfirm, setDeleteConfirm] = useState<string>('');
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
@@ -84,6 +96,18 @@ export default function Settings() {
       });
     }
   }, [selectedStoreId, stores]);
+
+  useEffect(() => {
+    setProfileForm({
+      firstName: user?.firstName || '',
+      lastName: user?.lastName || '',
+      email: user?.email || '',
+      phone: user?.phone || '',
+      companyName: user?.companyName || '',
+      location: user?.location || '',
+      password: '',
+    });
+  }, [user]);
 
   if (!user) {
     return <div>Loading...</div>;
@@ -245,6 +269,27 @@ export default function Settings() {
     }
   };
 
+  const handleSaveProfile = async () => {
+    setIsSavingProfile(true);
+    try {
+      const response = await fetch('/api/me/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileForm),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update profile');
+      }
+      toast({ title: 'Success', description: 'Profile updated successfully.' });
+      setProfileForm(f => ({ ...f, password: '' }));
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div>
@@ -277,6 +322,10 @@ export default function Settings() {
           <TabsTrigger value="data" className="flex items-center gap-2">
             <Database className="h-4 w-4" />
             Data
+          </TabsTrigger>
+          <TabsTrigger value="profile" className="flex items-center gap-2">
+            <SettingsIcon className="h-4 w-4" />
+            Profile
           </TabsTrigger>
         </TabsList>
 
@@ -568,6 +617,50 @@ export default function Settings() {
                   {exporting === 'inventory' ? 'Exporting...' : 'Export Inventory'}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="profile" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile Information</CardTitle>
+              <CardDescription>Update your personal details</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="firstName">First Name</Label>
+                <Input id="firstName" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="lastName">Last Name</Label>
+                <Input id="lastName" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" value={profileForm.email} onChange={e => setProfileForm({ ...profileForm, email: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="phone">Phone</Label>
+                <Input id="phone" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="companyName">Company</Label>
+                <Input id="companyName" value={profileForm.companyName} onChange={e => setProfileForm({ ...profileForm, companyName: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="location">Location</Label>
+                <Input id="location" value={profileForm.location} onChange={e => setProfileForm({ ...profileForm, location: e.target.value })} />
+              </div>
+              {profileForm.email !== user.email && (
+                <div>
+                  <Label htmlFor="password">Current Password (required to change email)</Label>
+                  <Input id="password" type="password" value={profileForm.password} onChange={e => setProfileForm({ ...profileForm, password: e.target.value })} />
+                </div>
+              )}
+              <Button onClick={handleSaveProfile} disabled={isSavingProfile}>
+                {isSavingProfile ? 'Saving...' : 'Save Profile'}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>

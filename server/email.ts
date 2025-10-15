@@ -295,4 +295,39 @@ export function generatePasswordResetSuccessEmail(userEmail: string, userName: s
       This is an automated message from ChainSync. Please do not reply to this email.
     `
   };
-} 
+}
+
+export function generateProfileUpdateEmail(userEmail: string, oldProfile: any, newProfile: any): EmailOptions {
+  function diffRow(label: string, oldVal: string, newVal: string) {
+    if (oldVal === newVal) return '';
+    return `<tr><td style='padding:4px 8px;'>${label}</td><td style='padding:4px 8px;color:#888;'>${oldVal || '-'}</td><td style='padding:4px 8px;color:#2d7a2d;'>${newVal || '-'}</td></tr>`;
+  }
+  return {
+    to: userEmail,
+    subject: 'Your ChainSync Profile Was Updated',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">ChainSync</h1>
+        </div>
+        <div style="padding: 30px; background: #f9f9f9;">
+          <h2 style="color: #333; margin-bottom: 20px;">Profile Updated</h2>
+          <p style="color: #666;">Your profile information was recently updated. If you did not make this change, please contact support immediately.</p>
+          <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+            <thead><tr><th>Field</th><th>Old Value</th><th>New Value</th></tr></thead>
+            <tbody>
+              ${diffRow('First Name', oldProfile.firstName, newProfile.firstName)}
+              ${diffRow('Last Name', oldProfile.lastName, newProfile.lastName)}
+              ${diffRow('Email', oldProfile.email, newProfile.email)}
+              ${diffRow('Phone', oldProfile.phone, newProfile.phone)}
+              ${diffRow('Company', oldProfile.companyName, newProfile.companyName)}
+              ${diffRow('Location', oldProfile.location, newProfile.location)}
+            </tbody>
+          </table>
+          <p style="color: #999; font-size: 12px; text-align: center;">This is an automated message from ChainSync. Please do not reply to this email.</p>
+        </div>
+      </div>
+    `,
+    text: `Your ChainSync profile was updated. If you did not make this change, contact support.\n\nOld profile: ${JSON.stringify(oldProfile)}\nNew profile: ${JSON.stringify(newProfile)}`
+  };
+}

@@ -1112,11 +1112,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUser(id: string, userData: Partial<InsertUser>): Promise<User> {
+    const data = userData as Partial<User>;
+    if (data.email) {
+      const existing = await this.getUserByEmail(data.email);
+      if (existing && existing.id !== id) {
+        throw new Error('Email already in use');
+      }
+    }
+    if (this.isTestEnv) {
+      const user = this.mem.users.get(id);
+      if (!user) throw new Error('User not found');
+      const updated = { ...user, ...userData, updatedAt: new Date() };
+      this.mem.users.set(id, updated);
+      return updated;
+    }
     const [user] = await db.update(users)
       .set({ ...(userData as any), updatedAt: new Date() } as any)
       .where(eq(users.id, id))
       .returning();
-    
     return user;
   }
 
