@@ -1,7 +1,7 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
-// import { fileURLToPath } from "url";
+import { fileURLToPath } from "url";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
@@ -10,15 +10,16 @@ import { logger } from "./lib/logger";
 
 const viteLogger = createLogger();
 
-// Use Node's built-in __filename and __dirname for CJS compatibility
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
-// In CJS/ts-jest, these are available by default
+// Compute a base directory that's safe across CJS and ESM runtimes.
+// In ESM, __dirname is not defined, so derive it from import.meta.url.
+const baseDir = (typeof __dirname !== 'undefined')
+  ? __dirname
+  : path.dirname(fileURLToPath(import.meta.url));
 
-// Utility function to safely resolve paths
+// Utility function to safely resolve paths relative to the repository base directory
 function safePathResolve(...pathsArr: string[]): string {
   try {
-    return path.resolve(__dirname, ...pathsArr);
+    return path.resolve(baseDir, ...pathsArr);
   } catch (error) {
     logger.error('Failed to resolve path', { paths: pathsArr, error: error instanceof Error ? error.message : String(error) });
     throw new Error(`Path resolution failed: ${pathsArr.join('/')}`);

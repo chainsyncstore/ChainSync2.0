@@ -60,6 +60,17 @@ app.use(requestLogger);
       cwd: process.cwd()
     });
 
+    // Startup validations: detect obvious placeholder env values and warn early.
+    try {
+      const rawSentry = String(process.env.SENTRY_DSN || '').trim();
+      if (rawSentry && /your[_-]?sentry|your_sentry_dsn_here|example_sentry/i.test(rawSentry)) {
+        logger.warn('SENTRY_DSN appears to be a placeholder; ignoring for this run. Update your production env to a valid DSN to enable Sentry.');
+        try { delete (process.env as any).SENTRY_DSN; } catch {}
+      }
+    } catch (e) {
+      // ignore
+    }
+
     // Validate env early
     loadEnv(process.env);
     const server = await registerRoutes(app);

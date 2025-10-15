@@ -1,11 +1,17 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { fileURLToPath } from "url";
 
-// Utility function to safely resolve paths
+// Compute a base directory that's safe across CJS and ESM runtimes
+const baseDir = (typeof __dirname !== 'undefined')
+  ? __dirname
+  : path.dirname(fileURLToPath(import.meta.url));
+
+// Utility function to safely resolve paths relative to the repository base directory
 function safePathResolve(...pathsArr: string[]): string {
   try {
-    return path.resolve(__dirname, ...pathsArr);
+    return path.resolve(baseDir, ...pathsArr);
   } catch (error) {
     console.error('Failed to resolve path:', pathsArr, error);
     throw new Error(`Path resolution failed: ${pathsArr.join('/')}`);

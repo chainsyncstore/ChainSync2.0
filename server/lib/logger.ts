@@ -78,12 +78,29 @@ class Logger {
 
     if (process.env.SENTRY_DSN) {
       try {
-        Sentry.init({
-          dsn: process.env.SENTRY_DSN,
-          environment: process.env.NODE_ENV || 'development',
-          tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0.0),
-        });
-      } catch {}
+        // Guard against placeholder DSNs that are often left in example env files
+        const rawDsn = String(process.env.SENTRY_DSN).trim();
+        const looksLikePlaceholder = /your[_-]?sentry|your_sentry_dsn_here|example_sentry/i.test(rawDsn) || rawDsn.length === 0;
+        if (looksLikePlaceholder) {
+          // Avoid initializing Sentry with a placeholder; log to console since pino may not be fully configured yet
+          // and ensure downstream code does not attempt to use Sentry.
+          // eslint-disable-next-line no-console
+          console.warn('SENTRY_DSN appears to be a placeholder or invalid; skipping Sentry initialization.');
+          try {
+            // remove it from process.env so other modules know it's disabled
+            delete (process.env as any).SENTRY_DSN;
+          } catch {}
+        } else {
+          Sentry.init({
+            dsn: rawDsn,
+            environment: process.env.NODE_ENV || 'development',
+            tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0.0),
+          });
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Sentry initialization failed (non-fatal):', e instanceof Error ? e.message : String(e));
+      }
     }
   }
 
