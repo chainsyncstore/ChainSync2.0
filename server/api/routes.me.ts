@@ -35,23 +35,22 @@ declare module 'express-session' {
 }
 
 export async function registerMeRoutes(app: Express) {
-  app.get('/api/me', async (req: Request, res: Response) => {
+  app.get('/api/auth/me', async (req: Request, res: Response) => {
     const userId = req.session?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
-    const data = await db.select().from(users).where(eq(users.id, userId));
-    const user = data[0];
+    const user = await storage.getUser(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ id: user.id, email: user.email, isAdmin: user.isAdmin });
   });
 
-  app.get('/api/me/roles', async (req: Request, res: Response) => {
+  app.get('/api/auth/me/roles', async (req: Request, res: Response) => {
     const userId = req.session?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
     const roles = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
     res.json(roles);
   });
 
-  app.post('/api/me/change-password', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/auth/me/change-password', requireAuth, async (req: Request, res: Response) => {
     const parsed = ChangePasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
@@ -84,7 +83,7 @@ export async function registerMeRoutes(app: Express) {
     }
   });
 
-  app.put('/api/me/profile', requireAuth, async (req: Request, res: Response) => {
+  app.put('/api/auth/me/profile', requireAuth, async (req: Request, res: Response) => {
     const userId = req.session.userId as string;
     const parsed = ProfileUpdateSchema.safeParse(req.body);
     if (!parsed.success) {

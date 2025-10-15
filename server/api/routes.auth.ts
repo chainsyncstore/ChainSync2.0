@@ -122,6 +122,13 @@ export async function registerAuthRoutes(app: Express) {
       // Hash password
       const hashedPassword = await bcrypt.hash(password, 10);
 
+      // Determine role: first user is admin
+      const userCount = process.env.NODE_ENV === 'test'
+        ? ((storage as any)?.mem?.users?.size || 0)
+        : (await db.select({ count: sql`count(*)` }).from(users))[0].count;
+
+      const role = Number(userCount) === 0 ? 'admin' : 'user';
+
       // Create user
       const user = await storage.createUser({
         firstName,
@@ -132,7 +139,7 @@ export async function registerAuthRoutes(app: Express) {
         password: hashedPassword,
         tier,
         location,
-        role: 'user', // Default role
+        role: role, // Default role
         isActive: true,
         emailVerified: false, // Email not verified by default
         signupCompleted: true, // Mark signup as complete
@@ -269,21 +276,18 @@ export async function registerAuthRoutes(app: Express) {
     }
 
     try {
-      // Check if user exists
       const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+      if (user) {
+        // Check if user exists
+        // Generate password reset token
+        const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '1h' });
+
+        // Send password reset email (use template)
+        const { generatePasswordResetEmail } = await import('../email');
+        const resetEmail = generatePasswordResetEmail(user.email, token, user.firstName || user.email);
+        await sendEmail(resetEmail);
       }
-
-      // Generate password reset token
-      const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '1h' });
-
-      // Send password reset email (use template)
-      const { generatePasswordResetEmail } = await import('../email');
-      const resetEmail = generatePasswordResetEmail(user.email, token, user.firstName || user.email);
-      await sendEmail(resetEmail);
-
-      res.json({ message: 'Password reset email sent' });
+      res.json({ message: 'If an account exists for this email, a password reset link has been sent.' });
     } catch (error) {
       logger.error('Password reset request error', { error, req: extractLogContext(req) });
       // monitoringService.recordPasswordResetEvent('request_error', { error: String(error), ...extractLogContext(req) });

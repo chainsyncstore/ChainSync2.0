@@ -41,7 +41,8 @@ describe('Inventory Management Integration Tests', () => {
       role: 'manager',
       tier: 'basic',
       location: 'international',
-      isActive: true
+      isActive: true,
+      emailVerified: true
     });
 
     // Create test store

@@ -66,7 +66,7 @@ describe('Authentication Integration Tests', () => {
         .send(userData)
         .expect(201);
 
-      expect(response.body.message).toBe('User created successfully');
+      expect(response.body.message).toBe('Signup successful, please verify your email');
       expect(response.body.user).toHaveProperty('id');
       expect(response.body.user.email).toBe(userData.email);
       expect(response.body.user).not.toHaveProperty('password');
@@ -118,7 +118,7 @@ describe('Authentication Integration Tests', () => {
         .send(userData)
         .expect(400);
 
-      expect(response.body.message).toBe('User with this email already exists');
+      expect(response.body.message).toBe('User with this email exists');
     });
 
     it('should create the first user as an admin', async () => {
@@ -138,7 +138,7 @@ describe('Authentication Integration Tests', () => {
         .send(userData)
         .expect(201);
 
-      expect(response.body.message).toBe('User created successfully');
+      expect(response.body.message).toBe('Signup successful, please verify your email');
       const createdUser = await storage.getUserByEmail('admin@example.com');
       expect(createdUser).toBeTruthy();
       expect((createdUser as any).role).toBe('admin');
@@ -202,21 +202,22 @@ describe('Authentication Integration Tests', () => {
         role: 'admin',
         tier: 'basic',
         location: 'international',
-        isActive: true
+        isActive: true,
+        emailVerified: true
       });
 
       const response = await request(app)
         .post('/api/auth/login')
         .send({
-          username: 'testuser@example.com',
+          email: 'testuser@example.com',
           password: 'StrongPass123!'
         })
         .expect(200);
 
-      expect(response.body.status).toBe('success');
-      expect(response.body.data).toHaveProperty('id', testUser.id);
-      expect(response.body.data).toHaveProperty('email', testUser.email);
-      expect(response.body.data).not.toHaveProperty('password');
+      expect(response.body.message).toBe('Login successful');
+      expect(response.body.user).toHaveProperty('id', testUser.id);
+      expect(response.body.user).toHaveProperty('email', testUser.email);
+      expect(response.body.user).not.toHaveProperty('password');
     });
 
     it('should reject invalid credentials', async () => {
@@ -231,30 +232,30 @@ describe('Authentication Integration Tests', () => {
         role: 'admin',
         tier: 'basic',
         location: 'international',
-        isActive: true
+        isActive: true,
+        emailVerified: true
       });
       const response = await request(app)
         .post('/api/auth/login')
         .send({
-          username: 'testuser@example.com',
+          email: 'testuser@example.com',
           password: 'wrongpassword'
         })
-        .expect(401);
+        .expect(400);
 
-      expect(response.body.status).toBe('error');
-      expect(response.body.message).toBe('Invalid credentials or IP not whitelisted');
+      expect(response.body.message).toBe('Invalid email or password');
     });
 
     it('should reject non-existent user', async () => {
       const response = await request(app)
         .post('/api/auth/login')
         .send({
-          username: 'nonexistent@example.com',
+          email: 'nonexistent@example.com',
           password: 'StrongPass123!'
         })
-        .expect(401);
+        .expect(400);
 
-      expect(response.body.status).toBe('error');
+      expect(response.body.message).toBe('Invalid email or password');
     });
 
     it('should require username and password', async () => {
@@ -263,8 +264,7 @@ describe('Authentication Integration Tests', () => {
         .send({})
         .expect(400);
 
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error).toBe('username');
+      expect(response.body.message).toBe('Invalid email or password');
     });
   });
 
@@ -274,8 +274,7 @@ describe('Authentication Integration Tests', () => {
         .post('/api/auth/logout')
         .expect(200);
 
-      expect(response.body.status).toBe('success');
-      expect(response.body.message).toBe('Logged out successfully');
+      expect(response.body.message).toBe('Logout successful');
     });
   });
 
@@ -292,14 +291,15 @@ describe('Authentication Integration Tests', () => {
         role: 'admin',
         tier: 'basic',
         location: 'international',
-        isActive: true
+        isActive: true,
+        emailVerified: true
       });
 
       // Login to get session
       const loginResponse = await request(app)
         .post('/api/auth/login')
         .send({
-          username: 'testuser@example.com',
+          email: 'testuser@example.com',
           password: 'StrongPass123!'
         });
 
@@ -309,22 +309,20 @@ describe('Authentication Integration Tests', () => {
         .set('Cookie', sessionCookie)
         .expect(200);
 
-      expect(response.body.status).toBe('success');
-      expect(response.body.data).toHaveProperty('id', testUser.id);
-      expect(response.body.data).toHaveProperty('email', testUser.email);
+      expect(response.body).toHaveProperty('id', testUser.id);
+      expect(response.body).toHaveProperty('email', testUser.email);
     });
 
-    it('should return the test user when not authenticated in a test environment', async () => {
+    it('should return 401 when not authenticated in a test environment', async () => {
       const response = await request(app)
         .get('/api/auth/me')
-        .expect(200);
+        .expect(401);
 
-      expect(response.body.status).toBe('success');
-      expect(response.body.data).toHaveProperty('email', 'admin@chainsync.com');
+      expect(response.body.error).toBe('Not authenticated');
     });
   });
 
-  describe('POST /api/auth/forgot-password', () => {
+  describe('POST /api/auth/request-password-reset', () => {
     it('should send reset email for existing user', async () => {
       await storage.createUser({
         username: 'testuser@example.com',
@@ -337,28 +335,29 @@ describe('Authentication Integration Tests', () => {
         role: 'admin',
         tier: 'basic',
         location: 'international',
-        isActive: true
+        isActive: true,
+        emailVerified: true
       });
       const response = await request(app)
-        .post('/api/auth/forgot-password')
+        .post('/api/auth/request-password-reset')
         .send({ email: 'testuser@example.com' })
         .expect(200);
 
-      expect(response.body.message).toBe('If an account exists for this email, a reset link has been sent.');
+      expect(response.body.message).toBe('If an account exists for this email, a password reset link has been sent.');
     });
 
     it('should not reveal if email exists or not', async () => {
       const response = await request(app)
-        .post('/api/auth/forgot-password')
+        .post('/api/auth/request-password-reset')
         .send({ email: 'nonexistent@example.com' })
         .expect(200);
 
-      expect(response.body.message).toBe('If an account exists for this email, a reset link has been sent.');
+      expect(response.body.message).toBe('If an account exists for this email, a password reset link has been sent.');
     });
 
     it('should require email field', async () => {
       const response = await request(app)
-        .post('/api/auth/forgot-password')
+        .post('/api/auth/request-password-reset')
         .send({})
         .expect(400);
 

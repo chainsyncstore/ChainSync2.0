@@ -41,7 +41,8 @@ describe('POS Transaction Integration Tests', () => {
       role: 'cashier',
       tier: 'basic',
       location: 'international',
-      isActive: true
+      isActive: true,
+      emailVerified: true
     });
 
     // Create test store

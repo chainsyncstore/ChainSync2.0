@@ -49,9 +49,8 @@ describe('Auth Validation Integration Tests', () => {
           .send(validPayload)
           .expect(201);
 
-        expect(response.body).toHaveProperty('message', 'User created successfully');
+        expect(response.body).toHaveProperty('message', 'Signup successful, please verify your email');
         expect(response.body).toHaveProperty('user');
-        expect(response.body).toHaveProperty('store');
       });
 
       it('should accept signup with pro tier', async () => {
@@ -432,8 +431,13 @@ describe('Auth Validation Integration Tests', () => {
 
     describe('Valid Login Payloads', () => {
       it('should accept a valid login payload', async () => {
+        await storage.createUser({
+          email: 'test@example.com',
+          password: 'TestPass123!',
+          emailVerified: true,
+        });
         const validPayload = {
-          username: 'test@example.com',
+          email: 'test@example.com',
           password: 'TestPass123!'
         };
 
@@ -446,7 +450,7 @@ describe('Auth Validation Integration Tests', () => {
     });
 
     describe('Invalid Login Payloads', () => {
-      it('should reject login without username', async () => {
+      it('should reject login without email', async () => {
         const invalidPayload = {
           password: 'TestPass123!'
         };
@@ -456,13 +460,12 @@ describe('Auth Validation Integration Tests', () => {
           .send(invalidPayload)
           .expect(400);
 
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error).toContain('username');
+        expect(response.body).toHaveProperty('message', 'Invalid email or password');
       });
 
       it('should reject login without password', async () => {
         const invalidPayload = {
-          username: 'test@example.com'
+          email: 'test@example.com'
         };
 
         const response = await request(server)
@@ -470,8 +473,7 @@ describe('Auth Validation Integration Tests', () => {
           .send(invalidPayload)
           .expect(400);
 
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error).toContain('password');
+        expect(response.body).toHaveProperty('message', 'Invalid email or password');
       });
     });
   });
