@@ -1167,6 +1167,32 @@ export class DatabaseStorage implements IStorage {
   // Alert operations
   async createLowStockAlert(insertAlert: InsertLowStockAlert): Promise<LowStockAlert> {
     const [alert] = await db.insert(lowStockAlerts).values(insertAlert as unknown as typeof lowStockAlerts.$inferInsert).returning();
+    // Send low stock alert email to all users in the store's org
+    try {
+      const store = await db.select().from(stores).where(eq(stores.id, alert.storeId)).limit(1);
+      if (store && store[0]) {
+        // Find users for this store who have not opted out
+        const usersInStore = await db.select().from(users).where(
+          and(
+            eq(users.storeId, store[0].id),
+            or(eq(users.lowStockEmailOptOut, false), sql`${users.lowStockEmailOptOut} IS NULL`)
+          )
+        );
+        const product = await db.select().from(products).where(eq(products.id, alert.productId)).limit(1);
+        for (const user of usersInStore) {
+          if (user.email) {
+            const { generateLowStockAlertEmail, sendEmail } = await import('./email');
+            await sendEmail(generateLowStockAlertEmail(
+              user.email,
+              user.email,
+              product && product[0] ? product[0].name : 'Product',
+              alert.currentStock,
+              alert.minStockLevel
+            ));
+          }
+        }
+      }
+    } catch (e) { /* log error if needed */ }
     return alert;
   }
 

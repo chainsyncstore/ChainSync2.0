@@ -206,4 +206,19 @@ export class SubscriptionService {
     
     return trialEnded && notYetCredited;
   }
+
+  /**
+   * Update subscription tier and return old/new values
+   */
+  async updateSubscriptionTier(subscriptionId: string, newTier: string) {
+    // Fetch current subscription
+    const [oldSub] = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)).limit(1);
+    if (!oldSub) throw new Error('Subscription not found');
+    if (oldSub.tier === newTier) return { changed: false, oldTier: oldSub.tier, newTier };
+    const [updated] = await db.update(subscriptions)
+      .set({ tier: newTier, updatedAt: new Date() } as any)
+      .where(eq(subscriptions.id, subscriptionId))
+      .returning();
+    return { changed: true, oldTier: oldSub.tier, newTier: updated.tier, subscription: updated };
+  }
 }

@@ -1,7 +1,7 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+// import { fileURLToPath } from "url";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
@@ -10,17 +10,18 @@ import { logger } from "./lib/logger";
 
 const viteLogger = createLogger();
 
-// Get __dirname equivalent for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Use Node's built-in __filename and __dirname for CJS compatibility
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
+// In CJS/ts-jest, these are available by default
 
 // Utility function to safely resolve paths
-function safePathResolve(...paths: string[]): string {
+function safePathResolve(...pathsArr: string[]): string {
   try {
-    return path.resolve(__dirname, ...paths);
+    return path.resolve(__dirname, ...pathsArr);
   } catch (error) {
-    logger.error('Failed to resolve path', { paths, error: error instanceof Error ? error.message : String(error) });
-    throw new Error(`Path resolution failed: ${paths.join('/')}`);
+    logger.error('Failed to resolve path', { paths: pathsArr, error: error instanceof Error ? error.message : String(error) });
+    throw new Error(`Path resolution failed: ${pathsArr.join('/')}`);
   }
 }
 

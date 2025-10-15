@@ -98,52 +98,10 @@ export async function registerAuthRoutes(app: Express) {
       if (exists) {
         monitoringService.recordSignupEvent('duplicate', attemptContext);
         return res.status(400).json({
-          message: 'User with this email already exists',
+          message: 'User with this email exists',
           code: 'DUPLICATE_EMAIL'
         });
       }
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
-
-      // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
 
       // Block signup if a user already exists
       // In test mode, prefer in-memory storage visibility to avoid flakiness
@@ -161,551 +119,356 @@ export async function registerAuthRoutes(app: Express) {
         }
       }
 
-      // First user is always admin
-      const role = 'admin';
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-      const created = await storage.createUser({
-        username: email,
-        email,
-        password,
+      // Create user
+      const user = await storage.createUser({
         firstName,
         lastName,
-        phone,
-        companyName,
-        role: role as any,
-        tier: tier as any,
-        location: location as any,
-        isActive: true,
-        emailVerified: true, // Bypass email verification for demo
-        signupCompleted: true,
-      } as any);
-
-      const store = await storage.createStore({
-        name: companyName,
-        ownerId: created.id,
         email,
         phone,
-      } as any);
-
-      monitoringService.recordSignupEvent('success', attemptContext);
-      return res.status(201).json({
-        message: 'User created successfully',
-        user: {
-          id: created.id,
-          email: created.email,
-          firstName: created.firstName,
-          lastName: created.lastName,
-          tier
-        },
-        store,
+        companyName,
+        password: hashedPassword,
+        tier,
+        location,
+        role: 'user', // Default role
+        isActive: true,
+        emailVerified: false, // Email not verified by default
+        signupCompleted: true, // Mark signup as complete
       });
-    } catch (err) {
-      const context = extractLogContext(req);
-      logger.error('Signup error', context, err as Error);
-      
-      // Handle specific storage errors
-      if (err instanceof Error && err.message.includes('Password validation failed')) {
-        return res.status(400).json({ 
-          message: 'Password does not meet security requirements',
-          error: 'password',
-          errors: ['weak_password']
-        });
-      }
-      
-      // No dedicated "failed" signup metric; errors will reflect in http error metrics
-      return res.status(500).json({ message: 'Internal server error' });
-    }
-  });
-  
-  // Pending signup check used by the SPA on mount
-  app.get('/api/auth/pending-signup', async (_req: Request, res: Response) => {
-    // We rely on payment verification to complete signup; do not auto-complete from client
-    return res.status(200).json({ pendingSignupId: null });
-  });
-  // CSRF token endpoint for the SPA client
-  app.get('/api/auth/csrf-token', async (req: Request, res: Response) => {
-    const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    res.cookie('csrf-token', token, {
-      httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-    });
-    res.json({ csrfToken: token });
-  });
 
-  // Test-only email verification endpoint expected by E2E tests
-  app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
-    if (process.env.NODE_ENV !== 'test') {
-      return res.status(404).json({ error: 'Not found' });
-    }
-    const token = String((req.body as any)?.token || '').trim();
-    if (!token) {
-      return res.status(400).json({ success: false, message: 'Token required' });
-    }
-    try {
-      const { AuthService } = await import('../auth');
-      const result = await AuthService.verifyEmailToken(token);
-      if (!result?.success) {
-        return res.status(400).json({ success: false, message: result?.message || 'Invalid or expired verification token' });
-      }
+      // Auto-login the user after signup
+      req.session!.userId = (user as any).id;
+      req.session!.twofaVerified = false; // Two-factor authentication not verified
+      
+      // Send welcome email
       try {
-        const rAny = result as any;
-        if (rAny?.userId) {
-          await storage.markEmailVerified(rAny.userId);
-        }
-      } catch {}
-      return res.status(200).json({ success: true });
-    } catch (e) {
-      return res.status(500).json({ success: false, message: 'Verification failed' });
+        const { generateWelcomeEmail, sendEmail } = await import('../email');
+        const welcomeEmail = generateWelcomeEmail(
+          user.email,
+          user.firstName || user.email,
+          user.tier || tier || 'starter',
+          user.companyName || companyName || ''
+        );
+        await sendEmail(welcomeEmail);
+      } catch (e) {
+        logger.error('Failed to send welcome email', e);
+      }
+
+      // Send verification email
+      const emailToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '1d' });
+      const verifyUrl = `${process.env.FRONTEND_URL}/verify-email?token=${emailToken}`;
+      await sendEmail({
+        to: user.email,
+        subject: 'Verify your email address',
+        html: `<p>Hi ${user.firstName},</p><p>Thank you for signing up. Please verify your email address by clicking the link below:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>If you did not create an account, please ignore this email.</p>`,
+      });
+
+      // Respond with user data excluding sensitive information
+      const { password: _, ...userData } = user;
+      res.status(201).json({ 
+        message: 'Signup successful, please verify your email', 
+        user: userData 
+      });
+    } catch (error) {
+      logger.error('Signup error', { error, req: extractLogContext(req) });
+      // monitoringService.recordSignupEvent('attempt', { error: String(error), ...extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
     }
   });
 
   app.post('/api/auth/login', authRateLimit, async (req: Request, res: Response) => {
-    const baseParsed = ValidationLoginSchema.safeParse(req.body);
-    if (!baseParsed.success) {
-      const hasUsername = 'username' in (req.body || {});
-      const hasEmail = 'email' in (req.body || {});
-      const hasPassword = 'password' in (req.body || {});
+    const parse = ValidationLoginSchema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({ message: 'Invalid email or password' });
+    }
 
-      if (!hasUsername && !hasEmail) {
-        return res.status(400).json({ error: 'username' });
-      }
-      if (!hasPassword) {
-        return res.status(400).json({ error: 'password' });
-      }
-      return res.status(400).json({ error: 'Invalid payload' });
+    // Safely extract email or username
+    let email: string | undefined;
+    let username: string | undefined;
+    let password: string | undefined;
+    if ('email' in parse.data) {
+      email = parse.data.email;
+      password = parse.data.password;
+    } else if ('username' in parse.data) {
+      username = parse.data.username;
+      password = parse.data.password;
     }
-    const context = extractLogContext(req);
-    
-    const parsed = LoginSchema.safeParse(req.body);
-    if (!parsed.success) {
-      securityAuditService.logApplicationEvent('input_validation_failed', context, {
-        category: 'login_schema',
-        errors: parsed.error.errors
-      });
-      return res.status(400).json({ error: 'Invalid payload' });
-    }
-    
-    const { password } = (parsed.data as any);
-    const identifierRaw = (parsed.data as any).email || (parsed.data as any).username;
-    const identifier = String(identifierRaw || '').trim();
-    const identifierLower = identifier.toLowerCase();
-    
+
     try {
-      if (process.env.NODE_ENV === 'test') {
-        // In test mode, do not create users on login attempts
-        const user = await storage.getUserByEmail(identifier) || await storage.getUserByUsername(identifier);
-        if (!user) {
-          return res.status(401).json({ status: 'error', message: 'Invalid credentials' });
-        }
-      }
-      // Prefer in-memory storage during tests; then try exact matches; finally case-insensitive lookup
-
-      // Prefer in-memory storage during tests; then try exact matches; finally case-insensitive lookup
-      let user = (typeof (storage as any).getUserByUsername === 'function' ? await (storage as any).getUserByUsername(identifier) : undefined)
-        || (await storage.getUserByEmail(identifier));
+      // Check if user exists
+      const user = email
+        ? await storage.getUserByEmail(email)
+        : username
+        ? await storage.getUserByUsername(username)
+        : null;
       if (!user) {
-        const rows = await db.select().from(users).where(
-          or(
-            sql`LOWER(${users.email}) = ${identifierLower}`,
-            sql`LOWER(${users.username}) = ${identifierLower}`
-          )
-        );
-        user = rows[0];
-      }
-      
-      if (!user) {
-        if (process.env.NODE_ENV === 'test') {
-          try {
-            user = await storage.createUser({
-              username: identifier,
-              email: identifier,
-              password,
-              firstName: 'Test',
-              lastName: 'User',
-              role: 'admin' as any,
-              isActive: true,
-              emailVerified: true,
-              signupCompleted: true
-            } as any);
-          } catch {}
-        }
-        securityAuditService.logAuthenticationEvent('login_failed', context, {
-          email: identifier,
-          reason: 'user_not_found'
-        });
-        monitoringService.recordAuthEvent('login_failed', context);
-        if (!user) return res.status(401).json({ status: 'error', message: 'Invalid credentials or IP not whitelisted' });
-      }
-      
-      const hashCandidate = (user as any).passwordHash || (user as any).password;
-      let ok = false;
-      if (hashCandidate) {
-        // Test-mode fallback: allow plain-text password match for mocked users
-        if (process.env.NODE_ENV === 'test' && typeof hashCandidate === 'string' && hashCandidate === password) {
-          ok = true;
-        } else {
-          ok = await bcrypt.compare(password, hashCandidate);
-        }
-      }
-      if (!ok) {
-        securityAuditService.logAuthenticationEvent('login_failed', { 
-          ...context, 
-          userId: user.id 
-        }, {
-          email: identifier,
-          reason: 'invalid_password'
-        });
-        monitoringService.recordAuthEvent('login_failed', { ...context, userId: user.id });
-        return res.status(401).json({ status: 'error', message: 'Invalid credentials or IP not whitelisted' });
-      }
-
-      // Admins require 2FA
-      if ((user as any).isAdmin && (user as any).requires2fa && !req.session?.twofaVerified) {
-        req.session!.pendingUserId = user.id;
-        securityAuditService.logAuthenticationEvent('mfa_challenge', {
-          ...context,
-          userId: user.id
-        }, { email: (user as any).email, role: 'admin' });
-        return res.status(200).json({ status: 'otp_required' });
-      }
-
-      req.session!.userId = user.id;
-      
-      const role = (user as any).role || 'cashier';
-      const primary: any = undefined;
-      
-      // Log successful authentication
-      securityAuditService.logAuthenticationEvent('login_success', {
-        ...context,
-        userId: user.id,
-        storeId: primary?.storeId
-      }, { email: user.email, role });
-      
-      monitoringService.recordAuthEvent('login', {
-        ...context,
-        userId: user.id,
-        storeId: primary?.storeId
-      });
-      
-      logger.info('User logged in successfully', {
-        ...context,
-        userId: user.id,
-        role,
-        email: user.email
-      });
-      
-      res.set('Cache-Control', 'no-store');
-      res.json({ status: 'success', data: { id: user.id, email: user.email } });
-    } catch (error) {
-      logger.error('Login error', context, error as Error);
-      securityAuditService.logApplicationEvent('error_enumeration', context, {
-        action: 'login',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      // Treat unexpected lookup failures as invalid credentials for tests
-      res.status(401).json({ status: 'error', message: 'Invalid credentials or IP not whitelisted' });
-    }
-  });
-
-  // Alias for tests expecting /api/login
-  app.post('/api/login', (req: Request, res: Response) => {
-    const router: any = (app as any)._router;
-    if (!router) return res.status(404).json({ error: 'Not found' });
-    const forwarded: any = Object.assign(Object.create(Object.getPrototypeOf(req)), req);
-    forwarded.url = '/api/auth/login';
-    forwarded.originalUrl = '/api/auth/login';
-    forwarded.method = 'POST';
-    return router.handle(forwarded, res, () => undefined);
-  });
-
-  // Forgot password: generate token and send email (do not reveal existence)
-  app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
-    try {
-      const parsed = PasswordResetSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ message: 'Email is required' });
-      }
-      const emailRaw = parsed.data.email;
-      const email = String(emailRaw).trim();
-      const emailLower = email.toLowerCase();
-
-      // Lookup user by email case-insensitively
-      let u = await storage.getUserByEmail(email);
-      if (!u) {
-        const rows = await db.select().from(users).where(sql`LOWER(${users.email}) = ${emailLower}`);
-        u = rows[0];
-      }
-
-      if (u?.id) {
+        // Security alert: failed login attempt
         try {
-          const token = await storage.createPasswordResetToken(u.id);
-          const msg = generatePasswordResetEmail(u.email || email, token.token, u.firstName || 'User');
-          await sendEmail(msg);
-        } catch {}
+          const { sendEmail } = await import('../email');
+          await sendEmail({
+            to: email || username || '',
+            subject: 'Security Alert: Failed Login Attempt',
+            html: `<p>There was a failed login attempt for your account. If this was not you, please reset your password immediately.</p>`
+          });
+        } catch (e) { logger.error('Failed to send security alert email', e); }
+        return res.status(400).json({ message: 'Invalid email or password' });
       }
 
-      // Always return success to avoid account enumeration
-      return res.status(200).json({ message: 'If an account exists for this email, a reset link has been sent.' });
+      // Check if password matches
+      const isPasswordValid = await bcrypt.compare(password!, user.password);
+      if (!isPasswordValid) {
+        // Security alert: failed login attempt
+        try {
+          const { sendEmail } = await import('../email');
+          await sendEmail({
+            to: user.email,
+            subject: 'Security Alert: Failed Login Attempt',
+            html: `<p>There was a failed login attempt for your account. If this was not you, please reset your password immediately.</p>`
+          });
+        } catch (e) { logger.error('Failed to send security alert email', e); }
+        return res.status(400).json({ message: 'Invalid email or password' });
+      }
+
+      // Check if email is verified
+      if (!user.emailVerified) {
+        return res.status(403).json({ message: 'Email not verified' });
+      }
+
+      // Successful login
+      req.session!.userId = user.id;
+      req.session!.twofaVerified = 'twofaVerified' in user ? (user as any).twofaVerified || false : false;
+
+      // Respond with user data excluding sensitive information
+      const { password: _, ...userData } = user;
+      res.json({ 
+        message: 'Login successful', 
+        user: userData 
+      });
     } catch (error) {
-      return res.status(200).json({ message: 'If an account exists for this email, a reset link has been sent.' });
-    }
-  });
-
-  // Validate password reset token
-  app.get('/api/auth/validate-reset-token/:token', async (req: Request, res: Response) => {
-    try {
-      const token = String(req.params.token || '').trim();
-      if (!token) return res.status(400).json({ message: 'Invalid token' });
-      const rec = await storage.getPasswordResetToken(token);
-      if (!rec) return res.status(400).json({ message: 'Invalid or expired reset link' });
-      if ((rec as any).isUsed === true) return res.status(400).json({ message: 'Invalid or expired reset link' });
-      if ((rec as any).expiresAt && new Date((rec as any).expiresAt) < new Date()) {
-        return res.status(400).json({ message: 'Invalid or expired reset link' });
-      }
-      return res.status(200).json({ message: 'Token valid' });
-    } catch {
-      return res.status(400).json({ message: 'Invalid or expired reset link' });
-    }
-  });
-
-  // Reset password
-  app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
-    try {
-      const parsed = PasswordResetConfirmSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: 'Invalid request' });
-      const { token, password } = parsed.data as any;
-      const rec = await storage.getPasswordResetToken(token);
-      if (!rec) return res.status(400).json({ message: 'Invalid or expired reset link' });
-      if ((rec as any).isUsed === true) return res.status(400).json({ message: 'Invalid or expired reset link' });
-      if ((rec as any).expiresAt && new Date((rec as any).expiresAt) < new Date()) {
-        return res.status(400).json({ message: 'Invalid or expired reset link' });
-      }
-
-      const updated = await storage.updateUserPassword((rec as any).userId, password);
-      await storage.invalidatePasswordResetToken(token);
-
-      try {
-        const msg = generatePasswordResetSuccessEmail(updated.email || '', updated.firstName || 'User');
-        await sendEmail(msg);
-      } catch {}
-
-      return res.status(200).json({ message: 'Password has been reset successfully' });
-    } catch (error) {
-      return res.status(400).json({ message: 'Failed to reset password' });
-    }
-  });
-
-  app.post('/api/auth/2fa/setup', async (req: Request, res: Response) => {
-    const userId = req.session?.userId || req.session?.pendingUserId;
-    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
-    const secret = authenticator.generateSecret();
-    const otpauth = authenticator.keyuri('admin@chainsync', process.env.ADMIN_2FA_ISSUER || 'ChainSync', secret);
-    await db.update(users).set({ totpSecret: secret, requires2fa: true } as any).where(eq(users.id, userId));
-    res.json({ otpauth });
-  });
-
-  app.post('/api/auth/2fa/verify', async (req: Request, res: Response) => {
-    const context = extractLogContext(req);
-    const userId = req.session?.pendingUserId || req.session?.userId;
-    
-    if (!userId) {
-      securityAuditService.logAuthenticationEvent('mfa_failed', context, {
-        reason: 'no_authenticated_session'
-      });
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-    
-    const code = String((req.body?.code || req.body?.otp || '').toString());
-    if (!code) {
-      securityAuditService.logAuthenticationEvent('mfa_failed', { 
-        ...context, 
-        userId 
-      }, {
-        reason: 'missing_code'
-      });
-      return res.status(400).json({ error: 'Code required' });
-    }
-    
-    try {
-      const result = await db.select({ totpSecret: users.totpSecret }).from(users).where(eq(users.id, userId));
-      const secret = result[0]?.totpSecret;
-      
-      if (!secret) {
-        securityAuditService.logAuthenticationEvent('mfa_failed', { 
-          ...context, 
-          userId 
-        }, {
-          reason: '2fa_not_setup'
-        });
-        return res.status(400).json({ error: '2FA not set up' });
-      }
-      
-      const valid = authenticator.check(code, secret);
-      if (!valid) {
-        securityAuditService.logAuthenticationEvent('mfa_failed', { 
-          ...context, 
-          userId 
-        }, {
-          reason: 'invalid_code'
-        });
-        monitoringService.recordAuthEvent('login_failed', { ...context, userId });
-        return res.status(400).json({ error: 'Invalid code' });
-      }
-      
-      req.session!.twofaVerified = true;
-      req.session!.userId = userId;
-      delete (req.session as any).pendingUserId;
-      
-      // Return user for client hydration
-      const urows = await db.select().from(users).where(eq(users.id, userId));
-      const u = urows[0]!;
-      let role: 'admin' | 'manager' | 'cashier' =
-        (u as any).isAdmin === true || String((u as any).role || '').toLowerCase() === 'admin'
-          ? 'admin'
-          : ((String((u as any).role || '').toLowerCase() as any) || 'cashier');
-      let primary: any = undefined;
-      if (role !== 'admin') {
-        const rows = await db.select().from(userStorePermissions).where(eq(userStorePermissions.userId, userId));
-        primary = rows[0];
-        if (primary) role = (primary.role as any).toLowerCase();
-      }
-      
-      // Log successful 2FA verification
-      securityAuditService.logAuthenticationEvent('mfa_success', {
-        ...context,
-        userId,
-        storeId: (primary as any)?.storeId
-      }, { 
-        email: u.email, 
-        role 
-      });
-      
-      monitoringService.recordAuthEvent('login', {
-        ...context,
-        userId,
-        storeId: (primary as any)?.storeId
-      });
-      
-      logger.info('2FA verification successful', {
-        ...context,
-        userId,
-        email: u.email,
-        role
-      });
-      
-      res.json({ success: true, user: { id: u.id, email: u.email, role, isAdmin: (u as any).isAdmin } });
-    } catch (error) {
-      logger.error('2FA verification error', { ...context, userId }, error as Error);
-      securityAuditService.logApplicationEvent('error_enumeration', { ...context, userId }, {
-        action: '2fa_verify',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      res.status(500).json({ error: 'Internal server error' });
+      logger.error('Login error', { error, req: extractLogContext(req) });
+      // monitoringService.recordLoginEvent('attempt', { error: String(error), ...extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
     }
   });
 
   app.post('/api/auth/logout', (req: Request, res: Response) => {
-    const context = extractLogContext(req);
-    const userId = req.session?.userId;
-    
-    if (userId) {
-      // Log logout event
-      securityAuditService.logAuthenticationEvent('logout', {
-        ...context,
-        userId
-      }, {});
-      
-      monitoringService.recordAuthEvent('logout', {
-        ...context,
-        userId
-      });
-      
-      logger.info('User logged out', {
-        ...context,
-        userId
-      });
-    }
-    
-    try {
-      // Proactively clear session and CSRF cookies so the browser stops sending them
-      res.clearCookie('chainsync.sid', {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
-        path: '/',
-      });
-      // CSRF cookie is client-readable; clear it to avoid stale tokens
-      res.clearCookie('csrf-token', {
-        httpOnly: false,
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
-        path: '/',
-      });
-    } catch {}
-
-    req.session?.destroy(() => {
-      res.set('Cache-Control', 'no-store');
-      res.json({ status: 'success', message: 'Logged out successfully' });
+    req.session!.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ message: 'Internal server error' });
+      }
+      res.json({ message: 'Logout successful' });
     });
   });
 
-  // WebSocket auth token (simple JWT containing userId and optional storeId)
-  app.get('/api/auth/realtime-token', async (req: Request, res: Response) => {
-    const userId = req.session?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
-    const token = jwt.sign({ userId }, process.env.SESSION_SECRET || 'changeme', { expiresIn: '1h' });
-    res.json({ token });
+  app.post('/api/auth/request-password-reset', async (req: Request, res: Response) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    try {
+      // Check if user exists
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      // Generate password reset token
+      const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '1h' });
+
+      // Send password reset email (use template)
+      const { generatePasswordResetEmail } = await import('../email');
+      const resetEmail = generatePasswordResetEmail(user.email, token, user.firstName || user.email);
+      await sendEmail(resetEmail);
+
+      res.json({ message: 'Password reset email sent' });
+    } catch (error) {
+      logger.error('Password reset request error', { error, req: extractLogContext(req) });
+      // monitoringService.recordPasswordResetEvent('request_error', { error: String(error), ...extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
+    }
   });
 
-  // Back-compat: return current user with role
-  app.get('/api/auth/me', async (req: Request, res: Response) => {
-    const userId = req.session?.userId as string | undefined;
-    if (!userId) {
-      if (process.env.NODE_ENV === 'test') {
-        // In test mode, ensure a concrete admin user exists and attach session
-        try {
-          let admin = await storage.getUserByEmail('admin@chainsync.com');
-          if (!admin && typeof (storage as any).getUserByUsername === 'function') {
-            admin = await (storage as any).getUserByUsername('admin');
-          }
-          if (!admin) {
-            admin = await storage.createUser({
-              username: 'admin',
-              email: 'admin@chainsync.com',
-              password: 'admin123',
-              firstName: 'Admin',
-              lastName: 'Test',
-              role: 'admin' as any,
-              isActive: true,
-              emailVerified: true,
-              signupCompleted: true,
-              isAdmin: true as any,
-            } as any);
-          }
-          req.session!.userId = (admin as any).id;
-          req.session!.twofaVerified = true;
-          res.set('Cache-Control', 'no-store');
-          return res.json({ status: 'success', data: { id: (admin as any).id, email: (admin as any).email, role: 'admin', isAdmin: true } });
-        } catch {
-          // Fallback minimal identity if storage is unavailable in certain test setups
-          return res.json({ status: 'success', data: { id: 'u-test', email: 'admin@chainsync.com', role: 'admin', isAdmin: true } });
-        }
+  app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      return res.status(400).json({ message: 'Token and password are required' });
+    }
+
+    try {
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+
+      // Check if user exists
+      const user = await storage.getUserById(decoded.id);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
       }
-      return res.status(401).json({ status: 'error', message: 'Not authenticated' });
+
+      // Update password
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await storage.updateUser(user.id, { password: hashedPassword });
+
+      // Send success email (use template)
+      const { generatePasswordResetSuccessEmail } = await import('../email');
+      const successEmail = generatePasswordResetSuccessEmail(user.email, user.firstName || user.email);
+      await sendEmail(successEmail);
+
+      res.json({ message: 'Password reset successful' });
+    } catch (error) {
+      logger.error('Password reset error', { error, req: extractLogContext(req) });
+      // monitoringService.recordPasswordResetEvent('error', { error: String(error), ...extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
     }
-    // Prefer storage lookup in tests for in-memory users
-    let u: any = await storage.getUserById(userId);
-    if (!u) {
-      const rows = await db.select().from(users).where(eq(users.id, userId));
-      u = rows[0];
+  });
+
+  app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ message: 'Token is required' });
     }
-    if (!u) return res.status(404).json({ error: 'User not found' });
-    const role = (u as any).role || 'cashier';
-    res.set('Cache-Control', 'no-store');
-    res.json({ status: 'success', data: { id: u.id, email: u.email, role, isAdmin: (u as any).isAdmin === true } });
+
+    try {
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+
+      // Check if user exists
+      const user = await storage.getUserById(decoded.id);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      // Update email verified status
+      await storage.updateUser(user.id, { emailVerified: true });
+
+      res.json({ message: 'Email verified successfully' });
+    } catch (error) {
+      logger.error('Email verification error', { error, req: extractLogContext(req) });
+      // monitoringService.recordEmailVerificationEvent('error', { error: String(error), ...extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // 2FA setup
+  app.post('/api/auth/setup-2fa', async (req: Request, res: Response) => {
+    const { userId } = req.session!;
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    try {
+      // Generate 2FA secret
+      const secret = authenticator.generateSecret();
+      const otpauth = authenticator.keyuri('user@example.com', 'YourAppName', secret);
+
+      // Save secret to user
+      await storage.updateUser(userId, { twofaSecret: secret });
+
+      res.json({ 
+        message: '2FA setup successful', 
+        otpauth 
+      });
+    } catch (error) {
+      logger.error('2FA setup error', { error, req: extractLogContext(req) });
+      // monitoringService.record2FAEvent('setup_error', { error: String(error), ...extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // 2FA verify
+  app.post('/api/auth/verify-2fa', async (req: Request, res: Response) => {
+    const { userId } = req.session!;
+    const { token } = req.body;
+    if (!userId || !token) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    try {
+      // Get user
+      const user = await storage.getUserById(userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      // Verify token
+      const isValid = 'twofaSecret' in user ? authenticator.check(token, (user as any).twofaSecret) : false;
+      if (!isValid) {
+        return res.status(400).json({ message: 'Invalid 2FA token' });
+      }
+
+      // Update 2FA verified status
+      await storage.updateUser(userId, { twofaVerified: true });
+
+      res.json({ message: '2FA verified successfully' });
+    } catch (error) {
+      logger.error('2FA verify error', { error, req: extractLogContext(req) });
+      // monitoringService.record2FAEvent('verify_error', { error: String(error), ...extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // Update low stock alert email opt-out preference
+  app.post('/api/auth/low-stock-email-opt-out', async (req: Request, res: Response) => {
+    const { userId } = req.session!;
+    const { optOut } = req.body;
+    if (!userId || typeof optOut !== 'boolean') {
+      return res.status(400).json({ message: 'Invalid request' });
+    }
+    try {
+      await storage.updateUser(userId, { lowStockEmailOptOut: optOut });
+      res.json({ message: `Low stock alert emails have been ${optOut ? 'disabled' : 'enabled'}.` });
+    } catch (error) {
+      logger.error('Failed to update lowStockEmailOptOut', { error, req: extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // Password change (not reset)
+  app.post('/api/auth/change-password', async (req: Request, res: Response) => {
+    const { userId } = req.session!;
+    const { oldPassword, newPassword } = req.body;
+    if (!userId || !oldPassword || !newPassword) {
+      return res.status(400).json({ message: 'Invalid request' });
+    }
+    try {
+      const user = await storage.getUserById(userId);
+      if (!user) return res.status(404).json({ message: 'User not found' });
+      const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+      if (!isPasswordValid) return res.status(400).json({ message: 'Incorrect current password' });
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await storage.updateUser(userId, { password: hashedPassword });
+      // Send password change alert email
+      try {
+        const { generatePasswordChangeAlertEmail, sendEmail } = await import('../email');
+        await sendEmail(generatePasswordChangeAlertEmail(user.email, user.firstName || user.email));
+      } catch (e) { logger.error('Failed to send password change alert email', e); }
+      res.json({ message: 'Password changed successfully' });
+    } catch (error) {
+      logger.error('Password change error', { error, req: extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // Account deletion/closure
+  app.post('/api/auth/delete-account', async (req: Request, res: Response) => {
+    const { userId } = req.session!;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const user = await storage.getUserById(userId);
+      if (!user) return res.status(404).json({ message: 'User not found' });
+      await storage.deleteUser(userId);
+      req.session!.destroy(() => {});
+      // Send account deletion alert email
+      try {
+        const { generateAccountDeletionEmail, sendEmail } = await import('../email');
+        await sendEmail(generateAccountDeletionEmail(user.email, user.firstName || user.email));
+      } catch (e) { logger.error('Failed to send account deletion email', e); }
+      res.json({ message: 'Account deleted successfully' });
+    } catch (error) {
+      logger.error('Account deletion error', { error, req: extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
+    }
   });
 }
-
-

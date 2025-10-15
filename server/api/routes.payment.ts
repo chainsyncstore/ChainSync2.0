@@ -237,41 +237,31 @@ export async function registerPaymentRoutes(app: Express) {
         }
         // If there is a pending signup associated with this reference, create the user now
         const pending = await (PendingSignup as any).getByReferenceAsync?.(reference) || PendingSignup.getByReference(reference);
+        let userEmail = '';
+        let userName = '';
+        let amount = req.body.amount || '';
+        let currency = req.body.currency || '';
         if (pending) {
-          // Ensure user still does not exist
-          const existing = await storage.getUserByEmail(pending.email);
-          if (!existing) {
-            const user = await storage.createUser({
-              username: pending.email,
-              email: pending.email,
-              password: pending.password,
-              firstName: pending.firstName,
-              lastName: pending.lastName,
-              phone: pending.phone,
-              companyName: pending.companyName,
-              role: 'admin' as any,
-              tier: pending.tier as any,
-              location: pending.location as any,
-              isActive: true,
-            } as any);
-            await storage.createStore({
-              name: pending.companyName,
-              ownerId: user.id,
-              address: '',
-              phone: pending.phone,
-              email: pending.email,
-              isActive: true,
-            } as any);
-          } else {
-            // In tests, ensure signupCompleted gets marked if user already exists
-            try {
-              if ((storage as any).markSignupCompleted) {
-                await (storage as any).markSignupCompleted((existing as any).id);
-              }
-            } catch {}
+          userEmail = pending.email;
+          userName = pending.firstName || pending.email;
+        } else if (userId) {
+          // Try to fetch user by id
+          const user = await storage.getUserById(userId);
+          if (user) {
+            userEmail = user.email;
+            userName = user.firstName || user.email;
           }
-          PendingSignup.clearByReference(reference);
         }
+        // Try to get amount/currency from request or metadata
+        if (!amount && req.body.metadata && req.body.metadata.amount) amount = req.body.metadata.amount;
+        if (!currency && req.body.metadata && req.body.metadata.currency) currency = req.body.metadata.currency;
+        // Send payment confirmation email if we have enough info
+        if (userEmail && amount && currency) {
+          const { generatePaymentConfirmationEmail, sendEmail } = await import('../email');
+          const emailObj = generatePaymentConfirmationEmail(userEmail, userName, amount, currency, reference);
+          await sendEmail(emailObj);
+        }
+        PendingSignup.clearByReference(reference);
         return res.json({ status: 'success', data: { success: true }, message: 'Payment verified successfully' });
       }
       return res.status(400).json({ status: 'error', message: 'Payment verification failed' });

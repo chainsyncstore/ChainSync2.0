@@ -1,38 +1,20 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import { fileURLToPath } from "url";
-
-// Get __dirname equivalent for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Utility function to safely resolve paths
-function safePathResolve(...paths: string[]): string {
+function safePathResolve(...pathsArr: string[]): string {
   try {
-    return path.resolve(__dirname, ...paths);
+    return path.resolve(__dirname, ...pathsArr);
   } catch (error) {
-    console.error('Failed to resolve path:', paths, error);
-    throw new Error(`Path resolution failed: ${paths.join('/')}`);
+    console.error('Failed to resolve path:', pathsArr, error);
+    throw new Error(`Path resolution failed: ${pathsArr.join('/')}`);
   }
 }
 
 export default defineConfig({
   plugins: [
     react(),
-    ...(process.env.NODE_ENV === "development"
-      ? [
-          (await import("@replit/vite-plugin-runtime-error-modal")).default(),
-        ]
-      : []),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer(),
-          ),
-        ]
-      : []),
   ],
   resolve: {
     alias: {

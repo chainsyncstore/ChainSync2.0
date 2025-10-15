@@ -2,7 +2,9 @@ import { Request, Response } from 'express';
 import pino, { Logger as PinoLogger } from 'pino';
 import pinoHttp from 'pino-http';
 import * as Sentry from '@sentry/node';
-import { createRequire } from 'module';
+// Use CommonJS __filename for compatibility with Jest/ts-jest
+// import { createRequire } from 'module';
+const createRequire = typeof require !== 'undefined' ? require : undefined;
 
 export enum LogLevel {
   ERROR = 'error',
@@ -49,11 +51,10 @@ class Logger {
     };
 
     // Enable pretty logs in development only if pino-pretty is available
-    const require = createRequire(import.meta.url);
     let hasPretty = false;
-    if (this.isDevelopment) {
+    if (this.isDevelopment && createRequire) {
       try {
-        require.resolve('pino-pretty');
+        createRequire.resolve('pino-pretty');
         hasPretty = true;
       } catch {
         hasPretty = false;
@@ -308,4 +309,4 @@ export const extractLogContext = (req: Request, additionalContext?: Partial<LogC
     userAgent: req.get('User-Agent'),
     ...additionalContext
   };
-}; 
+};

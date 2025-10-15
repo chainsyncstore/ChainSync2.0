@@ -57,6 +57,7 @@ export const users = pgTable("users", {
   requires2fa: boolean("requires_2fa").default(false),
   totpSecret: varchar("totp_secret", { length: 255 }),
   subscriptionId: uuid("subscription_id"),
+  lowStockEmailOptOut: boolean("low_stock_email_opt_out").default(false),
 }, (table) => ({
   storeIdIdx: index("users_store_id_idx").on(table.storeId),
   isActiveIdx: index("users_is_active_idx").on(table.isActive),

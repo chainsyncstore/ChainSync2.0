@@ -94,13 +94,30 @@ export async function registerAdminRoutes(app: Express) {
     if (parsed.data.password) {
       updates.passwordHash = await bcrypt.hash(parsed.data.password, 10);
     }
+    // Fetch old user profile
+    const oldUser = (await db.select().from(users).where(eq(users.id, id)))[0];
     const updated = await db.execute(sql`UPDATE users SET 
       email = COALESCE(${updates.email}, email),
       password_hash = COALESCE(${updates.passwordHash}, password_hash),
       is_admin = COALESCE(${updates.isAdmin}, is_admin),
       requires_2fa = COALESCE(${updates.requires2fa}, requires_2fa)
       WHERE id = ${id} RETURNING *`);
-    res.json((updated as any).rows?.[0] || {});
+    const updatedUser = (updated as any).rows?.[0] || {};
+    res.json(updatedUser);
+
+    // Send profile update email if relevant fields changed
+    if (oldUser && updatedUser && oldUser.email) {
+      const { generateProfileUpdateEmail, sendEmail } = await import('../email');
+      const emailObj = generateProfileUpdateEmail(
+        updatedUser.email,
+        oldUser,
+        updatedUser
+      );
+      // Only send if something changed
+      if (emailObj.html.includes('<td')) {
+        await sendEmail(emailObj);
+      }
+    }
   });
 
   // Delete user
@@ -281,20 +298,26 @@ export async function registerAdminRoutes(app: Express) {
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });
     const plan = getPlan(sub.planCode);
     if (!plan) return res.status(400).json({ error: 'Invalid plan mapping' });
-    const providerPlanId = process.env[(plan as any).providerPlanIdEnv];
-    if (!providerPlanId) return res.status(500).json({ error: `Missing provider plan id env: ${(plan as any).providerPlanIdEnv}` });
+    // The Plan object does not have provider, providerPlanIdEnv, or amountSmallestUnit fields.
+    // You must provide these values from another mapping or environment variable.
+    // Example placeholder logic below:
+    const provider = process.env.DEFAULT_PAYMENT_PROVIDER || 'PAYSTACK';
+    const providerPlanId = process.env[`PROVIDER_PLAN_ID_${plan.code.toUpperCase()}`];
+    const amountSmallestUnit = process.env[`PLAN_AMOUNT_${plan.code.toUpperCase()}`];
+    if (!providerPlanId) return res.status(500).json({ error: `Missing provider plan id env for plan code: ${plan.code}` });
+    if (!amountSmallestUnit) return res.status(500).json({ error: `Missing plan amount env for plan code: ${plan.code}` });
     const org = (await db.select().from(organizations).where(eq(organizations.id as any, sub.orgId as any)))[0] as any;
     const currentUserId = ((req.session as any)?.userId as string | undefined) || undefined;
     const me = currentUserId ? (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any : undefined;
     const email = org?.billingEmail || me?.email;
     if (!email) return res.status(400).json({ error: 'No billing email available' });
     const service = new PaymentService();
-    const reference = service.generateReference(plan.provider === 'PAYSTACK' ? 'paystack' : 'flutterwave');
+    const reference = service.generateReference(provider === 'PAYSTACK' ? 'paystack' : 'flutterwave');
     const callbackUrl = `${process.env.BASE_URL || process.env.APP_URL}/payment/callback?orgId=${sub.orgId}&planCode=${plan.code}`;
-    const resp = plan.provider === 'PAYSTACK'
+    const resp = provider === 'PAYSTACK'
       ? await service.initializePaystackPayment({
           email,
-          amount: plan.amountSmallestUnit,
+          amount: Number(amountSmallestUnit),
           currency: 'NGN',
           reference,
           callback_url: callbackUrl,
@@ -303,14 +326,14 @@ export async function registerAdminRoutes(app: Express) {
         })
       : await service.initializeFlutterwavePayment({
           email,
-          amount: plan.amountSmallestUnit,
+          amount: Number(amountSmallestUnit),
           currency: 'USD',
           reference,
           callback_url: callbackUrl,
           metadata: { orgId: sub.orgId, planCode: plan.code, reason: 'update_payment_method' },
           providerPlanId,
         });
-    res.json({ redirectUrl: (resp.data as any).authorization_url || (resp.data as any).link, reference, provider: plan.provider });
+    res.json({ redirectUrl: (resp.data as any).authorization_url || (resp.data as any).link, reference, provider });
   });
 
   // Bulk pricing apply via JSON filters
@@ -425,6 +448,40 @@ export async function registerAdminRoutes(app: Express) {
       res.status(500).json({ error: 'Bulk upload failed' });
     } finally {
       pg?.release?.();
+    }
+  });
+
+  // Update subscription tier (admin)
+  app.patch('/api/admin/subscriptions/:id/tier', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const subscriptionId = req.params.id;
+    const { newTier } = req.body;
+    if (!newTier) return res.status(400).json({ error: 'Missing newTier' });
+    try {
+      const { SubscriptionService } = await import('../subscription/service');
+      const subService = new SubscriptionService();
+      const result = await subService.updateSubscriptionTier(subscriptionId, newTier);
+      if (!result.changed) return res.json({ changed: false, message: 'Tier unchanged' });
+      // Fetch user for email
+      const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)).limit(1);
+      // subscriptions table does not have userId, so get user by orgId
+      let user: any = null;
+      if (sub && sub.orgId) {
+        // Get first user in org (or use a better logic if available)
+        [user] = await db.select().from(users).where(eq(users.orgId, sub.orgId)).limit(1);
+      }
+      if (user && user.email) {
+        const { generateSubscriptionTierChangeEmail, sendEmail } = await import('../email');
+        const emailObj = generateSubscriptionTierChangeEmail(
+          user.email,
+          user.email, // fallback to email as name
+          result.oldTier,
+          result.newTier
+        );
+        await sendEmail(emailObj);
+      }
+      res.json({ changed: true, oldTier: result.oldTier, newTier: result.newTier });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to update subscription tier', details: String(e) });
     }
   });
 }

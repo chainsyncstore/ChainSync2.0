@@ -331,3 +331,129 @@ export function generateProfileUpdateEmail(userEmail: string, oldProfile: any, n
     text: `Your ChainSync profile was updated. If you did not make this change, contact support.\n\nOld profile: ${JSON.stringify(oldProfile)}\nNew profile: ${JSON.stringify(newProfile)}`
   };
 }
+
+export function generateSubscriptionTierChangeEmail(userEmail: string, userName: string, oldTier: string, newTier: string): EmailOptions {
+  return {
+    to: userEmail,
+    subject: 'Your ChainSync Subscription Tier Has Changed',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">ChainSync</h1>
+        </div>
+        <div style="padding: 30px; background: #f9f9f9;">
+          <h2 style="color: #333; margin-bottom: 20px;">Subscription Tier Changed</h2>
+          <p style="color: #666;">Hello ${userName},</p>
+          <p style="color: #666;">Your ChainSync subscription tier has changed:</p>
+          <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+            <thead><tr><th>Old Tier</th><th>New Tier</th></tr></thead>
+            <tbody>
+              <tr><td style='padding:4px 8px;color:#888;'>${oldTier}</td><td style='padding:4px 8px;color:#2d7a2d;'>${newTier}</td></tr>
+            </tbody>
+          </table>
+          <p style="color: #666;">If you did not request this change, please contact support immediately.</p>
+          <p style="color: #999; font-size: 12px; text-align: center;">This is an automated message from ChainSync. Please do not reply to this email.</p>
+        </div>
+      </div>
+    `,
+    text: `Hello ${userName},\n\nYour ChainSync subscription tier has changed from ${oldTier} to ${newTier}. If you did not request this change, please contact support.\n\nThis is an automated message from ChainSync. Please do not reply to this email.`
+  };
+}
+
+export function generatePaymentConfirmationEmail(userEmail: string, userName: string, amount: number, currency: string, reference: string): EmailOptions {
+  return {
+    to: userEmail,
+    subject: 'Payment Confirmation - ChainSync',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">ChainSync</h1>
+        </div>
+        <div style="padding: 30px; background: #f9f9f9;">
+          <h2 style="color: #333; margin-bottom: 20px;">Payment Confirmation</h2>
+          <p style="color: #666;">Hello ${userName},</p>
+          <p style="color: #666;">We have received your payment.</p>
+          <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+            <thead><tr><th>Amount</th><th>Currency</th><th>Reference</th></tr></thead>
+            <tbody>
+              <tr><td style='padding:4px 8px;color:#2d7a2d;'>${amount}</td><td style='padding:4px 8px;'>${currency}</td><td style='padding:4px 8px;color:#888;'>${reference}</td></tr>
+            </tbody>
+          </table>
+          <p style="color: #666;">Thank you for your business!</p>
+          <p style="color: #999; font-size: 12px; text-align: center;">This is an automated message from ChainSync. Please do not reply to this email.</p>
+        </div>
+      </div>
+    `,
+    text: `Hello ${userName},\n\nWe have received your payment of ${amount} ${currency}. Reference: ${reference}.\nThank you for your business!\n\nThis is an automated message from ChainSync. Please do not reply to this email.`
+  };
+}
+
+export function generateLowStockAlertEmail(userEmail: string, userName: string, productName: string, quantity: number, minStockLevel: number): EmailOptions {
+  return {
+    to: userEmail,
+    subject: 'Low Stock Alert - ChainSync',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">ChainSync</h1>
+        </div>
+        <div style="padding: 30px; background: #f9f9f9;">
+          <h2 style="color: #333; margin-bottom: 20px;">Low Stock Alert</h2>
+          <p style="color: #666;">Hello ${userName},</p>
+          <p style="color: #666;">The following product is low on stock:</p>
+          <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+            <thead><tr><th>Product</th><th>Current Qty</th><th>Min Level</th></tr></thead>
+            <tbody>
+              <tr><td style='padding:4px 8px;'>${productName}</td><td style='padding:4px 8px;color:#e67e22;'>${quantity}</td><td style='padding:4px 8px;color:#c0392b;'>${minStockLevel}</td></tr>
+            </tbody>
+          </table>
+          <p style="color: #666;">Please restock soon to avoid running out.</p>
+          <p style="color: #999; font-size: 12px; text-align: center;">This is an automated message from ChainSync. Please do not reply to this email.</p>
+        </div>
+      </div>
+    `,
+    text: `Hello ${userName},\n\nThe product '${productName}' is low on stock. Current quantity: ${quantity}, Minimum level: ${minStockLevel}. Please restock soon.\n\nThis is an automated message from ChainSync. Please do not reply to this email.`
+  };
+}
+
+export function generatePasswordChangeAlertEmail(userEmail: string, userName: string): EmailOptions {
+  return {
+    to: userEmail,
+    subject: 'Password Changed - ChainSync',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">ChainSync</h1>
+        </div>
+        <div style="padding: 30px; background: #f9f9f9;">
+          <h2 style="color: #333; margin-bottom: 20px;">Password Changed</h2>
+          <p style="color: #666;">Hello ${userName},</p>
+          <p style="color: #666;">Your password was recently changed. If you did not perform this action, please reset your password immediately or contact support.</p>
+          <p style="color: #999; font-size: 12px; text-align: center;">This is an automated message from ChainSync. Please do not reply to this email.</p>
+        </div>
+      </div>
+    `,
+    text: `Hello ${userName},\n\nYour password was recently changed. If this was not you, please reset your password or contact support.\n\nThis is an automated message from ChainSync. Please do not reply to this email.`
+  };
+}
+
+export function generateAccountDeletionEmail(userEmail: string, userName: string): EmailOptions {
+  return {
+    to: userEmail,
+    subject: 'Account Deleted - ChainSync',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">ChainSync</h1>
+        </div>
+        <div style="padding: 30px; background: #f9f9f9;">
+          <h2 style="color: #333; margin-bottom: 20px;">Account Deleted</h2>
+          <p style="color: #666;">Hello ${userName},</p>
+          <p style="color: #666;">Your ChainSync account has been deleted. If you did not request this, please contact support immediately.</p>
+          <p style="color: #999; font-size: 12px; text-align: center;">This is an automated message from ChainSync. Please do not reply to this email.</p>
+        </div>
+      </div>
+    `,
+    text: `Hello ${userName},\n\nYour ChainSync account has been deleted. If this was not you, please contact support immediately.\n\nThis is an automated message from ChainSync. Please do not reply to this email.`
+  };
+}
