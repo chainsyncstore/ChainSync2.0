@@ -145,3 +145,36 @@ Advanced:
   - `tests/integration/analytics.test.ts` — analytics endpoints
 
 Tip: see `tests/config/test-environment.ts` for the test bootstrap and env expectations.
+
+### Seeding a test admin user (Pro)
+
+For quick user testing you can seed an admin user with a Pro subscription. A small script `seed-admin-pro.mjs` is included at the repository root and is schema-aware (it adapts to common column name variants).
+
+Important: run this only against development/staging databases. Do NOT run against production without review.
+
+Environment variables
+- `DATABASE_URL` (required) — Postgres connection string. Example for Neon provided in project tasks.
+- `ADMIN_EMAIL` (optional) — email to create or use (default: `admin@chainsync.local`).
+- `ADMIN_USERNAME` (optional) — username to create (default: `admin`).
+- `ADMIN_PASSWORD` (optional) — password to set for the user (default: `Password123!`).
+
+PowerShell example (one-liner):
+
+```pwsh
+$env:DATABASE_URL='postgresql://user:pass@host:port/db?sslmode=require&channel_binding=require'
+$env:ADMIN_EMAIL='admin@chainsync.local'
+$env:ADMIN_PASSWORD='YourSecureTestPassword1!'
+node .\seed-admin-pro.mjs
+```
+
+What the script does
+- Detects available `users` and `subscriptions` table columns and adapts inserts/updates accordingly.
+- Creates a user (if none exists) and marks them as admin (either via `role` or `is_admin` column depending on schema).
+- Creates a subscription row for the user (if the subscriptions table is linked by a user reference column), marking it active.
+
+Notes & safety
+- Passwords are hashed with bcrypt before being stored.
+- The script prints the email/password used for the seeded account (it will note if the password came from `ADMIN_PASSWORD` env).
+- If you prefer not to run Node on the server or CI, the repo also includes a SQL-ready approach in the script logs; you can copy/paste the SQL into your DB client.
+
+If you'd like, I can add a small `docs/SEEDING.md` file with extra troubleshooting steps (connection errors, missing columns). Just say the word.
