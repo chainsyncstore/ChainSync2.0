@@ -10,60 +10,50 @@ import {
   uuid,
   pgEnum,
   index,
-  jsonb
+  jsonb,
+  uniqueIndex
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Enums
-export const userRoleEnum = pgEnum("user_role", ["cashier", "manager", "admin"]);
+// Enums (align with production)
+export const roleEnum = pgEnum("role", ["ADMIN", "MANAGER", "CASHIER"]);
 export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "voided", "held"]);
 export const paymentMethodEnum = pgEnum("payment_method", ["cash", "card", "digital"]);
 
 // Subscription Status Enum
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["trial", "active", "past_due", "cancelled", "suspended"]);
 
-// Users table
+// Users table (align with production migrations)
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: varchar("username", { length: 255 }).notNull().unique(),
-  email: varchar("email", { length: 255 }).unique(),
-  firstName: varchar("first_name", { length: 255 }),
-  lastName: varchar("last_name", { length: 255 }),
-  password: varchar("password", { length: 255 }),
-  phone: varchar("phone", { length: 50 }),
-  companyName: varchar("company_name", { length: 255 }),
-  tier: varchar("tier", { length: 50 }),
-  location: varchar("location", { length: 50 }),
-  trialEndsAt: timestamp("trial_ends_at"),
-  role: userRoleEnum("role").notNull().default("cashier"),
-  storeId: uuid("store_id"),
-  isActive: boolean("is_active").default(true),
-  emailVerified: boolean("email_verified").default(false),
-  phoneVerified: boolean("phone_verified").default(false),
-  failedLoginAttempts: integer("failed_login_attempts").default(0),
-  lockedUntil: timestamp("locked_until"),
-  lastFailedLogin: timestamp("last_failed_login"),
-  verificationToken: varchar("verification_token", { length: 255 }),
-  verificationTokenExpires: timestamp("verification_token_expires"),
-  signupCompleted: boolean("signup_completed").default(false),
-  signupStartedAt: timestamp("signup_started_at"),
-  signupCompletedAt: timestamp("signup_completed_at"),
-  signupAttempts: integer("signup_attempts").default(0),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-  // 2FA fields (aligned with migrations and production schema)
-  requires2fa: boolean("requires_2fa").default(false),
+  orgId: uuid("org_id"),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+  settings: jsonb("settings").default({}),
+  isAdmin: boolean("is_admin").notNull().default(false),
+  requires2fa: boolean("requires_2fa").notNull().default(false),
   totpSecret: varchar("totp_secret", { length: 255 }),
-  subscriptionId: uuid("subscription_id"),
-  lowStockEmailOptOut: boolean("low_stock_email_opt_out").default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  emailVerified: boolean("email_verified").default(false),
 }, (table) => ({
-  storeIdIdx: index("users_store_id_idx").on(table.storeId),
-  isActiveIdx: index("users_is_active_idx").on(table.isActive),
-  createdAtIdx: index("users_created_at_idx").on(table.createdAt),
-  incompleteSignupsIdx: index("users_incomplete_signups_idx").on(table.signupCompleted, table.signupStartedAt),
-  subscriptionIdIdx: index("users_subscription_id_idx").on(table.subscriptionId),
+  orgIdx: index("users_org_idx").on(table.orgId),
+}));
+
+// User roles table (align with production migrations)
+export const userRoles = pgTable('user_roles', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  orgId: uuid('org_id').notNull(),
+  storeId: uuid('store_id'),
+  role: roleEnum('role').notNull(),
+}, (t) => ({
+  userIdx: index('user_roles_user_idx').on(t.userId),
+  orgIdx: index('user_roles_org_idx').on(t.orgId),
+  storeIdx: index('user_roles_store_idx').on(t.storeId),
+  uniqueUserScope: uniqueIndex('user_roles_unique_scope').on(t.userId, t.storeId, t.role),
 }));
 
 // Stores table

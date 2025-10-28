@@ -1,0 +1,47 @@
+name: DB Migrate
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run Drizzle migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: development
+        run: |
+          npm run db:migrate
+
+      - name: Optional reconciliation script
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: development
+        run: |
+          node run-migrations.mjs || true
+
+      - name: Connectivity smoke test
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: development
+        run: |
+          node test-db-connection.mjs || true
+
+
