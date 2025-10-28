@@ -8,6 +8,7 @@ import { storage } from '../storage';
 import { SignupSchema, LoginSchema as ValidationLoginSchema, PasswordResetSchema, PasswordResetConfirmSchema } from '../schemas/auth';
 import { authenticator } from 'otplib';
 import jwt from 'jsonwebtoken';
+import { loadEnv } from '../../shared/env';
 import { sendEmail, generatePasswordResetEmail, generatePasswordResetSuccessEmail } from '../email';
 import { securityAuditService } from '../lib/security-audit';
 import { monitoringService } from '../lib/monitoring';
@@ -23,6 +24,7 @@ const LoginSchema = z.union([
 ]);
 
 export async function registerAuthRoutes(app: Express) {
+  const env = loadEnv(process.env);
   // Test-only login helper to set a session without full credential checks
   app.post('/api/auth/test-login', async (req: Request, res: Response) => {
     if (process.env.NODE_ENV !== 'test') {
@@ -164,7 +166,7 @@ export async function registerAuthRoutes(app: Express) {
       }
 
       // Send verification email
-      const emailToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '1d' });
+      const emailToken = jwt.sign({ id: user.id, email: user.email }, env.JWT_SECRET!, { expiresIn: '1d' });
       const verifyUrl = `${process.env.FRONTEND_URL}/verify-email?token=${emailToken}`;
       await sendEmail({
         to: user.email,
@@ -280,7 +282,7 @@ export async function registerAuthRoutes(app: Express) {
       if (user) {
         // Check if user exists
         // Generate password reset token
-        const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, email: user.email }, env.JWT_SECRET!, { expiresIn: '1h' });
 
         // Send password reset email (use template)
         const { generatePasswordResetEmail } = await import('../email');
@@ -303,7 +305,7 @@ export async function registerAuthRoutes(app: Express) {
 
     try {
       // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+      const decoded = jwt.verify(token, env.JWT_SECRET!) as any;
 
       // Check if user exists
       const user = await storage.getUserById(decoded.id);
@@ -336,7 +338,7 @@ export async function registerAuthRoutes(app: Express) {
 
     try {
       // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+      const decoded = jwt.verify(token, env.JWT_SECRET!) as any;
 
       // Check if user exists
       const user = await storage.getUserById(decoded.id);

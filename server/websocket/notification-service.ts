@@ -169,8 +169,8 @@ export class NotificationService {
         return;
       }
 
-      // Verify JWT token
-      const decoded = jwt.verify(authData.token, process.env.SESSION_SECRET!) as any;
+      // Verify JWT token using canonical JWT secret from validated env
+      const decoded = jwt.verify(authData.token, this.config.JWT_SECRET) as any;
       const userId = decoded.userId;
       const storeId = authData.storeId || decoded.storeId || '';
 
