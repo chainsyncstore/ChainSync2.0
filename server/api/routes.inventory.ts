@@ -120,12 +120,13 @@ export async function registerInventoryRoutes(app: Express) {
   });
 
   app.post('/api/inventory/import', requireAuth, enforceIpWhitelist, sensitiveEndpointRateLimit, uploadSingle, async (req: Request, res: Response) => {
-    if (!req.file) return res.status(400).json({ error: 'file is required' });
+    const uploaded = (req as any).file as { buffer: Buffer } | undefined;
+    if (!uploaded) return res.status(400).json({ error: 'file is required' });
 
     const invalidRows: Array<{ row: any; error: string }> = [];
     const results: any[] = [];
 
-    const text = req.file.buffer.toString('utf-8');
+    const text = uploaded.buffer.toString('utf-8');
     const records: any[] = [];
     await new Promise<void>((resolve, reject) => {
       csvParse(text, { columns: true, trim: true }, (err: any, out: any[]) => {

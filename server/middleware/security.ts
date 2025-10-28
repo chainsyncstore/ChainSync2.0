@@ -183,11 +183,10 @@ const env = loadEnv(process.env);
 
 const {
   invalidCsrfTokenError,
-  generateToken,
-  validateRequest,
   doubleCsrfProtection,
 } = doubleCsrf({
   getSecret: () => env.SESSION_SECRET,
+  getSessionIdentifier: (req: Request) => (req.session as any)?.userId || req.ip,
   cookieName: "csrf-token",
   cookieOptions: {
     httpOnly: true,

@@ -40,7 +40,8 @@ export async function registerMeRoutes(app: Express) {
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
     const user = await storage.getUser(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ id: user.id, email: user.email, isAdmin: user.isAdmin });
+    const isAdmin = (user as any).isAdmin ?? false;
+    res.json({ id: user.id, email: user.email, isAdmin });
   });
 
   app.get('/api/auth/me/roles', async (req: Request, res: Response) => {

@@ -55,8 +55,8 @@ export async function registerSettingsRoutes(app: Express) {
       const currentSettings = (user.settings || {}) as Record<string, any>;
       const newSettings = { ...currentSettings, ...parsed.data };
 
-      const [updatedUser] = await db.update(users)
-        .set({ settings: newSettings })
+      const [updatedUser] = await db.update(users as any)
+        .set({ settings: newSettings } as any)
         .where(eq(users.id, userId))
         .returning({ settings: users.settings });
 

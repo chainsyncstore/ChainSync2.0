@@ -52,14 +52,17 @@ This document outlines the security measures implemented in ChainSync to protect
 - **Secure Password Generation**: Random password generation for initial accounts
 
 ### Session Management
-- **Secure Sessions**: Uses PostgreSQL for session storage
-- **Session Security**:
-  - `httpOnly: true` - Prevents XSS attacks
-  - `secure: true` in production - HTTPS only
-  - `sameSite: 'strict'` - CSRF protection
-  - Custom session name to avoid fingerprinting
-- **Session Timeout**: 24-hour session expiration
-- **Session Sanitization**: Removes sensitive data before storing in session
+- **Store**:
+  - Development: in-memory (default `express-session` store)
+  - Production: Redis (via `connect-redis`)
+- **Cookie Policy**:
+  - `httpOnly: true`
+  - `secure: true` in production
+  - `sameSite: 'lax'` (payments-friendly)
+  - `name: 'chainsync.sid'`
+  - `maxAge: 8 hours` (8h session timeout)
+- **Trust Proxy**: In production, the server trusts the first proxy so the `Secure` flag works behind load balancers.
+- **Session Sanitization**: Sensitive fields are stripped before storing user data in session.
 
 ### Role-Based Access Control
 - **Hierarchical Roles**: Admin > Manager > Cashier

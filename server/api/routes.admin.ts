@@ -418,13 +418,14 @@ export async function registerAdminRoutes(app: Express) {
   // Bulk pricing via CSV (sku,new_price)
   const uploadSingle: any = upload.single('file');
   app.post('/api/admin/bulk-pricing/upload', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, uploadSingle, async (req: Request, res: Response) => {
-    if (!req.file) return res.status(400).json({ error: 'file is required' });
+    const uploaded = (req as any).file as { buffer: Buffer } | undefined;
+    if (!uploaded) return res.status(400).json({ error: 'file is required' });
     const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
     let me = (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any;
     if (!me && process.env.NODE_ENV === 'test') {
       me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
     }
-    const text = req.file.buffer.toString('utf-8');
+    const text = uploaded.buffer.toString('utf-8');
     const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
     const client = (db as any).client;
     const pg = client ? await client.connect() : null;

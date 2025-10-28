@@ -27,18 +27,21 @@ export async function registerBillingRoutes(app: Express) {
     if (!org) return res.status(404).json({ error: 'Organization not found' });
 
     const service = new PaymentService();
-    const reference = service.generateReference(plan.provider === 'PAYSTACK' ? 'paystack' : 'flutterwave');
+    // Plan does not carry provider details in typings; derive via env mapping
+    const provider = (process.env.DEFAULT_PAYMENT_PROVIDER || 'PAYSTACK') as 'PAYSTACK' | 'FLUTTERWAVE';
+    const reference = service.generateReference(provider === 'PAYSTACK' ? 'paystack' : 'flutterwave');
     const callbackUrl = `${process.env.BASE_URL || process.env.APP_URL}/payment/callback?orgId=${orgId}&planCode=${plan.code}`;
 
-    const providerPlanId = process.env[plan.providerPlanIdEnv];
+    const envKey = `PROVIDER_PLAN_ID_${plan.code.toUpperCase()}`;
+    const providerPlanId = process.env[envKey];
     if (!providerPlanId) {
-      return res.status(500).json({ error: `Missing provider plan id env: ${plan.providerPlanIdEnv}` });
+      return res.status(500).json({ error: `Missing provider plan id env: ${envKey}` });
     }
 
-    const resp = plan.provider === 'PAYSTACK'
+    const resp = provider === 'PAYSTACK'
       ? await service.initializePaystackPayment({
           email,
-          amount: plan.amountSmallestUnit,
+          amount: Number(process.env[`PLAN_AMOUNT_${plan.code.toUpperCase()}`] || '0'),
           currency: 'NGN',
           reference,
           callback_url: callbackUrl,
@@ -47,7 +50,7 @@ export async function registerBillingRoutes(app: Express) {
         })
       : await service.initializeFlutterwavePayment({
           email,
-          amount: plan.amountSmallestUnit,
+          amount: Number(process.env[`PLAN_AMOUNT_${plan.code.toUpperCase()}`] || '0'),
           currency: 'USD',
           reference,
           callback_url: callbackUrl,
@@ -56,7 +59,7 @@ export async function registerBillingRoutes(app: Express) {
         });
 
     res.json({
-      provider: plan.provider,
+      provider,
       reference,
       redirectUrl: resp.data.authorization_url || resp.data.link,
     });

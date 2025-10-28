@@ -12,8 +12,8 @@ export interface CookieOptions {
 export const defaultCookieOptions: CookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  sameSite: 'lax',
+  maxAge: 8 * 60 * 60 * 1000, // 8 hours
   path: '/',
   domain: process.env.COOKIE_DOMAIN || undefined
 };
