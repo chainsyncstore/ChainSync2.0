@@ -9,6 +9,9 @@ permissions:
 jobs:
   migrate:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      NODE_ENV: development
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,25 +26,16 @@ jobs:
         run: npm ci --no-audit --no-fund --omit=optional
 
       - name: Run Drizzle migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          NODE_ENV: development
         run: |
           npm run db:migrate
 
       - name: Optional reconciliation script
         if: always()
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          NODE_ENV: development
         run: |
           node run-migrations.mjs || true
 
       - name: Connectivity smoke test
         if: always()
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          NODE_ENV: development
         run: |
           node test-db-connection.mjs || true
 
