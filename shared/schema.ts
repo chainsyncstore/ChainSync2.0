@@ -56,6 +56,17 @@ export const userRoles = pgTable('user_roles', {
   uniqueUserScope: uniqueIndex('user_roles_unique_scope').on(t.userId, t.storeId, t.role),
 }));
 
+export const userRolesRelations = relations(userRoles, ({ one }) => ({
+  user: one(users, {
+    fields: [userRoles.userId],
+    references: [users.id],
+  }),
+  store: one(stores, {
+    fields: [userRoles.storeId],
+    references: [stores.id],
+  }),
+}));
+
 // Stores table
 export const stores = pgTable("stores", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -263,20 +274,13 @@ export const loyaltyTransactions = pgTable("loyalty_transactions", {
 }));
 
 // Relations
-export const usersRelations = relations(users, ({ one, many }) => ({
-  store: one(stores, {
-    fields: [users.storeId],
-    references: [stores.id],
-  }),
+export const usersRelations = relations(users, ({ many }) => ({
+  roles: many(userRoles),
   transactions: many(transactions),
-  subscription: one(subscriptions, {
-    fields: [users.subscriptionId],
-    references: [subscriptions.id],
-  }),
 }));
 
 export const storesRelations = relations(stores, ({ many }) => ({
-  users: many(users),
+  roles: many(userRoles),
   inventory: many(inventory),
   transactions: many(transactions),
   lowStockAlerts: many(lowStockAlerts),
@@ -673,7 +677,7 @@ export const ipWhitelists = pgTable("ip_whitelists", {
   description: varchar("description", { length: 255 }),
   whitelistedBy: uuid("whitelisted_by").notNull(), // User ID who added this IP
   whitelistedFor: uuid("whitelisted_for").notNull(), // User ID this IP is whitelisted for
-  role: userRoleEnum("role").notNull(), // Role this IP is whitelisted for
+  role: roleEnum("role").notNull(), // Role this IP is whitelisted for
   storeId: uuid("store_id"), // Store this IP is associated with (for managers/cashiers)
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
