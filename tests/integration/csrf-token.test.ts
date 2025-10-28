@@ -30,8 +30,9 @@ describe('CSRF Token Endpoint', () => {
 
   it('sets a csrf-token cookie', async () => {
     const res = await request(server).get('/api/auth/csrf-token').expect(200);
-    const setCookie = res.headers['set-cookie'] || [];
-    const hasCsrfCookie = setCookie.some((c: string) => c.toLowerCase().startsWith('csrf-token='));
+    const rawSetCookie = res.headers['set-cookie'];
+    const cookies = Array.isArray(rawSetCookie) ? rawSetCookie : rawSetCookie ? [rawSetCookie] : [];
+    const hasCsrfCookie = cookies.some((c) => c.toLowerCase().startsWith('csrf-token='));
     expect(hasCsrfCookie).toBe(true);
   });
 });
