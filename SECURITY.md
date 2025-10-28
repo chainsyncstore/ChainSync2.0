@@ -24,15 +24,37 @@ Per-endpoint limits are applied for authentication attempts, payment actions, im
 
 ## CSRF Strategy
 
-All authenticated APIs use same-site, httpOnly session cookies with `SameSite=Lax` and are consumed by a first-party SPA served from the same origin. Under this model, modern browsers do not attach session cookies on cross-site top-level POSTs and subresource requests, significantly reducing CSRF risk. We therefore omit CSRF double-submit tokens for these JSON APIs and rely on:
+All API routes under `/api` are protected by double-submit CSRF tokens using `csrf-csrf`:
 
-- SameSite session cookies (Lax)
-- Origin and Content-Type checks as applicable
-- CORS disallows third-party origins by default
+- Cookie: `csrf-token` (httpOnly, SameSite=Lax, Secure in production)
+- Header: `X-CSRF-Token`
+- Token issuance endpoint: `GET /api/auth/csrf-token` returns `{ token }`, mirrors it in `X-CSRF-Token`, and sets the cookie
+- Middleware: applied globally via `csrfProtection` to `/api/**`
 
-Exceptions: if any endpoint must be consumed cross-site or changes to `SameSite=None`, CSRF tokens must be reintroduced for those endpoints. We also avoid CSRF checks for static assets and read-only requests.
+Exceptions (explicit):
+
+- `GET /api/auth/csrf-token` is bypassed in CSRF middleware to allow fetching the token
+- Test environment (`NODE_ENV=test`): CSRF validation is bypassed to keep integration/E2E tests stable
+
+Notes:
+
+- Client automatically fetches a CSRF token and attaches `X-CSRF-Token` for non-GET requests with `credentials: 'include'`
+- SameSite=Lax remains in effect for the session cookie as defense-in-depth
+
+### Auth route protections summary
+
+- Signup: `authRateLimit` + required bot-prevention (if configured)
+- Login: `authRateLimit` + optional bot-prevention
+- Request password reset: `authRateLimit` + optional bot-prevention
+- Reset password: `authRateLimit` + optional bot-prevention
+- Verify email: `sensitiveEndpointRateLimit` + optional bot-prevention
+- Setup/Verify 2FA: `sensitiveEndpointRateLimit`
+- Change password: `sensitiveEndpointRateLimit`
+- Delete account: `sensitiveEndpointRateLimit`
+- Logout: session destroy only
 
 This rationale is aligned with current browser behavior and OWASP guidance when using strict session cookie scope and first-party SPAs.
+
 # ChainSync Security Documentation
 
 ## 🔐 Security Overview

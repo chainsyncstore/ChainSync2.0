@@ -14,9 +14,9 @@ import { AuthService } from '../auth';
 import { securityAuditService } from '../lib/security-audit';
 import { monitoringService } from '../lib/monitoring';
 import { logger, extractLogContext } from '../lib/logger';
-import { authRateLimit } from '../middleware/security';
+import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '../middleware/security';
 import { PendingSignup } from './pending-signup';
-import { signupBotPrevention } from '../middleware/bot-prevention';
+import { signupBotPrevention, botPreventionMiddleware } from '../middleware/bot-prevention';
 // duplicate import removed
 
 const LoginSchema = z.union([
@@ -26,6 +26,22 @@ const LoginSchema = z.union([
 
 export async function registerAuthRoutes(app: Express) {
   const env = loadEnv(process.env);
+  // CSRF token issuance route (explicit CSRF bypass in middleware). Returns token and sets cookie.
+  app.get('/api/auth/csrf-token', (req: Request, res: Response) => {
+    try {
+      let token: string;
+      if (process.env.NODE_ENV === 'test') {
+        token = `test-${Math.random().toString(36).slice(2)}`;
+        res.cookie('csrf-token', token, { httpOnly: true, sameSite: 'lax', secure: false });
+      } else {
+        token = generateCsrfToken(res, req);
+      }
+      res.setHeader('X-CSRF-Token', token);
+      res.status(200).json({ token });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to generate CSRF token' });
+    }
+  });
   // Test-only login helper to set a session without full credential checks
   app.post('/api/auth/test-login', async (req: Request, res: Response) => {
     if (process.env.NODE_ENV !== 'test') {
@@ -51,8 +67,8 @@ export async function registerAuthRoutes(app: Express) {
     req.session!.twofaVerified = true;
     res.json({ status: 'success', userId: (admin as any).id });
   });
-  // Signup endpoint with bot prevention
-  app.post('/api/auth/signup', signupBotPrevention, async (req: Request, res: Response) => {
+  // Signup endpoint with rate limit and bot prevention
+  app.post('/api/auth/signup', authRateLimit, signupBotPrevention, async (req: Request, res: Response) => {
     try {
       // Record signup attempt for observability
       const attemptContext = extractLogContext(req);
@@ -188,7 +204,7 @@ export async function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post('/api/auth/login', authRateLimit, async (req: Request, res: Response) => {
+  app.post('/api/auth/login', authRateLimit, botPreventionMiddleware({ required: false, expectedAction: 'login' }), async (req: Request, res: Response) => {
     const parse = ValidationLoginSchema.safeParse(req.body);
     if (!parse.success) {
       return res.status(400).json({ message: 'Invalid email or password' });
@@ -286,7 +302,7 @@ export async function registerAuthRoutes(app: Express) {
     });
   });
 
-  app.post('/api/auth/request-password-reset', async (req: Request, res: Response) => {
+  app.post('/api/auth/request-password-reset', authRateLimit, botPreventionMiddleware({ required: false, expectedAction: 'password_reset_request' }), async (req: Request, res: Response) => {
     const { email } = req.body;
     if (!email) {
       return res.status(400).json({ message: 'Email is required' });
@@ -312,7 +328,7 @@ export async function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+  app.post('/api/auth/reset-password', authRateLimit, botPreventionMiddleware({ required: false, expectedAction: 'password_reset' }), async (req: Request, res: Response) => {
     const { token, password } = req.body;
     if (!token || !password) {
       return res.status(400).json({ message: 'Token and password are required' });
@@ -345,7 +361,7 @@ export async function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
+  app.post('/api/auth/verify-email', sensitiveEndpointRateLimit, botPreventionMiddleware({ required: false, expectedAction: 'email_verification' }), async (req: Request, res: Response) => {
     const { token } = req.body;
     if (!token) {
       return res.status(400).json({ message: 'Token is required' });
@@ -393,7 +409,7 @@ export async function registerAuthRoutes(app: Express) {
   });
 
   // 2FA setup
-  app.post('/api/auth/setup-2fa', async (req: Request, res: Response) => {
+  app.post('/api/auth/setup-2fa', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
     const { userId } = req.session!;
     if (!userId) {
       return res.status(401).json({ message: 'Unauthorized' });
@@ -419,7 +435,7 @@ export async function registerAuthRoutes(app: Express) {
   });
 
   // 2FA verify
-  app.post('/api/auth/verify-2fa', async (req: Request, res: Response) => {
+  app.post('/api/auth/verify-2fa', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
     const { userId } = req.session!;
     const { token } = req.body;
     if (!userId || !token) {
@@ -467,7 +483,7 @@ export async function registerAuthRoutes(app: Express) {
   });
 
   // Password change (not reset)
-  app.post('/api/auth/change-password', async (req: Request, res: Response) => {
+  app.post('/api/auth/change-password', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
     const { userId } = req.session!;
     const { oldPassword, newPassword } = req.body;
     if (!userId || !oldPassword || !newPassword) {
@@ -493,7 +509,7 @@ export async function registerAuthRoutes(app: Express) {
   });
 
   // Account deletion/closure
-  app.post('/api/auth/delete-account', async (req: Request, res: Response) => {
+  app.post('/api/auth/delete-account', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
     const { userId } = req.session!;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
     try {

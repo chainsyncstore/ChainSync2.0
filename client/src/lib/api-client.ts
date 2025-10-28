@@ -59,17 +59,14 @@ class ApiClient {
         });
         
         if (response.ok) {
-          const data = await response.json();
-          token = data.csrfToken;
+          // Prefer header, then JSON body 'token', then legacy 'csrfToken'
+          const headerToken = response.headers.get('X-CSRF-Token');
+          const data = await response.json().catch(() => ({} as any));
+          token = headerToken || data.token || data.csrfToken || null;
           
-          // Verify the cookie was set
-          const cookieToken = this.getCsrfTokenFromCookie();
-          if (cookieToken && cookieToken === token) {
-            console.log('CSRF token and cookie set successfully');
+          // Record token for subsequent requests; cookie visibility is optional
+          if (token) {
             this.csrfToken = token;
-          } else {
-            console.warn('CSRF token received but cookie not properly set');
-            // Still use the token from response for this request
           }
         } else {
           console.error('Failed to fetch CSRF token:', response.status, response.statusText);

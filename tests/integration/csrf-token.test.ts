@@ -1,0 +1,37 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import request from 'supertest';
+import express from 'express';
+import session from 'express-session';
+import { registerRoutes } from '../../server/routes';
+
+describe('CSRF Token Endpoint', () => {
+  let app: express.Application;
+  let server: any;
+
+  beforeAll(async () => {
+    app = express();
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: false }));
+    app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: false, cookie: { secure: false } }));
+    await registerRoutes(app as any);
+    server = app.listen(0);
+  });
+
+  afterAll(async () => {
+    if (server) server.close();
+  });
+
+  it('returns a token and sets X-CSRF-Token header', async () => {
+    const res = await request(server).get('/api/auth/csrf-token').expect(200);
+    expect(res.body).toHaveProperty('token');
+    expect(typeof res.body.token).toBe('string');
+    expect(res.headers['x-csrf-token']).toBe(res.body.token);
+  });
+
+  it('sets a csrf-token cookie', async () => {
+    const res = await request(server).get('/api/auth/csrf-token').expect(200);
+    const setCookie = res.headers['set-cookie'] || [];
+    const hasCsrfCookie = setCookie.some((c: string) => c.toLowerCase().startsWith('csrf-token='));
+    expect(hasCsrfCookie).toBe(true);
+  });
+});
