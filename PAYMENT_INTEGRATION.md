@@ -92,8 +92,13 @@ For production deployment:
 
 Configure webhook endpoints in your payment provider dashboard:
 
-- **Paystack**: `https://yourdomain.com/api/payment/webhook`
-- **Flutterwave**: `https://yourdomain.com/api/payment/webhook`
+- **Paystack**: `https://yourdomain.com/webhooks/paystack` or `https://yourdomain.com/api/payment/paystack-webhook`
+- **Flutterwave**: `https://yourdomain.com/webhooks/flutterwave` or `https://yourdomain.com/api/payment/flutterwave-webhook`
+
+Required headers:
+- Common: `x-event-id`, `x-event-timestamp` (skew-checked; default ±5m)
+- Paystack: `x-paystack-signature` (HMAC-SHA512 with `WEBHOOK_SECRET_PAYSTACK` or `PAYSTACK_SECRET_KEY`)
+- Flutterwave: `verif-hash` (HMAC-SHA256 with `WEBHOOK_SECRET_FLW` or `FLUTTERWAVE_SECRET_KEY`)
 
 ## Security Considerations
 

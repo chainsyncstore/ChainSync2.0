@@ -54,7 +54,7 @@ Advanced:
 
 ### Deployment (Render)
 - `render.yaml` included; healthcheck `GET /healthz`.
-- Ensure envs match `shared/env.ts` requirements. In production, `REDIS_URL` is required.
+- Ensure envs match `shared/env.ts`. Production: `REDIS_URL` required, `SESSION_SECRET` ≥ 32 chars, `CORS_ORIGINS` must include your app origins.
 - Build artifact: `dist/` (client output under `dist/public`). Start command: `node dist/index.js`.
 
 ### Backups
@@ -92,13 +92,14 @@ Advanced:
   - CORS: allowed origins derived from env (`shared/env.ts`). API path `/api` is CORS-protected.
   - CSRF: `csrfProtection` applied to `/api` routes, not to webhook raw endpoints.
   - Rate limiting: global, auth, sensitive export endpoints, and webhook-specific.
-- Cookies: `server/lib/cookies.ts` sets `httpOnly`, `secure` (prod), and `sameSite` (strict in prod) where applicable.
+- Cookies: `server/lib/cookies.ts` sets `httpOnly`, `secure` (prod), and `sameSite: 'lax'`; session cookie `chainsync.sid`. `COOKIE_DOMAIN` (optional) scopes cookies.
 
 ### Webhooks (Payments)
 - Implementation: `server/api/routes.webhooks.ts`.
 - Endpoints (raw body required):
   - Paystack: `POST /webhooks/paystack` and `POST /api/payment/paystack-webhook`
   - Flutterwave: `POST /webhooks/flutterwave` and `POST /api/payment/flutterwave-webhook`
+- Aliases: `/api/webhook/paystack`, `/api/webhook/flutterwave`; generic `/api/payment/webhook` returns 200 (tests only).
 - Required headers:
   - Common: `x-event-id` (unique), `x-event-timestamp` (skew-checked; default ±5m).
   - Paystack: `x-paystack-signature` (HMAC-SHA512 with `WEBHOOK_SECRET_PAYSTACK` or `PAYSTACK_SECRET_KEY`).

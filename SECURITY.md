@@ -39,7 +39,7 @@ Exceptions (explicit):
 Notes:
 
 - Client automatically fetches a CSRF token and attaches `X-CSRF-Token` for non-GET requests with `credentials: 'include'`
-- SameSite=Lax remains in effect for the session cookie as defense-in-depth
+- Session cookie `chainsync.sid` uses SameSite=Lax, httpOnly, and Secure in production
 
 ### Auth route protections summary
 
@@ -85,6 +85,21 @@ This document outlines the security measures implemented in ChainSync to protect
   - `maxAge: 8 hours` (8h session timeout)
 - **Trust Proxy**: In production, the server trusts the first proxy so the `Secure` flag works behind load balancers.
 - **Session Sanitization**: Sensitive fields are stripped before storing user data in session.
+
+### Production Environment Requirements
+- `REDIS_URL` must be set (Redis-backed sessions)
+- `SESSION_SECRET` must be at least 32 characters
+- `CORS_ORIGINS` must contain at least one valid http(s) origin
+
+### Payment Webhooks
+- Endpoints (raw body required):
+  - Paystack: `POST /webhooks/paystack`, `POST /api/payment/paystack-webhook`
+  - Flutterwave: `POST /webhooks/flutterwave`, `POST /api/payment/flutterwave-webhook`
+- Aliases: `/api/webhook/paystack`, `/api/webhook/flutterwave`, and a generic `/api/payment/webhook` used in tests
+- Required headers:
+  - Common: `x-event-id`, `x-event-timestamp` (skew-checked; default ±5m)
+  - Paystack: `x-paystack-signature` (HMAC-SHA512 with `WEBHOOK_SECRET_PAYSTACK` or `PAYSTACK_SECRET_KEY`)
+  - Flutterwave: `verif-hash` (HMAC-SHA256 with `WEBHOOK_SECRET_FLW` or `FLUTTERWAVE_SECRET_KEY`)
 
 ### Role-Based Access Control
 - **Hierarchical Roles**: Admin > Manager > Cashier
