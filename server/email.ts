@@ -41,6 +41,9 @@ export interface EmailOptions {
 
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
   try {
+    if (process.env.NODE_ENV === 'test') {
+      return true;
+    }
     const mailOptions = {
       from: process.env.SMTP_FROM || emailConfig.auth.user,
       to: options.to,

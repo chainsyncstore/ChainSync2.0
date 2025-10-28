@@ -25,10 +25,14 @@ export async function registerWebhookRoutes(app: Express) {
   const replayTtlMs = Number(process.env.WEBHOOK_REPLAY_TTL_MS || 10 * 60_000); // default 10 minutes
   // In-memory idempotency registry with timestamps for test/development environments
   const seenEvents = new Map<string, number>();
+  const seenProviderEvents = new Map<string, number>();
   const cleanupSeen = () => {
     const now = Date.now();
     for (const [key, ts] of seenEvents) {
       if (now - ts > replayTtlMs) seenEvents.delete(key);
+    }
+    for (const [key, ts] of seenProviderEvents) {
+      if (now - ts > replayTtlMs) seenProviderEvents.delete(key);
     }
   };
   const markSeen = (key: string) => {
@@ -38,6 +42,14 @@ export async function registerWebhookRoutes(app: Express) {
   const isSeen = (key: string) => {
     cleanupSeen();
     return seenEvents.has(key);
+  };
+  const markProviderSeen = (key: string) => {
+    cleanupSeen();
+    seenProviderEvents.set(key, Date.now());
+  };
+  const isProviderSeen = (key: string) => {
+    cleanupSeen();
+    return seenProviderEvents.has(key);
   };
 
   // Allowed event types (minimal for tests)
@@ -89,18 +101,24 @@ export async function registerWebhookRoutes(app: Express) {
         return res.status(400).json({ error: 'Unsupported event type' });
       }
       const providerEventId = (evt?.event || '') + ':' + String(data?.id || data?.reference || data?.transaction_reference || '');
+      const providerKey = 'PAYSTACK#' + providerEventId;
+      if (isProviderSeen(providerKey)) {
+        return res.json({ status: 'success', received: true, idempotent: true });
+      }
       // Event-id header uniqueness with TTL
       const headerKey = 'PAYSTACK#' + idCheck.id;
       if (isSeen(headerKey)) {
-        return res.json({ received: true, idempotent: true });
+        return res.json({ status: 'success', received: true, idempotent: true });
       }
       markSeen(headerKey);
-      // Idempotency: skip already-processed events
+      // Idempotency: skip already-processed events (DB uniqueness)
       try {
         await db.insert(webhookEvents).values({ provider: 'PAYSTACK' as any, eventId: providerEventId } as any);
       } catch {
-        return res.json({ received: true, idempotent: true });
+        return res.json({ status: 'success', received: true, idempotent: true });
       }
+      // Mark provider-level seen after successful uniqueness check/insert
+      markProviderSeen(providerKey);
       // Try reading orgId/planCode from metadata first
       let orgId = data?.metadata?.orgId as string | undefined;
       let planCode = data?.metadata?.planCode as string | undefined;
@@ -223,17 +241,23 @@ export async function registerWebhookRoutes(app: Express) {
         return res.status(400).json({ error: 'Unsupported event type' });
       }
       const providerEventId = (evt?.event || '') + ':' + String(data?.id || data?.tx_ref || '');
+      const providerKey = 'FLW#' + providerEventId;
+      if (isProviderSeen(providerKey)) {
+        return res.json({ received: true, idempotent: true });
+      }
       const headerKey = 'FLW#' + idCheck.id;
       if (isSeen(headerKey)) {
         return res.json({ received: true, idempotent: true });
       }
       markSeen(headerKey);
-      // Idempotency: skip already-processed events
+      // Idempotency: skip already-processed events (DB uniqueness)
       try {
         await db.insert(webhookEvents).values({ provider: 'FLW' as any, eventId: providerEventId } as any);
       } catch {
         return res.json({ received: true, idempotent: true });
       }
+      // Mark provider-level seen after successful uniqueness check/insert
+      markProviderSeen(providerKey);
       // Try metadata first
       let orgId = data?.meta?.orgId as string | undefined;
       let planCode = data?.meta?.planCode as string | undefined;

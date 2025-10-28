@@ -37,7 +37,6 @@ describe('Subscriptions Webhooks', () => {
     process.env.WEBHOOK_REPLAY_TTL_MS = '200';
 
     app = express();
-    app.use(express.json());
     app.use(session({ secret: 'test', resave: false, saveUninitialized: true }));
     await registerRoutes(app as any);
     server = app.listen();
@@ -67,10 +66,45 @@ describe('Subscriptions Webhooks', () => {
     expect(res.body.status).toBe('success');
   });
 
+  it('accepts mixed-case signature header names (Paystack)', async () => {
+    const evt = {
+      event: 'charge.success',
+      data: { id: `tx-ps-mixed-sig-${Date.now()}`, status: 'success', metadata: { orgId: 'org-test', planCode: 'BASIC_NGN' } },
+    };
+    const body = JSON.stringify(evt);
+    const sig = hmacSha512(process.env.PAYSTACK_SECRET_KEY!, body);
+    const res = await request(server)
+      .post('/api/payment/paystack-webhook')
+      .set('Content-Type', 'application/json')
+      .set(commonHeaders())
+      .set('X-Paystack-Signature', sig)
+      .send(body)
+      .expect(200);
+    expect(res.body.status).toBe('success');
+  });
+
+  it('accepts mixed-case signature header names (Flutterwave)', async () => {
+    const evt = {
+      event: 'charge.completed',
+      data: { status: 'successful', meta: { orgId: 'org-test', planCode: 'BASIC_USD' } },
+    };
+    const body = JSON.stringify(evt);
+    const sig = hmacSha256(process.env.FLUTTERWAVE_SECRET_KEY!, body);
+    const res = await request(server)
+      .post('/api/payment/flutterwave-webhook')
+      .set('Content-Type', 'application/json')
+      .set(commonHeaders())
+      .set('Verif-Hash', sig)
+      .send(body)
+      .expect(200);
+    expect(res.body.status).toBe('success');
+  });
+
   it('handles Flutterwave webhook and acknowledges receipt', async () => {
     const evt = {
       event: 'charge.completed',
       data: {
+        id: `flw-handle-ack-${Date.now()}`,
         status: 'successful',
         meta: { orgId: 'org-test', planCode: 'BASIC_USD' },
       },
@@ -149,6 +183,54 @@ describe('Subscriptions Webhooks', () => {
       .expect(200);
     expect(replay.body.idempotent).toBe(true);
     expect(replay.body.received).toBe(true);
+  });
+
+  it('is idempotent by provider event id even with different x-event-id values (Paystack)', async () => {
+    const evt = {
+      event: 'charge.success',
+      data: {
+        id: 'tx-provider-dup-1',
+        status: 'success',
+        metadata: { orgId: 'org-test', planCode: 'BASIC_NGN' },
+      },
+    };
+    const body = JSON.stringify(evt);
+    const sig = hmacSha512(process.env.PAYSTACK_SECRET_KEY!, body);
+
+    // First delivery with event id A
+    await request(server)
+      .post('/api/payment/paystack-webhook')
+      .set('Content-Type', 'application/json')
+      .set(commonHeaders('evt-a'))
+      .set('x-paystack-signature', sig)
+      .send(body)
+      .expect(200);
+
+    // Second delivery with different event id B but same provider event id
+    const replay = await request(server)
+      .post('/api/payment/paystack-webhook')
+      .set('Content-Type', 'application/json')
+      .set(commonHeaders('evt-b'))
+      .set('x-paystack-signature', sig)
+      .send(body)
+      .expect(200);
+    expect(replay.body.received).toBe(true);
+    expect(replay.body.idempotent).toBe(true);
+  });
+
+  it('accepts mixed-case event header names (timestamp and id)', async () => {
+    const evt = { event: 'charge.success', data: { id: `tx-ps-mixed-evt-headers-${Date.now()}`, status: 'success', metadata: { orgId: 'org', planCode: 'BASIC_NGN' } } };
+    const body = JSON.stringify(evt);
+    const sig = hmacSha512(process.env.PAYSTACK_SECRET_KEY!, body);
+    const res = await request(server)
+      .post('/api/payment/paystack-webhook')
+      .set('Content-Type', 'application/json')
+      .set('X-Event-Timestamp', String(Date.now()))
+      .set('X-Event-Id', 'evt-mixed-case')
+      .set('x-paystack-signature', sig)
+      .send(body)
+      .expect(200);
+    expect(res.body.status).toBe('success');
   });
 
   it('rejects missing Flutterwave signature (401)', async () => {

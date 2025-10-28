@@ -44,8 +44,17 @@ app.use(redirectSecurityCheck);
 app.use(corsMiddleware);
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: false, limit: '10mb' }));
+const jsonParser = express.json({ limit: '10mb' });
+const urlencodedParser = express.urlencoded({ extended: false, limit: '10mb' });
+const isWebhookPost = (req: Request) => (
+  req.method === 'POST' && (
+    req.path.startsWith('/webhooks/') ||
+    req.path.startsWith('/api/webhook/') ||
+    (req.path.startsWith('/api/payment') && req.path.includes('webhook'))
+  )
+);
+app.use((req, res, next) => isWebhookPost(req) ? next() : jsonParser(req, res, next));
+app.use((req, res, next) => isWebhookPost(req) ? next() : urlencodedParser(req, res, next));
 
 // Add monitoring and logging middleware
 app.use(monitoringMiddleware);

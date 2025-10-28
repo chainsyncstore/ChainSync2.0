@@ -31,9 +31,6 @@ export async function registerRoutes(app: Express) {
   app.use(configureSession(resolvedRedisUrl, env.SESSION_SECRET));
   // Cookie parser required before CSRF
   app.use(cookieParser());
-  // Ensure raw body is available for webhooks
-  app.use('/webhooks', express.raw({ type: '*/*' }));
-  app.use('/api/payment', express.raw({ type: '*/*' }));
   // CSRF protection for API routes (exclude webhooks)
   app.use('/api', csrfProtection);
   // Basic rate limiting on webhook endpoints
