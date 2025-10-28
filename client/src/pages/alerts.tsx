@@ -8,6 +8,8 @@ import { formatDateTime } from "@/lib/pos-utils";
 import { apiRequest } from "@/lib/queryClient";
 import type { Store, LowStockAlert, Product } from "@shared/schema";
 
+import LowStockEmailOptOutToggle from "../../components/LowStockEmailOptOutToggle";
+
 export default function Alerts() {
   const [selectedStore, setSelectedStore] = useState<string>("");
   const queryClient = useQueryClient();
@@ -59,6 +61,14 @@ export default function Alerts() {
   return (
     <div className="space-y-6">
           <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Preferences</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <LowStockEmailOptOutToggle />
+              </CardContent>
+            </Card>
             {/* Alert Summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card>
