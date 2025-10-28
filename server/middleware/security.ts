@@ -240,6 +240,8 @@ export const helmetConfig = helmet({
         ...dynamicOrigins,
         "https://js.paystack.co",
         "https://checkout.flutterwave.com",
+        "https://js.hcaptcha.com",
+        "https://hcaptcha.com",
         "https://www.google.com",
         "https://www.gstatic.com",
         "https://www.recaptcha.net",
@@ -275,10 +277,10 @@ export const helmetConfig = helmet({
         "https://api.paystack.co",
         "https://api.flutterwave.com",
         "https://*.ingest.sentry.io",
+        "https://hcaptcha.com",
         "https://www.google.com",
         "https://www.gstatic.com",
         "https://www.recaptcha.net",
-        "https://www.google.com/recaptcha/api2/clr"
       ])),
 
       // Allow provider-hosted iframes/popups
@@ -287,19 +289,21 @@ export const helmetConfig = helmet({
       frameSrc: Array.from(new Set([
         "'self'",
         ...dynamicOrigins,
-        "https://*.paystack.com",
+        "https://*.paystack.co",
         "https://*.flutterwave.com",
         // Legacy Flutterwave modal host (rare/optional)
         "https://ravemodal.flwv.io",
         "https://www.google.com",
         "https://www.gstatic.com",
-        "https://www.recaptcha.net"
+        "https://www.recaptcha.net",
+        "https://hcaptcha.com",
+        "https://*.hcaptcha.com"
       ])),
 
       // Allow form POST redirects to providers if flow uses full-page redirects
       formAction: [
         "'self'",
-        "https://*.paystack.com",
+        "https://*.paystack.co",
         "https://*.flutterwave.com"
       ],
 

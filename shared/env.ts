@@ -111,8 +111,24 @@ export function loadEnv(raw: NodeJS.ProcessEnv): Env {
 }
 
 export function parseCorsOrigins(csv: string): string[] {
-  return csv
-    .split(',')
+  // Support comma, whitespace, and newline separated entries
+  const raw = csv
+    .split(/[\s,]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+
+  // Normalize to exact origin (scheme + host + optional port),
+  // drop trailing slashes and invalid/non-http(s) entries, and dedupe
+  const normalized = new Set<string>();
+  for (const entry of raw) {
+    try {
+      const u = new URL(entry);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+      const origin = `${u.protocol}//${u.hostname}${u.port ? `:${u.port}` : ''}`;
+      normalized.add(origin);
+    } catch {
+      // Ignore invalid URLs silently
+    }
+  }
+  return Array.from(normalized);
 }
