@@ -116,8 +116,13 @@ After running `npm run seed:demo`, you can use:
 
 - Canonical schema: `shared/env.ts`.
 - Required: `DATABASE_URL`, `SESSION_SECRET`, `APP_URL`, `CORS_ORIGINS`.
-- Production-only requirement: `REDIS_URL`.
+- Production-only requirements: `REDIS_URL`, `SESSION_SECRET` length ≥ 32, and `CORS_ORIGINS` must parse to at least one valid http(s) origin.
 - Optional (dev): payment keys (Paystack/Flutterwave), WebSocket, AI, offline flags.
+
+Early-boot guardrails:
+- On production start, an env check runs automatically (npm `prestart` and `prestart:render`).
+- Startup aborts with a clear error if any production requirement is missing/invalid. Example:
+  - `Invalid environment configuration: REDIS_URL, SESSION_SECRET (must be at least 32 characters in production) required in production`
 
 Example .env for local dev:
 ```env

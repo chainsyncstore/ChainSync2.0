@@ -102,6 +102,9 @@ export function loadEnv(raw: NodeJS.ProcessEnv): Env {
   if (data.NODE_ENV === 'production') {
     const missing: string[] = [];
     if (!data.REDIS_URL) missing.push('REDIS_URL');
+    if ((data.SESSION_SECRET?.length || 0) < 32) missing.push('SESSION_SECRET (must be at least 32 characters in production)');
+    const corsList = parseCorsOrigins(data.CORS_ORIGINS);
+    if (corsList.length === 0) missing.push('CORS_ORIGINS (must contain at least one valid http(s) origin)');
     if (missing.length) {
       throw new Error(`Invalid environment configuration:\n${missing.join(', ')} required in production`);
     }

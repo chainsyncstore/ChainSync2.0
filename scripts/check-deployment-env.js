@@ -8,29 +8,11 @@ import 'dotenv/config';
  */
 
 const requiredEnvVars = {
-  // Database
+  // Core application
+  APP_URL: 'Base URL for the application (e.g., https://yourdomain.com)',
   DATABASE_URL: 'PostgreSQL database connection string',
-  DIRECT_URL: 'Direct database connection string',
-  
-  // Security
-  JWT_SECRET: 'JWT signing secret key',
-  JWT_REFRESH_SECRET: 'JWT refresh token secret',
-  SESSION_SECRET: 'Session encryption secret',
-  CSRF_SECRET: 'CSRF protection secret',
-  
-  // Payment Gateways
-  PAYSTACK_SECRET_KEY: 'Paystack API secret key (starts with sk_)',
-  FLUTTERWAVE_SECRET_KEY: 'Flutterwave API secret key (starts with FLWSECK_)',
-  
-  // Application
-  BASE_URL: 'Base URL for the application (e.g., https://yourdomain.com)',
-  NODE_ENV: 'Environment (should be production for deployed sites)',
-  PORT: 'Port number (usually 5000 for Render)',
-  
-  // Email (optional but recommended)
-  SMTP_HOST: 'SMTP server hostname',
-  SMTP_USER: 'SMTP username/email',
-  SMTP_PASS: 'SMTP password/app password'
+  CORS_ORIGINS: 'Comma/space separated list of allowed origins for CORS',
+  SESSION_SECRET: 'Session encryption secret (>= 32 chars in production)',
 };
 
 const optionalEnvVars = {
@@ -51,6 +33,7 @@ function checkEnvironment() {
   let missingRequired = [];
   let missingOptional = [];
   let configured = [];
+  let problems = [];
   
   // Check required environment variables
   for (const [key, description] of Object.entries(requiredEnvVars)) {
@@ -67,6 +50,30 @@ function checkEnvironment() {
       configured.push({ key, description, value: maskSensitiveValue(process.env[key]) });
     } else {
       missingOptional.push({ key, description });
+    }
+  }
+
+  // Production-only requirements and stricter validations
+  const isProd = (process.env.NODE_ENV || '').trim() === 'production';
+  if (isProd && !process.env.REDIS_URL) {
+    missingRequired.push({ key: 'REDIS_URL', description: 'Redis connection URL (required in production)' });
+  }
+
+  // SESSION_SECRET length requirement in production
+  if (process.env.SESSION_SECRET) {
+    if (isProd && process.env.SESSION_SECRET.length < 32) {
+      problems.push('SESSION_SECRET must be at least 32 characters in production.');
+    }
+  }
+
+  // Validate CORS_ORIGINS parses to at least one valid origin
+  const cors = (process.env.CORS_ORIGINS || '').trim();
+  if (cors.length === 0) {
+    problems.push('CORS_ORIGINS is empty. Provide at least one origin such as https://your-frontend.example');
+  } else {
+    const parsed = parseCorsOrigins(cors);
+    if (parsed.length === 0) {
+      problems.push('CORS_ORIGINS must include at least one valid http(s) origin. Example: https://app.example.com,https://admin.example.com');
     }
   }
   
@@ -86,6 +93,14 @@ function checkEnvironment() {
     });
     console.log('');
   }
+
+  if (problems.length > 0) {
+    console.log('❌ INVALID Environment Configuration:');
+    problems.forEach((msg) => {
+      console.log(`   - ${msg}`);
+    });
+    console.log('');
+  }
   
   if (missingOptional.length > 0) {
     console.log('⚠️  Missing Optional Environment Variables:');
@@ -96,7 +111,7 @@ function checkEnvironment() {
   }
   
   // Summary
-  if (missingRequired.length === 0) {
+  if (missingRequired.length === 0 && problems.length === 0) {
     console.log('🎉 All required environment variables are configured!');
     console.log('✅ Your deployment should work properly.');
   } else {
@@ -127,7 +142,7 @@ function checkEnvironment() {
     console.log('   Flutterwave: ❌ NOT CONFIGURED - International users cannot make payments!');
   }
   
-  return missingRequired.length === 0;
+  return missingRequired.length === 0 && problems.length === 0;
 }
 
 function maskSensitiveValue(value) {
@@ -147,6 +162,25 @@ function maskSensitiveValue(value) {
   }
   
   return value.length > 20 ? value.substring(0, 20) + '...' : value;
+}
+
+function parseCorsOrigins(csv) {
+  const raw = csv
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const normalized = new Set();
+  for (const entry of raw) {
+    try {
+      const u = new URL(entry);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+      const origin = `${u.protocol}//${u.hostname}${u.port ? `:${u.port}` : ''}`;
+      normalized.add(origin);
+    } catch {
+      // ignore invalid
+    }
+  }
+  return Array.from(normalized);
 }
 
 // Run the check

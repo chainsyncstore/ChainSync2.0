@@ -18,8 +18,8 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Run deployment environment check
+      - name: Run deployment environment check (production mode)
         env:
-          # CI intentionally does not provide secrets; script should fail if required vars missing
-          NODE_ENV: test
-        run: npm run check:env
+          # CI intentionally does not provide secrets; this step should FAIL to guard production config
+          NODE_ENV: production
+        run: npm run check:env:prod
