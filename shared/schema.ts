@@ -38,8 +38,30 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   emailVerified: boolean("email_verified").default(false),
+  // Optional/compat fields used across app (client + server). Kept nullable to avoid strict migrations.
+  username: varchar("username", { length: 255 }),
+  firstName: varchar("first_name", { length: 255 }),
+  lastName: varchar("last_name", { length: 255 }),
+  phone: varchar("phone", { length: 50 }),
+  companyName: varchar("company_name", { length: 255 }),
+  location: varchar("location", { length: 64 }),
+  role: varchar("role", { length: 32 }),
+  storeId: uuid("store_id"),
+  lowStockEmailOptOut: boolean("low_stock_email_opt_out"),
+  signupCompleted: boolean("signup_completed"),
+  signupAttempts: integer("signup_attempts"),
+  signupStartedAt: timestamp("signup_started_at", { withTimezone: true }),
+  signupCompletedAt: timestamp("signup_completed_at", { withTimezone: true }),
+  isActive: boolean("is_active"),
+  phoneVerified: boolean("phone_verified"),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  failedLoginAttempts: integer("failed_login_attempts"),
+  // Some legacy/test code reads user.password directly; keep optional mirror for compatibility
+  password: varchar("password", { length: 255 }),
 }, (table) => ({
   orgIdx: index("users_org_idx").on(table.orgId),
+  usernameUnique: uniqueIndex("users_username_unique").on(table.username),
+  storeIdx: index("users_store_idx").on(table.storeId),
 }));
 
 // User roles table (align with production migrations)

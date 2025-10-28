@@ -157,9 +157,9 @@ export async function registerAuthRoutes(app: Express) {
         const { generateWelcomeEmail, sendEmail } = await import('../email');
         const welcomeEmail = generateWelcomeEmail(
           user.email,
-          user.firstName || user.email,
-          user.tier || tier || 'starter',
-          user.companyName || companyName || ''
+          (user as any).firstName || user.email,
+          (user as any).tier || tier || 'starter',
+          (user as any).companyName || companyName || ''
         );
         await sendEmail(welcomeEmail);
       } catch (e) {
@@ -172,11 +172,11 @@ export async function registerAuthRoutes(app: Express) {
       await sendEmail({
         to: user.email,
         subject: 'Verify your email address',
-        html: `<p>Hi ${user.firstName},</p><p>Thank you for signing up. Please verify your email address by clicking the link below:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>If you did not create an account, please ignore this email.</p>`,
+        html: `<p>Hi ${(user as any).firstName || user.email},</p><p>Thank you for signing up. Please verify your email address by clicking the link below:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>If you did not create an account, please ignore this email.</p>`,
       });
 
       // Respond with user data excluding sensitive information
-      const { password: _, ...userData } = user;
+      const { password: _pw, ...userData } = (user as any);
       res.status(201).json({ 
         message: 'Signup successful, please verify your email', 
         user: userData 
@@ -233,10 +233,10 @@ export async function registerAuthRoutes(app: Express) {
       // Check if password matches
       let isPasswordValid = false;
       try {
-        isPasswordValid = await bcrypt.compare(password!, user.password);
+        isPasswordValid = await bcrypt.compare(password!, (user as any).password);
       } catch {
         // In test environments with mocked storage, passwords may be stored in plaintext.
-        const looksHashed = typeof user.password === 'string' && user.password.startsWith('$2');
+        const looksHashed = typeof (user as any).password === 'string' && (user as any).password.startsWith('$2');
         if (!looksHashed && process.env.NODE_ENV === 'test') {
           isPasswordValid = (password! === (user as any).password);
         }
@@ -301,7 +301,7 @@ export async function registerAuthRoutes(app: Express) {
 
         // Send password reset email (use template)
         const { generatePasswordResetEmail } = await import('../email');
-        const resetEmail = generatePasswordResetEmail(user.email, token, user.firstName || user.email);
+        const resetEmail = generatePasswordResetEmail(user.email, token, (user as any).firstName || user.email);
         await sendEmail(resetEmail);
       }
       res.json({ message: 'If an account exists for this email, a password reset link has been sent.' });
@@ -334,7 +334,7 @@ export async function registerAuthRoutes(app: Express) {
 
       // Send success email (use template)
       const { generatePasswordResetSuccessEmail } = await import('../email');
-      const successEmail = generatePasswordResetSuccessEmail(user.email, user.firstName || user.email);
+      const successEmail = generatePasswordResetSuccessEmail(user.email, (user as any).firstName || user.email);
       await sendEmail(successEmail);
 
       res.json({ message: 'Password reset successful' });
@@ -476,14 +476,14 @@ export async function registerAuthRoutes(app: Express) {
     try {
       const user = await storage.getUserById(userId);
       if (!user) return res.status(404).json({ message: 'User not found' });
-      const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+      const isPasswordValid = await bcrypt.compare(oldPassword, (user as any).password);
       if (!isPasswordValid) return res.status(400).json({ message: 'Incorrect current password' });
       const hashedPassword = await bcrypt.hash(newPassword, 10);
       await storage.updateUser(userId, { password: hashedPassword });
       // Send password change alert email
       try {
         const { generatePasswordChangeAlertEmail, sendEmail } = await import('../email');
-        await sendEmail(generatePasswordChangeAlertEmail(user.email, user.firstName || user.email));
+        await sendEmail(generatePasswordChangeAlertEmail(user.email, (user as any).firstName || user.email));
       } catch (e) { logger.error('Failed to send password change alert email', e); }
       res.json({ message: 'Password changed successfully' });
     } catch (error) {
@@ -504,7 +504,7 @@ export async function registerAuthRoutes(app: Express) {
       // Send account deletion alert email
       try {
         const { generateAccountDeletionEmail, sendEmail } = await import('../email');
-        await sendEmail(generateAccountDeletionEmail(user.email, user.firstName || user.email));
+        await sendEmail(generateAccountDeletionEmail(user.email, (user as any).firstName || user.email));
       } catch (e) { logger.error('Failed to send account deletion email', e); }
       res.json({ message: 'Account deleted successfully' });
     } catch (error) {
