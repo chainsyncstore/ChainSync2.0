@@ -231,6 +231,7 @@ export async function registerAuthRoutes(app: Express) {
     if (!parse.success) {
       return res.status(400).json({ message: 'Invalid email or password' });
     }
+    try { logger.info('login-parse-success', { req: extractLogContext(req) }); } catch {}
 
     // Safely extract email or username
     let email: string | undefined;
@@ -245,6 +246,7 @@ export async function registerAuthRoutes(app: Express) {
     }
 
     try {
+      try { logger.info('login-start', { req: extractLogContext(req) }); } catch {}
       // Check if user exists
       let user: any = null;
       if (email) {
@@ -255,6 +257,7 @@ export async function registerAuthRoutes(app: Express) {
           ? await (storage as any).getUserByUsername(username)
           : await storage.getUserByEmail(username);
       }
+      try { logger.info('login-user-lookup-complete', { found: !!user, uid: user?.id, req: extractLogContext(req) }); } catch {}
       if (!user) {
         // Security alert: failed login attempt
         try {
@@ -273,6 +276,7 @@ export async function registerAuthRoutes(app: Express) {
       try {
         const storedHash = (user as any).password ?? (user as any).passwordHash ?? (user as any).password_hash;
         isPasswordValid = storedHash ? await bcrypt.compare(password!, String(storedHash)) : false;
+        try { logger.info('login-password-compare-done', { result: isPasswordValid, req: extractLogContext(req) }); } catch {}
       } catch {
         // In test environments with mocked storage, passwords may be stored in plaintext.
         const plainCandidate = (user as any).password ?? '';
@@ -281,6 +285,7 @@ export async function registerAuthRoutes(app: Express) {
         if (!looksHashed && process.env.NODE_ENV === 'test') {
           isPasswordValid = (password! === plainCandidate);
         }
+        try { logger.info('login-password-compare-fallback', { result: isPasswordValid, req: extractLogContext(req) }); } catch {}
       }
       if (!isPasswordValid) {
         // Security alert: failed login attempt
@@ -301,8 +306,10 @@ export async function registerAuthRoutes(app: Express) {
       }
 
       // Successful login
+      try { logger.info('login-session-set-begin', { uid: user.id, req: extractLogContext(req) }); } catch {}
       req.session!.userId = user.id;
       req.session!.twofaVerified = 'twofaVerified' in user ? (user as any).twofaVerified || false : false;
+      try { logger.info('login-session-set-complete', { uid: user.id, req: extractLogContext(req) }); } catch {}
 
       // Respond with user data excluding sensitive information
       const { password: _, ...userData } = user;
