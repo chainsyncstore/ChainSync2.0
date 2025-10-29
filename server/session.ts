@@ -37,6 +37,7 @@ export function configureSession(redisUrl: string | undefined, sessionSecret: st
 			secure: process.env.NODE_ENV === 'production',
 			sameSite: 'lax',
 			maxAge: 1000 * 60 * 60 * 8,
+			...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
 		},
 	});
 }

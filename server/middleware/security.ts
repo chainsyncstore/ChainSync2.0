@@ -189,6 +189,7 @@ const csrfUtils = doubleCsrf({
     httpOnly: true,
     sameSite: "lax",
     secure: !isDev,
+    ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
   },
 });
 const invalidCsrfTokenError = (csrfUtils as any).invalidCsrfTokenError as unknown;

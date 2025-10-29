@@ -19,10 +19,21 @@ import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, schedule
 
 const app = express();
 
-// Trust proxy for proper IP handling behind load balancers (important for Render)
-// In production, explicitly trust the first proxy ("1") so secure cookies and IPs work correctly.
-// In development/test, allow true to support local reverse proxies (e.g., Vite, dev tunnels).
-app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : true);
+// Trust proxy for proper IP handling behind load balancers (Cloudflare/Render)
+// TRUST_PROXY can be set to a number (hops), 'true', or 'false'. Defaults to 1 in production, true otherwise.
+(() => {
+  const envVal = process.env.TRUST_PROXY;
+  let trust: any = (process.env.NODE_ENV === 'production') ? 1 : true;
+  if (typeof envVal === 'string') {
+    if (envVal.toLowerCase() === 'true') trust = true;
+    else if (envVal.toLowerCase() === 'false') trust = false;
+    else {
+      const n = parseInt(envVal, 10);
+      if (!Number.isNaN(n)) trust = n;
+    }
+  }
+  app.set('trust proxy', trust);
+})();
 
 // Request ID middleware for log correlation
 app.use((req: Request, res: Response, next: NextFunction) => {
