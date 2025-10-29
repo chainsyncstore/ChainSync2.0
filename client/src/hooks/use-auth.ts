@@ -97,6 +97,12 @@ export function useAuth(): AuthState & AuthActions {
           return;
         }
       }
+      const respUser = (loginResp as any)?.user;
+      if (respUser) {
+        saveSession(respUser as any);
+        window.location.href = '/';
+        return;
+      }
       const fetchMe = async (attempt = 1): Promise<Response> => {
         const res = await fetch("/api/auth/me", { credentials: 'include', cache: 'no-store' as RequestCache });
         if (res.ok) return res;
