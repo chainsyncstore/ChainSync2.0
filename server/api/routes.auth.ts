@@ -39,6 +39,15 @@ export async function registerAuthRoutes(app: Express) {
       res.setHeader('X-CSRF-Token', token);
       res.status(200).json({ token });
     } catch (e) {
+      try {
+        logger.error('CSRF token generation failed', {
+          error: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+          ip: req.ip,
+          headers: req.headers,
+          requestId: (req as any).requestId
+        });
+      } catch {}
       res.status(500).json({ error: 'Failed to generate CSRF token' });
     }
   });

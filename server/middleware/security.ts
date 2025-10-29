@@ -183,7 +183,12 @@ const env = loadEnv(process.env);
 
 const csrfUtils = doubleCsrf({
   getSecret: () => env.SESSION_SECRET,
-  getSessionIdentifier: (req: Request) => (req.session as any)?.userId || req.ip,
+  getSessionIdentifier: (req: Request) => (
+    (req.session as any)?.userId ||
+    (req as any).requestId ||
+    req.ip ||
+    'anon'
+  ),
   cookieName: "csrf-token",
   cookieOptions: {
     httpOnly: true,
