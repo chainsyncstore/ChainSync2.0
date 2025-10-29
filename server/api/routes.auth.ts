@@ -249,12 +249,15 @@ export async function registerAuthRoutes(app: Express) {
       // Check if password matches
       let isPasswordValid = false;
       try {
-        isPasswordValid = await bcrypt.compare(password!, (user as any).password);
+        const storedHash = (user as any).password ?? (user as any).passwordHash ?? (user as any).password_hash;
+        isPasswordValid = storedHash ? await bcrypt.compare(password!, String(storedHash)) : false;
       } catch {
         // In test environments with mocked storage, passwords may be stored in plaintext.
-        const looksHashed = typeof (user as any).password === 'string' && (user as any).password.startsWith('$2');
+        const plainCandidate = (user as any).password ?? '';
+        const looksHashed = typeof ((user as any).password ?? (user as any).passwordHash ?? (user as any).password_hash) === 'string'
+          && String((user as any).password ?? (user as any).passwordHash ?? (user as any).password_hash).startsWith('$2');
         if (!looksHashed && process.env.NODE_ENV === 'test') {
-          isPasswordValid = (password! === (user as any).password);
+          isPasswordValid = (password! === plainCandidate);
         }
       }
       if (!isPasswordValid) {
