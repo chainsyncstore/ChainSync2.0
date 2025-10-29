@@ -7,19 +7,19 @@ import bcrypt from 'bcrypt';
 async function ensureAdmin(): Promise<void> {
   try {
     const username = process.env.ADMIN_TEST_USERNAME || 'admin';
-    const passwordPlain = process.env.ADMIN_TEST_PASSWORD || 'admin123';
+    const passwordPlain = process.env.ADMIN_TEST_PASSWORD || 'Admin123!';
     const email = process.env.ADMIN_TEST_EMAIL || 'admin@chainsync.com';
 
-    console.log(`🔎 Ensuring admin user exists (username: ${username})...`);
+    console.log(`🔎 Ensuring admin user exists (email: ${email})...`);
 
     const existing = await db
       .select()
       .from(users)
-      .where(eq(users.username, username))
+      .where(eq(users.email, email))
       .limit(1);
 
     if (existing && existing.length > 0) {
-      console.log(`✅ Admin user '${username}' already exists. No changes made.`);
+      console.log(`✅ Admin user with email '${email}' already exists. No changes made.`);
       return;
     }
 
@@ -28,13 +28,16 @@ async function ensureAdmin(): Promise<void> {
     await db.insert(users).values({
       username,
       email,
-      role: 'admin',
-      password: passwordHash,
+      role: 'ADMIN',
+      passwordHash: passwordHash,
+      password: passwordHash, // Keep for compatibility
       firstName: 'System',
       lastName: 'Administrator',
       isActive: true,
       emailVerified: true,
       storeId: null,
+      isAdmin: true,
+      signupCompleted: true,
     } as any);
 
     console.log('🎉 Admin user created successfully. Use these credentials to log in:');

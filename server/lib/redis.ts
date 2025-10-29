@@ -4,6 +4,12 @@ let client: RedisClientType | null = null;
 
 export function getRedisClient(): RedisClientType | null {
   if (client) return client;
+  
+  // Check if Redis is explicitly disabled for local development
+  if (process.env.LOCAL_DISABLE_REDIS === 'true') {
+    return null;
+  }
+  
   const url = process.env.REDIS_URL;
   if (!url) return null;
   client = createClient({ url }) as RedisClientType;

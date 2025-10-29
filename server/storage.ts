@@ -318,31 +318,37 @@ export class DatabaseStorage implements IStorage {
       return undefined;
     }
     try {
-      const [user] = await db
-        .select({
-          id: users.id,
-          email: users.email,
-          passwordHash: users.passwordHash,
-          emailVerified: users.emailVerified,
-        })
-        .from(users)
-        .where(eq(users.email, email));
-      return (user as any) || undefined;
-    } catch (e) {
-      try {
-        const [user] = await db
-          .select({
-            id: users.id,
-            email: users.email,
-            password: (users as any).password,
-            emailVerified: users.emailVerified,
-          })
-          .from(users)
-          .where(eq(users.email, email));
-        return (user as any) || undefined;
-      } catch {
-        return undefined;
+      // Use raw SQL to avoid schema mismatch issues
+      const result = await db.execute(
+        sql`SELECT * FROM users WHERE email = ${email}`
+      );
+      
+      if (result.rows && result.rows.length > 0) {
+        const user = result.rows[0];
+        // Map database fields to what the app expects
+        const mappedUser = {
+          ...user,
+          passwordHash: user.password_hash,
+          password_hash: user.password_hash,
+          password: user.password_hash,
+          emailVerified: user.email_verified,
+          email_verified: user.email_verified,
+          isAdmin: user.is_admin,
+          is_admin: user.is_admin,
+        } as any;
+        
+        console.log('getUserByEmail - field mapping:', {
+          hasPasswordHash: !!mappedUser.passwordHash,
+          hasPassword_hash: !!mappedUser.password_hash,
+          hasPassword: !!mappedUser.password
+        });
+        
+        return mappedUser;
       }
+      return undefined;
+    } catch (e) {
+      console.error('getUserByEmail error:', e);
+      return undefined;
     }
   }
 

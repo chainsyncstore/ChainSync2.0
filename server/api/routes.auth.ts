@@ -257,7 +257,20 @@ export async function registerAuthRoutes(app: Express) {
           ? await (storage as any).getUserByUsername(username)
           : await storage.getUserByEmail(username);
       }
-      try { logger.info('login-user-lookup-complete', { found: !!user, uid: user?.id, req: extractLogContext(req) }); } catch {}
+      
+      // Enhanced logging for debugging
+      try { 
+        logger.info('login-user-lookup-complete', { 
+          found: !!user, 
+          uid: user?.id, 
+          email: email,
+          hasPasswordHash: !!user?.passwordHash,
+          hasPassword: !!user?.password,
+          hasPassword_hash: !!user?.password_hash,
+          userKeys: user ? Object.keys(user) : [],
+          req: extractLogContext(req) 
+        }); 
+      } catch {}
       if (!user) {
         // Security alert: failed login attempt
         try {
@@ -274,7 +287,19 @@ export async function registerAuthRoutes(app: Express) {
       // Check if password matches
       let isPasswordValid = false;
       try {
-        const storedHash = (user as any).password ?? (user as any).passwordHash ?? (user as any).password_hash;
+        // Try all possible field names for password hash
+        const storedHash = (user as any).password_hash ?? (user as any).passwordHash ?? (user as any).password;
+        
+        // Enhanced logging for debugging
+        logger.info('password-check-details', {
+          hasPassword_hash: !!(user as any).password_hash,
+          hasPasswordHash: !!(user as any).passwordHash,
+          hasPassword: !!(user as any).password,
+          storedHashFound: !!storedHash,
+          storedHashLength: storedHash ? String(storedHash).length : 0,
+          storedHashPrefix: storedHash ? String(storedHash).substring(0, 10) : 'none'
+        });
+        
         isPasswordValid = storedHash ? await bcrypt.compare(password!, String(storedHash)) : false;
         try { logger.info('login-password-compare-done', { result: isPasswordValid, req: extractLogContext(req) }); } catch {}
       } catch {
