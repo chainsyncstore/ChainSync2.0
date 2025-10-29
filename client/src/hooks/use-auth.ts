@@ -54,7 +54,7 @@ export function useAuth(): AuthState & AuthActions {
         if (savedUser) {
           setUser(savedUser as any);
         }
-        const response = await fetch("/api/auth/me", { credentials: "include" });
+        const response = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" as RequestCache });
         if (response.ok) {
           const payload = await response.json();
           const userData = (payload as any)?.data || payload;
@@ -97,12 +97,22 @@ export function useAuth(): AuthState & AuthActions {
           return;
         }
       }
-      const me = await fetch("/api/auth/me", { credentials: 'include' });
+      const fetchMe = async (attempt = 1): Promise<Response> => {
+        const res = await fetch("/api/auth/me", { credentials: 'include', cache: 'no-store' as RequestCache });
+        if (res.ok) return res;
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, attempt === 1 ? 200 : 400));
+          return fetchMe(attempt + 1);
+        }
+        return res;
+      };
+      const me = await fetchMe();
       if (!me.ok) throw new Error('Failed to fetch user');
       const payload = await me.json();
       const userData = (payload as any)?.data || payload;
       setUser(userData as any);
       saveSession(userData as any);
+
       const role = (userData as any)?.role || ((userData as any)?.isAdmin ? 'admin' : 'cashier');
       let defaultPath = "/pos";
       if (role === "admin") defaultPath = "/analytics";
