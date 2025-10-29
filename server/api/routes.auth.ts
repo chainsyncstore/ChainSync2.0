@@ -307,11 +307,16 @@ export async function registerAuthRoutes(app: Express) {
 
       // Successful login
       try { logger.info('login-session-set-begin', { uid: user.id, req: extractLogContext(req) }); } catch {}
-      req.session!.userId = user.id;
-      req.session!.twofaVerified = 'twofaVerified' in user ? (user as any).twofaVerified || false : false;
+      await new Promise<void>((resolve, reject) => {
+        req.session!.regenerate((err) => {
+          if (err) return reject(err);
+          req.session!.userId = user.id;
+          req.session!.twofaVerified = 'twofaVerified' in user ? (user as any).twofaVerified || false : false;
+          req.session!.save((err2) => (err2 ? reject(err2) : resolve()));
+        });
+      });
       try { logger.info('login-session-set-complete', { uid: user.id, req: extractLogContext(req) }); } catch {}
 
-      // Respond with user data excluding sensitive information
       const { password: _, ...userData } = user;
       res.json({ 
         status: 'success',
