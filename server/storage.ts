@@ -209,8 +209,33 @@ export class DatabaseStorage implements IStorage {
     if (this.isTestEnv) {
       return this.mem.users.get(id);
     }
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    try {
+      const [user] = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          passwordHash: users.passwordHash,
+          emailVerified: users.emailVerified,
+        })
+        .from(users)
+        .where(eq(users.id, id));
+      return (user as any) || undefined;
+    } catch (e) {
+      try {
+        const [user] = await db
+          .select({
+            id: users.id,
+            email: users.email,
+            password: (users as any).password,
+            emailVerified: users.emailVerified,
+          })
+          .from(users)
+          .where(eq(users.id, id));
+        return (user as any) || undefined;
+      } catch {
+        return undefined;
+      }
+    }
   }
 
   async getUserById(id: string): Promise<User | undefined> {
@@ -230,8 +255,59 @@ export class DatabaseStorage implements IStorage {
       }
       return matched;
     }
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+    try {
+      try {
+        const [user] = await db
+          .select({
+            id: users.id,
+            email: users.email,
+            passwordHash: users.passwordHash,
+            emailVerified: users.emailVerified,
+          })
+          .from(users)
+          .where(eq((users as any).username, username));
+        return (user as any) || undefined;
+      } catch (e1) {
+        try {
+          const [userByEmail] = await db
+            .select({
+              id: users.id,
+              email: users.email,
+              passwordHash: users.passwordHash,
+              emailVerified: users.emailVerified,
+            })
+            .from(users)
+            .where(eq(users.email, username));
+          return (userByEmail as any) || undefined;
+        } catch (e2) {
+          const [userLegacy] = await db
+            .select({
+              id: users.id,
+              email: users.email,
+              password: (users as any).password,
+              emailVerified: users.emailVerified,
+            })
+            .from(users)
+            .where(eq(users.email, username));
+          return (userLegacy as any) || undefined;
+        }
+      }
+    } catch (e: any) {
+      try {
+        const [byEmail] = await db
+          .select({
+            id: users.id,
+            email: users.email,
+            password: (users as any).password,
+            emailVerified: users.emailVerified,
+          })
+          .from(users)
+          .where(eq(users.email, username));
+        return (byEmail as any) || undefined;
+      } catch {
+        return undefined;
+      }
+    }
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
@@ -241,8 +317,33 @@ export class DatabaseStorage implements IStorage {
       }
       return undefined;
     }
-    const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user || undefined;
+    try {
+      const [user] = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          passwordHash: users.passwordHash,
+          emailVerified: users.emailVerified,
+        })
+        .from(users)
+        .where(eq(users.email, email));
+      return (user as any) || undefined;
+    } catch (e) {
+      try {
+        const [user] = await db
+          .select({
+            id: users.id,
+            email: users.email,
+            password: (users as any).password,
+            emailVerified: users.emailVerified,
+          })
+          .from(users)
+          .where(eq(users.email, email));
+        return (user as any) || undefined;
+      } catch {
+        return undefined;
+      }
+    }
   }
 
   async getIncompleteUserByEmail(email: string): Promise<User | undefined> {
