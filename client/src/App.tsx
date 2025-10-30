@@ -53,85 +53,75 @@ function Dashboard({ userRole }: { userRole: string }) {
   
   if (role === "admin") {
     return (
-      <MainLayout userRole={role}>
-        <Suspense fallback={<PageLoader />}>
-          <Switch>
-            <Route path="/" component={Analytics} /> {/* Admin sees analytics as default */}
-            <Route path="/login" component={Analytics} /> {/* Redirect login to default */}
-            <Route path="/inventory" component={Inventory} />
-            <Route path="/analytics" component={Analytics} />
-            <Route path="/admin/audit" component={AdminAudit} />
-            <Route path="/admin/users" component={AdminUsers} />
-            <Route path="/admin/ip-whitelist" component={AdminIp} />
-            <Route path="/admin/bulk-pricing" component={AdminBulk} />
-            <Route path="/admin/billing" component={AdminBilling} />
-            <Route path="/loyalty" component={Loyalty} />
-            <Route path="/alerts" component={Alerts} />
-            <Route path="/data-import" component={DataImport} />
-            <Route path="/multi-store" component={MultiStore} />
-            <Route path="/settings" component={Settings} />
-            <Route path="/pos">{() => (
-              <ScannerProvider>
-                <POS />
-              </ScannerProvider>
-            )}</Route>
-            <Route path="/debug-csrf" component={DebugCsrf} />
-            <Route component={NotFound} />
-          </Switch>
-        </Suspense>
-      </MainLayout>
+      <ScannerProvider>
+        <MainLayout userRole={role}>
+          <Suspense fallback={<PageLoader />}>
+            <Switch>
+              <Route path="/" component={Analytics} /> {/* Admin sees analytics as default */}
+              <Route path="/login" component={Analytics} /> {/* Redirect login to default */}
+              <Route path="/inventory" component={Inventory} />
+              <Route path="/analytics" component={Analytics} />
+              <Route path="/admin/audit" component={AdminAudit} />
+              <Route path="/admin/users" component={AdminUsers} />
+              <Route path="/admin/ip-whitelist" component={AdminIp} />
+              <Route path="/admin/bulk-pricing" component={AdminBulk} />
+              <Route path="/admin/billing" component={AdminBilling} />
+              <Route path="/loyalty" component={Loyalty} />
+              <Route path="/alerts" component={Alerts} />
+              <Route path="/data-import" component={DataImport} />
+              <Route path="/multi-store" component={MultiStore} />
+              <Route path="/settings" component={Settings} />
+              <Route path="/pos" component={POS} />
+              <Route path="/debug-csrf" component={DebugCsrf} />
+              <Route component={NotFound} />
+            </Switch>
+          </Suspense>
+        </MainLayout>
+      </ScannerProvider>
     );
   }
   
   if (role === "manager") {
     return (
-      <MainLayout userRole={role}>
-        <Suspense fallback={<PageLoader />}>
-          <Switch>
-            <Route path="/" component={Inventory} /> {/* Manager sees inventory as default */}
-            <Route path="/login" component={Inventory} /> {/* Redirect login to default */}
-            <Route path="/inventory" component={Inventory} />
-            <Route path="/analytics" component={Analytics} />
-            <Route path="/admin/audit" component={AdminAudit} />
-            <Route path="/admin/users" component={AdminUsers} />
-            <Route path="/admin/ip-whitelist" component={AdminIp} />
-            <Route path="/admin/bulk-pricing" component={AdminBulk} />
-            <Route path="/loyalty" component={Loyalty} />
-            <Route path="/alerts" component={Alerts} />
-            <Route path="/data-import" component={DataImport} />
-            <Route path="/settings" component={Settings} />
-            <Route path="/pos" component={POS} />
-            <Route component={NotFound} />
-          </Switch>
-        </Suspense>
-      </MainLayout>
+      <ScannerProvider>
+        <MainLayout userRole={role}>
+          <Suspense fallback={<PageLoader />}>
+            <Switch>
+              <Route path="/" component={Inventory} /> {/* Manager sees inventory as default */}
+              <Route path="/login" component={Inventory} /> {/* Redirect login to default */}
+              <Route path="/inventory" component={Inventory} />
+              <Route path="/analytics" component={Analytics} />
+              <Route path="/admin/audit" component={AdminAudit} />
+              <Route path="/admin/users" component={AdminUsers} />
+              <Route path="/admin/ip-whitelist" component={AdminIp} />
+              <Route path="/admin/bulk-pricing" component={AdminBulk} />
+              <Route path="/loyalty" component={Loyalty} />
+              <Route path="/alerts" component={Alerts} />
+              <Route path="/data-import" component={DataImport} />
+              <Route path="/settings" component={Settings} />
+              <Route path="/pos" component={POS} />
+              <Route component={NotFound} />
+            </Switch>
+          </Suspense>
+        </MainLayout>
+      </ScannerProvider>
     );
   }
   
   // Cashier role (default) - redirect directly to POS
   return (
-    <MainLayout userRole={role}>
-      <Suspense fallback={<PageLoader />}>
-        <Switch>
-          <Route path="/">{() => (
-            <ScannerProvider>
-              <POS />
-            </ScannerProvider>
-          )}</Route> {/* Cashier sees POS as default */}
-          <Route path="/login">{() => (
-            <ScannerProvider>
-              <POS />
-            </ScannerProvider>
-          )}</Route> {/* Redirect login to default */}
-          <Route path="/pos">{() => (
-            <ScannerProvider>
-              <POS />
-            </ScannerProvider>
-          )}</Route>
-          <Route component={NotFound} />
-        </Switch>
-      </Suspense>
-    </MainLayout>
+    <ScannerProvider>
+      <MainLayout userRole={role}>
+        <Suspense fallback={<PageLoader />}>
+          <Switch>
+            <Route path="/" component={POS} /> {/* Cashier sees POS as default */}
+            <Route path="/login" component={POS} /> {/* Redirect login to default */}
+            <Route path="/pos" component={POS} />
+            <Route component={NotFound} />
+          </Switch>
+        </Suspense>
+      </MainLayout>
+    </ScannerProvider>
   );
 }
 

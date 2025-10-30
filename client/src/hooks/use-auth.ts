@@ -82,7 +82,21 @@ export function useAuth(): AuthState & AuthActions {
       const body: any = usernameOrEmail.includes('@')
         ? { email: usernameOrEmail, password }
         : { username: usernameOrEmail, password };
-      const loginResp: any = await post<any>("/auth/login", body);
+
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
+
+      let loginResp: any = null;
+      try {
+        loginResp = await response.json();
+      } catch {
+        /* ignore */
+      }
+
       if (loginResp?.status === 'otp_required') {
         const otp = window.prompt('Enter 2FA code from your authenticator app');
         if (!otp) {
@@ -96,11 +110,25 @@ export function useAuth(): AuthState & AuthActions {
           setError('Invalid OTP');
           return;
         }
+        loginResp = verifyResp;
       }
+
+      if (!response.ok || loginResp?.status !== 'success') {
+        const message = loginResp?.message || 'Login failed. Please check your credentials.';
+        throw new Error(message);
+      }
+
       const respUser = (loginResp as any)?.user;
       if (respUser) {
+        setUser(respUser as any);
         saveSession(respUser as any);
-        window.location.href = '/';
+        refreshSession();
+
+        const role = (respUser as any)?.role || ((respUser as any)?.isAdmin ? 'admin' : 'cashier');
+        let defaultPath = "/pos";
+        if (role === "admin") defaultPath = "/analytics";
+        else if (role === "manager") defaultPath = "/inventory";
+        window.location.href = defaultPath;
         return;
       }
       const fetchMe = async (attempt = 1): Promise<Response> => {

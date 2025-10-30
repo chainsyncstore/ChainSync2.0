@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChainSync Login Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .quick-fill {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .quick-fill button {
+            flex: 1;
+            padding: 8px;
+            background: #007bff;
+        }
+        .quick-fill button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 ChainSync Login Test</h1>
+        
+        <div class="quick-fill">
+            <button onclick="fillCredentials('admin@chainsync.com', 'Admin123!')">
+                Fill: admin@chainsync.com
+            </button>
+            <button onclick="fillCredentials('admin@chainsync.local', 'Admin123!')">
+                Fill: admin@chainsync.local
+            </button>
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" value="admin@chainsync.com" />
+        </div>
+        
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" value="Admin123!" />
+        </div>
+        
+        <button onclick="testLogin()">Test Login</button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        async function testLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.className = 'info';
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '⏳ Testing login...';
+            
+            try {
+                // Test direct backend
+                console.log('Testing backend at port 5001...');
+                const backendResponse = await fetch('http://localhost:5001/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const backendData = await backendResponse.json();
+                
+                // Test frontend proxy
+                console.log('Testing frontend proxy at port 5173...');
+                const frontendResponse = await fetch('http://localhost:5173/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const frontendData = await frontendResponse.json();
+                
+                // Display results
+                let html = '<h3>Test Results:</h3>';
+                
+                // Backend result
+                html += '<h4>1. Backend (Port 5001):</h4>';
+                if (backendResponse.ok && backendData.status === 'success') {
+                    html += '<p>✅ Login successful!</p>';
+                    html += `<p>User: ${backendData.user?.email}</p>`;
+                    html += `<p>Admin: ${backendData.user?.is_admin || backendData.user?.isAdmin}</p>`;
+                } else {
+                    html += `<p>❌ Login failed: ${backendData.message || backendResponse.statusText}</p>`;
+                }
+                
+                // Frontend result
+                html += '<h4>2. Frontend Proxy (Port 5173):</h4>';
+                if (frontendResponse.ok && frontendData.status === 'success') {
+                    html += '<p>✅ Login successful!</p>';
+                    html += `<p>Session cookie: ${document.cookie.includes('chainsync.sid') ? 'Set' : 'Not set'}</p>`;
+                } else {
+                    html += `<p>❌ Login failed: ${frontendData.message || frontendResponse.statusText}</p>`;
+                }
+                
+                // Overall result
+                if (frontendResponse.ok && backendResponse.ok) {
+                    resultDiv.className = 'success';
+                    html += '<hr><p><strong>🎉 Both tests passed! Login is working correctly.</strong></p>';
+                    html += '<p>You can now go to <a href="http://localhost:5173/login" target="_blank">http://localhost:5173/login</a> and login!</p>';
+                } else {
+                    resultDiv.className = 'error';
+                    html += '<hr><p><strong>⚠️ Login test failed. Check the console for details.</strong></p>';
+                }
+                
+                resultDiv.innerHTML = html;
+                
+                // Log detailed info
+                console.log('Backend Response:', backendData);
+                console.log('Frontend Response:', frontendData);
+                console.log('Cookies:', document.cookie);
+                
+            } catch (error) {
+                resultDiv.className = 'error';
+                resultDiv.innerHTML = `
+                    <h3>❌ Error:</h3>
+                    <p>${error.message}</p>
+                    <p>Make sure both servers are running:</p>
+                    <ul>
+                        <li>Backend on port 5001</li>
+                        <li>Frontend on port 5173</li>
+                    </ul>
+                    <p>Run: <code>.\\start-full-app.bat</code></p>
+                `;
+                console.error('Error:', error);
+            }
+        }
+        
+        function fillCredentials(email, password) {
+            document.getElementById('email').value = email;
+            document.getElementById('password').value = password;
+        }
+        
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            console.log('Ready to test. Click the "Test Login" button.');
+        });
+    </script>
+</body>
+</html>
