@@ -15,6 +15,13 @@
       "when": 1761665931318,
       "tag": "0001_overjoyed_bucky",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1761841260000,
+      "tag": "0003_add_requires_password_change",
+      "breakpoints": true
     }
   ]
 }
