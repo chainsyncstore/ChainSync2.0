@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './use-auth';
 
+export type WhitelistRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
+
 export interface IpWhitelist {
   id: string;
   ipAddress: string;
   description?: string;
   whitelistedBy: string;
   whitelistedFor: string;
-  role: 'cashier' | 'manager' | 'admin';
+  role: WhitelistRole;
   storeId?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  scope?: 'user' | 'store';
 }
 
 export interface IpWhitelistLog {
@@ -36,12 +39,12 @@ export function useIpWhitelist() {
   const fetchWhitelist = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await fetch('/api/ip-whitelist');
       if (response.ok) {
         const data = await response.json();
-        setWhitelist(data);
+        setWhitelist(Array.isArray(data) ? data : []);
       } else {
         const errorData = await response.json();
         setError(errorData.message || 'Failed to fetch IP whitelist');
@@ -53,23 +56,30 @@ export function useIpWhitelist() {
     }
   };
 
-  const addIpToWhitelist = async (ipAddress: string, userId: string, description?: string) => {
+  const addStoreIpToWhitelist = async (ipAddress: string, storeId: string, roles: WhitelistRole[], description?: string) => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await fetch('/api/ip-whitelist', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ ipAddress, userId, description }),
+        body: JSON.stringify({
+          type: 'store',
+          ipAddress,
+          storeId,
+          roles,
+          description,
+        }),
       });
 
       if (response.ok) {
-        const newWhitelist = await response.json();
-        setWhitelist(prev => [...prev, newWhitelist]);
-        return newWhitelist;
+        const payload = await response.json();
+        const entries: IpWhitelist[] = payload?.entries ?? [];
+        setWhitelist(prev => [...prev, ...entries]);
+        return entries;
       } else {
         const errorData = await response.json();
         setError(errorData.message || 'Failed to add IP to whitelist');
@@ -83,19 +93,17 @@ export function useIpWhitelist() {
     }
   };
 
-  const removeIpFromWhitelist = async (ipAddress: string, userId: string) => {
+  const removeIpFromWhitelist = async (id: string) => {
     setLoading(true);
     setError(null);
-    
+
     try {
-      const response = await fetch(`/api/ip-whitelist/${encodeURIComponent(ipAddress)}/${userId}`, {
+      const response = await fetch(`/api/ip-whitelist/${id}`, {
         method: 'DELETE',
       });
 
       if (response.ok) {
-        setWhitelist(prev => prev.filter(item => 
-          !(item.ipAddress === ipAddress && item.whitelistedFor === userId)
-        ));
+        setWhitelist(prev => prev.filter(item => item.id !== id));
       } else {
         const errorData = await response.json();
         setError(errorData.message || 'Failed to remove IP from whitelist');
@@ -111,10 +119,10 @@ export function useIpWhitelist() {
 
   const fetchLogs = async () => {
     if (user?.role !== 'admin') return;
-    
+
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await fetch('/api/ip-whitelist/logs');
       if (response.ok) {
@@ -145,9 +153,9 @@ export function useIpWhitelist() {
     logs,
     loading,
     error,
-    addIpToWhitelist,
+    addStoreIpToWhitelist,
     removeIpFromWhitelist,
     fetchWhitelist,
     fetchLogs,
   };
-} 
+}

@@ -8,6 +8,7 @@ interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   requiresPasswordChange: boolean;
+  twoFactorEnabled: boolean;
 }
 
 interface AuthActions {
@@ -15,11 +16,15 @@ interface AuthActions {
   logout: () => void;
   error: string | null;
   refreshUser: () => Promise<void>;
+  setupTwoFactor: () => Promise<{ otpauth: string } | null>;
+  verifyTwoFactor: (token: string) => Promise<boolean>;
+  disableTwoFactor: (password: string) => Promise<boolean>;
 }
 
 export function useAuth(): AuthState & AuthActions {
   const [user, setUser] = useState<User | null>(null);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState<boolean>(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,26 +62,36 @@ export function useAuth(): AuthState & AuthActions {
         if (savedUser) {
           setUser(savedUser as any);
           setRequiresPasswordChange(Boolean((savedUser as any)?.requiresPasswordChange));
+          setTwoFactorEnabled(Boolean((savedUser as any)?.twofaVerified));
         }
-        const response = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" as RequestCache });
+
+        const response = await fetch("/api/auth/me", {
+          credentials: "include",
+          cache: "no-store" as RequestCache,
+        });
+
         if (response.ok) {
           const payload = await response.json();
           const userData = (payload as any)?.data || payload;
           setUser(userData as any);
           setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
+          setTwoFactorEnabled(Boolean((userData as any)?.twofaVerified));
           saveSession(userData as any);
           refreshSession();
         } else {
           clearSession();
           setUser(null);
+          setTwoFactorEnabled(false);
         }
       } catch {
         clearSession();
         setUser(null);
+        setTwoFactorEnabled(false);
       } finally {
         setIsLoading(false);
       }
     };
+
     checkAuth();
   }, []);
 
@@ -87,17 +102,21 @@ export function useAuth(): AuthState & AuthActions {
         clearSession();
         setUser(null);
         setRequiresPasswordChange(false);
+        setTwoFactorEnabled(false);
         return;
       }
+
       const payload = await response.json();
       const userData = (payload as any)?.data || payload;
       setUser(userData as any);
       setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
+      setTwoFactorEnabled(Boolean((userData as any)?.twofaVerified));
       saveSession(userData as any);
     } catch {
       clearSession();
       setUser(null);
       setRequiresPasswordChange(false);
+      setTwoFactorEnabled(false);
     }
   }, []);
 
@@ -148,6 +167,7 @@ export function useAuth(): AuthState & AuthActions {
       if (respUser) {
         setUser(respUser as any);
         setRequiresPasswordChange(Boolean((respUser as any)?.requiresPasswordChange));
+        setTwoFactorEnabled(Boolean((respUser as any)?.twofaVerified));
         saveSession(respUser as any);
         refreshSession();
 
@@ -178,6 +198,7 @@ export function useAuth(): AuthState & AuthActions {
       const userData = (payload as any)?.data || payload;
       setUser(userData as any);
       setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
+      setTwoFactorEnabled(Boolean((userData as any)?.twofaVerified));
       saveSession(userData as any);
 
       if (Boolean((userData as any)?.requiresPasswordChange)) {
@@ -201,18 +222,101 @@ export function useAuth(): AuthState & AuthActions {
     try {
       await post("/auth/logout");
     } catch {}
-    // Clear client state and storage first
     setUser(null);
     setError(null);
     clearSession();
-    // Navigate to login without hard reload to avoid reusing any cached responses
+    setTwoFactorEnabled(false);
     if (window.location.pathname !== '/login') {
       window.location.href = '/login';
     } else {
-      // If already on login, do a soft reload to clear in-memory state
       window.history.replaceState(null, '', '/login');
     }
   };
 
-  return { user: user as any, isLoading, isAuthenticated: !!user, login, logout, error, requiresPasswordChange, refreshUser } as any;
+  const setupTwoFactor = async () => {
+    try {
+      const response = await fetch('/api/auth/setup-2fa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => null);
+        throw new Error(errorData?.message || 'Failed to start 2FA setup');
+      }
+
+      return (await response.json()) as { otpauth: string };
+    } catch (error) {
+      console.error('setupTwoFactor error', error);
+      return null;
+    }
+  };
+
+  const verifyTwoFactor = async (token: string) => {
+    try {
+      const response = await fetch('/api/auth/verify-2fa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ token }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => null);
+        throw new Error(errorData?.message || 'Invalid 2FA code');
+      }
+
+      setTwoFactorEnabled(true);
+      await refreshUser();
+      return true;
+    } catch (error) {
+      console.error('verifyTwoFactor error', error);
+      return false;
+    }
+  };
+
+  const disableTwoFactor = async (password: string) => {
+    try {
+      const response = await fetch('/api/auth/disable-2fa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ password }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => null);
+        throw new Error(errorData?.message || 'Unable to disable 2FA');
+      }
+
+      setTwoFactorEnabled(false);
+      await refreshUser();
+      return true;
+    } catch (error) {
+      console.error('disableTwoFactor error', error);
+      return false;
+    }
+  };
+
+  return {
+    user: user as any,
+    isLoading,
+    isAuthenticated: !!user,
+    login,
+    logout,
+    error,
+    requiresPasswordChange,
+    refreshUser,
+    twoFactorEnabled,
+    setupTwoFactor,
+    verifyTwoFactor,
+    disableTwoFactor,
+  } as any;
 }

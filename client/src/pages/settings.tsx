@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../hooks/use-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -11,9 +11,11 @@ import { Badge } from '../components/ui/badge';
 import { Download, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
 import { useToast } from '../hooks/use-toast';
 import type { Store } from '@shared/schema';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import QRCode from 'react-qr-code';
 
 export default function Settings() {
-  const { user, logout } = useAuth();
+  const { user, logout, twoFactorEnabled, setupTwoFactor, verifyTwoFactor, disableTwoFactor } = useAuth();
   const { toast } = useToast();
   const [exporting, setExporting] = useState<string | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
@@ -42,6 +44,22 @@ export default function Settings() {
   const [deleteConfirm, setDeleteConfirm] = useState<string>('');
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
+  // Two-factor authentication state
+  const [isStartingTwoFactor, setIsStartingTwoFactor] = useState(false);
+  const [isVerifyingTwoFactor, setIsVerifyingTwoFactor] = useState(false);
+  const [twoFactorDialogOpen, setTwoFactorDialogOpen] = useState(false);
+  const [twoFactorOtpauth, setTwoFactorOtpauth] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [disableDialogOpen, setDisableDialogOpen] = useState(false);
+  const [disablePassword, setDisablePassword] = useState('');
+  const [isDisablingTwoFactor, setIsDisablingTwoFactor] = useState(false);
+
+  const twoFactorSecret = useMemo(() => {
+    if (!twoFactorOtpauth) return '';
+    const secretMatch = twoFactorOtpauth.match(/secret=([^&]+)/i);
+    return secretMatch ? decodeURIComponent(secretMatch[1]) : '';
+  }, [twoFactorOtpauth]);
+
   useEffect(() => {
     const fetchStores = async () => {
       try {
@@ -49,7 +67,6 @@ export default function Settings() {
         if (response.ok) {
           const storesData = await response.json();
           setStores(storesData);
-          // Use user's storeId or first available store
           const defaultStoreId = user?.storeId || (storesData.length > 0 ? storesData[0].id : '');
           setSelectedStoreId(defaultStoreId);
         }
@@ -76,6 +93,112 @@ export default function Settings() {
     }
   }, [user]);
 
+  const handleBeginTwoFactorSetup = async () => {
+    if (twoFactorEnabled) {
+      toast({ title: '2FA already enabled', description: 'Two-factor authentication is currently active for your account.' });
+      return;
+    }
+    setIsStartingTwoFactor(true);
+    try {
+      const result = await setupTwoFactor();
+      if (!result?.otpauth) {
+        throw new Error('Failed to retrieve 2FA setup details.');
+      }
+      setTwoFactorOtpauth(result.otpauth);
+      setTwoFactorCode('');
+      setTwoFactorDialogOpen(true);
+      toast({ title: '2FA setup started', description: 'Scan the code or enter the setup key in your authenticator app.' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Could not start 2FA setup.', variant: 'destructive' });
+    } finally {
+      setIsStartingTwoFactor(false);
+    }
+  };
+
+  const handleDisableDialogChange = (open: boolean) => {
+    setDisableDialogOpen(open);
+    if (!open) {
+      setDisablePassword('');
+      setIsDisablingTwoFactor(false);
+    }
+  };
+
+  const handleVerifyTwoFactor = async () => {
+    if (!twoFactorCode.trim()) {
+      toast({ title: 'Verification required', description: 'Enter the 6-digit code from your authenticator app.', variant: 'destructive' });
+      return;
+    }
+    setIsVerifyingTwoFactor(true);
+    try {
+      const success = await verifyTwoFactor(twoFactorCode.trim());
+      if (!success) {
+        throw new Error('Invalid 2FA code. Please try again.');
+      }
+      toast({ title: '2FA enabled', description: 'Two-factor authentication has been enabled for your account.' });
+      setTwoFactorDialogOpen(false);
+      setTwoFactorOtpauth(null);
+      setTwoFactorCode('');
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to verify 2FA code.', variant: 'destructive' });
+    } finally {
+      setIsVerifyingTwoFactor(false);
+    }
+  };
+
+  const handleTwoFactorSwitch = (checked: boolean) => {
+    if (checked) {
+      if (!twoFactorEnabled) {
+        void handleBeginTwoFactorSetup();
+      }
+      return;
+    }
+
+    if (twoFactorEnabled) {
+      setDisableDialogOpen(true);
+    }
+  };
+
+  const handleCopyToClipboard = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast({ title: 'Copied', description: `${label} copied to clipboard.` });
+    } catch {
+      toast({ title: 'Copy failed', description: `Unable to copy ${label}.`, variant: 'destructive' });
+    }
+  };
+
+  const handleTwoFactorDialogChange = (open: boolean) => {
+    if (!open) {
+      setTwoFactorDialogOpen(false);
+      setTwoFactorOtpauth(null);
+      setTwoFactorCode('');
+      setIsVerifyingTwoFactor(false);
+    } else {
+      setTwoFactorDialogOpen(true);
+    }
+  };
+
+  const handleDisableTwoFactor = async () => {
+    if (!disablePassword.trim()) {
+      toast({ title: 'Password required', description: 'Please enter your current password to disable 2FA.', variant: 'destructive' });
+      return;
+    }
+    setIsDisablingTwoFactor(true);
+    try {
+      const success = await disableTwoFactor(disablePassword.trim());
+      if (!success) {
+        throw new Error('Incorrect password or unable to disable 2FA.');
+      }
+      toast({ title: '2FA disabled', description: 'Two-factor authentication has been disabled for your account.' });
+      setDisableDialogOpen(false);
+      setDisablePassword('');
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to disable 2FA.', variant: 'destructive' });
+    } finally {
+      setIsDisablingTwoFactor(false);
+    }
+  };
+
   useEffect(() => {
     setProfileForm({
       firstName: user?.firstName || '',
@@ -98,14 +221,17 @@ export default function Settings() {
     }
     setIsChangingPassword(true);
     try {
-      const response = await fetch('/api/me/change-password', {
+      const response = await fetch('/api/auth/me/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(passwordForm),
       });
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to change password');
+        const errorData = await response.json().catch(() => null);
+        const details = errorData?.details?.fieldErrors ?? {};
+        const detailMessage = Object.values(details)[0]?.[0];
+        const message = detailMessage || errorData?.error || errorData?.message || 'Failed to change password';
+        throw new Error(message);
       }
       toast({ title: "Success", description: "Password changed successfully." });
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -296,12 +422,147 @@ export default function Settings() {
                   <p className="font-medium">Enable 2FA</p>
                   <p className="text-sm text-gray-600">Use an authenticator app for additional security</p>
                 </div>
-                <Switch />
+                <div className="flex items-center gap-3">
+                  <Badge variant={twoFactorEnabled ? 'default' : 'secondary'}>
+                    {twoFactorEnabled ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                  <Switch
+                    checked={twoFactorEnabled}
+                    onCheckedChange={handleTwoFactorSwitch}
+                    disabled={isStartingTwoFactor || isVerifyingTwoFactor}
+                  />
+                </div>
               </div>
-              
-              <Button variant="outline">Setup 2FA</Button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-gray-600">
+                  {twoFactorEnabled
+                    ? 'Two-factor authentication is active on your account.'
+                    : 'Start the setup wizard to enable two-factor authentication.'}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleBeginTwoFactorSetup}
+                    disabled={twoFactorEnabled || isStartingTwoFactor}
+                  >
+                    {isStartingTwoFactor ? 'Preparing…' : twoFactorEnabled ? '2FA Enabled' : 'Setup 2FA'}
+                  </Button>
+                  {twoFactorEnabled && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={() => setDisableDialogOpen(true)}
+                      disabled={isDisablingTwoFactor}
+                    >
+                      {isDisablingTwoFactor ? 'Disabling…' : 'Disable 2FA'}
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardContent>
           </Card>
+
+          <Dialog open={twoFactorDialogOpen} onOpenChange={handleTwoFactorDialogChange}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Set up Two-Factor Authentication</DialogTitle>
+                <DialogDescription>
+                  Scan the QR code in your authenticator app or enter the setup key manually. Then provide the 6-digit code generated by the app.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {twoFactorOtpauth && (
+                  <div className="space-y-2">
+                    <div className="flex justify-center">
+                      <div className="rounded-md border p-4 bg-white">
+                        <QRCode value={twoFactorOtpauth} size={164} />
+                      </div>
+                    </div>
+                    <Label>Setup key</Label>
+                    <div className="flex items-center gap-2">
+                      <Input value={twoFactorSecret} readOnly />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleCopyToClipboard(twoFactorSecret, 'setup key')}
+                        disabled={!twoFactorSecret}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      Use your authenticator app&apos;s “Enter a setup key” option and paste the key above. If your app supports QR codes, you can also copy the provisioning URI below.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Input value={twoFactorOtpauth} readOnly />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleCopyToClipboard(twoFactorOtpauth, 'provisioning URI')}
+                      >
+                        Copy URI
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="twoFactorCode">Authenticator code</Label>
+                  <Input
+                    id="twoFactorCode"
+                    placeholder="123456"
+                    value={twoFactorCode}
+                    onChange={(e) => setTwoFactorCode(e.target.value)}
+                    maxLength={8}
+                    inputMode="numeric"
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                <Button type="button" variant="outline" onClick={() => handleTwoFactorDialogChange(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleVerifyTwoFactor} disabled={isVerifyingTwoFactor}>
+                  {isVerifyingTwoFactor ? 'Verifying…' : 'Verify & Enable'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={disableDialogOpen} onOpenChange={handleDisableDialogChange}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Disable Two-Factor Authentication</DialogTitle>
+                <DialogDescription>
+                  Enter your current password to confirm disabling two-factor authentication.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="disableTwoFactorPassword">Current password</Label>
+                  <Input
+                    id="disableTwoFactorPassword"
+                    type="password"
+                    value={disablePassword}
+                    onChange={(e) => setDisablePassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                <Button type="button" variant="outline" onClick={() => setDisableDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={handleDisableTwoFactor} disabled={isDisablingTwoFactor}>
+                  {isDisablingTwoFactor ? 'Disabling…' : 'Disable 2FA'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {user.role !== 'cashier' && (
             <Card>
@@ -310,7 +571,7 @@ export default function Settings() {
                 <CardDescription>Restrict access to specific IP addresses</CardDescription>
               </CardHeader>
               <CardContent>
-                <IpWhitelistManager />
+                <IpWhitelistManager stores={stores} />
               </CardContent>
             </Card>
           )}

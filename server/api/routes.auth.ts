@@ -515,25 +515,62 @@ export async function registerAuthRoutes(app: Express) {
     }
 
     try {
-      // Get user
       const user = await storage.getUserById(userId);
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
 
-      // Verify token
       const isValid = 'twofaSecret' in user ? authenticator.check(token, (user as any).twofaSecret) : false;
       if (!isValid) {
         return res.status(400).json({ message: 'Invalid 2FA token' });
       }
 
-      // Update 2FA verified status
       await storage.updateUser(userId, { twofaVerified: true });
+      req.session!.twofaVerified = true;
 
       res.json({ message: '2FA verified successfully' });
     } catch (error) {
       logger.error('2FA verify error', { error, req: extractLogContext(req) });
       // monitoringService.record2FAEvent('verify_error', { error: String(error), ...extractLogContext(req) });
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // 2FA disable
+  app.post('/api/auth/disable-2fa', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
+    const { userId } = req.session!;
+    const { password } = req.body ?? {};
+
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ message: 'Password is required' });
+    }
+
+    try {
+      const user = await storage.getUserById(userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      const storedHash = (user as any).passwordHash || (user as any).password_hash || (user as any).password;
+      if (!storedHash) {
+        return res.status(400).json({ message: 'Password not set for user' });
+      }
+
+      const isMatch = await bcrypt.compare(password, String(storedHash));
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Incorrect password' });
+      }
+
+      await storage.updateUser(userId, { twofaSecret: null, twofaVerified: false });
+      req.session!.twofaVerified = false;
+
+      res.json({ message: 'Two-factor authentication disabled successfully' });
+    } catch (error) {
+      logger.error('2FA disable error', { error, req: extractLogContext(req) });
+      // monitoringService.record2FAEvent('disable_error', { error: String(error), ...extractLogContext(req) });
       res.status(500).json({ message: 'Internal server error' });
     }
   });

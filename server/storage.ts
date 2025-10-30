@@ -80,6 +80,13 @@ class Cache {
 
 const cache = new Cache();
 
+const normalizeRole = (role?: string): 'ADMIN' | 'MANAGER' | 'CASHIER' => {
+  const value = (role || '').toUpperCase();
+  if (value === 'ADMIN') return 'ADMIN';
+  if (value === 'MANAGER') return 'MANAGER';
+  return 'CASHIER';
+};
+
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
@@ -166,12 +173,22 @@ export interface IStorage {
   // IP Whitelist operations
   checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean>;
   addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist>;
-  removeIpFromWhitelist(ipAddress: string, userId: string): Promise<void>;
-  getIpWhitelistForUser(userId: string): Promise<IpWhitelist[]>;
-  getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]>;
-  getAllIpWhitelists(): Promise<IpWhitelist[]>;
-  logIpAccess(ipAddress: string, userId: string, username: string, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void>;
+  logIpAccess(ipAddress: string, userId: string | undefined, username: string | undefined, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void>;
   getIpAccessLogs(limit?: number): Promise<IpWhitelistLog[]>;
+  getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]>;
+  getStoreWhitelistsForRole(storeId: string, role: 'ADMIN' | 'MANAGER' | 'CASHIER'): Promise<IpWhitelist[]>;
+  getAllIpWhitelists(): Promise<IpWhitelist[]>;
+  getIpWhitelistsForUser(userId: string): Promise<IpWhitelist[]>;
+  addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist>;
+  addStoreIpToWhitelist(params: {
+    ipAddress: string;
+    storeId: string;
+    roles: ('ADMIN' | 'MANAGER' | 'CASHIER')[];
+    whitelistedBy: string;
+    description?: string;
+  }): Promise<IpWhitelist[]>;
+  removeIpFromWhitelist(ipAddress: string, userId: string): Promise<void>;
+  deactivateIpWhitelistEntry(id: string): Promise<void>;
 
   // Export operations
   exportProducts(storeId: string, format: string): Promise<any>;
@@ -1999,8 +2016,9 @@ export class DatabaseStorage implements IStorage {
 		const user = await this.getUser(userId);
 		if (!user) return false;
 
-		// Always allow admin to bypass IP whitelist
-		if (user.role === "admin") return true;
+		const normalizedRole = normalizeRole((user as any).role);
+		// Always allow admin (role or flag) to bypass IP whitelist
+		if ((user as any).isAdmin || normalizedRole === "ADMIN") return true;
 
 		// Check if IP is whitelisted for this specific user
 		const [whitelist] = await db.select().from(ipWhitelists)
@@ -2011,52 +2029,17 @@ export class DatabaseStorage implements IStorage {
 		if (whitelist) return true;
 
 		// For managers and cashiers, also check store-level whitelists
-		if (user.role === "manager" || user.role === "cashier") {
+		if (normalizedRole === 'MANAGER' || normalizedRole === 'CASHIER') {
 			if (user.storeId) {
 				const [storeWhitelist] = await db.select().from(ipWhitelists)
 					.where(
-						sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.storeId} = ${user.storeId} AND ${ipWhitelists.role} = ${user.role} AND ${ipWhitelists.isActive} = true`
+						sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.storeId} = ${user.storeId} AND ${ipWhitelists.role} = ${normalizedRole} AND ${ipWhitelists.isActive} = true`
 					);
 				
 				if (storeWhitelist) return true;
 			}
 		}
-
 		return false;
-	}
-
-  async addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist> {
-    const user = await this.getUser(userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
-
-    const [whitelist] = await db.insert(ipWhitelists).values({
-      ipAddress,
-      whitelistedFor: userId,
-      whitelistedBy,
-      role: user.role,
-      storeId: user.storeId,
-      description,
-    } as unknown as typeof ipWhitelists.$inferInsert).returning();
-
-    return whitelist;
-  }
-
-  async removeIpFromWhitelist(ipAddress: string, userId: string): Promise<void> {
-    await db.update(ipWhitelists)
-      .set({ isActive: false as any, updatedAt: new Date() } as any)
-      .where(
-        sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId}`
-      );
-  }
-
-  async getIpWhitelistForUser(userId: string): Promise<IpWhitelist[]> {
-    return await db.select().from(ipWhitelists)
-      .where(
-        sql`${ipWhitelists.whitelistedFor} = ${userId} AND ${ipWhitelists.isActive} = true`
-      )
-      .orderBy(desc(ipWhitelists.createdAt));
   }
 
   async getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]> {
@@ -2067,8 +2050,89 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(ipWhitelists.createdAt));
   }
 
+  async getStoreWhitelistsForRole(storeId: string, role: 'ADMIN' | 'MANAGER' | 'CASHIER'): Promise<IpWhitelist[]> {
+    return await db.select().from(ipWhitelists)
+      .where(
+        sql`${ipWhitelists.storeId} = ${storeId} AND ${ipWhitelists.role} = ${role} AND ${ipWhitelists.isActive} = true`
+      )
+      .orderBy(desc(ipWhitelists.createdAt));
+  }
+
   async getAllIpWhitelists(): Promise<IpWhitelist[]> {
-    return await db.select().from(ipWhitelists);
+    return await db.select().from(ipWhitelists)
+      .where(eq(ipWhitelists.isActive, true as any))
+      .orderBy(desc(ipWhitelists.createdAt));
+  }
+
+  async getIpWhitelistsForUser(userId: string): Promise<IpWhitelist[]> {
+    return await db.select().from(ipWhitelists)
+      .where(
+        sql`${ipWhitelists.whitelistedFor} = ${userId} AND ${ipWhitelists.isActive} = true`
+      )
+      .orderBy(desc(ipWhitelists.createdAt));
+  }
+
+  async addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist> {
+    const user = await this.getUser(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const [whitelist] = await db.insert(ipWhitelists).values({
+      ipAddress,
+      whitelistedFor: userId,
+      whitelistedBy,
+      role: normalizeRole((user as any).role),
+      storeId: user.storeId,
+      description,
+    } as unknown as typeof ipWhitelists.$inferInsert).returning();
+
+    return whitelist;
+  }
+
+  async addStoreIpToWhitelist(params: {
+    ipAddress: string;
+    storeId: string;
+    roles: ('ADMIN' | 'MANAGER' | 'CASHIER')[];
+    whitelistedBy: string;
+    description?: string;
+  }): Promise<IpWhitelist[]> {
+    const storeRecord = await db.select().from(stores).where(eq(stores.id, params.storeId)).limit(1);
+    if (!storeRecord.length) {
+      throw new Error('Store not found');
+    }
+
+    const entries: IpWhitelist[] = [];
+
+    for (const role of params.roles) {
+      const normalized = normalizeRole(role);
+      const [whitelist] = await db.insert(ipWhitelists).values({
+        ipAddress: params.ipAddress,
+        whitelistedFor: params.whitelistedBy,
+        whitelistedBy: params.whitelistedBy,
+        role: normalized,
+        storeId: params.storeId,
+        description: params.description,
+      } as unknown as typeof ipWhitelists.$inferInsert).returning();
+
+      entries.push(whitelist);
+    }
+
+    return entries;
+  }
+
+  async removeIpFromWhitelist(ipAddress: string, userId: string): Promise<void> {
+    await db.update(ipWhitelists)
+      .set({ isActive: false as any, updatedAt: new Date() } as any)
+      .where(
+        sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId}`
+      );
+  }
+
+  async deactivateIpWhitelistEntry(id: string): Promise<void> {
+    await db.update(ipWhitelists)
+      .set({ isActive: false as any, updatedAt: new Date() } as any)
+      .where(eq(ipWhitelists.id, id));
   }
 
   async logIpAccess(ipAddress: string, userId: string, username: string, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void> {
