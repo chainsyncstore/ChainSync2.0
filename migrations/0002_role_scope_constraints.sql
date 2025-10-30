@@ -19,6 +19,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS user_roles_admin_unique
   ON user_roles (user_id, role)
   WHERE role = 'ADMIN' AND store_id IS NULL;
 
+-- Ensure users table has requires_password_change flag for forced resets
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS requires_password_change boolean NOT NULL DEFAULT false;
+
 -- Optional referential integrity (idempotent creation of FKs)
 DO $$
 BEGIN
