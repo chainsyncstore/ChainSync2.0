@@ -58,6 +58,7 @@ export const users = pgTable("users", {
   failedLoginAttempts: integer("failed_login_attempts"),
   // Some legacy/test code reads user.password directly; keep optional mirror for compatibility
   password: varchar("password", { length: 255 }),
+  requiresPasswordChange: boolean("requires_password_change").default(false),
 }, (table) => ({
   orgIdx: index("users_org_idx").on(table.orgId),
   usernameUnique: uniqueIndex("users_username_unique").on(table.username),

@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -13,8 +13,8 @@ const Login = lazy(() => import("@/components/auth/login"));
 const Signup = lazy(() => import("@/components/auth/signup"));
 const ForgotPassword = lazy(() => import("@/components/auth/forgot-password"));
 const ResetPassword = lazy(() => import("@/components/auth/reset-password"));
+const ForcePasswordReset = lazy(() => import("./components/auth/force-password-reset"));
 const MainLayout = lazy(() => import("@/components/layout/main-layout"));
-import { useState } from "react";
 import { RECAPTCHA_SITE_KEY } from './lib/constants';
 
 // Lazy load pages for better performance
@@ -34,6 +34,7 @@ const Alerts = lazy(() => import("@/pages/alerts"));
 const DataImport = lazy(() => import("@/pages/data-import"));
 const MultiStore = lazy(() => import("@/pages/multi-store"));
 const Settings = lazy(() => import("@/pages/settings"));
+const StoreStaff = lazy(() => import("./pages/store-staff"));
 const DebugCsrf = lazy(() => import("@/pages/debug-csrf"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -71,6 +72,7 @@ function Dashboard({ userRole }: { userRole: string }) {
               <Route path="/data-import" component={DataImport} />
               <Route path="/multi-store" component={MultiStore} />
               <Route path="/settings" component={Settings} />
+              <Route path="/stores/:storeId/staff" component={StoreStaff} />
               <Route path="/pos" component={POS} />
               <Route path="/debug-csrf" component={DebugCsrf} />
               <Route component={NotFound} />
@@ -126,9 +128,15 @@ function Dashboard({ userRole }: { userRole: string }) {
 }
 
 function App() {
-  const { user, login, isAuthenticated, isLoading, error } = useAuth();
+  const { user, login, isAuthenticated, isLoading, error, requiresPasswordChange } = useAuth();
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (isAuthenticated && requiresPasswordChange && location !== "/force-password-reset") {
+      setLocation("/force-password-reset");
+    }
+  }, [isAuthenticated, requiresPasswordChange, location, setLocation]);
 
   // Debug: Log reCAPTCHA site key
   console.log('App loaded, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);
@@ -147,7 +155,13 @@ function App() {
               {isLoading ? (
                 <PageLoader />
               ) : isAuthenticated && user ? (
-                <Dashboard userRole={user.role} />
+                requiresPasswordChange ? (
+                  <Suspense fallback={<PageLoader />}>
+                    <ForcePasswordReset />
+                  </Suspense>
+                ) : (
+                  <Dashboard userRole={user.role} />
+                )
               ) : (
                 <Suspense fallback={<PageLoader />}>
                   <Switch>

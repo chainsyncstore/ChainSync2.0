@@ -22,6 +22,7 @@ import rateLimit from 'express-rate-limit';
 import { csrfProtection, globalRateLimit, sensitiveEndpointRateLimit } from '../middleware/security';
 import { NotificationService } from '../websocket/notification-service';
 import { OpenAIService } from '../openai/service';
+import { registerStoreStaffRoutes } from './routes.store-staff';
 
 export async function registerRoutes(app: Express) {
   const env = loadEnv(process.env);
@@ -56,6 +57,7 @@ export async function registerRoutes(app: Express) {
   await registerSettingsRoutes(app);
   await registerInventoryRoutes(app);
   await registerStoreRoutes(app);
+  await registerStoreStaffRoutes(app);
   await registerCustomerRoutes(app);
   await registerLoyaltyRoutes(app);
   await registerPosRoutes(app);

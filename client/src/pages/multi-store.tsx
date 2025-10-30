@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 export default function MultiStore() {
   const [selectedStore, setSelectedStore] = useState<string>("");
@@ -18,6 +19,7 @@ export default function MultiStore() {
   const [newStoreAddress, setNewStoreAddress] = useState("");
   const [newStoreCurrency, setNewStoreCurrency] = useState<'NGN' | 'USD'>("NGN");
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const userData = {
     role: "admin",
@@ -62,12 +64,8 @@ export default function MultiStore() {
     }
   };
 
-  // Mock data for multi-store analytics
-  const storePerformance = [
+  const mockMetrics = useMemo(() => ([
     {
-      id: "store1",
-      name: "Main Street Store",
-      status: "active",
       dailyRevenue: 2847,
       dailyTransactions: 127,
       monthlyRevenue: 45230,
@@ -76,9 +74,6 @@ export default function MultiStore() {
       profitMargin: 23.5,
     },
     {
-      id: "store2",
-      name: "Downtown Branch",
-      status: "active",
       dailyRevenue: 3156,
       dailyTransactions: 143,
       monthlyRevenue: 52340,
@@ -87,9 +82,6 @@ export default function MultiStore() {
       profitMargin: 26.8,
     },
     {
-      id: "store3",
-      name: "Mall Location",
-      status: "active",
       dailyRevenue: 4231,
       dailyTransactions: 189,
       monthlyRevenue: 68450,
@@ -97,7 +89,25 @@ export default function MultiStore() {
       lowStockItems: 5,
       profitMargin: 28.2,
     },
-  ];
+  ]), []);
+
+  const storePerformance = useMemo(() => {
+    if (stores.length === 0) {
+      return mockMetrics.map((metrics, index) => ({
+        id: `placeholder-${index}`,
+        name: index === 0 ? "Main Street Store" : index === 1 ? "Downtown Branch" : "Mall Location",
+        status: "active",
+        ...metrics,
+      }));
+    }
+
+    return stores.map((store, index) => ({
+      id: store.id,
+      name: store.name,
+      status: "active",
+      ...mockMetrics[index % mockMetrics.length],
+    }));
+  }, [stores, mockMetrics]);
 
   const totalMetrics = storePerformance.reduce(
     (acc, store) => ({
@@ -110,7 +120,9 @@ export default function MultiStore() {
     { revenue: 0, transactions: 0, monthlyRevenue: 0, staff: 0, lowStockItems: 0 }
   );
 
-  const averageProfitMargin = storePerformance.reduce((acc, store) => acc + store.profitMargin, 0) / storePerformance.length;
+  const averageProfitMargin = storePerformance.length > 0
+    ? storePerformance.reduce((acc, store) => acc + store.profitMargin, 0) / storePerformance.length
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -262,8 +274,16 @@ export default function MultiStore() {
                       </div>
                     </div>
                     
-                    <Button className="w-full mt-4" variant="outline">
-                      View Details
+                    <Button
+                      className="w-full mt-4"
+                      variant="outline"
+                      disabled={!store.id.startsWith('placeholder-') && !store.id}
+                      onClick={() => {
+                        if (store.id.startsWith('placeholder-')) return;
+                        navigate(`/stores/${store.id}/staff`);
+                      }}
+                    >
+                      Manage Staffs
                     </Button>
                   </CardContent>
                 </Card>

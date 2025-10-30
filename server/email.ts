@@ -32,6 +32,88 @@ export function getEmailHealth() {
   };
 }
 
+export interface StaffCredentialEmailPayload {
+  staffEmail: string;
+  staffName?: string | null;
+  temporaryPassword: string;
+  storeName?: string;
+  assignedRole?: string;
+  invitedBy?: string;
+}
+
+export function generateStaffCredentialsEmail(payload: StaffCredentialEmailPayload): EmailOptions {
+  const {
+    staffEmail,
+    staffName,
+    temporaryPassword,
+    storeName,
+    assignedRole,
+    invitedBy,
+  } = payload;
+
+  const friendlyName = staffName?.trim() || 'Team Member';
+  const roleLabel = assignedRole ? assignedRole.charAt(0).toUpperCase() + assignedRole.slice(1) : 'Team Member';
+  const inviter = invitedBy || 'your administrator';
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+  const subject = `Your ChainSync access for ${storeName || 'store'}`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%); padding: 20px; text-align: center;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">ChainSync Staff Access</h1>
+      </div>
+      <div style="padding: 24px; background: #f9fafb;">
+        <p style="color: #111827; font-size: 16px;">Hello ${friendlyName},</p>
+        <p style="color: #374151; line-height: 1.6;">
+          ${inviter} has created a ChainSync account for you${storeName ? ` to help manage <strong>${storeName}</strong>` : ''}.
+        </p>
+        <div style="background: #ffffff; border-radius: 8px; padding: 20px; border: 1px solid #e5e7eb; margin: 16px 0;">
+          <h3 style="margin-top: 0; color: #1f2937;">Login Credentials</h3>
+          <p style="margin: 8px 0; color: #374151;"><strong>Email:</strong> ${staffEmail}</p>
+          <p style="margin: 8px 0; color: #374151;"><strong>Temporary Password:</strong> <span style="font-family: 'Courier New', monospace;">${temporaryPassword}</span></p>
+          <p style="margin: 8px 0; color: #374151;"><strong>Role:</strong> ${roleLabel}</p>
+        </div>
+        <p style="color: #374151; line-height: 1.6;">
+          For security, please sign in as soon as possible and update your password. You can log in here:
+        </p>
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${frontendUrl}/login" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+            Go to ChainSync
+          </a>
+        </div>
+        <p style="color: #6b7280; font-size: 14px; line-height: 1.6;">
+          If you did not expect this invitation, please contact your administrator immediately.
+        </p>
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+        <p style="color: #9ca3af; font-size: 12px; text-align: center;">This email was sent automatically by ChainSync. Do not reply.</p>
+      </div>
+    </div>
+  `;
+
+  const text = `
+Hello ${friendlyName},
+
+${inviter} created a ChainSync account for you${storeName ? ` to manage ${storeName}` : ''}.
+
+Login credentials:
+- Email: ${staffEmail}
+- Temporary Password: ${temporaryPassword}
+- Role: ${roleLabel}
+
+Please sign in at ${frontendUrl}/login and change your password immediately.
+
+If you did not expect this invitation, contact your administrator.
+`;
+
+  return {
+    to: staffEmail,
+    subject,
+    html,
+    text,
+  };
+}
+
 export interface EmailOptions {
   to: string;
   subject: string;

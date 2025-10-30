@@ -41,7 +41,12 @@ export async function registerMeRoutes(app: Express) {
     const user = await storage.getUser(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const isAdmin = (user as any).isAdmin ?? false;
-    res.json({ id: user.id, email: user.email, isAdmin });
+    res.json({
+      id: user.id,
+      email: user.email,
+      isAdmin,
+      requiresPasswordChange: Boolean((user as any)?.requiresPasswordChange),
+    });
   });
 
   app.get('/api/auth/me/roles', async (req: Request, res: Response) => {
@@ -74,7 +79,7 @@ export async function registerMeRoutes(app: Express) {
 
       const newPasswordHash = await bcrypt.hash(newPassword, 10);
       await db.update(users)
-        .set({ passwordHash: newPasswordHash })
+        .set({ passwordHash: newPasswordHash, requiresPasswordChange: false } as any)
         .where(eq(users.id, userId));
 
       res.status(200).json({ message: 'Password updated successfully' });

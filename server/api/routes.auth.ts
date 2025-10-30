@@ -342,11 +342,21 @@ export async function registerAuthRoutes(app: Express) {
       });
       try { logger.info('login-session-set-complete', { uid: user.id, req: extractLogContext(req) }); } catch {}
 
-      const { password: _, ...userData } = user;
+      const {
+        password: _legacyPassword,
+        passwordHash: _passwordHash,
+        password_hash: _password_hash,
+        passwordHashLegacy,
+        ...userData
+      } = user as any;
+
       res.json({ 
         status: 'success',
         message: 'Login successful', 
-        user: userData 
+        user: {
+          ...userData,
+          requiresPasswordChange: Boolean((user as any)?.requiresPasswordChange ?? (user as any)?.requires_password_change),
+        },
       });
     } catch (error) {
       logger.error('Login error', { error, req: extractLogContext(req) });

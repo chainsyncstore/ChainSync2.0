@@ -7,16 +7,19 @@ interface AuthState {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  requiresPasswordChange: boolean;
 }
 
 interface AuthActions {
   login: (usernameOrEmail: string, password: string) => Promise<void>;
   logout: () => void;
   error: string | null;
+  refreshUser: () => Promise<void>;
 }
 
 export function useAuth(): AuthState & AuthActions {
   const [user, setUser] = useState<User | null>(null);
+  const [requiresPasswordChange, setRequiresPasswordChange] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,12 +56,14 @@ export function useAuth(): AuthState & AuthActions {
         const savedUser = loadSession();
         if (savedUser) {
           setUser(savedUser as any);
+          setRequiresPasswordChange(Boolean((savedUser as any)?.requiresPasswordChange));
         }
         const response = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" as RequestCache });
         if (response.ok) {
           const payload = await response.json();
           const userData = (payload as any)?.data || payload;
           setUser(userData as any);
+          setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
           saveSession(userData as any);
           refreshSession();
         } else {
@@ -73,6 +78,27 @@ export function useAuth(): AuthState & AuthActions {
       }
     };
     checkAuth();
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" as RequestCache });
+      if (!response.ok) {
+        clearSession();
+        setUser(null);
+        setRequiresPasswordChange(false);
+        return;
+      }
+      const payload = await response.json();
+      const userData = (payload as any)?.data || payload;
+      setUser(userData as any);
+      setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
+      saveSession(userData as any);
+    } catch {
+      clearSession();
+      setUser(null);
+      setRequiresPasswordChange(false);
+    }
   }, []);
 
   const login = async (usernameOrEmail: string, password: string) => {
@@ -121,8 +147,14 @@ export function useAuth(): AuthState & AuthActions {
       const respUser = (loginResp as any)?.user;
       if (respUser) {
         setUser(respUser as any);
+        setRequiresPasswordChange(Boolean((respUser as any)?.requiresPasswordChange));
         saveSession(respUser as any);
         refreshSession();
+
+        if (Boolean((respUser as any)?.requiresPasswordChange)) {
+          window.location.href = "/force-password-reset";
+          return;
+        }
 
         const role = (respUser as any)?.role || ((respUser as any)?.isAdmin ? 'admin' : 'cashier');
         let defaultPath = "/pos";
@@ -145,7 +177,13 @@ export function useAuth(): AuthState & AuthActions {
       const payload = await me.json();
       const userData = (payload as any)?.data || payload;
       setUser(userData as any);
+      setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
       saveSession(userData as any);
+
+      if (Boolean((userData as any)?.requiresPasswordChange)) {
+        window.location.href = "/force-password-reset";
+        return;
+      }
 
       const role = (userData as any)?.role || ((userData as any)?.isAdmin ? 'admin' : 'cashier');
       let defaultPath = "/pos";
@@ -176,5 +214,5 @@ export function useAuth(): AuthState & AuthActions {
     }
   };
 
-  return { user: user as any, isLoading, isAuthenticated: !!user, login, logout, error };
+  return { user: user as any, isLoading, isAuthenticated: !!user, login, logout, error, requiresPasswordChange, refreshUser } as any;
 }

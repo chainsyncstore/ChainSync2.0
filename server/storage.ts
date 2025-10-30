@@ -216,6 +216,7 @@ export class DatabaseStorage implements IStorage {
           email: users.email,
           passwordHash: users.passwordHash,
           emailVerified: users.emailVerified,
+          requiresPasswordChange: users.requiresPasswordChange,
         })
         .from(users)
         .where(eq(users.id, id));
@@ -228,6 +229,7 @@ export class DatabaseStorage implements IStorage {
             email: users.email,
             password: (users as any).password,
             emailVerified: users.emailVerified,
+            requiresPasswordChange: users.requiresPasswordChange,
           })
           .from(users)
           .where(eq(users.id, id));
@@ -263,6 +265,7 @@ export class DatabaseStorage implements IStorage {
             email: users.email,
             passwordHash: users.passwordHash,
             emailVerified: users.emailVerified,
+            requiresPasswordChange: users.requiresPasswordChange,
           })
           .from(users)
           .where(eq((users as any).username, username));
@@ -286,9 +289,10 @@ export class DatabaseStorage implements IStorage {
               email: users.email,
               password: (users as any).password,
               emailVerified: users.emailVerified,
+              requiresPasswordChange: users.requiresPasswordChange,
             })
             .from(users)
-            .where(eq(users.email, username));
+            .where(eq((users as any).username, username));
           return (userLegacy as any) || undefined;
         }
       }
@@ -300,6 +304,7 @@ export class DatabaseStorage implements IStorage {
             email: users.email,
             password: (users as any).password,
             emailVerified: users.emailVerified,
+            requiresPasswordChange: users.requiresPasswordChange,
           })
           .from(users)
           .where(eq(users.email, username));
@@ -335,6 +340,7 @@ export class DatabaseStorage implements IStorage {
           email_verified: user.email_verified,
           isAdmin: user.is_admin,
           is_admin: user.is_admin,
+          requiresPasswordChange: user.requires_password_change,
         } as any;
         
         console.log('getUserByEmail - field mapping:', {
@@ -595,6 +601,7 @@ export class DatabaseStorage implements IStorage {
         emailVerified: userData.emailVerified ?? false,
         phoneVerified: false,
         failedLoginAttempts: 0,
+        requiresPasswordChange: userData.requiresPasswordChange ?? false,
         ...userData,
       } as User as any;
       this.mem.users.set(id, user);
@@ -649,6 +656,7 @@ export class DatabaseStorage implements IStorage {
       const validation = AuthService.validatePassword(newPassword);
       if (!validation.isValid) throw new Error(`Password validation failed: ${validation.errors.join(', ')}`);
       user.password = await AuthService.hashPassword(newPassword);
+      user.requiresPasswordChange = false;
       this.mem.users.set(userId, user);
       return user;
     }
@@ -660,7 +668,7 @@ export class DatabaseStorage implements IStorage {
     
     const hashedPassword = await AuthService.hashPassword(newPassword);
     const [user] = await db.update(users)
-      .set({ password: hashedPassword, updatedAt: new Date() } as any)
+      .set({ password: hashedPassword, updatedAt: new Date(), requiresPasswordChange: false } as any)
       .where(eq(users.id, userId))
       .returning();
     return user;

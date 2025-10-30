@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
-import { Download, Store as StoreIcon, Users, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
+import { Download, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
 import { useToast } from '../hooks/use-toast';
 import type { Store } from '@shared/schema';
 
@@ -19,10 +19,6 @@ export default function Settings() {
   const [stores, setStores] = useState<Store[]>([]);
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
 
-  // Store settings form state
-  const [storeInfo, setStoreInfo] = useState({ name: '', address: '', phone: '', email: '' });
-  const [isSavingStore, setIsSavingStore] = useState(false);
-
   // Password change form state
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -30,10 +26,6 @@ export default function Settings() {
   // Notification settings state
   const [notificationSettings, setNotificationSettings] = useState({ lowStockAlerts: false, salesReports: false, systemUpdates: false });
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
-
-  // Integration settings state
-  const [integrationSettings, setIntegrationSettings] = useState({ paymentGateway: false, accountingSoftware: false, emailMarketing: false });
-  const [isSavingIntegrations, setIsSavingIntegrations] = useState(false);
 
   // Profile form state
   const [profileForm, setProfileForm] = useState({
@@ -75,7 +67,6 @@ export default function Settings() {
           if (response.ok) {
             const settings = await response.json();
             setNotificationSettings(settings.notifications || { lowStockAlerts: false, salesReports: false, systemUpdates: false });
-            setIntegrationSettings(settings.integrations || { paymentGateway: false, accountingSoftware: false, emailMarketing: false });
           }
         } catch (error) {
           console.error('Failed to fetch settings:', error);
@@ -84,18 +75,6 @@ export default function Settings() {
       fetchSettings();
     }
   }, [user]);
-
-  useEffect(() => {
-    const selectedStore = stores.find(s => s.id === selectedStoreId);
-    if (selectedStore) {
-      setStoreInfo({
-        name: selectedStore.name || '',
-        address: selectedStore.address || '',
-        phone: (selectedStore as any).phone || '',
-        email: (selectedStore as any).email || ''
-      });
-    }
-  }, [selectedStoreId, stores]);
 
   useEffect(() => {
     setProfileForm({
@@ -112,28 +91,6 @@ export default function Settings() {
   if (!user) {
     return <div>Loading...</div>;
   }
-
-  const handleSaveStoreSettings = async () => {
-    if (!selectedStoreId) {
-      toast({ title: "Error", description: "No store selected.", variant: "destructive" });
-      return;
-    }
-    setIsSavingStore(true);
-    try {
-      const response = await fetch(`/api/stores/${selectedStoreId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(storeInfo),
-      });
-      if (!response.ok) throw new Error('Failed to save store settings');
-      toast({ title: "Success", description: "Store settings saved successfully." });
-    } catch (error) {
-      toast({ title: "Error", description: "Could not save store settings.", variant: "destructive" });
-    } finally {
-      setIsSavingStore(false);
-    }
-  };
-
   const handleChangePassword = async () => {
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       toast({ title: "Error", description: "New passwords do not match.", variant: "destructive" });
@@ -173,23 +130,6 @@ export default function Settings() {
       toast({ title: "Error", description: "Could not save notification settings.", variant: "destructive" });
     } finally {
       setIsSavingNotifications(false);
-    }
-  };
-
-  const handleSaveIntegrationSettings = async () => {
-    setIsSavingIntegrations(true);
-    try {
-      const response = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integrations: integrationSettings }),
-      });
-      if (!response.ok) throw new Error('Failed to save integration settings');
-      toast({ title: "Success", description: "Integration settings saved." });
-    } catch (error) {
-      toast({ title: "Error", description: "Could not save integration settings.", variant: "destructive" });
-    } finally {
-      setIsSavingIntegrations(false);
     }
   };
 
@@ -297,16 +237,8 @@ export default function Settings() {
         <p className="text-gray-600">System configuration and user preferences</p>
       </div>
 
-      <Tabs defaultValue="store" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
-          <TabsTrigger value="store" className="flex items-center gap-2">
-                          <StoreIcon className="h-4 w-4" />
-            Store
-          </TabsTrigger>
-          <TabsTrigger value="users" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            Users
-          </TabsTrigger>
+      <Tabs defaultValue="security" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="security" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             Security
@@ -314,10 +246,6 @@ export default function Settings() {
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Bell className="h-4 w-4" />
             Notifications
-          </TabsTrigger>
-          <TabsTrigger value="integrations" className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            Integrations
           </TabsTrigger>
           <TabsTrigger value="data" className="flex items-center gap-2">
             <Database className="h-4 w-4" />
@@ -328,68 +256,6 @@ export default function Settings() {
             Profile
           </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="store" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Store Information</CardTitle>
-              <CardDescription>Manage your store details and configuration</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="storeName">Store Name</Label>
-                <Input id="storeName" value={storeInfo.name} onChange={e => setStoreInfo({ ...storeInfo, name: e.target.value })} />
-              </div>
-              
-              <div>
-                <Label htmlFor="storeAddress">Address</Label>
-                <Input id="storeAddress" value={storeInfo.address} onChange={e => setStoreInfo({ ...storeInfo, address: e.target.value })} />
-              </div>
-              
-              <div>
-                <Label htmlFor="storePhone">Phone</Label>
-                <Input id="storePhone" value={storeInfo.phone} onChange={e => setStoreInfo({ ...storeInfo, phone: e.target.value })} />
-              </div>
-              
-              <div>
-                <Label htmlFor="storeEmail">Email</Label>
-                <Input id="storeEmail" type="email" value={storeInfo.email} onChange={e => setStoreInfo({ ...storeInfo, email: e.target.value })} />
-              </div>
-              
-              <Button onClick={handleSaveStoreSettings} disabled={isSavingStore}>
-                {isSavingStore ? 'Saving...' : 'Save Store Settings'}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="users" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>User Management</CardTitle>
-              <CardDescription>Manage user accounts and permissions</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">User Registration</p>
-                  <p className="text-sm text-gray-600">Allow new users to register</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Email Verification</p>
-                  <p className="text-sm text-gray-600">Require email verification for new users</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              
-              <Button variant="outline">Manage Users</Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         <TabsContent value="security" className="space-y-6">
           <Card>
@@ -512,44 +378,6 @@ export default function Settings() {
               
               <Button onClick={handleSaveNotificationSettings} disabled={isSavingNotifications}>
                 {isSavingNotifications ? 'Saving...' : 'Save Preferences'}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="integrations" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Third-Party Integrations</CardTitle>
-              <CardDescription>Connect with external services and platforms</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Payment Gateway</p>
-                  <p className="text-sm text-gray-600">Connect to Paystack/Flutterwave for payment processing</p>
-                </div>
-                <Switch checked={integrationSettings.paymentGateway} onCheckedChange={checked => setIntegrationSettings({ ...integrationSettings, paymentGateway: checked })} />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Accounting Software</p>
-                  <p className="text-sm text-gray-600">Sync with QuickBooks for accounting</p>
-                </div>
-                <Switch checked={integrationSettings.accountingSoftware} onCheckedChange={checked => setIntegrationSettings({ ...integrationSettings, accountingSoftware: checked })} />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Email Marketing</p>
-                  <p className="text-sm text-gray-600">Connect to Mailchimp for email campaigns</p>
-                </div>
-                <Switch checked={integrationSettings.emailMarketing} onCheckedChange={checked => setIntegrationSettings({ ...integrationSettings, emailMarketing: checked })} />
-              </div>
-              
-              <Button onClick={handleSaveIntegrationSettings} disabled={isSavingIntegrations}>
-                {isSavingIntegrations ? 'Saving...' : 'Configure Integrations'}
               </Button>
             </CardContent>
           </Card>

@@ -55,6 +55,7 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   emailVerified: boolean('email_verified').default(false),
+  requiresPasswordChange: boolean('requires_password_change').default(false),
 }, (t) => ({
   orgIdx: index('users_org_idx').on(t.orgId),
 }));
