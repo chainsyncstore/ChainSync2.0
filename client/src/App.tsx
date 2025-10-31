@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
+import { useProtectedRouteGuard } from "@/hooks/use-protected-route-guard";
 import { AIChatProvider } from "@/hooks/use-ai-chat";
 import { ScannerProvider } from "@/hooks/use-barcode-scanner";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -137,6 +138,8 @@ function App() {
       setLocation("/force-password-reset");
     }
   }, [isAuthenticated, requiresPasswordChange, location, setLocation]);
+
+  useProtectedRouteGuard(isLoading, isAuthenticated);
 
   // Debug: Log reCAPTCHA site key
   console.log('App loaded, RECAPTCHA_SITE_KEY:', RECAPTCHA_SITE_KEY);

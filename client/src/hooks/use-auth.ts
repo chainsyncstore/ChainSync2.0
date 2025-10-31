@@ -246,15 +246,20 @@ export function useAuth(): AuthState & AuthActions {
   const logout = async () => {
     try {
       await post("/auth/logout");
-    } catch {}
+    } catch (logoutError) {
+      console.warn('Logout request failed', logoutError);
+    }
+
     setUser(null);
     setError(null);
     clearSession();
     setTwoFactorEnabled(false);
-    if (window.location.pathname !== '/login') {
-      window.location.href = '/login';
+
+    const redirectTo = '/login';
+    if (window.location.pathname !== redirectTo) {
+      window.location.replace(redirectTo);
     } else {
-      window.history.replaceState(null, '', '/login');
+      window.history.replaceState(null, '', redirectTo);
     }
   };
 

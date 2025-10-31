@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './use-auth';
+import { getCsrfToken, clearCsrfTokenCache } from '@/lib/csrf';
 
 export type WhitelistRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
 
@@ -41,7 +42,12 @@ export function useIpWhitelist() {
     setError(null);
 
     try {
-      const response = await fetch('/api/ip-whitelist');
+      const response = await fetch('/api/ip-whitelist', {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
       if (response.ok) {
         const data = await response.json();
         setWhitelist(Array.isArray(data) ? data : []);
@@ -61,11 +67,14 @@ export function useIpWhitelist() {
     setError(null);
 
     try {
+      const csrfToken = await getCsrfToken();
       const response = await fetch('/api/ip-whitelist', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
         },
+        credentials: 'include',
         body: JSON.stringify({
           type: 'store',
           ipAddress,
@@ -87,6 +96,7 @@ export function useIpWhitelist() {
       }
     } catch (err) {
       setError('Network error. Please try again.');
+      clearCsrfTokenCache();
       throw err;
     } finally {
       setLoading(false);
@@ -98,8 +108,13 @@ export function useIpWhitelist() {
     setError(null);
 
     try {
+      const csrfToken = await getCsrfToken();
       const response = await fetch(`/api/ip-whitelist/${id}`, {
         method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'X-CSRF-Token': csrfToken,
+        },
       });
 
       if (response.ok) {
@@ -124,7 +139,12 @@ export function useIpWhitelist() {
     setError(null);
 
     try {
-      const response = await fetch('/api/ip-whitelist/logs');
+      const response = await fetch('/api/ip-whitelist/logs', {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
       if (response.ok) {
         const data = await response.json();
         setLogs(data);
