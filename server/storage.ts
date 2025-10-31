@@ -2176,9 +2176,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getIpAccessLogs(limit = 100): Promise<IpWhitelistLog[]> {
-    return await db.select().from(ipWhitelistLogs)
-      .orderBy(desc(ipWhitelistLogs.createdAt))
-      .limit(limit);
+    try {
+      const rows = await db
+        .select()
+        .from(ipWhitelistLogs)
+        .orderBy(desc(ipWhitelistLogs.createdAt))
+        .limit(limit);
+      return rows as any;
+    } catch (error: any) {
+      if (error?.code === '42P01') {
+        console.warn('ip_whitelist_logs table missing; returning empty logs');
+        return [];
+      }
+      throw error;
+    }
   }
 
   // Loyalty Customer pagination
