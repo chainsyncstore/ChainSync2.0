@@ -22,6 +22,20 @@
       "when": 1761841260000,
       "tag": "0003_add_requires_password_change",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1761937490488,
+      "tag": "0003_broad_rocket_racer",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1761942819786,
+      "tag": "0004_add-ip-whitelists",
+      "breakpoints": true
     }
   ]
 }
