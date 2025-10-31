@@ -31,10 +31,10 @@ export default function Analytics() {
 
   // Auto-select first store when stores are loaded
   useEffect(() => {
-    if (userData.role !== 'admin' && stores.length > 0 && !selectedStore) {
+    if (stores.length > 0 && !selectedStore) {
       setSelectedStore(stores[0].id);
     }
-  }, [stores, selectedStore, userData.role]);
+  }, [stores, selectedStore]);
 
   const { data: dailySales = { transactions: 0, revenue: 0 } } = useQuery<{ transactions: number; revenue: number }>({
     queryKey: ["/api/analytics/overview", selectedStore, selectedPeriod],

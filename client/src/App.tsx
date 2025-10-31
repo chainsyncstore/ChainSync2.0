@@ -52,7 +52,15 @@ function Dashboard({ userRole }: { userRole: string }) {
   // Ensure userRole is always a valid string; default to "admin" for new signups
   const role = userRole || "admin";
   console.log("Dashboard rendering with role:", role);
-  
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    const defaultPath = role === "admin" ? "/analytics" : role === "manager" ? "/inventory" : "/pos";
+    if (location === "/login" || location === "/") {
+      setLocation(defaultPath, { replace: true });
+    }
+  }, [location, setLocation, role]);
+
   if (role === "admin") {
     return (
       <ScannerProvider>
