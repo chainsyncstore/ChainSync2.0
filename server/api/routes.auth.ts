@@ -488,20 +488,24 @@ export async function registerAuthRoutes(app: Express) {
     }
 
     try {
-      // Generate 2FA secret
+      const user = await storage.getUserById(userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
       const secret = authenticator.generateSecret();
-      const otpauth = authenticator.keyuri('user@example.com', 'YourAppName', secret);
+      const accountLabel = user.email || (user as any).username || `user-${userId}`;
+      const issuer = env.ADMIN_2FA_ISSUER || 'ChainSync';
+      const otpauth = authenticator.keyuri(accountLabel, issuer, secret);
 
-      // Save secret to user
-      await storage.updateUser(userId, { twofaSecret: secret });
+      await storage.updateUser(userId, { twofaSecret: secret, twofaVerified: false } as any);
 
-      res.json({ 
-        message: '2FA setup successful', 
-        otpauth 
+      res.json({
+        message: '2FA setup successful',
+        otpauth,
       });
     } catch (error) {
       logger.error('2FA setup error', { error, req: extractLogContext(req) });
-      // monitoringService.record2FAEvent('setup_error', { error: String(error), ...extractLogContext(req) });
       res.status(500).json({ message: 'Internal server error' });
     }
   });
@@ -520,12 +524,17 @@ export async function registerAuthRoutes(app: Express) {
         return res.status(404).json({ message: 'User not found' });
       }
 
-      const isValid = 'twofaSecret' in user ? authenticator.check(token, (user as any).twofaSecret) : false;
+      const secret = (user as any).totpSecret ?? (user as any).twofaSecret;
+      if (!secret) {
+        return res.status(400).json({ message: '2FA is not set up for this user' });
+      }
+
+      const isValid = authenticator.check(token, secret);
       if (!isValid) {
         return res.status(400).json({ message: 'Invalid 2FA token' });
       }
 
-      await storage.updateUser(userId, { twofaVerified: true });
+      await storage.updateUser(userId, { twofaVerified: true } as any);
       req.session!.twofaVerified = true;
 
       res.json({ message: '2FA verified successfully' });
@@ -564,7 +573,7 @@ export async function registerAuthRoutes(app: Express) {
         return res.status(401).json({ message: 'Incorrect password' });
       }
 
-      await storage.updateUser(userId, { twofaSecret: null, twofaVerified: false });
+      await storage.updateUser(userId, { twofaSecret: null, twofaVerified: false } as any);
       req.session!.twofaVerified = false;
 
       res.json({ message: 'Two-factor authentication disabled successfully' });

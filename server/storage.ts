@@ -87,6 +87,55 @@ const normalizeRole = (role?: string): 'ADMIN' | 'MANAGER' | 'CASHIER' => {
   return 'CASHIER';
 };
 
+const mapDbUser = (row: any): any => {
+  if (!row) return undefined;
+
+  const passwordHash = row.passwordHash ?? row.password_hash ?? row.password ?? null;
+  const isAdmin = Boolean(row.isAdmin ?? row.is_admin ?? false);
+  const rawRole = row.role ?? (isAdmin ? 'ADMIN' : undefined);
+  const role = rawRole ? String(rawRole).toUpperCase() : undefined;
+  const storeId = row.storeId ?? row.store_id ?? null;
+  const totpSecret = row.totpSecret ?? row.totp_secret ?? null;
+  const requires2fa = Boolean(row.requires2fa ?? row.twofaVerified ?? row.twofa_verified ?? false);
+
+  return {
+    ...row,
+    passwordHash,
+    password: row.password ?? passwordHash,
+    isAdmin,
+    role,
+    storeId,
+    totpSecret,
+    twofaSecret: totpSecret,
+    requires2fa,
+    twofaVerified: requires2fa,
+  };
+};
+
+const normalizeUserUpdate = (userData: Partial<InsertUser> | Record<string, any>): Record<string, any> => {
+  const update: Record<string, any> = { ...userData };
+
+  if ('twofaSecret' in update) {
+    update.totpSecret = update.twofaSecret;
+    delete update.twofaSecret;
+  }
+  if ('twofaVerified' in update) {
+    update.requires2fa = update.twofaVerified;
+    delete update.twofaVerified;
+  }
+  if ('role' in update && typeof update.role === 'string') {
+    update.role = update.role.toUpperCase();
+  }
+  if ('storeId' in update && update.storeId === undefined) {
+    update.storeId = null;
+  }
+  if (!('updatedAt' in update)) {
+    update.updatedAt = new Date();
+  }
+
+  return update;
+};
+
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
@@ -226,35 +275,31 @@ export class DatabaseStorage implements IStorage {
     if (this.isTestEnv) {
       return this.mem.users.get(id);
     }
-    try {
-      const [user] = await db
-        .select({
-          id: users.id,
-          email: users.email,
-          passwordHash: users.passwordHash,
-          emailVerified: users.emailVerified,
-          requiresPasswordChange: users.requiresPasswordChange,
-        })
-        .from(users)
-        .where(eq(users.id, id));
-      return (user as any) || undefined;
-    } catch (e) {
-      try {
-        const [user] = await db
-          .select({
-            id: users.id,
-            email: users.email,
-            password: (users as any).password,
-            emailVerified: users.emailVerified,
-            requiresPasswordChange: users.requiresPasswordChange,
-          })
-          .from(users)
-          .where(eq(users.id, id));
-        return (user as any) || undefined;
-      } catch {
-        return undefined;
-      }
-    }
+
+    const [row] = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        passwordHash: users.passwordHash,
+        password: users.password,
+        emailVerified: users.emailVerified,
+        requiresPasswordChange: users.requiresPasswordChange,
+        role: users.role,
+        isAdmin: users.isAdmin,
+        storeId: users.storeId,
+        totpSecret: users.totpSecret,
+        requires2fa: users.requires2fa,
+        username: users.username,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        phone: users.phone,
+        companyName: users.companyName,
+        location: users.location,
+      })
+      .from(users)
+      .where(eq(users.id, id));
+
+    return mapDbUser(row);
   }
 
   async getUserById(id: string): Promise<User | undefined> {
@@ -274,62 +319,31 @@ export class DatabaseStorage implements IStorage {
       }
       return matched;
     }
-    try {
-      try {
-        const [user] = await db
-          .select({
-            id: users.id,
-            email: users.email,
-            passwordHash: users.passwordHash,
-            emailVerified: users.emailVerified,
-            requiresPasswordChange: users.requiresPasswordChange,
-          })
-          .from(users)
-          .where(eq((users as any).username, username));
-        return (user as any) || undefined;
-      } catch (e1) {
-        try {
-          const [userByEmail] = await db
-            .select({
-              id: users.id,
-              email: users.email,
-              passwordHash: users.passwordHash,
-              emailVerified: users.emailVerified,
-            })
-            .from(users)
-            .where(eq(users.email, username));
-          return (userByEmail as any) || undefined;
-        } catch (e2) {
-          const [userLegacy] = await db
-            .select({
-              id: users.id,
-              email: users.email,
-              password: (users as any).password,
-              emailVerified: users.emailVerified,
-              requiresPasswordChange: users.requiresPasswordChange,
-            })
-            .from(users)
-            .where(eq((users as any).username, username));
-          return (userLegacy as any) || undefined;
-        }
-      }
-    } catch (e: any) {
-      try {
-        const [byEmail] = await db
-          .select({
-            id: users.id,
-            email: users.email,
-            password: (users as any).password,
-            emailVerified: users.emailVerified,
-            requiresPasswordChange: users.requiresPasswordChange,
-          })
-          .from(users)
-          .where(eq(users.email, username));
-        return (byEmail as any) || undefined;
-      } catch {
-        return undefined;
-      }
-    }
+
+    const [row] = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        passwordHash: users.passwordHash,
+        password: users.password,
+        emailVerified: users.emailVerified,
+        requiresPasswordChange: users.requiresPasswordChange,
+        role: users.role,
+        isAdmin: users.isAdmin,
+        storeId: users.storeId,
+        totpSecret: users.totpSecret,
+        requires2fa: users.requires2fa,
+        username: users.username,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        phone: users.phone,
+        companyName: users.companyName,
+        location: users.location,
+      })
+      .from(users)
+      .where(eq((users as any).username, username));
+
+    return mapDbUser(row);
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
@@ -340,35 +354,30 @@ export class DatabaseStorage implements IStorage {
       return undefined;
     }
     try {
-      // Use raw SQL to avoid schema mismatch issues
-      const result = await db.execute(
-        sql`SELECT * FROM users WHERE email = ${email}`
-      );
-      
-      if (result.rows && result.rows.length > 0) {
-        const user = result.rows[0];
-        // Map database fields to what the app expects
-        const mappedUser = {
-          ...user,
-          passwordHash: user.password_hash,
-          password_hash: user.password_hash,
-          password: user.password_hash,
-          emailVerified: user.email_verified,
-          email_verified: user.email_verified,
-          isAdmin: user.is_admin,
-          is_admin: user.is_admin,
-          requiresPasswordChange: user.requires_password_change,
-        } as any;
-        
-        console.log('getUserByEmail - field mapping:', {
-          hasPasswordHash: !!mappedUser.passwordHash,
-          hasPassword_hash: !!mappedUser.password_hash,
-          hasPassword: !!mappedUser.password
-        });
-        
-        return mappedUser;
-      }
-      return undefined;
+      const [row] = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          passwordHash: users.passwordHash,
+          password: users.password,
+          emailVerified: users.emailVerified,
+          requiresPasswordChange: users.requiresPasswordChange,
+          role: users.role,
+          isAdmin: users.isAdmin,
+          storeId: users.storeId,
+          totpSecret: users.totpSecret,
+          requires2fa: users.requires2fa,
+          username: users.username,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          phone: users.phone,
+          companyName: users.companyName,
+          location: users.location,
+        })
+        .from(users)
+        .where(eq(users.email, email));
+
+      return mapDbUser(row);
     } catch (e) {
       console.error('getUserByEmail error:', e);
       return undefined;
@@ -1258,11 +1267,12 @@ export class DatabaseStorage implements IStorage {
       this.mem.users.set(id, updated);
       return updated;
     }
-    const [user] = await db.update(users)
-      .set({ ...(userData as any), updatedAt: new Date() } as any)
+    const [user] = await db
+      .update(users)
+      .set(normalizeUserUpdate(userData))
       .where(eq(users.id, id))
       .returning();
-    return user;
+    return mapDbUser(user);
   }
 
   async deleteUser(id: string): Promise<void> {

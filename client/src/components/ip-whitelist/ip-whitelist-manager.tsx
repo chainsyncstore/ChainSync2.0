@@ -35,7 +35,7 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
   const [selectedRoles, setSelectedRoles] = useState<WhitelistRole[]>(['MANAGER', 'CASHIER']);
   const [description, setDescription] = useState('');
 
-  const canManage = user?.role === 'admin';
+  const isAdmin = Boolean((user as any)?.isAdmin || user?.role === 'admin');
 
   const storeLookup = useMemo(() => {
     const map = new Map<string, string>();
@@ -138,7 +138,7 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
           </p>
         </div>
         
-        {canManage && (
+        {isAdmin && (
           <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
             setIsAddDialogOpen(open);
             if (open) {
@@ -174,11 +174,17 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
                       <SelectValue placeholder="Select a store" />
                     </SelectTrigger>
                     <SelectContent>
-                      {stores.map(store => (
-                        <SelectItem key={store.id} value={store.id}>
-                          {store.name || 'Untitled store'}
+                      {stores.length === 0 ? (
+                        <SelectItem value="" disabled>
+                          No stores available
                         </SelectItem>
-                      ))}
+                      ) : (
+                        stores.map(store => (
+                          <SelectItem key={store.id} value={store.id}>
+                            {store.name || 'Untitled store'}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -257,7 +263,7 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
                   <TableHead>Role</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Added</TableHead>
-                  {canManage && <TableHead>Actions</TableHead>}
+                  {isAdmin && <TableHead>Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -277,7 +283,7 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
                       <TableCell>
                         {new Date(item.createdAt).toLocaleDateString()}
                       </TableCell>
-                      {canManage && (
+                      {isAdmin && (
                         <TableCell>
                           <Button
                             variant="outline"

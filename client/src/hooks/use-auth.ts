@@ -21,6 +21,26 @@ interface AuthActions {
   disableTwoFactor: (password: string) => Promise<boolean>;
 }
 
+const normalizeUserPayload = (raw: any | null) => {
+  if (!raw) return raw;
+
+  const isAdmin = Boolean(raw.isAdmin ?? raw.is_admin);
+  const storeId = raw.storeId ?? raw.store_id ?? null;
+  const roleRaw = raw.role ?? (isAdmin ? 'admin' : raw.role);
+  const role = roleRaw ? roleRaw.toString().toLowerCase() : undefined;
+  const twofaVerified = Boolean(
+    raw.twofaVerified ?? raw.twofa_verified ?? raw.requires2fa ?? raw.totpVerified ?? false
+  );
+
+  return {
+    ...raw,
+    isAdmin,
+    storeId,
+    role,
+    twofaVerified,
+  };
+};
+
 export function useAuth(): AuthState & AuthActions {
   const [user, setUser] = useState<User | null>(null);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState<boolean>(false);
@@ -60,9 +80,10 @@ export function useAuth(): AuthState & AuthActions {
       try {
         const savedUser = loadSession();
         if (savedUser) {
-          setUser(savedUser as any);
-          setRequiresPasswordChange(Boolean((savedUser as any)?.requiresPasswordChange));
-          setTwoFactorEnabled(Boolean((savedUser as any)?.twofaVerified));
+          const normalizedSaved = normalizeUserPayload(savedUser);
+          setUser(normalizedSaved as any);
+          setRequiresPasswordChange(Boolean((normalizedSaved as any)?.requiresPasswordChange));
+          setTwoFactorEnabled(Boolean((normalizedSaved as any)?.twofaVerified));
         }
 
         const response = await fetch("/api/auth/me", {
@@ -73,10 +94,11 @@ export function useAuth(): AuthState & AuthActions {
         if (response.ok) {
           const payload = await response.json();
           const userData = (payload as any)?.data || payload;
-          setUser(userData as any);
-          setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
-          setTwoFactorEnabled(Boolean((userData as any)?.twofaVerified));
-          saveSession(userData as any);
+          const normalized = normalizeUserPayload(userData);
+          setUser(normalized as any);
+          setRequiresPasswordChange(Boolean((normalized as any)?.requiresPasswordChange));
+          setTwoFactorEnabled(Boolean((normalized as any)?.twofaVerified));
+          saveSession(normalized as any);
           refreshSession();
         } else {
           clearSession();
@@ -108,10 +130,11 @@ export function useAuth(): AuthState & AuthActions {
 
       const payload = await response.json();
       const userData = (payload as any)?.data || payload;
-      setUser(userData as any);
-      setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
-      setTwoFactorEnabled(Boolean((userData as any)?.twofaVerified));
-      saveSession(userData as any);
+      const normalized = normalizeUserPayload(userData);
+      setUser(normalized as any);
+      setRequiresPasswordChange(Boolean((normalized as any)?.requiresPasswordChange));
+      setTwoFactorEnabled(Boolean((normalized as any)?.twofaVerified));
+      saveSession(normalized as any);
     } catch {
       clearSession();
       setUser(null);
@@ -165,18 +188,19 @@ export function useAuth(): AuthState & AuthActions {
 
       const respUser = (loginResp as any)?.user;
       if (respUser) {
-        setUser(respUser as any);
-        setRequiresPasswordChange(Boolean((respUser as any)?.requiresPasswordChange));
-        setTwoFactorEnabled(Boolean((respUser as any)?.twofaVerified));
-        saveSession(respUser as any);
+        const normalizedUser = normalizeUserPayload(respUser);
+        setUser(normalizedUser as any);
+        setRequiresPasswordChange(Boolean((normalizedUser as any)?.requiresPasswordChange));
+        setTwoFactorEnabled(Boolean((normalizedUser as any)?.twofaVerified));
+        saveSession(normalizedUser as any);
         refreshSession();
 
-        if (Boolean((respUser as any)?.requiresPasswordChange)) {
+        if (Boolean((normalizedUser as any)?.requiresPasswordChange)) {
           window.location.href = "/force-password-reset";
           return;
         }
 
-        const role = (respUser as any)?.role || ((respUser as any)?.isAdmin ? 'admin' : 'cashier');
+        const role = normalizedUser?.isAdmin ? 'admin' : (normalizedUser as any)?.role || 'cashier';
         let defaultPath = "/pos";
         if (role === "admin") defaultPath = "/analytics";
         else if (role === "manager") defaultPath = "/inventory";
@@ -196,17 +220,18 @@ export function useAuth(): AuthState & AuthActions {
       if (!me.ok) throw new Error('Failed to fetch user');
       const payload = await me.json();
       const userData = (payload as any)?.data || payload;
-      setUser(userData as any);
-      setRequiresPasswordChange(Boolean((userData as any)?.requiresPasswordChange));
-      setTwoFactorEnabled(Boolean((userData as any)?.twofaVerified));
-      saveSession(userData as any);
+      const normalizedUser = normalizeUserPayload(userData);
+      setUser(normalizedUser as any);
+      setRequiresPasswordChange(Boolean((normalizedUser as any)?.requiresPasswordChange));
+      setTwoFactorEnabled(Boolean((normalizedUser as any)?.twofaVerified));
+      saveSession(normalizedUser as any);
 
-      if (Boolean((userData as any)?.requiresPasswordChange)) {
+      if (Boolean((normalizedUser as any)?.requiresPasswordChange)) {
         window.location.href = "/force-password-reset";
         return;
       }
 
-      const role = (userData as any)?.role || ((userData as any)?.isAdmin ? 'admin' : 'cashier');
+      const role = normalizedUser?.isAdmin ? 'admin' : (normalizedUser as any)?.role || 'cashier';
       let defaultPath = "/pos";
       if (role === "admin") defaultPath = "/analytics";
       else if (role === "manager") defaultPath = "/inventory";

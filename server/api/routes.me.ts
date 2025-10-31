@@ -40,12 +40,22 @@ export async function registerMeRoutes(app: Express) {
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
     const user = await storage.getUser(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const isAdmin = (user as any).isAdmin ?? false;
+    const isAdmin = Boolean((user as any).isAdmin);
+    const role = ((user as any).role || (isAdmin ? 'ADMIN' : '')).toString().toUpperCase() || undefined;
+    const storeId = (user as any).storeId ?? null;
+    const twofaVerified = Boolean((user as any).twofaVerified);
+
     res.json({
       id: user.id,
       email: user.email,
       isAdmin,
+      role,
+      storeId,
+      firstName: (user as any).firstName ?? null,
+      lastName: (user as any).lastName ?? null,
+      phone: (user as any).phone ?? null,
       requiresPasswordChange: Boolean((user as any)?.requiresPasswordChange),
+      twofaVerified,
     });
   });
 
