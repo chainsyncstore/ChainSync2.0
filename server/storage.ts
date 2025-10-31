@@ -10,6 +10,7 @@ import {
   loyaltyTiers,
   customers,
   loyaltyTransactions,
+  userRoles,
   ipWhitelists,
   ipWhitelistLogs,
   passwordResetTokens,
@@ -101,6 +102,7 @@ const mapDbUser = (row: any): any => {
   return {
     ...row,
     passwordHash,
+    password_hash: passwordHash,
     password: row.password ?? passwordHash,
     isAdmin,
     role,
@@ -114,6 +116,13 @@ const mapDbUser = (row: any): any => {
 
 const normalizeUserUpdate = (userData: Partial<InsertUser> | Record<string, any>): Record<string, any> => {
   const update: Record<string, any> = { ...userData };
+
+  if ('passwordHash' in update && update.passwordHash !== undefined) {
+    update.password_hash = update.passwordHash;
+  }
+  if ('password' in update && update.password !== undefined) {
+    update.password_hash = update.password;
+  }
 
   if ('twofaSecret' in update) {
     update.totpSecret = update.twofaSecret;
@@ -283,9 +292,7 @@ export class DatabaseStorage implements IStorage {
         passwordHash: users.passwordHash,
         emailVerified: users.emailVerified,
         requiresPasswordChange: users.requiresPasswordChange,
-        role: users.role,
         isAdmin: users.isAdmin,
-        storeId: users.storeId,
         totpSecret: users.totpSecret,
         requires2fa: users.requires2fa,
         username: users.username,
@@ -298,7 +305,15 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq(users.id, id));
 
-    return mapDbUser(row);
+    if (!row) return undefined;
+
+    const [roleRow] = await db
+      .select({ role: userRoles.role, storeId: userRoles.storeId })
+      .from(userRoles)
+      .where(eq(userRoles.userId, row.id))
+      .limit(1);
+
+    return mapDbUser({ ...row, role: roleRow?.role, storeId: roleRow?.storeId });
   }
 
   async getUserById(id: string): Promise<User | undefined> {
@@ -326,9 +341,7 @@ export class DatabaseStorage implements IStorage {
         passwordHash: users.passwordHash,
         emailVerified: users.emailVerified,
         requiresPasswordChange: users.requiresPasswordChange,
-        role: users.role,
         isAdmin: users.isAdmin,
-        storeId: users.storeId,
         totpSecret: users.totpSecret,
         requires2fa: users.requires2fa,
         username: users.username,
@@ -341,7 +354,15 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq((users as any).username, username));
 
-    return mapDbUser(row);
+    if (!row) return undefined;
+
+    const [roleRow] = await db
+      .select({ role: userRoles.role, storeId: userRoles.storeId })
+      .from(userRoles)
+      .where(eq(userRoles.userId, row.id))
+      .limit(1);
+
+    return mapDbUser({ ...row, role: roleRow?.role, storeId: roleRow?.storeId });
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
@@ -359,9 +380,7 @@ export class DatabaseStorage implements IStorage {
           passwordHash: users.passwordHash,
           emailVerified: users.emailVerified,
           requiresPasswordChange: users.requiresPasswordChange,
-          role: users.role,
           isAdmin: users.isAdmin,
-          storeId: users.storeId,
           totpSecret: users.totpSecret,
           requires2fa: users.requires2fa,
           username: users.username,
@@ -374,7 +393,15 @@ export class DatabaseStorage implements IStorage {
         .from(users)
         .where(eq(users.email, email));
 
-      return mapDbUser(row);
+      if (!row) return undefined;
+
+      const [roleRow] = await db
+        .select({ role: userRoles.role, storeId: userRoles.storeId })
+        .from(userRoles)
+        .where(eq(userRoles.userId, row.id))
+        .limit(1);
+
+      return mapDbUser({ ...row, role: roleRow?.role, storeId: roleRow?.storeId });
     } catch (e) {
       console.error('getUserByEmail error:', e);
       return undefined;
