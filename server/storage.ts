@@ -295,12 +295,10 @@ export class DatabaseStorage implements IStorage {
         isAdmin: users.isAdmin,
         totpSecret: users.totpSecret,
         requires2fa: users.requires2fa,
-        username: users.username,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        phone: users.phone,
-        companyName: users.companyName,
-        location: users.location,
+        settings: users.settings,
+        orgId: users.orgId,
+        createdAt: users.createdAt,
+        lastLoginAt: users.lastLoginAt,
       })
       .from(users)
       .where(eq(users.id, id));
@@ -344,12 +342,10 @@ export class DatabaseStorage implements IStorage {
         isAdmin: users.isAdmin,
         totpSecret: users.totpSecret,
         requires2fa: users.requires2fa,
-        username: users.username,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        phone: users.phone,
-        companyName: users.companyName,
-        location: users.location,
+        settings: users.settings,
+        orgId: users.orgId,
+        createdAt: users.createdAt,
+        lastLoginAt: users.lastLoginAt,
       })
       .from(users)
       .where(eq((users as any).username, username));
@@ -383,12 +379,10 @@ export class DatabaseStorage implements IStorage {
           isAdmin: users.isAdmin,
           totpSecret: users.totpSecret,
           requires2fa: users.requires2fa,
-          username: users.username,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          phone: users.phone,
-          companyName: users.companyName,
-          location: users.location,
+          settings: users.settings,
+          orgId: users.orgId,
+          createdAt: users.createdAt,
+          lastLoginAt: users.lastLoginAt,
         })
         .from(users)
         .where(eq(users.email, email));
