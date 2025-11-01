@@ -396,8 +396,25 @@ export async function registerAuthRoutes(app: Express) {
 
     logger.info('logout: request received', { sessionId, requestId });
 
+    const clearSessionCookie = () => {
+      try {
+        res.clearCookie('chainsync.sid', {
+          path: '/',
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
+        });
+      } catch (clearErr) {
+        logger.warn('logout: failed clearing session cookie', {
+          requestId,
+          error: clearErr instanceof Error ? clearErr.message : String(clearErr),
+        });
+      }
+    };
+
     if (!req.session) {
       logger.warn('logout: no session object on request', { requestId });
+      clearSessionCookie();
       return res.json({ message: 'Logout successful' });
     }
 
@@ -408,12 +425,15 @@ export async function registerAuthRoutes(app: Express) {
             sessionId,
             requestId,
             error: err instanceof Error ? err.message : String(err),
-            stack: err instanceof Error ? err.stack : undefined
+            stack: err instanceof Error ? err.stack : undefined,
           });
-          return res.status(500).json({ message: 'Internal server error' });
+
+          clearSessionCookie();
+          return res.json({ message: 'Logout successful', warning: 'Session store unavailable; cookie cleared locally.' });
         }
 
         logger.info('logout: session destroyed', { sessionId, requestId });
+        clearSessionCookie();
         res.json({ message: 'Logout successful' });
       });
     } catch (error) {
@@ -421,9 +441,11 @@ export async function registerAuthRoutes(app: Express) {
         sessionId,
         requestId,
         error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
       });
-      res.status(500).json({ message: 'Internal server error' });
+
+      clearSessionCookie();
+      res.json({ message: 'Logout successful', warning: 'Session store unavailable; cookie cleared locally.' });
     }
   });
 
