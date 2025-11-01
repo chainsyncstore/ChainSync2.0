@@ -15,6 +15,7 @@ import { securityAuditService } from '../lib/security-audit';
 import { monitoringService } from '../lib/monitoring';
 import { logger, extractLogContext } from '../lib/logger';
 import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '../middleware/security';
+import { requireAuth } from '../middleware/authz';
 import { PendingSignup } from './pending-signup';
 import { signupBotPrevention, botPreventionMiddleware } from '../middleware/bot-prevention';
 // duplicate import removed
@@ -362,6 +363,30 @@ export async function registerAuthRoutes(app: Express) {
       logger.error('Login error', { error, req: extractLogContext(req) });
       // monitoringService.recordLoginEvent('attempt', { error: String(error), ...extractLogContext(req) });
       res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  app.get('/api/auth/realtime-token', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session!.userId;
+      if (!userId) {
+        return res.status(401).json({ message: 'Unauthorized' });
+      }
+
+      const requestedStoreId = typeof req.query.storeId === 'string' && req.query.storeId.trim().length > 0
+        ? req.query.storeId.trim()
+        : undefined;
+
+      const payload: Record<string, string> = { userId };
+      if (requestedStoreId) {
+        payload.storeId = requestedStoreId;
+      }
+
+      const token = jwt.sign(payload, env.JWT_SECRET!, { expiresIn: '5m' });
+      res.json({ token, expiresIn: 300 });
+    } catch (error) {
+      logger.error('Failed to issue realtime auth token', { error, req: extractLogContext(req) });
+      res.status(500).json({ message: 'Failed to issue realtime token' });
     }
   });
 
