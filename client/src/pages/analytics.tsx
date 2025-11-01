@@ -57,10 +57,12 @@ export default function Analytics() {
 
   const { data: popularProducts = [] } = useQuery<Array<{ product: Product; salesCount: number }>>({
     queryKey: ["/api/stores", selectedStore, "analytics/popular-products"],
+    enabled: Boolean(selectedStore),
   });
 
   const { data: profitLoss = { revenue: 0, cost: 0, profit: 0 } } = useQuery<{ revenue: number; cost: number; profit: number }>({
     queryKey: ["/api/stores", selectedStore, "analytics/profit-loss"],
+    enabled: Boolean(selectedStore),
     queryFn: () => {
       const endDate = new Date();
       const startDate = new Date();
@@ -73,10 +75,12 @@ export default function Analytics() {
 
   const { data: alerts = [] } = useQuery<LowStockAlert[]>({
     queryKey: ["/api/stores", selectedStore, "alerts"],
+    enabled: Boolean(selectedStore),
   });
 
   const { data: inventoryValue = { totalValue: 0, itemCount: 0 } } = useQuery<{ totalValue: number; itemCount: number }>({
     queryKey: ["/api/stores", selectedStore, "analytics/inventory-value"],
+    enabled: Boolean(selectedStore),
   });
 
   const { data: customerInsights = { totalCustomers: 0, newCustomers: 0, repeatCustomers: 0 } } = useQuery<{
@@ -85,6 +89,7 @@ export default function Analytics() {
     repeatCustomers: number;
   }>({
     queryKey: ["/api/stores", selectedStore, "analytics/customer-insights"],
+    enabled: Boolean(selectedStore),
   });
 
 
