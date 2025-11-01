@@ -391,23 +391,40 @@ export async function registerAuthRoutes(app: Express) {
   });
 
   app.post('/api/auth/logout', (req: Request, res: Response) => {
+    const requestId = (req as any).requestId;
     const sessionId = req.session?.id;
-    logger.debug('logout: destroying session', { sessionId, requestId: (req as any).requestId });
 
-    req.session?.destroy((err) => {
-      if (err) {
-        logger.error('logout: session destroy failed', {
-          sessionId,
-          requestId: (req as any).requestId,
-          error: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? err.stack : undefined
-        });
-        return res.status(500).json({ message: 'Internal server error' });
-      }
+    logger.info('logout: request received', { sessionId, requestId });
 
-      logger.info('logout: session destroyed', { sessionId, requestId: (req as any).requestId });
-      res.json({ message: 'Logout successful' });
-    });
+    if (!req.session) {
+      logger.warn('logout: no session object on request', { requestId });
+      return res.json({ message: 'Logout successful' });
+    }
+
+    try {
+      req.session.destroy((err) => {
+        if (err) {
+          logger.error('logout: session destroy failed', {
+            sessionId,
+            requestId,
+            error: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined
+          });
+          return res.status(500).json({ message: 'Internal server error' });
+        }
+
+        logger.info('logout: session destroyed', { sessionId, requestId });
+        res.json({ message: 'Logout successful' });
+      });
+    } catch (error) {
+      logger.error('logout: session destroy threw synchronously', {
+        sessionId,
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      res.status(500).json({ message: 'Internal server error' });
+    }
   });
 
   app.post('/api/auth/request-password-reset', authRateLimit, botPreventionMiddleware({ required: false, expectedAction: 'password_reset_request' }), async (req: Request, res: Response) => {
