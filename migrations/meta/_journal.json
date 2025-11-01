@@ -36,6 +36,13 @@
       "when": 1761942819786,
       "tag": "0004_add-ip-whitelists",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1762042820000,
+      "tag": "0005_restore_sales",
+      "breakpoints": true
     }
   ]
 }
