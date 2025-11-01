@@ -29,17 +29,92 @@ if (isDevelopment() && !(self && self.__E2E_ENABLE_SW === true)) {
   disableInDevelopment();
 }
 
+async function precacheBuildAssets(cache) {
+  try {
+    const response = await fetch(ASSET_MANIFEST_URL, { cache: 'no-store' });
+    if (!response.ok) {
+      console.warn('Asset manifest fetch failed', response.status);
+      return;
+    }
+
+    const manifest = await response.json().catch(() => null);
+    if (!manifest) {
+      console.warn('Asset manifest response was empty');
+      return;
+    }
+
+    const assetSet = new Set();
+
+    if (Array.isArray(manifest.files)) {
+      manifest.files.forEach((file) => {
+        if (typeof file === 'string' && file.trim().length > 0) {
+          assetSet.add(file.trim());
+        }
+      });
+    }
+
+    if (Array.isArray(manifest)) {
+      manifest.forEach((file) => {
+        if (typeof file === 'string' && file.trim().length > 0) {
+          assetSet.add(file.trim());
+        }
+      });
+    }
+
+    if (manifest && typeof manifest === 'object' && !Array.isArray(manifest)) {
+      Object.values(manifest).forEach((entry) => {
+        if (!entry || typeof entry !== 'object') return;
+        if (typeof entry.file === 'string') {
+          assetSet.add(entry.file);
+        }
+        if (Array.isArray(entry.css)) {
+          entry.css.forEach((cssFile) => {
+            if (typeof cssFile === 'string') assetSet.add(cssFile);
+          });
+        }
+        if (Array.isArray(entry.assets)) {
+          entry.assets.forEach((assetFile) => {
+            if (typeof assetFile === 'string') assetSet.add(assetFile);
+          });
+        }
+      });
+    }
+
+    if (assetSet.size === 0) {
+      console.warn('Asset manifest contained no precacheable files');
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      Array.from(assetSet).map(async (filePath) => {
+        const normalized = filePath.startsWith('/') ? filePath : `/${filePath}`;
+        try {
+          await cache.add(normalized);
+        } catch (err) {
+          console.warn('Skipping build asset from precache', normalized, err);
+        }
+      })
+    );
+
+    const skipped = results.filter((r) => r.status === 'rejected');
+    if (skipped.length > 0) {
+      console.warn('Some build assets failed to precache');
+    }
+  } catch (error) {
+    console.warn('Failed to precache build assets', error);
+  }
+}
+
 const CACHE_NAME = 'chainsync-v1.0.2';
 const OFFLINE_CACHE = 'chainsync-offline-v1.0.2';
 let isDisabled = false;
 let heartbeatTimer = null;
+const ASSET_MANIFEST_URL = '/asset-manifest.json';
 
 // Essential resources to cache for offline use
 const ESSENTIAL_RESOURCES = [
   '/',
   '/index.html',
-  '/src/main.tsx',
-  '/src/index.css',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png'
@@ -57,9 +132,23 @@ const OFFLINE_ENDPOINTS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
+      .then(async (cache) => {
         console.log('Caching essential resources for offline use');
-        return cache.addAll(ESSENTIAL_RESOURCES);
+        const results = await Promise.allSettled(
+          ESSENTIAL_RESOURCES.map(async (resource) => {
+            try {
+              await cache.add(resource);
+            } catch (err) {
+              console.warn('Skipping missing resource from precache', resource, err);
+            }
+          })
+        );
+        const rejected = results.filter((result) => result.status === 'rejected');
+        if (rejected.length > 0) {
+          console.warn('Some resources failed precache and were skipped');
+        }
+
+        await precacheBuildAssets(cache);
       })
       .then(() => {
         console.log('Service Worker installed successfully');

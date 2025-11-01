@@ -2,8 +2,8 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { Server } from 'http';
 import { logger } from '../lib/logger';
 import { db } from '../db';
-import { notifications, websocketConnections } from '@shared/schema';
-import { eq, and } from 'drizzle-orm';
+import { notifications, users, websocketConnections } from '@shared/schema';
+import { eq } from 'drizzle-orm';
 import jwt from 'jsonwebtoken';
 import { securityAuditService } from '../lib/security-audit';
 import { monitoringService } from '../lib/monitoring';
@@ -28,7 +28,7 @@ export interface WebSocketMessage {
 export interface AuthenticatedConnection {
   ws: WebSocket;
   userId: string;
-  storeId: string;
+  storeId?: string;
   connectionId: string;
   subscriptions: Set<string>;
 }
@@ -172,7 +172,29 @@ export class NotificationService {
       // Verify JWT token using canonical JWT secret from validated env
       const decoded = jwt.verify(authData.token, this.config.JWT_SECRET) as any;
       const userId = decoded.userId;
-      const storeId = authData.storeId || decoded.storeId || '';
+      let storeId = typeof authData.storeId === 'string' && authData.storeId.trim().length > 0
+        ? authData.storeId.trim()
+        : typeof decoded.storeId === 'string' && decoded.storeId.trim().length > 0
+          ? decoded.storeId.trim()
+          : '';
+
+      if (!storeId) {
+        try {
+          const fallback = await db
+            .select({ storeId: users.storeId })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+          if (fallback[0]?.storeId) {
+            storeId = fallback[0].storeId;
+          }
+        } catch (error) {
+          const err = error as unknown as { message?: string };
+          logger.warn('Failed to resolve default store for websocket auth', { connectionId, userId, error: err?.message || 'unknown' });
+        }
+      }
+
+      const hasValidStore = Boolean(storeId && typeof storeId === 'string' && storeId.length > 0);
 
       if (!userId) {
         this.sendError(ws, 'Invalid token payload');
@@ -183,7 +205,7 @@ export class NotificationService {
       const connection: AuthenticatedConnection = {
         ws,
         userId,
-        storeId,
+        ...(hasValidStore ? { storeId } : {}),
         connectionId,
         subscriptions: new Set()
       };
@@ -191,11 +213,12 @@ export class NotificationService {
       this.connections.set(connectionId, connection);
 
       // Track connection in database
-      await this.trackConnection(connectionId, userId, storeId, authData.userAgent, authData.ipAddress);
+      await this.trackConnection(connectionId, userId, hasValidStore ? storeId : undefined, authData.userAgent, authData.ipAddress);
 
       // Subscribe to default channels
-      if (storeId) {
+      if (hasValidStore && storeId) {
         await this.handleSubscription(connectionId, { channel: `store:${storeId}` });
+
       }
       await this.handleSubscription(connectionId, { channel: `user:${userId}` });
 
@@ -444,15 +467,20 @@ export class NotificationService {
     return `conn_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
   }
 
-  private async trackConnection(connectionId: string, userId: string, storeId: string, userAgent?: string, ipAddress?: string) {
+  private async trackConnection(connectionId: string, userId: string, storeId?: string, userAgent?: string, ipAddress?: string) {
+    if (!storeId) {
+      logger.debug('Skipping connection tracking without store ID', { connectionId, userId });
+      return;
+    }
+
     try {
       await db.insert(websocketConnections).values({
         connectionId,
         userId,
         storeId,
         userAgent,
-        ipAddress: ipAddress ? ipAddress as any : null,
-        isActive: true,
+        ipAddress: ipAddress ?? null,
+        isActive: true as any,
         connectedAt: new Date(),
         lastActivity: new Date()
       } as unknown as typeof websocketConnections.$inferInsert);
