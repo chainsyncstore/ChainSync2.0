@@ -391,10 +391,21 @@ export async function registerAuthRoutes(app: Express) {
   });
 
   app.post('/api/auth/logout', (req: Request, res: Response) => {
-    req.session!.destroy((err) => {
+    const sessionId = req.session?.id;
+    logger.debug('logout: destroying session', { sessionId, requestId: (req as any).requestId });
+
+    req.session?.destroy((err) => {
       if (err) {
+        logger.error('logout: session destroy failed', {
+          sessionId,
+          requestId: (req as any).requestId,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined
+        });
         return res.status(500).json({ message: 'Internal server error' });
       }
+
+      logger.info('logout: session destroyed', { sessionId, requestId: (req as any).requestId });
       res.json({ message: 'Logout successful' });
     });
   });
