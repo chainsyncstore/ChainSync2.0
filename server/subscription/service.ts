@@ -1,7 +1,7 @@
+import { eq, and, lte } from 'drizzle-orm';
+
+import { subscriptions, subscriptionPayments, users, type InsertSubscription, type InsertSubscriptionPayment } from '../../shared/schema';
 import { db } from '../db';
-import { subscriptions, subscriptionPayments, users } from '../../shared/schema';
-import { eq, and, gte, lte } from 'drizzle-orm';
-import { InsertSubscription, InsertSubscriptionPayment } from '../../shared/schema';
 
 export class SubscriptionService {
   /**

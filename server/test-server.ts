@@ -1,7 +1,7 @@
-import express from 'express';
 import cors from 'cors';
-import { z } from 'zod';
+import express from 'express';
 import PDFDocument from 'pdfkit';
+import { z } from 'zod';
 
 // Simple in-memory storage for testing
 const users = new Map<string, any>();
@@ -120,7 +120,7 @@ app.post('/api/auth/signup', (req, res) => {
 
 // Minimal auth endpoints for E2E tests
 app.post('/api/auth/login', (req, res) => {
-  const { email, username, password } = req.body || {};
+  const { email, username } = req.body || {};
   const identifier = email || username || '';
   const lower = String(identifier).toLowerCase();
   const role = lower.includes('admin') ? 'admin' : lower.includes('manager') ? 'manager' : 'cashier';
@@ -165,7 +165,9 @@ app.post('/api/auth/logout', (req, res) => {
       secure: false,
       path: '/',
     });
-  } catch {}
+  } catch {
+    /* no-op */
+  }
   res.json({ ok: true });
 });
 
@@ -184,7 +186,7 @@ app.post('/api/auth/complete-signup', (req, res) => {
     
     // Find user by ID
     let userFound = false;
-    for (const [email, user] of users.entries()) {
+    for (const [, user] of users.entries()) {
       if (user.id === userId) {
         user.signupCompleted = true;
         user.isActive = true;
@@ -222,7 +224,7 @@ app.get('/api/auth/pending-signup', (req, res) => {
 // Payment initialization endpoint
 app.post('/api/payment/initialize', (req, res) => {
   try {
-    const { email, currency, provider, tier, userId, metadata } = req.body;
+    const { currency } = req.body;
     
     // Mock payment initialization
     const paymentData = {
