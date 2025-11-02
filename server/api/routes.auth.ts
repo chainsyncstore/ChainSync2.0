@@ -404,8 +404,6 @@ export async function registerAuthRoutes(app: Express) {
           sameSite: 'lax',
           secure: process.env.NODE_ENV === 'production',
           ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
-          maxAge: 0,
-          expires: new Date(0),
         });
       } catch (clearErr) {
         logger.warn('logout: failed clearing session cookie', {
