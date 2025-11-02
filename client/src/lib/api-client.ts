@@ -47,13 +47,18 @@ class ApiClient {
   }
 
   private async ensureCsrfToken(forceRefresh = false): Promise<string> {
-    // Force refresh allows callers to bypass any cached token.
+    // Reuse cached token unless explicitly refreshed
     if (!forceRefresh && this.csrfToken) {
       return this.csrfToken;
     }
 
-    // First try to get from cookie (useful if cookie is not httpOnly in some envs)
-    let token = forceRefresh ? null : this.getCsrfTokenFromCookie();
+    if (!forceRefresh) {
+      const cookieToken = this.getCsrfTokenFromCookie();
+      if (cookieToken) {
+        this.csrfToken = cookieToken;
+        return cookieToken;
+      }
+    }
 
     try {
       console.log('Fetching CSRF token from server...');
@@ -70,7 +75,7 @@ class ApiClient {
 
       const headerToken = response.headers.get('X-CSRF-Token');
       const data = await response.json().catch(() => ({} as any));
-      token = headerToken || data.token || data.csrfToken || token;
+      const token = headerToken || data.token || data.csrfToken || this.getCsrfTokenFromCookie();
 
       if (!token) {
         throw new Error('CSRF token is required but could not be obtained');
@@ -94,7 +99,7 @@ class ApiClient {
     let csrfToken = '';
     if (options.method && options.method !== 'GET') {
       try {
-        csrfToken = await this.ensureCsrfToken(true);
+        csrfToken = await this.ensureCsrfToken(false);
       } catch (error) {
         console.error('CSRF token error:', error);
         throw error;

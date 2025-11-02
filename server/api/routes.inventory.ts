@@ -13,6 +13,24 @@ import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { requireRole } from '../middleware/authz';
 
 export async function registerInventoryRoutes(app: Express) {
+  // Product catalog endpoints expected by client analytics/alerts pages
+  app.get('/api/products', requireAuth, async (_req: Request, res: Response) => {
+    const rows = await db.select().from(products).limit(1000);
+    res.json(rows);
+  });
+
+  app.get('/api/products/categories', requireAuth, async (_req: Request, res: Response) => {
+    const result = await db.execute(sql`SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category <> '' ORDER BY category ASC`);
+    const categories = (result.rows || []).map((row: any) => row.category);
+    res.json(categories);
+  });
+
+  app.get('/api/products/brands', requireAuth, async (_req: Request, res: Response) => {
+    const result = await db.execute(sql`SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand <> '' ORDER BY brand ASC`);
+    const brands = (result.rows || []).map((row: any) => row.brand);
+    res.json(brands);
+  });
+
   // Integration-test compatible endpoints
   app.put('/api/stores/:storeId/inventory/:productId', requireAuth, async (req: Request, res: Response) => {
     const { storeId, productId } = req.params as any;
@@ -39,6 +57,26 @@ export async function registerInventoryRoutes(app: Express) {
       return res.json(withProd.filter(i => i.product?.category === category));
     }
     return res.json(items);
+  });
+
+  app.get('/api/stores/:storeId/alerts', requireAuth, async (req: Request, res: Response) => {
+    const { storeId } = req.params as any;
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
+    const alerts = await storage.getLowStockAlerts(storeId);
+    res.json(alerts);
+  });
+
+  app.put('/api/alerts/:alertId/resolve', requireAuth, async (req: Request, res: Response) => {
+    const { alertId } = req.params as any;
+    if (!alertId) {
+      return res.status(400).json({ error: 'alertId is required' });
+    }
+
+    await storage.resolveLowStockAlert(alertId);
+    res.json({ status: 'ok' });
   });
 
   app.get('/api/stores/:storeId/inventory/low-stock', requireAuth, async (req: Request, res: Response) => {

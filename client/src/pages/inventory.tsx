@@ -41,12 +41,16 @@ export default function Inventory() {
     }
   }, [stores, selectedStore]);
 
+  const storeId = selectedStore?.trim() || "";
+
   const { data: inventory = [] } = useQuery<Inventory[]>({
-    queryKey: ["/api/stores", selectedStore, "inventory"],
+    queryKey: ["/api/stores", storeId, "inventory"],
+    enabled: Boolean(storeId),
   });
 
   const { data: alerts = [] } = useQuery<LowStockAlert[]>({
-    queryKey: ["/api/stores", selectedStore, "alerts"],
+    queryKey: ["/api/stores", storeId, "alerts"],
+    enabled: Boolean(storeId),
   });
 
   const { data: products = [] } = useQuery<Product[]>({

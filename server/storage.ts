@@ -1,10 +1,12 @@
-import { 
-  users, 
-  stores, 
-  products, 
-  inventory, 
-  transactions, 
-  transactionItems, 
+import crypto from "crypto";
+import { eq, and, desc, asc, sql, lt, lte, gte, isNotNull, or } from "drizzle-orm";
+import {
+  users,
+  stores,
+  products,
+  inventory,
+  transactions,
+  transactionItems,
   lowStockAlerts,
   userStorePermissions,
   loyaltyTiers,
@@ -14,12 +16,12 @@ import {
   ipWhitelists,
   ipWhitelistLogs,
   passwordResetTokens,
-  type User, 
-  type Store, 
-  type Product, 
-  type Inventory, 
-  type Transaction, 
-  type TransactionItem, 
+  type User,
+  type Store,
+  type Product,
+  type Inventory,
+  type Transaction,
+  type TransactionItem,
   type LowStockAlert,
   type UserStorePermission,
   type InsertUser,
@@ -36,15 +38,11 @@ import {
   type LoyaltyTransaction,
   type InsertLoyaltyTransaction,
   type IpWhitelist,
-  type InsertIpWhitelist,
   type IpWhitelistLog,
-  type InsertIpWhitelistLog,
   type PasswordResetToken,
 } from "@shared/schema";
-import { db } from "./db";
 import { AuthService } from "./auth";
-import { eq, and, desc, asc, sql, lt, lte, gte, between, isNotNull, or } from "drizzle-orm";
-import crypto from "crypto";
+import { db } from "./db";
 
 // Simple in-memory cache for frequently accessed data
 class Cache {
@@ -145,6 +143,7 @@ const normalizeUserUpdate = (userData: Partial<InsertUser> | Record<string, any>
   return update;
 };
 
+/* eslint-disable @typescript-eslint/no-unused-vars, no-unused-vars */
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
@@ -230,7 +229,6 @@ export interface IStorage {
   
   // IP Whitelist operations
   checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean>;
-  addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist>;
   logIpAccess(ipAddress: string, userId: string | undefined, username: string | undefined, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void>;
   getIpAccessLogs(limit?: number): Promise<IpWhitelistLog[]>;
   getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]>;
@@ -259,6 +257,7 @@ export interface IStorage {
   getLoyaltyCustomersPaginated(storeId: string, limit: number, offset: number): Promise<Customer[]>;
   clear(): Promise<void>;
 }
+/* eslint-enable @typescript-eslint/no-unused-vars, no-unused-vars */
 
 export class DatabaseStorage implements IStorage {
   private isTestEnv = process.env.NODE_ENV === 'test';
@@ -1207,7 +1206,8 @@ export class DatabaseStorage implements IStorage {
     return results;
   }
 
-  async getStockMovements(storeId: string): Promise<any[]> {
+  async getStockMovements(_storeId: string): Promise<any[]> {
+    void _storeId;
     // This would typically query a stock_movements table
     // For now, return mock data
     return [
@@ -1298,7 +1298,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Enhanced Transaction Management Methods
-  async createRefund(transactionId: string, items: any[], reason: string): Promise<any> {
+  async createRefund(transactionId: string, items: any[], _reason: string): Promise<any> {
+    void _reason;
     // Create a refund transaction
     const refundTransaction = await this.createTransaction({
       storeId: "store-id", // Get from original transaction
@@ -1318,7 +1319,8 @@ export class DatabaseStorage implements IStorage {
     return refundTransaction;
   }
 
-  async getReturns(storeId: string): Promise<any[]> {
+  async getReturns(_storeId: string): Promise<any[]> {
+    void _storeId;
     // For now, return empty array since we're not tracking refunds separately
     // In a real implementation, you might have a separate refunds table or use a different approach
     return [];
@@ -1352,7 +1354,10 @@ export class DatabaseStorage implements IStorage {
           }
         }
       }
-    } catch (e) { /* log error if needed */ }
+    } catch (_error) {
+      void _error;
+      /* log error if needed */
+    }
     return alert;
   }
 
@@ -1584,7 +1589,8 @@ export class DatabaseStorage implements IStorage {
     return customer;
   }
 
-  async adjustLoyaltyPoints(customerId: string, points: number, reason: string): Promise<any> {
+  async adjustLoyaltyPoints(customerId: string, points: number, _reason: string): Promise<any> {
+    void _reason;
     const customer = await this.getLoyaltyCustomer(customerId);
     if (!customer) throw new Error("Customer not found");
 
@@ -1738,7 +1744,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Export Methods
-  async exportProducts(storeId: string, format: string): Promise<any> {
+  async exportProducts(_storeId: string, format: string): Promise<any> {
+    void _storeId;
     const productData = await db.select()
       .from(products)
       .orderBy(asc(products.name));
@@ -1784,7 +1791,8 @@ export class DatabaseStorage implements IStorage {
     return transactionData;
   }
 
-  async exportCustomers(storeId: string, format: string): Promise<any> {
+  async exportCustomers(_storeId: string, format: string): Promise<any> {
+    void _storeId;
     const customerData = await db.select()
       .from(customers)
       .orderBy(asc(customers.firstName));

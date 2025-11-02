@@ -51,7 +51,9 @@
     "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e",
     "test:watch": "vitest --watch",
     "test:debug": "vitest --inspect-brk",
-    "secret:scan": "node scripts/secret-scan.js"
+    "secret:scan": "node scripts/secret-scan.js",
+    "lint": "npx eslint \"{client,server,shared,tests,scripts}/**/*.{ts,tsx,js,jsx}\"",
+    "lint:fix": "npm run lint -- --fix"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.16.0",
@@ -199,6 +201,15 @@
     "crypto-browserify": "^3.12.0",
     "husky": "^9.1.6",
     "jest": "^30.2.0",
+    "@eslint/js": "^9.13.0",
+    "@typescript-eslint/eslint-plugin": "^8.11.0",
+    "@typescript-eslint/parser": "^8.11.0",
+    "eslint": "^9.13.0",
+    "eslint-import-resolver-typescript": "^3.6.1",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-react": "^7.36.1",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.11.0",
     "jsdom": "^26.1.0",
     "playwright": "^1.54.2",
     "supertest": "^7.1.4",

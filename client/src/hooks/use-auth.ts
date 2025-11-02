@@ -245,28 +245,16 @@ export function useAuth(): AuthState & AuthActions {
 
   const logout = async () => {
     try {
-      const response = await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        console.warn('Logout request returned non-200 status', response.status);
-      }
+      await post('/auth/logout');
     } catch (logoutError) {
       console.warn('Logout request failed', logoutError);
     }
 
-    // Clear client caches regardless of network result
     setUser(null);
     setError(null);
     clearSession();
     setTwoFactorEnabled(false);
 
-    // Final verification before redirecting
     try {
       const verifyResponse = await fetch('/api/auth/me', {
         credentials: 'include',
@@ -280,7 +268,6 @@ export function useAuth(): AuthState & AuthActions {
       console.warn('Logout verify request failed', err);
     }
 
-    // Ensure session storage is cleared one last time before navigation
     clearSession();
 
     const redirectTo = '/login';

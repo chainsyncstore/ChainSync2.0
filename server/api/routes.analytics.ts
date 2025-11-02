@@ -6,6 +6,7 @@ import PDFDocument from 'pdfkit';
 import { requireAuth, requireRole } from '../middleware/authz';
 import { getTodayRollupForOrg, getTodayRollupForStore } from '../lib/redis';
 import { requireActiveSubscription } from '../middleware/subscription';
+import { storage } from '../storage';
 
 export async function registerAnalyticsRoutes(app: Express) {
   const auth = (req: Request, res: Response, next: any) => {
@@ -181,6 +182,93 @@ export async function registerAnalyticsRoutes(app: Express) {
       customers: Number(r.transactions), // placeholder without customer table linkage
       averageOrder: Number(r.transactions) ? Number(r.revenue) / Number(r.transactions) : 0
     }));
+    res.json(data);
+  });
+
+  // Store-scoped analytics endpoints
+  app.get('/api/stores/:storeId/analytics/popular-products', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    const storeId = String(req.params.storeId || '').trim();
+    if (!storeId) return res.status(400).json({ error: 'storeId is required' });
+
+    const { orgId, allowedStoreIds, isAdmin } = await getScope(req);
+    if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+    if (orgId && store.orgId !== orgId && !isAdmin) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const data = await storage.getPopularProducts(storeId);
+    res.json(data);
+  });
+
+  app.get('/api/stores/:storeId/analytics/profit-loss', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    const storeId = String(req.params.storeId || '').trim();
+    if (!storeId) return res.status(400).json({ error: 'storeId is required' });
+
+    const { orgId, allowedStoreIds, isAdmin } = await getScope(req);
+    if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+    if (orgId && store.orgId !== orgId && !isAdmin) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const startDateRaw = String((req.query as any)?.startDate || '').trim();
+    const endDateRaw = String((req.query as any)?.endDate || '').trim();
+
+    const endDate = endDateRaw ? new Date(endDateRaw) : new Date();
+    const startDate = startDateRaw ? new Date(startDateRaw) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date range supplied' });
+    }
+
+    const data = await storage.getStoreProfitLoss(storeId, startDate, endDate);
+    res.json(data);
+  });
+
+  app.get('/api/stores/:storeId/analytics/inventory-value', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    const storeId = String(req.params.storeId || '').trim();
+    if (!storeId) return res.status(400).json({ error: 'storeId is required' });
+
+    const { orgId, allowedStoreIds, isAdmin } = await getScope(req);
+    if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+    if (orgId && store.orgId !== orgId && !isAdmin) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const data = await storage.getInventoryValue(storeId);
+    res.json(data);
+  });
+
+  app.get('/api/stores/:storeId/analytics/customer-insights', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    const storeId = String(req.params.storeId || '').trim();
+    if (!storeId) return res.status(400).json({ error: 'storeId is required' });
+
+    const { orgId, allowedStoreIds, isAdmin } = await getScope(req);
+    if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+    if (orgId && store.orgId !== orgId && !isAdmin) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const data = await storage.getCustomerInsights(storeId);
     res.json(data);
   });
 

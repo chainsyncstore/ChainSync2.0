@@ -33,6 +33,7 @@ export default function Alerts() {
 
   const { data: alerts = [] } = useQuery<LowStockAlert[]>({
     queryKey: ["/api/stores", selectedStore, "alerts"],
+    enabled: Boolean(selectedStore),
   });
 
   const { data: products = [] } = useQuery<Product[]>({
