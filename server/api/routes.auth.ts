@@ -400,9 +400,12 @@ export async function registerAuthRoutes(app: Express) {
       try {
         res.clearCookie('chainsync.sid', {
           path: '/',
+          httpOnly: true,
           sameSite: 'lax',
           secure: process.env.NODE_ENV === 'production',
           ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
+          maxAge: 0,
+          expires: new Date(0),
         });
       } catch (clearErr) {
         logger.warn('logout: failed clearing session cookie', {
@@ -429,12 +432,16 @@ export async function registerAuthRoutes(app: Express) {
           });
 
           clearSessionCookie();
-          return res.json({ message: 'Logout successful', warning: 'Session store unavailable; cookie cleared locally.' });
+          const payload = { message: 'Logout successful', warning: 'Session store unavailable; cookie cleared locally.' };
+          logger.warn('logout: responding with warning payload', { requestId, payload });
+          return res.json(payload);
         }
 
         logger.info('logout: session destroyed', { sessionId, requestId });
         clearSessionCookie();
-        res.json({ message: 'Logout successful' });
+        const payload = { message: 'Logout successful' };
+        logger.info('logout: responding with success payload', { requestId, payload });
+        res.json(payload);
       });
     } catch (error) {
       logger.error('logout: session destroy threw synchronously', {
@@ -443,9 +450,10 @@ export async function registerAuthRoutes(app: Express) {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
-
       clearSessionCookie();
-      res.json({ message: 'Logout successful', warning: 'Session store unavailable; cookie cleared locally.' });
+      const payload = { message: 'Logout successful', warning: 'Session store unavailable; cookie cleared locally.' };
+      logger.warn('logout: responding with sync-error warning payload', { requestId, payload });
+      res.json(payload);
     }
   });
 
