@@ -33,6 +33,7 @@ Time budget on a typical machine: install 8–12 min, DB 1–3 min, first dev ru
 - `npm run dev:server`: start the Express API (TSX)
 - `npm run db:generate`: generate Drizzle migrations from the schema
 - `npm run db:migrate`: apply migrations to the target DB
+- `npm run db:audit`: diff the live DB against `shared/prd-schema.ts` to detect drift
 - `npm run db:seed`: seed development data (`scripts/seed.ts`)
 
 Advanced:
@@ -56,6 +57,8 @@ Advanced:
 - `render.yaml` included; healthcheck `GET /healthz`.
 - Ensure envs match `shared/env.ts`. Production: `REDIS_URL` required, `SESSION_SECRET` ≥ 32 chars, `CORS_ORIGINS` must include your app origins.
 - Build artifact: `dist/` (client output under `dist/public`). Start command: `node dist/index.js`.
+
+**Pre-deploy DB check:** `npm run db:audit` — run after migrations to ensure the target database matches the canonical schema before Render deploys.
 
 ### Backups
 - Neon Postgres logical backups:

@@ -29,6 +29,10 @@ jobs:
         run: |
           npm run db:migrate
 
+      - name: Schema drift audit
+        run: |
+          npm run db:audit
+
       - name: Optional reconciliation script
         if: always()
         run: |
