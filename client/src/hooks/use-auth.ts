@@ -244,24 +244,18 @@ export function useAuth(): AuthState & AuthActions {
   };
 
   const logout = async () => {
-    const ensureServerLogout = async () => {
-      try {
-        const response = await fetch('/api/auth/me', {
-          credentials: 'include',
-          cache: 'no-store' as RequestCache,
-        });
-
-        if (response.ok) {
-          console.warn('Logout follow-up: /api/auth/me still returns 200; forcing second logout attempt.');
-          await post('/auth/logout');
-        }
-      } catch (err) {
-        console.warn('Logout follow-up fetch failed', err);
-      }
-    };
-
     try {
-      await post('/auth/logout');
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        console.warn('Logout request returned non-200 status', response.status);
+      }
     } catch (logoutError) {
       console.warn('Logout request failed', logoutError);
     }
@@ -272,8 +266,6 @@ export function useAuth(): AuthState & AuthActions {
     clearSession();
     setTwoFactorEnabled(false);
 
-    await ensureServerLogout();
-
     // Final verification before redirecting
     try {
       const verifyResponse = await fetch('/api/auth/me', {
@@ -282,7 +274,7 @@ export function useAuth(): AuthState & AuthActions {
       });
 
       if (verifyResponse.ok) {
-        console.warn('Logout verify: session still active; clearing local state and forcing redirect.');
+        console.warn('Logout verify: /api/auth/me still returned 200 even after clearing local state.');
       }
     } catch (err) {
       console.warn('Logout verify request failed', err);
@@ -298,6 +290,10 @@ export function useAuth(): AuthState & AuthActions {
       window.history.replaceState(null, '', redirectTo);
     }
   };
+
+  if (typeof window !== 'undefined') {
+    (window as any).__chainsyncDebugLogout = logout;
+  }
 
   const setupTwoFactor = async () => {
     try {
