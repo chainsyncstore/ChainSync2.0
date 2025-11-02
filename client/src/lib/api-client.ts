@@ -46,46 +46,42 @@ class ApiClient {
     return null;
   }
 
-  private async ensureCsrfToken(): Promise<string> {
-    // First try to get from cookie
-    let token = this.getCsrfTokenFromCookie();
-    
-    if (!token) {
-      try {
-        console.log('Fetching CSRF token from server...');
-        const response = await fetch(`${this.baseURL}/auth/csrf-token`, {
-          method: 'GET',
-          credentials: 'include',
-        });
-        
-        if (response.ok) {
-          // Prefer header, then JSON body 'token', then legacy 'csrfToken'
-          const headerToken = response.headers.get('X-CSRF-Token');
-          const data = await response.json().catch(() => ({} as any));
-          token = headerToken || data.token || data.csrfToken || null;
-          
-          // Record token for subsequent requests; cookie visibility is optional
-          if (token) {
-            this.csrfToken = token;
-          }
-        } else {
-          console.error('Failed to fetch CSRF token:', response.status, response.statusText);
-          throw new Error(`Failed to fetch CSRF token: ${response.status}`);
-        }
-      } catch (error) {
-        console.error('Error fetching CSRF token:', error);
+  private async ensureCsrfToken(forceRefresh = false): Promise<string> {
+    // Force refresh allows callers to bypass any cached token.
+    if (!forceRefresh && this.csrfToken) {
+      return this.csrfToken;
+    }
+
+    // First try to get from cookie (useful if cookie is not httpOnly in some envs)
+    let token = forceRefresh ? null : this.getCsrfTokenFromCookie();
+
+    try {
+      console.log('Fetching CSRF token from server...');
+      const response = await fetch(`${this.baseURL}/auth/csrf-token`, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        console.error('Failed to fetch CSRF token:', response.status, response.statusText);
+        throw new Error(`Failed to fetch CSRF token: ${response.status}`);
+      }
+
+      const headerToken = response.headers.get('X-CSRF-Token');
+      const data = await response.json().catch(() => ({} as any));
+      token = headerToken || data.token || data.csrfToken || token;
+
+      if (!token) {
         throw new Error('CSRF token is required but could not be obtained');
       }
-    } else {
-      console.log('Using CSRF token from cookie');
+
       this.csrfToken = token;
-    }
-    
-    if (!token) {
+      return token;
+    } catch (error) {
+      console.error('Error fetching CSRF token:', error);
       throw new Error('CSRF token is required but could not be obtained');
     }
-    
-    return token;
   }
 
   private async request<T>(
@@ -98,7 +94,7 @@ class ApiClient {
     let csrfToken = '';
     if (options.method && options.method !== 'GET') {
       try {
-        csrfToken = await this.ensureCsrfToken();
+        csrfToken = await this.ensureCsrfToken(true);
       } catch (error) {
         console.error('CSRF token error:', error);
         throw error;
