@@ -217,6 +217,10 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   if (req.method === 'POST' && (req.path === '/api/auth/login' || originalUrl === '/api/auth/login')) {
     return next();
   }
+  // Allow logout without CSRF token to avoid trapping users in session
+  if (req.method === 'POST' && (req.path === '/api/auth/logout' || originalUrl === '/api/auth/logout')) {
+    return next();
+  }
   return doubleCsrfProtection(req, res, next);
 };
 
