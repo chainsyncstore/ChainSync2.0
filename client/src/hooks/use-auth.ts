@@ -244,16 +244,52 @@ export function useAuth(): AuthState & AuthActions {
   };
 
   const logout = async () => {
+    const ensureServerLogout = async () => {
+      try {
+        const response = await fetch('/api/auth/me', {
+          credentials: 'include',
+          cache: 'no-store' as RequestCache,
+        });
+
+        if (response.ok) {
+          console.warn('Logout follow-up: /api/auth/me still returns 200; forcing second logout attempt.');
+          await post('/auth/logout');
+        }
+      } catch (err) {
+        console.warn('Logout follow-up fetch failed', err);
+      }
+    };
+
     try {
-      await post("/auth/logout");
+      await post('/auth/logout');
     } catch (logoutError) {
       console.warn('Logout request failed', logoutError);
     }
 
+    // Clear client caches regardless of network result
     setUser(null);
     setError(null);
     clearSession();
     setTwoFactorEnabled(false);
+
+    await ensureServerLogout();
+
+    // Final verification before redirecting
+    try {
+      const verifyResponse = await fetch('/api/auth/me', {
+        credentials: 'include',
+        cache: 'no-store' as RequestCache,
+      });
+
+      if (verifyResponse.ok) {
+        console.warn('Logout verify: session still active; clearing local state and forcing redirect.');
+      }
+    } catch (err) {
+      console.warn('Logout verify request failed', err);
+    }
+
+    // Ensure session storage is cleared one last time before navigation
+    clearSession();
 
     const redirectTo = '/login';
     if (window.location.pathname !== redirectTo) {
