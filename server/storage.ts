@@ -143,7 +143,7 @@ const normalizeUserUpdate = (userData: Partial<InsertUser> | Record<string, any>
   return update;
 };
 
-/* eslint-disable @typescript-eslint/no-unused-vars, no-unused-vars */
+/* eslint-disable no-unused-vars */
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
@@ -257,7 +257,7 @@ export interface IStorage {
   getLoyaltyCustomersPaginated(storeId: string, limit: number, offset: number): Promise<Customer[]>;
   clear(): Promise<void>;
 }
-/* eslint-enable @typescript-eslint/no-unused-vars, no-unused-vars */
+/* eslint-enable no-unused-vars */
 
 export class DatabaseStorage implements IStorage {
   private isTestEnv = process.env.NODE_ENV === 'test';
