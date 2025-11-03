@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import request from 'supertest';
 import express from 'express';
 import session from 'express-session';
-import { GenericContainer } from 'testcontainers';
 import { Client } from 'pg';
+import request from 'supertest';
+import { GenericContainer } from 'testcontainers';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // Bypass auth/IP rules in integration
 vi.mock('../../server/middleware/authz', () => ({
@@ -47,9 +47,11 @@ describeIfSupported('Loyalty earn/redeem integration', () => {
     const pgPassword = 'test';
     const pgDatabase = 'testdb';
     const started = await new GenericContainer(image)
-      .withEnv('POSTGRES_USER', pgUsername)
-      .withEnv('POSTGRES_PASSWORD', pgPassword)
-      .withEnv('POSTGRES_DB', pgDatabase)
+      .withEnvironment({
+        POSTGRES_USER: pgUsername,
+        POSTGRES_PASSWORD: pgPassword,
+        POSTGRES_DB: pgDatabase,
+      })
       .withExposedPorts(5432)
       .start();
     container = started;

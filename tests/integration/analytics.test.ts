@@ -1,15 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
-import express from 'express';
+import express, { type Express } from 'express';
 import session from 'express-session';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { organizations, stores as storesTbl, users as usersTbl, sales as salesTbl } from '@shared/prd-schema';
 import { registerAnalyticsRoutes } from '../../server/api/routes.analytics';
 import { db } from '../../server/db';
-import { organizations, stores as storesTbl, users as usersTbl, sales as salesTbl } from '@shared/prd-schema';
+
+type Agent = ReturnType<typeof request.agent>;
 
 describe('Analytics Integration', () => {
-  let app: express.Application;
+  let app: Express;
   let server: any;
-  let agent: request.SuperTest<request.Test>;
+  let agent: Agent;
   let orgId: string = '';
   let storeId: string = '';
   let userId: string = '';

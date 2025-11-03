@@ -1,7 +1,9 @@
-import { beforeAll, afterAll, vi } from 'vitest';
-import dotenv from 'dotenv';
 import { spawn } from 'child_process';
+import dotenv from 'dotenv';
 import path from 'path';
+
+import { afterAll, beforeAll, vi } from 'vitest';
+
 import { cryptoModuleMock } from '../utils/crypto-mocks';
 
 // Load test environment variables
@@ -56,14 +58,22 @@ beforeAll(async () => {
         import('node:http').then(http=>{
           const fs=require('fs');
           const path=require('path');
-          const mime=(p)=>{
-            if(p.endsWith('.js')) return 'application/javascript';
-            if(p.endsWith('.css')) return 'text/css';
-            if(p.endsWith('.html')) return 'text/html';
-            if(p.endsWith('.json')) return 'application/json';
-            if(p.endsWith('.svg')) return 'image/svg+xml';
-            if(p.match(/\.(png|jpg|jpeg|gif|ico)$/)) return 'image/*';
-            return 'text/plain';
+          const mime=(filePath)=>{
+            const ext=path.extname(filePath).toLowerCase();
+            switch(ext){
+              case '.js': return 'application/javascript';
+              case '.css': return 'text/css';
+              case '.html': return 'text/html';
+              case '.json': return 'application/json';
+              case '.svg': return 'image/svg+xml';
+              case '.png':
+              case '.jpg':
+              case '.jpeg':
+              case '.gif':
+              case '.ico':
+                return 'image/*';
+              default: return 'text/plain';
+            }
           };
           const root='${staticDir.replace(/\\/g,'\\\\')}';
           const server=http.createServer((req,res)=>{
@@ -113,8 +123,8 @@ afterAll(async () => {
         });
       });
       console.log('Server stopped successfully');
-    } catch (error) {
-      console.warn('Error stopping server:', error);
+    } catch (killError) {
+      console.warn('Failed to stop server:', killError);
       // Force kill if graceful shutdown fails
       try {
         serverProcess.kill('SIGKILL');
@@ -126,7 +136,9 @@ afterAll(async () => {
   if (webProcess) {
     try {
       webProcess.kill('SIGTERM');
-    } catch {}
+    } catch (error) {
+      console.warn('Error stopping web server:', error);
+    }
   }
 });
 

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { chromium, Browser, Page } from 'playwright';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupTestDatabase, teardownTestDatabase } from '../setup';
 
 const runUiE2E = process.env.RUN_UI_E2E === 'true';

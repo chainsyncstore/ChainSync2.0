@@ -342,4 +342,13 @@ export const globalCryptoMock = sharedCryptoMock;
 /**
  * Type definitions for the crypto mock
  */
-export type CryptoMock = ReturnType<typeof createCryptoMock>;
+export type CryptoMock = ReturnType<typeof createCryptoMock> & {
+  __callHistory: Record<string, any[]>;
+  __reset: () => void;
+  __setSeed: (seed: number) => void;
+  __getState: () => {
+    seed: number;
+    callCounter: number;
+    callHistoryLengths: Record<string, number>;
+  };
+};

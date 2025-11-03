@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import request from 'supertest';
-import express from 'express';
+import express, { type Express } from 'express';
 import session from 'express-session';
+import request from 'supertest';
+
+import { beforeEach, describe, expect, it } from 'vitest';
+
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';
 
 describe('Inventory Management Integration Tests', () => {
-  let app: express.Application;
+  let app: Express;
   let testUser: any;
   let testStore: any;
   let testProduct: any;

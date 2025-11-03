@@ -1,11 +1,10 @@
-import request from 'supertest';
 import express, { type Express } from 'express';
 import session from 'express-session';
+import request from 'supertest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';
-
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 describe('Authentication Integration Tests', () => {
   let app: Express;

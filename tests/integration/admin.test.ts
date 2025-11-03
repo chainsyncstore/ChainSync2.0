@@ -1,6 +1,6 @@
-import request from 'supertest';
 import express from 'express';
 import session from 'express-session';
+import request from 'supertest';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 

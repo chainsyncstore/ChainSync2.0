@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
-import express from 'express';
-import session from 'express-session';
 import cookieParser from 'cookie-parser';
+import express, { type Express } from 'express';
+import session from 'express-session';
 import request from 'supertest';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Ensure required env for routes
 process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/chainsync_test';
@@ -93,7 +94,7 @@ vi.mock('../../server/storage', () => ({
       if (u) u.signupCompleted = true;
     },
     async authenticateUser(username: string, password: string) {
-      return users.find(u => u.username === username) || null;
+      return users.find((u) => u.username === username && u.password === password) || null;
     },
     async getAllStores() { return stores; },
   }
@@ -116,7 +117,11 @@ vi.mock('../../server/auth', () => ({
       emailTokens.delete(token);
       return { success: true, userId: rec.userId, message: 'Email verified successfully' };
     }
-    static sanitizeUserForSession(user: any) { const { password, ...rest } = user; return rest; }
+    static sanitizeUserForSession(user: any) {
+      const { password, ...rest } = user;
+      void password;
+      return rest;
+    }
   }
 }));
 
@@ -143,9 +148,11 @@ import { PaymentService } from '../../server/payment/service';
 
 import { registerRoutes } from '../../server/routes';
 
+type Agent = ReturnType<typeof request.agent>;
+
 describe('Production-like auth/payment flows (CSRF, email verification, payment)', () => {
-  let app: express.Application;
-  let agent: request.SuperAgentTest;
+  let app: Express;
+  let agent: Agent;
 
   beforeAll(async () => {
     app = express();

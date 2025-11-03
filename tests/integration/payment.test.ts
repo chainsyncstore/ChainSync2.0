@@ -1,11 +1,10 @@
-import request from 'supertest';
 import express, { type Express } from 'express';
 import session from 'express-session';
+import request from 'supertest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';
-
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockPaymentService = {
   initializePaystackPayment: vi.fn(),
@@ -23,7 +22,7 @@ describe('Payment Integration Tests', () => {
   let app: Express;
   let testUser: any;
   let testStore: any;
-  let _sessionCookie: string;
+  let sessionCookie: string;
 
   beforeEach(async () => {
     app = express();
@@ -61,7 +60,7 @@ describe('Payment Integration Tests', () => {
       username: 'paymentuser@example.com',
       password: 'StrongPass123!',
     });
-    _sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';
+    sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';
   });
 
   afterEach(() => {
@@ -86,7 +85,11 @@ describe('Payment Integration Tests', () => {
         metadata: { userId: testUser.id, storeId: testStore.id },
       };
 
-      const response = await request(app).post('/api/payment/initialize').send(paymentData).expect(200);
+      const response = await request(app)
+        .post('/api/payment/initialize')
+        .set('Cookie', sessionCookie)
+        .send(paymentData)
+        .expect(200);
 
       expect(response.body).toHaveProperty('authorization_url');
       expect(response.body).toHaveProperty('reference');
@@ -115,7 +118,11 @@ describe('Payment Integration Tests', () => {
 
     it('should reject missing required parameters', async () => {
       const invalidData = { email: 'paymentuser@example.com' };
-      const response = await request(app).post('/api/payment/initialize').send(invalidData).expect(400);
+      const response = await request(app)
+        .post('/api/payment/initialize')
+        .set('Cookie', sessionCookie)
+        .send(invalidData)
+        .expect(400);
       expect(response.body.message).toBe('Missing required payment parameters');
     });
 
@@ -126,7 +133,11 @@ describe('Payment Integration Tests', () => {
         provider: 'unsupported_provider',
         tier: 'basic',
       };
-      const response = await request(app).post('/api/payment/initialize').send(paymentData).expect(400);
+      const response = await request(app)
+        .post('/api/payment/initialize')
+        .set('Cookie', sessionCookie)
+        .send(paymentData)
+        .expect(400);
       expect(response.body.message).toBe('Unsupported payment provider');
     });
 
@@ -157,7 +168,11 @@ describe('Payment Integration Tests', () => {
   describe('POST /api/payment/verify', () => {
     it('should verify Paystack payment successfully', async () => {
       const verificationData = { reference: 'PAYSTACK_TEST_REF_123', status: 'success' };
-      const response = await request(app).post('/api/payment/verify').send(verificationData).expect(200);
+      const response = await request(app)
+        .post('/api/payment/verify')
+        .set('Cookie', sessionCookie)
+        .send(verificationData)
+        .expect(200);
       expect(response.body.status).toBe('success');
       expect(response.body.data.success).toBe(true);
       expect(response.body.message).toBe('Payment verified successfully');
@@ -173,7 +188,11 @@ describe('Payment Integration Tests', () => {
 
     it('should reject missing payment reference', async () => {
       const verificationData = { status: 'success' };
-      const response = await request(app).post('/api/payment/verify').send(verificationData).expect(422);
+      const response = await request(app)
+        .post('/api/payment/verify')
+        .set('Cookie', sessionCookie)
+        .send(verificationData)
+        .expect(422);
       expect(response.body.status).toBe('error');
       expect(response.body.message).toBe('Payment reference is required');
     });
@@ -181,7 +200,11 @@ describe('Payment Integration Tests', () => {
     it('should handle payment verification failure', async () => {
       mockPaymentService.verifyPaystackPayment.mockResolvedValueOnce(false);
       const verificationData = { reference: 'PAYSTACK_FAILED_REF', status: 'failed' };
-      const response = await request(app).post('/api/payment/verify').send(verificationData).expect(400);
+      const response = await request(app)
+        .post('/api/payment/verify')
+        .set('Cookie', sessionCookie)
+        .send(verificationData)
+        .expect(400);
       expect(response.body.status).toBe('error');
       expect(response.body.message).toBe('Payment verification failed');
     });
@@ -190,7 +213,11 @@ describe('Payment Integration Tests', () => {
   describe('POST /api/payment/webhook', () => {
     it('should handle Paystack webhook successfully', async () => {
       const webhookData = { reference: 'PAYSTACK_TEST_REF_123', status: 'success', provider: 'paystack' };
-      const response = await request(app).post('/api/payment/webhook').send(webhookData).expect(200);
+      const response = await request(app)
+        .post('/api/payment/webhook')
+        .set('Cookie', sessionCookie)
+        .send(webhookData)
+        .expect(200);
       expect(response.body.message).toBe('Webhook processed successfully');
     });
 
@@ -208,7 +235,11 @@ describe('Payment Integration Tests', () => {
 
     it('should handle webhook with missing data', async () => {
       const webhookData = {};
-      const response = await request(app).post('/api/payment/webhook').send(webhookData).expect(400);
+      const response = await request(app)
+        .post('/api/payment/webhook')
+        .set('Cookie', sessionCookie)
+        .send(webhookData)
+        .expect(400);
       expect(response.body.message).toBe('Invalid webhook data');
     });
   });
@@ -224,7 +255,11 @@ describe('Payment Integration Tests', () => {
         tier: 'basic',
       };
 
-      const response = await request(app).post('/api/payment/initialize').send(paymentData).expect(500);
+      const response = await request(app)
+        .post('/api/payment/initialize')
+        .set('Cookie', sessionCookie)
+        .send(paymentData)
+        .expect(500);
       expect(response.body.message).toBe('Failed to initialize payment');
     });
 

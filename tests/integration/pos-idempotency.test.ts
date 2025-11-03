@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
 import express from 'express';
 import session from 'express-session';
+import request from 'supertest';
+import { describe, expect, it } from 'vitest';
+
 import { registerPosRoutes } from '../../server/api/routes.pos';
 
 describe('POS Sales Idempotency', () => {

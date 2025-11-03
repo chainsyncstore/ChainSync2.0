@@ -1,16 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { cryptoModuleMock, globalCryptoMock } from '../utils/crypto-mocks';
+import { cryptoModuleMock, globalCryptoMock, type CryptoMock } from '../utils/crypto-mocks';
 
-type TrackedCryptoMock = typeof cryptoModuleMock & {
-  __reset: () => void;
-  __callHistory: Record<string, any[]>;
-  __setSeed: (_seed: number) => void;
-  __getState: () => {
-    seed: number;
-    callCounter: number;
-    callHistoryLengths: Record<string, number>;
-  };
-};
+type TrackedCryptoMock = CryptoMock;
 
 const trackedCryptoModuleMock = cryptoModuleMock as unknown as TrackedCryptoMock;
 const trackedGlobalCryptoMock = globalCryptoMock as unknown as TrackedCryptoMock;

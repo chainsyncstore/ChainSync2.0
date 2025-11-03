@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
 
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
+
 import {
   users as T_USERS,
   stores as T_STORES,
@@ -14,8 +16,6 @@ import {
   subscriptions as T_SUBSCRIPTIONS,
 } from '../../shared/prd-schema';
 import { cryptoModuleMock } from '../utils/crypto-mocks';
-
-import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
 // Load test environment variables
 dotenv.config({ path: '.env.test' });
@@ -61,7 +61,7 @@ if (process.env.LOYALTY_REALDB !== '1') {
       return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
     }
 
-    const select = vi.fn((_projection?: any) => ({
+    const select = vi.fn(() => ({
       from: (tbl: any) => {
         const key = tableName(tbl);
         const rows = store[key] || [];
@@ -105,7 +105,7 @@ if (process.env.LOYALTY_REALDB !== '1') {
 
     const update = vi.fn((tbl?: any) => ({
       set: (partial: any) => ({
-        where: (_expr?: any) => ({
+        where: () => ({
           returning: async () => {
             const key = tableName(tbl);
             const target = store[key][store[key].length - 1];
@@ -121,7 +121,10 @@ if (process.env.LOYALTY_REALDB !== '1') {
       insert,
       update,
       delete: vi.fn(),
-      execute: vi.fn(async () => []),
+      execute: vi.fn(async (query: string) => {
+        void query;
+        return [];
+      }),
     };
 
     function seed(fixtures: Partial<Record<keyof typeof store, Row[]>>) {
@@ -156,8 +159,7 @@ vi.mock('../../server/middleware/security', async () => {
 });
 
 type TestDbMock = {
-  execute: (query: string) => Promise<unknown>;
-  end?: () => Promise<unknown>;
+  end?(): Promise<unknown>;
   [key: string]: any;
 };
 
@@ -234,11 +236,14 @@ beforeAll(async () => {
       set: vi.fn().mockReturnThis(),
       values: vi.fn().mockReturnThis(),
       returning: vi.fn().mockReturnThis(),
-      execute: vi.fn(async () => []),
+      execute: vi.fn(async (query: string) => {
+        void query;
+        return [];
+      }),
       end: vi.fn(async () => undefined),
     };
 
-    await testDb.execute('SELECT 1');
+    await (testDb as any).execute('SELECT 1');
     console.log('Database connection established successfully');
   } catch (error) {
     console.error('Failed to connect to test database:', error);
@@ -274,7 +279,7 @@ beforeEach(async () => {
   try {
     if (process.env.LOYALTY_REALDB !== '1') {
       const dbmod: any = await import('../../server/db');
-      const seed = dbmod.__seed as (fixtures: Record<string, unknown>) => void;
+      const seed = dbmod.__seed as typeof dbmod.__seed;
       seed({
         users: [{ id: 'u-test', orgId: 'org-test', email: 'user@test', isAdmin: true }],
         stores: [{ id: '00000000-0000-0000-0000-000000000001', orgId: 'org-test', name: 'Test Store' }],

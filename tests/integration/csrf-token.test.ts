@@ -1,11 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
-import express from 'express';
+import express, { type Express } from 'express';
 import session from 'express-session';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
 import { registerRoutes } from '../../server/routes';
 
 describe('CSRF Token Endpoint', () => {
-  let app: express.Application;
+  let app: Express;
   let server: any;
 
   beforeAll(async () => {
