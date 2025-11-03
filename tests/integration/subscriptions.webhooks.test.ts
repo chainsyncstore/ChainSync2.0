@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
-import request from 'supertest';
-import { registerRoutes } from '@server/routes';
 import session from 'express-session';
+import request from 'supertest';
+
+import { registerRoutes } from '@server/routes';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 function hmacSha512(secret: string, body: string) {
   const crypto = require('crypto');

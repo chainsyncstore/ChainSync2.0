@@ -1,13 +1,14 @@
-import { describe, it, expect, beforeAll, afterEach, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
-import express from 'express';
+import express, { type Express } from 'express';
 import session from 'express-session';
+
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';
-import { AuthService } from '@server/auth';
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 describe('Authentication Integration Tests', () => {
-  let app: express.Application;
+  let app: Express;
 
   beforeAll(async () => {
     // Create a fresh Express app once for all tests

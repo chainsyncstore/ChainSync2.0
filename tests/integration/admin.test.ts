@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import session from 'express-session';
+
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // Bypass IP checks and auth for tests via NODE_ENV=test inside middlewares
 vi.mock('../../server/middleware/authz', async () => {

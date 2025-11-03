@@ -23,7 +23,6 @@ Object.defineProperty(global, 'console', {
 
 describe('Logger', () => {
   let logger: any;
-  let consoleSpy: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -106,9 +105,6 @@ describe('Logger', () => {
         };
       })
     };
-    
-    // Use the mocked console methods
-    consoleSpy = mockConsoleLog;
   });
 
   afterEach(() => {

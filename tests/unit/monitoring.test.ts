@@ -35,7 +35,7 @@ describe('MonitoringService', () => {
         this.metrics.requestCountByStatus[statusCode] = (this.metrics.requestCountByStatus[statusCode] || 0) + 1;
       },
 
-      recordError(error: any, context: any): void {
+      recordError(): void {
         this.metrics.totalErrors = (this.metrics.totalErrors || 0) + 1;
       },
 

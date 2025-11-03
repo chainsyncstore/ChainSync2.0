@@ -1,6 +1,8 @@
-import { beforeAll, afterAll, vi } from 'vitest';
-import dotenv from 'dotenv';
 import '@testing-library/jest-dom';
+import dotenv from 'dotenv';
+import { afterAll, beforeAll, vi } from 'vitest';
+
+import { cryptoModuleMock } from './utils/crypto-mocks';
 
 // Load test environment variables
 dotenv.config({ path: '.env.test' });
@@ -34,32 +36,65 @@ export async function teardownTestDatabase() {
   return true;
 }
 
-// Import and use comprehensive crypto mock
-import { cryptoModuleMock } from './utils/crypto-mocks';
-
 // Mock crypto module with comprehensive mock
 vi.mock('crypto', () => cryptoModuleMock);
 
 // Mock bcrypt module
 vi.mock('bcrypt', () => ({
   default: {
-    hash: vi.fn((password, rounds) => Promise.resolve('mocked-hash-' + password)),
-    compare: vi.fn((password, hash) => Promise.resolve(password === 'correct-password'))
+    hash: vi.fn((password, rounds) => {
+      void rounds;
+      return Promise.resolve('mocked-hash-' + password);
+    }),
+    compare: vi.fn((password, hash) => {
+      void hash;
+      return Promise.resolve(password === 'correct-password');
+    })
   },
-  hash: vi.fn((password, rounds) => Promise.resolve('mocked-hash-' + password)),
-  compare: vi.fn((password, hash) => Promise.resolve(password === 'correct-password'))
+  hash: vi.fn((password, rounds) => {
+    void rounds;
+    return Promise.resolve('mocked-hash-' + password);
+  }),
+  compare: vi.fn((password, hash) => {
+    void hash;
+    return Promise.resolve(password === 'correct-password');
+  })
 }));
 
 // Mock jsonwebtoken module
 vi.mock('jsonwebtoken', () => ({
   default: {
-    sign: vi.fn((payload, secret, options) => 'mocked-jwt-token'),
-    verify: vi.fn((token, secret) => ({ userId: 'mocked-user-id', iat: Date.now() })),
-    decode: vi.fn((token) => ({ userId: 'mocked-user-id', iat: Date.now() }))
+    sign: vi.fn((payload, secret, options) => {
+      void payload;
+      void secret;
+      void options;
+      return 'mocked-jwt-token';
+    }),
+    verify: vi.fn((token, secret) => {
+      void token;
+      void secret;
+      return { userId: 'mocked-user-id', iat: Date.now() };
+    }),
+    decode: vi.fn((token) => {
+      void token;
+      return { userId: 'mocked-user-id', iat: Date.now() };
+    })
   },
-  sign: vi.fn((payload, secret, options) => 'mocked-jwt-token'),
-  verify: vi.fn((token, secret) => ({ userId: 'mocked-user-id', iat: Date.now() })),
-  decode: vi.fn((token) => ({ userId: 'mocked-user-id', iat: Date.now() }))
+  sign: vi.fn((payload, secret, options) => {
+    void payload;
+    void secret;
+    void options;
+    return 'mocked-jwt-token';
+  }),
+  verify: vi.fn((token, secret) => {
+    void token;
+    void secret;
+    return { userId: 'mocked-user-id', iat: Date.now() };
+  }),
+  decode: vi.fn((token) => {
+    void token;
+    return { userId: 'mocked-user-id', iat: Date.now() };
+  })
 }));
 
 // Mock drizzle-orm functions
@@ -170,22 +205,23 @@ vi.mock('drizzle-orm/pg-core', () => {
       name,
       type,
       primaryKey: () => ({ ...mockColumn, isPrimaryKey: true }),
-      default: (value: any) => ({ ...mockColumn, defaultValue: value }),
+      default: (_value: any) => ({ ...mockColumn, defaultValue: _value }),
       notNull: () => ({ ...mockColumn, isNotNull: true }),
       unique: () => ({ ...mockColumn, isUnique: true }),
-      length: (len: number) => ({ ...mockColumn, length: len }),
-      precision: (prec: number) => ({ ...mockColumn, precision: prec }),
-      scale: (scale: number) => ({ ...mockColumn, scale: scale }),
-      on: (table: any) => ({ ...mockColumn, onTable: table })
+      length: (_len: number) => ({ ...mockColumn, length: _len }),
+      precision: (_prec: number) => ({ ...mockColumn, precision: _prec }),
+      scale: (_scale: number) => ({ ...mockColumn, scale: _scale }),
+      on: (_table: any) => ({ ...mockColumn, onTable: _table })
     };
     return mockColumn;
   };
 
   const createMockEnum = (name: string, values: string[]) => {
+    void values;
     const mockEnum = vi.fn((columnName: string) => ({
       ...createMockColumn(columnName, `enum_${name}`),
       notNull: () => ({ ...createMockColumn(columnName, `enum_${name}`), isNotNull: true }),
-      default: (value: any) => ({ ...createMockColumn(columnName, `enum_${name}`), defaultValue: value })
+      default: (_value: any) => ({ ...createMockColumn(columnName, `enum_${name}`), defaultValue: _value })
     }));
     return mockEnum;
   };
@@ -193,8 +229,14 @@ vi.mock('drizzle-orm/pg-core', () => {
   return {
     pgTable: vi.fn((name, columns) => ({ name, columns, type: 'pgTable' })),
     text: vi.fn((name) => createMockColumn(name, 'text')),
-    varchar: vi.fn((name, options) => createMockColumn(name, 'varchar')),
-    decimal: vi.fn((name, options) => createMockColumn(name, 'decimal')),
+    varchar: vi.fn((name, options) => {
+      void options;
+      return createMockColumn(name, 'varchar');
+    }),
+    decimal: vi.fn((name, options) => {
+      void options;
+      return createMockColumn(name, 'decimal');
+    }),
     integer: vi.fn((name) => createMockColumn(name, 'integer')),
     timestamp: vi.fn((name) => ({
       ...createMockColumn(name, 'timestamp'),

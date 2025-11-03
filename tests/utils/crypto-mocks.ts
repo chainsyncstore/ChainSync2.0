@@ -1,4 +1,13 @@
+import type {
+  generateKeyPair as nodeGenerateKeyPair,
+  pbkdf2 as nodePbkdf2,
+  scrypt as nodeScrypt
+} from 'crypto';
 import { vi } from 'vitest';
+
+type Pbkdf2Callback = Parameters<typeof nodePbkdf2>[5];
+type ScryptCallback = Parameters<typeof nodeScrypt>[4];
+type GenerateKeyPairCallback = Parameters<typeof nodeGenerateKeyPair>[2];
 
 /**
  * Working crypto module mock for Node.js tests
@@ -24,7 +33,6 @@ export const createCryptoMock = () => {
   // Use a deterministic seed-based approach for random generation
   let seed = 12345; // Fixed seed for deterministic behavior
   let callCounter = 0;
-  let randomBytesCounter = 0; // Separate counter for randomBytes calls
   
   const deterministicRandom = (): number => {
     // Linear congruential generator for deterministic "random" numbers
@@ -136,7 +144,7 @@ export const createCryptoMock = () => {
       };
     }),
 
-    pbkdf2: vi.fn((password: string, salt: string, iterations: number, keylen: number, digest: string, callback: (err: Error | null, derivedKey: Buffer) => void) => {
+    pbkdf2: vi.fn((password: string, salt: string, iterations: number, keylen: number, digest: string, callback: Pbkdf2Callback) => {
       const timestamp = Date.now();
       callHistory.pbkdf2.push({ password, salt, iterations, keylen, digest, timestamp });
       
@@ -149,7 +157,7 @@ export const createCryptoMock = () => {
       return undefined;
     }),
 
-    scrypt: vi.fn((password: string, salt: string, keylen: number, options: any, callback: (err: Error | null, derivedKey: Buffer) => void) => {
+    scrypt: vi.fn((password: string, salt: string, keylen: number, options: any, callback: ScryptCallback) => {
       const timestamp = Date.now();
       callHistory.scrypt.push({ password, salt, keylen, options, timestamp });
       
@@ -225,18 +233,20 @@ export const createCryptoMock = () => {
       return a.toString() === b.toString();
     }),
 
-    verify: vi.fn((algorithm: string, data: string, key: string, signature: string) => {
+    verify: vi.fn((_algorithm: string, _data: string, _key: string, signature: string) => {
       return signature.startsWith('valid-signature');
     }),
 
     sign: vi.fn((algorithm: string, data: string, key: string) => {
+      void key;
       return Buffer.from(`valid-signature-${data}-${algorithm}`);
     }),
 
-    generateKeyPair: vi.fn((type: string, options: any, callback: (err: Error | null, publicKey: any, privateKey: any) => void) => {
+    generateKeyPair: vi.fn((type: string, options: any, callback: GenerateKeyPairCallback) => {
+      void options;
       setTimeout(() => {
-        const publicKey = { type: 'public', algorithm: type };
-        const privateKey = { type: 'private', algorithm: type };
+        const publicKey = { type: 'public', algorithm: type } as unknown as Parameters<GenerateKeyPairCallback>[1];
+        const privateKey = { type: 'private', algorithm: type } as unknown as Parameters<GenerateKeyPairCallback>[2];
         callback(null, publicKey, privateKey);
       }, 0);
       return undefined;
@@ -247,14 +257,24 @@ export const createCryptoMock = () => {
 
     createSign: vi.fn((algorithm: string) => ({
       update: vi.fn((data: string) => ({
-        sign: vi.fn((privateKey: any) => Buffer.from(`signature-${algorithm}-${data}`))
+        sign: vi.fn((privateKey: any) => {
+          void privateKey;
+          return Buffer.from(`signature-${algorithm}-${data}`);
+        })
       }))
     })),
 
     createVerify: vi.fn((algorithm: string) => ({
-      update: vi.fn((data: string) => ({
-        verify: vi.fn((publicKey: any, signature: string) => signature.startsWith('signature-'))
-      }))
+      update: vi.fn((data: string) => {
+        void data;
+        return {
+          verify: vi.fn((publicKey: any, signature: string) => {
+            void algorithm;
+            void publicKey;
+            return signature.startsWith('signature-');
+          })
+        };
+      })
     }))
   };
 
@@ -322,29 +342,4 @@ export const globalCryptoMock = sharedCryptoMock;
 /**
  * Type definitions for the crypto mock
  */
-export interface CryptoMock {
-  randomBytes: ReturnType<typeof vi.fn>;
-  randomUUID: ReturnType<typeof vi.fn>;
-  createHash: ReturnType<typeof vi.fn>;
-  createHmac: ReturnType<typeof vi.fn>;
-  pbkdf2: ReturnType<typeof vi.fn>;
-  scrypt: ReturnType<typeof vi.fn>;
-  randomFill: ReturnType<typeof vi.fn>;
-  randomInt: ReturnType<typeof vi.fn>;
-  getRandomValues: ReturnType<typeof vi.fn>;
-  constants: Record<string, number>;
-  createCipher: ReturnType<typeof vi.fn>;
-  createDecipher: ReturnType<typeof vi.fn>;
-  timingSafeEqual: ReturnType<typeof vi.fn>;
-  verify: ReturnType<typeof vi.fn>;
-  sign: ReturnType<typeof vi.fn>;
-  generateKeyPair: ReturnType<typeof vi.fn>;
-  createPublicKey: ReturnType<typeof vi.fn>;
-  createPrivateKey: ReturnType<typeof vi.fn>;
-  createSign: ReturnType<typeof vi.fn>;
-  createVerify: ReturnType<typeof vi.fn>;
-  __callHistory: Record<string, any[]>;
-  __reset: () => void;
-  __setSeed: (seed: number) => void;
-  __getState: () => { seed: number; callCounter: number; callHistoryLengths: Record<string, number> };
-}
+export type CryptoMock = ReturnType<typeof createCryptoMock>;

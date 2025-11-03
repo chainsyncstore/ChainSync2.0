@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 const runUiE2E = process.env.RUN_UI_E2E === 'true';
 const suite = runUiE2E ? describe : describe.skip;
@@ -30,7 +31,9 @@ suite('Offline sales sync idempotency (SW) [offline]', () => {
         try {
           // @ts-ignore
           (window as any).__SW_MESSAGES__.push(event.data);
-        } catch {}
+        } catch {
+          /* no-op */
+        }
       });
     });
     page = await context.newPage();
@@ -83,10 +86,18 @@ suite('Offline sales sync idempotency (SW) [offline]', () => {
     // Trigger SW sync explicitly just in case
     await page.evaluate(() => {
       // @ts-ignore
-      navigator.serviceWorker?.ready.then((reg) => {
-        try { reg.active?.postMessage({ type: 'TRY_SYNC' }); } catch {}
+      void navigator.serviceWorker?.ready.then((reg) => {
+        try {
+          reg.active?.postMessage({ type: 'TRY_SYNC' });
+        } catch {
+          /* no-op */
+        }
         // @ts-ignore
-        if ('sync' in reg) (reg as any).sync.register('background-sync').catch(()=>{});
+        if ('sync' in reg) {
+          (reg as any).sync.register('background-sync').catch(() => {
+            /* no-op */
+          });
+        }
       });
     });
 

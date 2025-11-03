@@ -1,16 +1,19 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import express, { type Request, type Response } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
 import request from 'supertest';
 
+import { describe, expect, it, vi } from 'vitest';
+
+// Import after potential env changes
+import { configureSession } from '../../server/session';
+
 // Mock redis client to avoid real network connections
-vi.mock('redis', () => {
-  return {
-    createClient: () => ({
-      on: (_evt: string, _cb: (...args: any[]) => void) => {},
-      connect: async () => {},
-    })
-  };
-});
+vi.mock('redis', () => ({
+  createClient: () => ({
+    on: () => undefined,
+    connect: async () => undefined
+  })
+}));
 
 // Mock connect-redis to supply a recognizable store class
 vi.mock('connect-redis', () => {
@@ -28,22 +31,20 @@ vi.mock('connect-redis', () => {
   return { default: RedisStoreMock, __esModule: true } as any;
 });
 
-// Import after mocks
-import { configureSession } from '../../server/session';
-
-function appWithSession(mw: any) {
-  const app = express();
-  app.use(mw);
-  app.get('/store-type', (req: Request, res: Response) => {
-    const name = (req.sessionStore as any)?.constructor?.name || 'Unknown';
-    res.json({ name });
-  });
-  return app;
-}
-
 describe('Session store detection', () => {
+  function buildApp(envOverrides: Record<string, string | undefined>) {
+    const app = express();
+    app.use(express.json());
+    app.use(configureSession(envOverrides?.REDIS_URL, 'secret-1234567890'));
+    app.get('/store-type', (req: Request, res: Response) => {
+      const name = (req.sessionStore as any)?.constructor?.name || 'Unknown';
+      res.json({ name });
+    });
+    return app;
+  }
+
   it('uses in-memory store when redisUrl is undefined', async () => {
-    const app = appWithSession(configureSession(undefined, 'secret-1234567890'));
+    const app = buildApp({});
     const res = await request(app).get('/store-type').expect(200);
     const { name } = res.body;
     expect(typeof name).toBe('string');
@@ -51,9 +52,17 @@ describe('Session store detection', () => {
   });
 
   it('uses Redis store when redisUrl is provided', async () => {
-    const app = appWithSession(configureSession('redis://localhost:6379', 'secret-1234567890'));
+    const app = buildApp({ REDIS_URL: 'redis://localhost:6379' });
     const res = await request(app).get('/store-type').expect(200);
     const { name } = res.body;
     expect(name).toBe('RedisStore');
+  });
+
+  it('defaults to MemoryStore in development', async () => {
+    const app = buildApp({ NODE_ENV: 'development' });
+    const res = await request(app).get('/store-type').expect(200);
+    const { name } = res.body;
+    expect(typeof name).toBe('string');
+    expect(name).toContain('Memory'); // express-session MemoryStore
   });
 });

@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { securityAuditService } from '../../server/lib/security-audit';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { AdvancedAnalyticsService } from '../../server/ai/advanced-analytics';
+import { securityAuditService } from '../../server/lib/security-audit';
 import { loadEnv } from '../../shared/env';
 
 // Mock dependencies
@@ -274,7 +275,7 @@ describe('Phase 8: Enhanced Observability & Security', () => {
       await analyticsService.generateDemandForecast('store-1');
       
       // Cache should have data
-      const insights1 = await analyticsService.generateInsights('store-1');
+      await analyticsService.generateInsights('store-1');
       
       // Clear cache
       analyticsService.clearCache();

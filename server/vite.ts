@@ -1,11 +1,12 @@
 import express, { type Express } from "express";
 import fs from "fs";
+import { type Server } from "http";
+import { nanoid } from "nanoid";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer, createLogger } from "vite";
-import { type Server } from "http";
+
 import viteConfig from "../vite.config";
-import { nanoid } from "nanoid";
 import { logger } from "./lib/logger";
 
 const viteLogger = createLogger();
@@ -70,10 +71,14 @@ export async function setupVite(app: Express, server: Server) {
           res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
           return res.sendFile(devManifestPath);
         }
-      } catch {}
+      } catch {
+        /* no-op */
+      }
       next();
     });
-  } catch {}
+  } catch {
+    /* no-op */
+  }
 
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
@@ -142,7 +147,9 @@ export function serveStatic(app: Express) {
           res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
           return res.sendFile(manifestPath);
         }
-      } catch {}
+      } catch {
+        /* no-op */
+      }
       next();
     });
 

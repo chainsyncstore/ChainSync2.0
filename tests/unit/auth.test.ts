@@ -1,9 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+
+import { AuthService } from '../../server/auth';
 import { cryptoModuleMock } from '../utils/crypto-mocks';
 
-// Import AuthService after mocking
-import { AuthService } from '../../server/auth';
+const trackedCryptoMock = cryptoModuleMock as unknown as {
+  __reset: () => void;
+  __callHistory: {
+    randomBytes: unknown[];
+  };
+};
 
+// Import AuthService before mocking
 // Mock the database module
 vi.mock('../../server/db', () => {
   let callCount = 0;
@@ -75,7 +82,7 @@ describe('AuthService', () => {
     vi.clearAllMocks();
     
     // Reset crypto mock history
-    cryptoModuleMock.__reset();
+    trackedCryptoMock.__reset();
   });
 
   describe('createEmailVerificationToken', () => {
@@ -97,12 +104,12 @@ describe('AuthService', () => {
 
     it('should track crypto calls in history', async () => {
       // Clear any existing history
-      cryptoModuleMock.__reset();
+      trackedCryptoMock.__reset();
       
       await AuthService.createEmailVerificationToken('test-user-id');
       
       // Verify that crypto functions were called and tracked
-      expect(cryptoModuleMock.__callHistory.randomBytes.length).toBeGreaterThan(0);
+      expect(trackedCryptoMock.__callHistory.randomBytes.length).toBeGreaterThan(0);
     });
   });
 

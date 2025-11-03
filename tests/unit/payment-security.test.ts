@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PaymentService } from '../../server/payment/service';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { TRUSTED_PAYMENT_PROVIDERS, PRICING_TIERS, CURRENCY_PROVIDER_MAP } from '../../server/lib/constants';
+import { PaymentService } from '../../server/payment/service';
 
 // Mock axios
 vi.mock('axios');

@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+
+import { describe, expect, it } from 'vitest';
+
 import { helmetConfig } from '../../server/middleware/security';
 
 function expectAllIncluded(haystack: string, needles: string[]) {

@@ -1,13 +1,14 @@
-import { WebSocket, WebSocketServer } from 'ws';
-import { Server } from 'http';
-import { logger } from '../lib/logger';
-import { db } from '../db';
-import { notifications, users, websocketConnections } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import { Server } from 'http';
 import jwt from 'jsonwebtoken';
-import { securityAuditService } from '../lib/security-audit';
-import { monitoringService } from '../lib/monitoring';
+import { WebSocket, WebSocketServer } from 'ws';
+
+import { notifications, users, websocketConnections } from '@shared/schema';
 import { loadEnv } from '../../shared/env';
+import { db } from '../db';
+import { logger } from '../lib/logger';
+import { securityAuditService } from '../lib/security-audit';
+
 
 export interface NotificationEvent {
   type: 'inventory_alert' | 'sales_update' | 'system_alert' | 'ai_insight' | 'low_stock' | 'payment_alert' | 'user_activity';
@@ -111,17 +112,17 @@ export class NotificationService {
 
       // Set up connection event handlers
       ws.on('message', (data: Buffer) => {
-        this.handleMessage(ws, connectionId, data);
+        void this.handleMessage(ws, connectionId, data);
       });
 
       ws.on('close', () => {
-        this.handleDisconnection(connectionId);
+        void this.handleDisconnection(connectionId);
       });
 
       ws.on('error', (error) => {
         const err = error as unknown as { message?: string };
         logger.error('WebSocket error', { connectionId, error: err?.message || 'unknown' });
-        this.handleDisconnection(connectionId);
+        void this.handleDisconnection(connectionId);
       });
 
       // Send initial connection message
@@ -218,7 +219,6 @@ export class NotificationService {
       // Subscribe to default channels
       if (hasValidStore && storeId) {
         await this.handleSubscription(connectionId, { channel: `store:${storeId}` });
-
       }
       await this.handleSubscription(connectionId, { channel: `user:${userId}` });
 

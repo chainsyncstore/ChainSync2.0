@@ -1,11 +1,25 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createCryptoMock, cryptoModuleMock, globalCryptoMock } from '../utils/crypto-mocks';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { cryptoModuleMock, globalCryptoMock } from '../utils/crypto-mocks';
+
+type TrackedCryptoMock = typeof cryptoModuleMock & {
+  __reset: () => void;
+  __callHistory: Record<string, any[]>;
+  __setSeed: (_seed: number) => void;
+  __getState: () => {
+    seed: number;
+    callCounter: number;
+    callHistoryLengths: Record<string, number>;
+  };
+};
+
+const trackedCryptoModuleMock = cryptoModuleMock as unknown as TrackedCryptoMock;
+const trackedGlobalCryptoMock = globalCryptoMock as unknown as TrackedCryptoMock;
 
 describe('Crypto Mocks', () => {
-  let mockCrypto: any;
+  let mockCrypto: TrackedCryptoMock;
 
   beforeEach(() => {
-    mockCrypto = cryptoModuleMock;
+    mockCrypto = trackedCryptoModuleMock;
     vi.clearAllMocks();
     mockCrypto.__reset();
   });
@@ -315,37 +329,37 @@ describe('Crypto Mocks', () => {
 
   describe('module mock exports', () => {
     it('should export cryptoModuleMock with named exports', () => {
-      expect(cryptoModuleMock.randomBytes).toBeDefined();
-      expect(cryptoModuleMock.randomUUID).toBeDefined();
+      expect(trackedCryptoModuleMock.randomBytes).toBeDefined();
+      expect(trackedCryptoModuleMock.randomUUID).toBeDefined();
     });
 
     it('should export globalCryptoMock', () => {
-      expect(globalCryptoMock.randomBytes).toBeDefined();
-      expect(globalCryptoMock.randomUUID).toBeDefined();
-      expect(globalCryptoMock.getRandomValues).toBeDefined();
+      expect(trackedGlobalCryptoMock.randomBytes).toBeDefined();
+      expect(trackedGlobalCryptoMock.randomUUID).toBeDefined();
+      expect(trackedGlobalCryptoMock.getRandomValues).toBeDefined();
     });
 
     it('should maintain call history across shared instances', () => {
       // Both exports should reference the same mock instance
-      expect(cryptoModuleMock).toBe(globalCryptoMock);
+      expect(trackedCryptoModuleMock).toBe(trackedGlobalCryptoMock);
       
       // Clear any existing history
-      cryptoModuleMock.__reset();
+      trackedCryptoModuleMock.__reset();
       
       // Make calls through one export
-      cryptoModuleMock.randomBytes(16);
-      cryptoModuleMock.randomUUID();
+      trackedCryptoModuleMock.randomBytes(16);
+      trackedCryptoModuleMock.randomUUID();
       
       // Check history through the other export
-      expect(globalCryptoMock.__callHistory.randomBytes).toHaveLength(1);
-      expect(globalCryptoMock.__callHistory.randomUUID).toHaveLength(1);
+      expect(trackedGlobalCryptoMock.__callHistory.randomBytes).toHaveLength(1);
+      expect(trackedGlobalCryptoMock.__callHistory.randomUUID).toHaveLength(1);
       
       // Make more calls through the other export
-      globalCryptoMock.randomBytes(32);
+      trackedGlobalCryptoMock.randomBytes(32);
       
       // Check history through the first export
-      expect(cryptoModuleMock.__callHistory.randomBytes).toHaveLength(2);
-      expect(cryptoModuleMock.__callHistory.randomBytes[1].size).toBe(32);
+      expect(trackedCryptoModuleMock.__callHistory.randomBytes).toHaveLength(2);
+      expect(trackedCryptoModuleMock.__callHistory.randomBytes[1].size).toBe(32);
     });
   });
 });

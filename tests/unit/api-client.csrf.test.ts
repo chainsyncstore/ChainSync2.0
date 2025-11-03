@@ -10,7 +10,7 @@ import type { ApiResponse } from '../../client/src/lib/api-client';
 
 // Helper to reset fetch mock per test
 const createFetchMock = () => {
-  const mock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
+  const mock = vi.fn<typeof fetch>();
   (globalThis as any).fetch = mock as unknown as typeof fetch;
   return mock;
 };

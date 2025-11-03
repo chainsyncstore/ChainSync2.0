@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
-import request from 'supertest';
 import type { Request, Response } from 'express';
+import request from 'supertest';
+
+import { afterEach, describe, expect, it } from 'vitest';
 
 // Import after potential env changes in tests
 import { configureSession } from '../../server/session';
@@ -49,7 +50,9 @@ describe('Session cookie flags', () => {
     app.set('trust proxy', 1);
     // Force request to be treated as HTTPS for secure cookies in tests
     app.use((req: any, _res, next) => {
-      try { if (req && req.socket) req.socket.encrypted = true; } catch {}
+      try { if (req && req.socket) req.socket.encrypted = true; } catch {
+        /* no-op */
+      }
       next();
     });
     app.use(configureSession(undefined, 'prod-session-secret-1234567890'));

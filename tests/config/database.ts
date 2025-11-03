@@ -1,5 +1,5 @@
-import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
+import { drizzle } from 'drizzle-orm/neon-http';
 import { vi } from 'vitest';
 
 // Mock database for tests
@@ -52,14 +52,15 @@ export const clearTestTables = async (db: any) => {
   for (const table of tables) {
     try {
       await db.execute(`TRUNCATE TABLE ${table} CASCADE`);
-    } catch (error) {
-      // Table might not exist, ignore
+    } catch {
+      /* Table might not exist, ignore */
     }
   }
 };
 
 // Test data seeding utilities
 export const seedTestData = async (db: any) => {
+  void db;
   // Add minimal test data if needed
   // This can be expanded based on test requirements
 };
@@ -69,7 +70,7 @@ export const testDatabaseConnection = async (db: any) => {
   try {
     await db.execute('SELECT 1');
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 };

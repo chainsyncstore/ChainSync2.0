@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import request from 'supertest';
-import express from 'express';
+import express, { type Express } from 'express';
 import session from 'express-session';
+
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';
-import { PaymentService } from '@server/payment/service';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockPaymentService = {
   initializePaystackPayment: vi.fn(),
@@ -19,10 +20,10 @@ vi.mock('@server/payment/service', () => ({
 }));
 
 describe('Payment Integration Tests', () => {
-  let app: express.Application;
+  let app: Express;
   let testUser: any;
   let testStore: any;
-  let sessionCookie: string;
+  let _sessionCookie: string;
 
   beforeEach(async () => {
     app = express();
@@ -60,7 +61,7 @@ describe('Payment Integration Tests', () => {
       username: 'paymentuser@example.com',
       password: 'StrongPass123!',
     });
-    sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';
+    _sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';
   });
 
   afterEach(() => {

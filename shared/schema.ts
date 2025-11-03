@@ -1,19 +1,18 @@
-import { sql } from "drizzle-orm";
-import { 
-  pgTable, 
-  text, 
-  varchar, 
-  decimal, 
-  integer, 
-  timestamp, 
-  boolean, 
+import { relations, sql } from "drizzle-orm";
+import {
+  pgTable,
+  text,
+  varchar,
+  decimal,
+  integer,
+  timestamp,
+  boolean,
   uuid,
   pgEnum,
   index,
   jsonb,
   uniqueIndex
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -387,7 +386,7 @@ export const enhancedUserSchema = z.object({
   phone: z.string()
     .min(7, "Phone number must be at least 7 digits")
     .max(20, "Phone number must be less than 20 characters")
-    .regex(/^[\+]?[1-9][\d]{6,15}$/, "Invalid phone number format"),
+    .regex(/^\+?[1-9]\d{6,15}$/, "Invalid phone number format"),
   companyName: z.string()
     .min(1, "Company name is required")
     .max(255, "Company name must be less than 255 characters"),
@@ -472,7 +471,7 @@ export const enhancedCustomerSchema = z.object({
   phone: z.string()
     .min(10, "Phone number must be at least 10 digits")
     .max(20, "Phone number must be less than 20 characters")
-    .regex(/^[\+]?[1-9][\d]{0,15}$/, "Invalid phone number format")
+    .regex(/^\+?[1-9]\d{0,15}$/, "Invalid phone number format")
     .optional(),
   loyaltyNumber: z.string()
     .max(255, "Loyalty number must be less than 255 characters")

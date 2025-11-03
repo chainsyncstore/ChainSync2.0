@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+
 import { DatabaseStorage } from '../../server/storage';
 
 const storage = new DatabaseStorage();
@@ -38,7 +39,7 @@ describe('updateUser', () => {
 
   it('should not allow updating email to an existing email', async () => {
     // Create another user
-    const other = await storage.createUser({
+    await storage.createUser({
       username: 'otheruser',
       email: 'other@example.com',
       firstName: 'Other',
