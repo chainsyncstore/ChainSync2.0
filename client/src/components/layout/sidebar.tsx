@@ -71,7 +71,7 @@ export default function Sidebar({
 	return (
 		<div className={cn(
 			"bg-white shadow-lg border-r border-slate-200 flex flex-col h-full transition-all duration-300",
-			isMobile ? "w-full" : "w-16 md:w-64"
+			isMobile ? "w-full" : "hidden lg:flex lg:w-64"
 		)}>
 			{/* Logo and Brand */}
 			<div className="p-4 sm:p-6 border-b border-slate-200">
@@ -79,7 +79,7 @@ export default function Sidebar({
 					<div className="w-8 h-8 sm:w-10 sm:h-10 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
 						<LinkIcon className="text-white text-lg sm:text-xl" />
 					</div>
-					<div className={cn(isMobile ? "block" : "hidden md:block")}> 
+					<div className="block">
 						<h1 className="text-lg sm:text-xl font-bold text-slate-800">ChainSync</h1>
 						<p className="text-xs sm:text-sm text-slate-500">POS & Analytics</p>
 					</div>
@@ -117,10 +117,9 @@ export default function Sidebar({
 								)}
 							>
 								<Icon className="w-5 h-5 flex-shrink-0" />
-								<span className={cn(
-									"truncate min-w-0 text-sm sm:text-base",
-									isMobile ? "block" : "hidden md:block"
-								)}>{item.label}</span>
+								<span className="truncate min-w-0 text-sm sm:text-base">
+									{item.label}
+								</span>
 								{showAlert && (
 									<Badge variant="destructive" className="ml-auto text-xs flex-shrink-0 min-w-[20px] h-5">
 										{alertCount}
