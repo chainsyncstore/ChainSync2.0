@@ -247,17 +247,34 @@ export function useAuth(): AuthState & AuthActions {
   };
 
   const logout = async () => {
+    let shouldHardRefresh = false;
+
     try {
-      await post('/auth/logout');
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        console.warn('Logout request returned non-200 status', response.status);
+        shouldHardRefresh = true;
+      }
     } catch (logoutError) {
       console.warn('Logout request failed', logoutError);
+      shouldHardRefresh = true;
     }
 
+    // Clear client caches regardless of network result
     setUser(null);
     setError(null);
     clearSession();
     setTwoFactorEnabled(false);
 
+    // Final verification before redirecting
     try {
       const verifyResponse = await fetch('/api/auth/me', {
         credentials: 'include',
@@ -265,13 +282,20 @@ export function useAuth(): AuthState & AuthActions {
       });
 
       if (verifyResponse.ok) {
-        console.warn('Logout verify: /api/auth/me still returned 200 even after clearing local state.');
+        console.warn('Logout verify: /api/auth/me still returned 200 even after clearing local state. Forcing hard refresh.');
+        shouldHardRefresh = true;
       }
-    } catch (logoutVerifyError) {
-      console.warn('Logout verify request failed', logoutVerifyError);
+    } catch (err) {
+      console.warn('Logout verify request failed', err);
     }
 
+    // Ensure session storage is cleared one last time before navigation
     clearSession();
+
+    if (shouldHardRefresh) {
+      window.location.href = '/login';
+      return;
+    }
 
     const redirectTo = '/login';
     if (window.location.pathname !== redirectTo) {
