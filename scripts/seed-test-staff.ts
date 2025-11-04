@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "../server/db";
-import { users, stores, userStorePermissions } from "../shared/schema";
 import { AuthService } from "../server/auth";
+import { db } from "../server/db";
+import { stores, userRoles, userStorePermissions, users } from "../shared/schema";
 
 interface StaffProfile {
   username: string;
@@ -31,7 +31,7 @@ async function getPrimaryStore() {
   return existingStores[0];
 }
 
-async function upsertUser(profile: StaffProfile, storeId: string | null) {
+async function upsertUser(profile: StaffProfile, storeId: string | null, orgId: string | null) {
   const hashedPassword = await AuthService.hashPassword(profile.password);
   const now = new Date();
 
@@ -49,6 +49,12 @@ async function upsertUser(profile: StaffProfile, storeId: string | null) {
     return { bypassIpWhitelist: true };
   })();
 
+  const resolvedOrgId =
+    orgId ??
+    existing[0]?.orgId ??
+    (existing[0] as any)?.org_id ??
+    null;
+
   const baseData = {
     username: profile.username,
     email: profile.email,
@@ -56,6 +62,7 @@ async function upsertUser(profile: StaffProfile, storeId: string | null) {
     lastName: profile.lastName,
     role: profile.role.toUpperCase(),
     storeId,
+    orgId: resolvedOrgId,
     passwordHash: hashedPassword,
     password: hashedPassword,
     isActive: true,
@@ -99,9 +106,61 @@ async function ensureManagerStorePermission(userId: string, storeId: string) {
   }
 }
 
+async function ensureUserRole(
+  user: typeof users.$inferSelect,
+  role: StaffProfile["role"],
+  storeId: string,
+  orgId: string | null
+) {
+  const roleUpper = role.toUpperCase() as "MANAGER" | "CASHIER";
+
+  const existingRoles = await db
+    .select()
+    .from(userRoles)
+    .where(eq(userRoles.userId, user.id));
+
+  const resolvedOrgId =
+    orgId ??
+    user.orgId ??
+    (user as any)?.org_id ??
+    existingRoles[0]?.orgId ??
+    (existingRoles[0] as any)?.org_id ??
+    null;
+
+  if (!resolvedOrgId) {
+    console.warn(
+      `⚠️ Skipping user_roles update for ${user.email ?? user.username}; missing orgId`
+    );
+    return;
+  }
+
+  await db.delete(userRoles).where(eq(userRoles.userId, user.id));
+
+  await db
+    .insert(userRoles)
+    .values({
+      userId: user.id,
+      orgId: resolvedOrgId,
+      storeId,
+      role: roleUpper,
+    })
+    .onConflictDoNothing();
+}
+
 async function main() {
   try {
-    const primaryStore = await getPrimaryStore();
+    let primaryStore = await getPrimaryStore();
+
+    const [adminUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, "admin@chainsync.com"))
+      .limit(1);
+
+    const adminOrgId = adminUser?.orgId ?? (adminUser as any)?.org_id ?? null;
+    if (!adminOrgId) {
+      console.warn("⚠️ Unable to locate admin orgId; staff will remain unassigned to an organization");
+    }
 
     const profiles: StaffProfile[] = [
       {
@@ -124,13 +183,21 @@ async function main() {
 
     const seeded: Array<{ username: string; password: string }> = [];
 
+    const storeOrgId =
+      adminOrgId ??
+      (primaryStore as any).orgId ??
+      (primaryStore as any).org_id ??
+      null;
+
     for (const profile of profiles) {
-      const storeId = profile.role === "cashier" ? primaryStore.id : null;
-      const user = await upsertUser(profile, storeId);
+      const storeId = primaryStore.id;
+      const user = await upsertUser(profile, storeId, storeOrgId);
 
       if (profile.role === "manager") {
         await ensureManagerStorePermission(user.id, primaryStore.id);
       }
+
+      await ensureUserRole(user as any, profile.role, storeId, storeOrgId);
 
       seeded.push({ username: profile.username, password: profile.password });
     }
@@ -147,6 +214,6 @@ async function main() {
   }
 }
 
-main().finally(() => {
+void main().finally(() => {
   void db.$client.end();
 });
