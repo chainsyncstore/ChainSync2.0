@@ -1,14 +1,28 @@
-import { db } from '../db';
-import { syncQueue, transactions, transactionItems, inventory, products } from '@shared/schema';
 import { eq, and, desc, lte } from 'drizzle-orm';
+
+import { syncQueue, transactions, transactionItems, inventory, products } from '@shared/schema';
+import { db } from '../db';
 import { logger } from '../lib/logger';
+
 // Fallback simple resolvers to avoid missing module errors
 class ConflictResolver {
-  async resolveTransactionConflict(_type: string, local: any, server: any) { return { resolved: true, action: 'accept_local', data: local }; }
-  async resolveInventoryConflict(_type: string, local: any, _server: any) { return { resolved: true, data: local }; }
+  async resolveTransactionConflict(_type: string, local: any, server: any) {
+    void server;
+    return { resolved: true, action: 'accept_local', data: local };
+  }
+
+  async resolveInventoryConflict(_type: string, local: any, server: any) {
+    void server;
+    return { resolved: true, data: local };
+  }
 }
+
 class DataValidator {
-  async validate(_entityType: string, _data: any) { return { valid: true, errors: [] as string[] }; }
+  async validate(_entityType: string, _data: any) {
+    void _entityType;
+    void _data;
+    return { valid: true, errors: [] as string[] };
+  }
 }
 
 export interface SyncItem {
@@ -148,7 +162,7 @@ export class SyncService {
             result.failedItems++;
             await this.handleSyncFailure(item, itemResult.error);
           }
-      } catch (error) {
+        } catch (error) {
           result.failedItems++;
           const anyErr = error as any;
           result.errors.push(`Item ${item.id}: ${anyErr?.message || 'unknown'}`);
@@ -198,7 +212,7 @@ export class SyncService {
       const { action, data, entityId } = item;
 
       switch (action) {
-        case 'create':
+        case 'create': {
           // Check for duplicate transaction
           if (data.localId) {
             const existing = await db.select()
@@ -253,8 +267,9 @@ export class SyncService {
           }
 
           return { success: true };
+        }
 
-        case 'update':
+        case 'update': {
           if (!entityId) {
             throw new Error('Entity ID required for update');
           }
@@ -264,8 +279,9 @@ export class SyncService {
             .where(eq(transactions.id, entityId));
 
           return { success: true };
+        }
 
-        case 'delete':
+        case 'delete': {
           if (!entityId) {
             throw new Error('Entity ID required for delete');
           }
@@ -279,6 +295,7 @@ export class SyncService {
             .where(eq(transactions.id, entityId));
 
           return { success: true };
+        }
 
         default:
           throw new Error(`Unknown action: ${action}`);
@@ -297,7 +314,7 @@ export class SyncService {
       const { action, data, entityId } = item;
 
       switch (action) {
-        case 'create':
+        case 'create': {
           await db.insert(inventory).values({
             productId: data.productId,
             storeId: data.storeId,
@@ -307,8 +324,9 @@ export class SyncService {
             lastRestocked: data.lastRestocked
           } as unknown as typeof inventory.$inferInsert);
           return { success: true };
+        }
 
-        case 'update':
+        case 'update': {
           if (!entityId) {
             throw new Error('Entity ID required for update');
           }
@@ -336,8 +354,9 @@ export class SyncService {
           }
 
           return { success: false, error: 'Inventory record not found' };
+        }
 
-        case 'delete':
+        case 'delete': {
           if (!entityId) {
             throw new Error('Entity ID required for delete');
           }
@@ -346,6 +365,7 @@ export class SyncService {
             .where(eq(inventory.id, entityId));
 
           return { success: true };
+        }
 
         default:
           throw new Error(`Unknown action: ${action}`);
@@ -364,7 +384,7 @@ export class SyncService {
       const { action, data, entityId } = item;
 
       switch (action) {
-        case 'create':
+        case 'create': {
           await db.insert(products).values({
             name: data.name,
             sku: data.sku,
@@ -376,8 +396,9 @@ export class SyncService {
             brand: data.brand
           } as unknown as typeof products.$inferInsert);
           return { success: true };
+        }
 
-        case 'update':
+        case 'update': {
           if (!entityId) {
             throw new Error('Entity ID required for update');
           }
@@ -387,8 +408,9 @@ export class SyncService {
             .where(eq(products.id, entityId));
 
           return { success: true };
+        }
 
-        case 'delete':
+        case 'delete': {
           if (!entityId) {
             throw new Error('Entity ID required for delete');
           }
@@ -397,12 +419,14 @@ export class SyncService {
             .where(eq(products.id, entityId));
 
           return { success: true };
+        }
 
         default:
           throw new Error(`Unknown action: ${action}`);
       }
     } catch (error) {
-      return { success: false, error: error.message };
+      const anyErr = error as any;
+      return { success: false, error: anyErr?.message };
     }
   }
 

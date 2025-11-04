@@ -1,14 +1,13 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { Upload, Database, CheckCircle, AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
 import CSVUploader from "@/components/data-import/csv-uploader";
 import ProductInput from "@/components/data-import/product-input";
 import TemplateDownloader from "@/components/data-import/template-downloader";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Database, CheckCircle, AlertTriangle, Download, Plus, ScanLine } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDateTime } from "@/lib/pos-utils";
 import type { Store, LowStockAlert } from "@shared/schema";
 
@@ -27,13 +26,6 @@ interface ImportJob {
 export default function DataImport() {
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [activeTab, setActiveTab] = useState("products");
-  const queryClient = useQueryClient();
-
-  const userData = {
-    role: "manager",
-    name: "John Doe",
-    initials: "JD",
-  };
 
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -49,6 +41,7 @@ export default function DataImport() {
   const { data: alerts = [] } = useQuery<LowStockAlert[]>({
     queryKey: ["/api/stores", selectedStore, "alerts"],
   });
+  const lowStockCount = alerts.length;
 
   // Mock import jobs data - in real app this would come from backend
   const [importJobs, setImportJobs] = useState<ImportJob[]>([
@@ -218,6 +211,17 @@ export default function DataImport() {
                     {importJobs.filter(job => job.status === "failed").length}
                   </div>
                   <p className="text-xs text-muted-foreground">Need attention</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-amber-600">{lowStockCount}</div>
+                  <p className="text-xs text-muted-foreground">Active alerts for selected store</p>
                 </CardContent>
               </Card>
             </div>

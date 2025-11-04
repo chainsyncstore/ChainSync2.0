@@ -1,7 +1,7 @@
-import type { Request, Response, NextFunction } from 'express';
-import { db } from '../db';
-import { users, userRoles, ipWhitelist, organizations, subscriptions } from '@shared/prd-schema';
 import { eq } from 'drizzle-orm';
+import type { Request, Response, NextFunction } from 'express';
+import { users, userRoles, ipWhitelist, organizations, subscriptions } from '@shared/prd-schema';
+import { db } from '../db';
 import { getPlan } from '../lib/plans';
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {

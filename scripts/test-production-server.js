@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { execSync } from 'child_process';
 import http from 'http';
 import https from 'https';
 

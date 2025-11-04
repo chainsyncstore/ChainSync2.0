@@ -1,15 +1,17 @@
+import { Upload, AlertCircle, CheckCircle, FileText } from "lucide-react";
 import { useState, useCallback } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Upload, FileText, AlertCircle, CheckCircle } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
+/* eslint-disable no-unused-vars -- prop parameter names document external API */
 interface CSVUploaderProps {
   onFileUpload: (file: File) => void;
   acceptedFormats?: string[];
   maxFileSize?: number; // in MB
   disabled?: boolean;
 }
+/* eslint-enable no-unused-vars */
 
 export default function CSVUploader({
   onFileUpload,
@@ -22,7 +24,7 @@ export default function CSVUploader({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const validateFile = (file: File): boolean => {
+  const validateFile = useCallback((file: File): boolean => {
     // Check file size
     if (file.size > maxFileSize * 1024 * 1024) {
       setErrorMessage(`File size must be less than ${maxFileSize}MB`);
@@ -54,7 +56,7 @@ export default function CSVUploader({
     }
 
     return true;
-  };
+  }, [acceptedFormats, maxFileSize]);
 
   const handleFiles = useCallback((files: FileList) => {
     if (files.length === 0) return;
@@ -67,7 +69,7 @@ export default function CSVUploader({
       setUploadStatus("success");
       onFileUpload(file);
     }
-  }, [onFileUpload, acceptedFormats, maxFileSize]);
+  }, [onFileUpload, validateFile]);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -99,11 +101,11 @@ export default function CSVUploader({
     }
   }, [handleFiles, disabled]);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setSelectedFile(null);
     setUploadStatus("idle");
     setErrorMessage("");
-  };
+  }, []);
 
   return (
     <Card className="w-full">

@@ -1,23 +1,24 @@
-import React, { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { AlertCircle, UserPlus, CreditCard, Check } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+
+import { useForm } from "react-hook-form";
+import { useLocation } from "wouter";
 import { z } from "zod";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, UserPlus, Store, CreditCard, Check } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { useLocation } from "wouter";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PasswordStrength } from "@/components/ui/password-strength";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { apiClient } from "@/lib/api-client";
-import { ErrorBoundary } from "@/components/error-boundary";
 import { useAuth } from "@/hooks/use-auth";
+import { apiClient } from "@/lib/api-client";
 
 // Zod schema for form validation
+const passwordComplexityRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9])/;
+
 const signupSchema = z.object({
   firstName: z.string()
     .min(1, "First name is required")
@@ -39,7 +40,7 @@ const signupSchema = z.object({
     .max(255, "Company name must be less than 255 characters"),
   password: z.string()
     .min(8, "Password must be at least 8 characters")
-    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character")
+    .regex(passwordComplexityRegex, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character")
     .max(128, "Password must be less than 128 characters"),
   confirmPassword: z.string()
     .min(1, "Please confirm your password"),
@@ -52,7 +53,7 @@ const signupSchema = z.object({
 
 type SignupFormData = z.infer<typeof signupSchema>;
 
-import { PRICING_TIERS, VALID_TIERS, VALID_LOCATIONS, PHONE_REGEX } from '../../lib/constants';
+import { PRICING_TIERS, VALID_LOCATIONS } from '../../lib/constants';
 import { validatePaymentUrl, generateRecaptchaToken } from '../../lib/security';
 
 interface PricingTier {
@@ -152,6 +153,7 @@ function SignupForm() {
   const [step, setStep] = useState<'form' | 'payment'>('form');
   const [userData, setUserData] = useState<any>(null);
   const [generalError, setGeneralError] = useState<string>('');
+
   const [showStrength, setShowStrength] = useState(false);
 
   // Get URL parameters and validate them before setting form defaults
@@ -163,12 +165,11 @@ function SignupForm() {
   const {
     register,
     handleSubmit,
-    formState: { errors, isValid, isDirty },
+    formState: { errors, isValid },
     setValue,
     watch,
     trigger,
     clearErrors,
-    setError,
     getValues
   } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
@@ -191,40 +192,26 @@ function SignupForm() {
   // Watch form values for real-time updates
   const watchedValues = watch();
 
-  // Debug form values on mount and changes
-  useEffect(() => {
-    console.log('Form values changed:', watchedValues);
-    console.log('Current tier:', watchedValues.tier);
-    console.log('Current location:', watchedValues.location);
-  }, [watchedValues]);
-
   // Ensure form is properly initialized with default values
   useEffect(() => {
-    console.log('Component mounted, setting default values...');
-    console.log('URL params - tier:', tierFromUrl, 'location:', locationFromUrl);
-    
-    // Set default values if they're not already set
-    if (!watchedValues.tier) {
-      const defaultTier = normalizeTier(tierFromUrl);
-      console.log('Setting default tier to:', defaultTier);
-      setValue('tier', defaultTier);
+    const currentTier = getValues('tier');
+    if (!currentTier) {
+      setValue('tier', normalizeTier(tierFromUrl));
     } else {
-      // Normalize any legacy tier already present (e.g., from resumed signup)
-      const normalized = normalizeTier(watchedValues.tier);
-      if (normalized !== watchedValues.tier) {
-        console.log('Normalizing legacy tier value:', watchedValues.tier, '->', normalized);
-        setValue('tier', normalized);
+      const normalizedTier = normalizeTier(currentTier);
+      if (normalizedTier !== currentTier) {
+        setValue('tier', normalizedTier);
       }
     }
-    
-    if (!watchedValues.location) {
-      const defaultLocation = (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international')) 
-        ? locationFromUrl as 'nigeria' | 'international' 
+
+    const currentLocation = getValues('location');
+    if (!currentLocation) {
+      const defaultLocation = (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international'))
+        ? locationFromUrl as 'nigeria' | 'international'
         : 'international';
-      console.log('Setting default location to:', defaultLocation);
       setValue('location', defaultLocation);
     }
-  }, []); // Only run on mount
+  }, [getValues, locationFromUrl, setValue, tierFromUrl]);
 
   // Handle input changes with proper error clearing
   const handleInputChange = async (field: keyof SignupFormData, value: string) => {
@@ -237,7 +224,7 @@ function SignupForm() {
     
     // Trigger validation for this field after a short delay to prevent race conditions
     setTimeout(() => {
-      trigger(field);
+      void trigger(field);
     }, 100);
   };
 
@@ -274,6 +261,7 @@ function SignupForm() {
       
       // Create the user account using API client (includes CSRF token)
       const responseData: any = await apiClient.post('/auth/signup', signupData);
+      setUserData(responseData.user ?? null);
 
       // Check if this is resuming an incomplete signup
       if (responseData.isResume) {
@@ -406,7 +394,9 @@ function SignupForm() {
         if (referenceCandidate) {
           localStorage.setItem('chainsync_payment_reference', String(referenceCandidate));
         }
-      } catch {}
+      } catch (error) {
+        console.warn('Failed to persist payment reference locally', error);
+      }
 
       // Validate payment URL before redirecting for security
       // Extract redirect URL robustly for both providers and response shapes
@@ -462,27 +452,15 @@ function SignupForm() {
     }
   };
 
-  const selectedTier = pricingTiers.find(t => t.name === watchedValues.tier);
+  const selectedTier = useMemo(
+    () => pricingTiers.find((t) => t.name === watchedValues.tier),
+    [watchedValues.tier]
+  );
+
   console.log('Selected tier:', selectedTier, 'for watchedValues.tier:', watchedValues.tier);
   console.log('Available pricing tiers:', pricingTiers.map(t => t.name));
   console.log('Current form values:', watchedValues);
   
-  const getPrice = () => {
-    if (!selectedTier) {
-      console.error('No tier selected. Available tiers:', pricingTiers.map(t => t.name));
-      console.error('Current tier value:', watchedValues.tier);
-      return null;
-    }
-    
-    const price = watchedValues.location === 'nigeria' ? selectedTier.price.ngn : selectedTier.price.usd;
-    console.log('getPrice() called:', { 
-      location: watchedValues.location, 
-      selectedTier: selectedTier.name, 
-      price
-    });
-    return price;
-  };
-
   const getPaymentProvider = () => {
     return watchedValues.location === 'nigeria' ? 'Paystack' : 'Flutterwave';
   };
@@ -507,7 +485,7 @@ function SignupForm() {
         const response: any = await apiClient.get('/auth/pending-signup');
         if (response.pendingSignupId) {
           // Complete the signup
-          completeSignup(response.pendingSignupId);
+          void completeSignup(response.pendingSignupId);
         }
       } catch (error) {
         console.error('Failed to check pending signup:', error);
@@ -515,7 +493,7 @@ function SignupForm() {
       }
     };
     
-    checkPendingSignup();
+    void checkPendingSignup();
   }, []);
 
   if (step === 'payment') {
@@ -528,7 +506,7 @@ function SignupForm() {
             </div>
             <CardTitle className="text-2xl font-bold">Complete Your Subscription</CardTitle>
             <CardDescription>
-              You're almost there! Complete your payment to start your free trial.
+              You&apos;re almost there! Complete your payment to start your free trial.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -558,7 +536,7 @@ function SignupForm() {
 
             {/* Features */}
             <div>
-              <h4 className="font-medium mb-3">What's included:</h4>
+              <h4 className="font-medium mb-3">What&apos;s included:</h4>
               <ul className="space-y-2">
                 {selectedTier?.features.slice(0, 4).map((feature) => (
                   <li key={feature} className="flex items-center space-x-2">
@@ -577,7 +555,7 @@ function SignupForm() {
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-sm text-blue-800">
-                <strong>Free Trial:</strong> Start with a 2-week free trial. Pay a small upfront fee to access your trial. This fee will be credited toward your first month's subscription.
+                <strong>Free Trial:</strong> Start with a 2-week free trial. Pay a small upfront fee to access your trial. This fee will be credited toward your first month&apos;s subscription.
               </p>
             </div>
 

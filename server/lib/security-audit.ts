@@ -199,6 +199,8 @@ class SecurityAuditService {
   }
 
   private calculateAuthorizationRisk(event: string, context: LogContext, resource: string, details: Record<string, any>): number {
+    void context;
+    void details;
     let risk = 0;
 
     // Base risk by event type
@@ -246,6 +248,8 @@ class SecurityAuditService {
   }
 
   private calculateNetworkRisk(event: string, context: LogContext, details: Record<string, any>): number {
+    void context;
+    void details;
     let risk = 0;
 
     // Base risk by event type
@@ -261,6 +265,8 @@ class SecurityAuditService {
   }
 
   private calculateApplicationRisk(event: string, context: LogContext, details: Record<string, any>): number {
+    void context;
+    void details;
     let risk = 0;
 
     // Base risk by event type
@@ -303,7 +309,7 @@ class SecurityAuditService {
 
     // Send webhook alerts for critical events
     if (event.severity === 'critical') {
-      this.sendWebhookAlert(event);
+      void this.sendWebhookAlert(event);
     }
   }
 

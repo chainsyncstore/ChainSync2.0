@@ -1,10 +1,10 @@
+import { Send, Bot, User } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
+import { apiClient, handleApiError } from '@/lib/api-client';
+import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
-import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
-import { Send, Bot, User } from 'lucide-react';
-import { apiClient, handleApiError } from '@/lib/api-client';
 
 interface ChatMessage {
     id: string;
@@ -84,7 +84,7 @@ export default function ForecastChat({ storeId, className }: ForecastChatProps) 
     const handleKeyPress = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            sendMessage();
+            void sendMessage();
         }
     };
 

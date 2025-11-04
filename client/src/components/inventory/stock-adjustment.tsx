@@ -1,20 +1,19 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Package, Plus, Minus, Edit, AlertTriangle, History, Save } from "lucide-react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Package, Plus, Minus, Edit, AlertTriangle, History, Save } from "lucide-react";
-import { formatCurrency } from "@/lib/pos-utils";
 
 const adjustmentSchema = z.object({
   adjustmentType: z.enum(["add", "remove", "set"], {
@@ -122,12 +121,13 @@ export default function StockAdjustment({ inventory, product, onSuccess }: Stock
         title: "Stock Updated",
         description: "Inventory has been successfully updated",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/stores", inventory.storeId, "inventory"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/stores", inventory.storeId, "inventory"] });
       setIsOpen(false);
       reset();
       onSuccess?.();
     },
     onError: (error) => {
+      console.error('Inventory adjustment failed', error);
       toast({
         title: "Error",
         description: "Failed to update inventory",

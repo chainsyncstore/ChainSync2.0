@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import type { OfflineSaleRecord } from "@/lib/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { OfflineSaleRecord } from "@/lib/offline-queue";
 
 interface SyncCenterProps {
   open: boolean;
@@ -17,15 +17,19 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
   const [editErrors, setEditErrors] = useState<string[]>([]);
 
   const refresh = async () => {
-    const { listQueuedSales } = await import("@/lib/offline-queue");
-    setItems(await listQueuedSales());
+    try {
+      const { listQueuedSales } = await import("@/lib/offline-queue");
+      setItems(await listQueuedSales());
+    } catch (refreshError) {
+      console.error('Failed to refresh queued sales', refreshError);
+    }
   };
 
   useEffect(() => {
-    if (open) refresh();
+    if (open) void refresh();
     const onMsg = (event: MessageEvent) => {
-      if (event.data?.type === 'SYNC_SALE_OK') refresh();
-      if (event.data?.type === 'SYNC_COMPLETED') refresh();
+      if (event.data?.type === 'SYNC_SALE_OK') void refresh();
+      if (event.data?.type === 'SYNC_COMPLETED') void refresh();
     };
     navigator.serviceWorker?.addEventListener('message', onMsg as any);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg as any);
@@ -33,15 +37,18 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
 
   useEffect(() => {
     if (!open) return;
-    (async () => {
+    const fetchHealth = async () => {
       try {
         const r = await fetch('/api/pos/sync/health', { credentials: 'include' });
         if (r.ok) {
           const j = await r.json();
           setHealth(j?.sales || null);
         }
-      } catch {}
-    })();
+      } catch (healthError) {
+        console.warn('Failed to load sync health status', healthError);
+      }
+    };
+    void fetchHealth();
   }, [open]);
 
   if (!open) return null;
@@ -56,8 +63,25 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm text-slate-600">Queued sales: {items.length}</div>
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={refresh}>Refresh</Button>
-              <Button size="sm" onClick={async () => { setLoading(true); const { processQueueNow } = await import("@/lib/offline-queue"); await processQueueNow(); await refresh(); setLoading(false); }} disabled={loading}>{loading ? 'Syncing...' : 'Sync now'}</Button>
+              <Button size="sm" variant="outline" onClick={() => { void refresh(); }}>Refresh</Button>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    const { processQueueNow } = await import("@/lib/offline-queue");
+                    await processQueueNow();
+                    await refresh();
+                  } catch (syncError) {
+                    console.error('Manual sync failed', syncError);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+              >
+                {loading ? 'Syncing...' : 'Sync now'}
+              </Button>
             </div>
           </div>
           {health && (
@@ -78,11 +102,30 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
                     try {
                       await navigator.clipboard.writeText(JSON.stringify(it.payload, null, 2));
                       alert('Queued payload copied to clipboard');
-                    } catch {}
+                    } catch (clipboardError) {
+                      console.error('Failed to copy payload to clipboard', clipboardError);
+                    }
                   }}>Export JSON</Button>
                   <Button size="sm" variant="outline" onClick={() => { setEditing(it); setEditJson(JSON.stringify(it.payload, null, 2)); setEditErrors([]);} }>Edit</Button>
-                  <Button size="sm" variant="outline" onClick={async () => { const { expediteQueuedSale, processQueueNow } = await import("@/lib/offline-queue"); await expediteQueuedSale(it.id); await processQueueNow(); await refresh(); }}>Retry now</Button>
-                  <Button size="sm" variant="outline" onClick={async () => { const { deleteQueuedSale } = await import("@/lib/offline-queue"); await deleteQueuedSale(it.id); await refresh(); }}>Remove</Button>
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    try {
+                      const { expediteQueuedSale, processQueueNow } = await import("@/lib/offline-queue");
+                      await expediteQueuedSale(it.id);
+                      await processQueueNow();
+                      await refresh();
+                    } catch (retryError) {
+                      console.error('Failed to retry queued sale', retryError);
+                    }
+                  }}>Retry now</Button>
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    try {
+                      const { deleteQueuedSale } = await import("@/lib/offline-queue");
+                      await deleteQueuedSale(it.id);
+                      await refresh();
+                    } catch (deleteError) {
+                      console.error('Failed to remove queued sale', deleteError);
+                    }
+                  }}>Remove</Button>
                 </div>
               </div>
             ))}
@@ -111,7 +154,8 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
                     await processQueueNow();
                     await refresh();
                     setEditing(null);
-                  } catch (e) {
+                  } catch (validationError) {
+                    console.error('Failed to save edited queued sale', validationError);
                     setEditErrors(['Invalid JSON']);
                   }
                 }}>Save & Retry</Button>

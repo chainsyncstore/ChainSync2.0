@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
-import { PaymentError } from '../lib/errors';
 import { TRUSTED_PAYMENT_PROVIDERS, ValidProvider } from '../lib/constants';
+import { PaymentError } from '../lib/errors';
 
 export interface PaymentRequest {
   email: string;

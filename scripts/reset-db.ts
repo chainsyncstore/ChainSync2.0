@@ -42,4 +42,7 @@ async function resetDatabase() {
   }
 }
 
-resetDatabase();
+resetDatabase().catch((error) => {
+  console.error('❌ Unhandled error while resetting database:', error);
+  process.exit(1);
+});

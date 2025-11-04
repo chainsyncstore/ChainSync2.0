@@ -1,7 +1,7 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, Package, Clock, CheckCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime, formatCurrency } from "@/lib/pos-utils";
 
 interface LowStockAlert {
@@ -21,12 +21,14 @@ interface LowStockAlert {
   };
 }
 
+/* eslint-disable no-unused-vars -- callback arg names document the external contract */
 interface LowStockAlertsProps {
   alerts: LowStockAlert[];
   onResolveAlert: (alertId: string) => void;
   onReorderProduct: (productId: string) => void;
   isResolving?: boolean;
 }
+/* eslint-enable no-unused-vars */
 
 export default function LowStockAlerts({
   alerts,

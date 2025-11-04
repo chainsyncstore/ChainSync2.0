@@ -1,14 +1,14 @@
+import { Loader2, Plus, ArrowLeft, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { useAuth } from "@/hooks/use-auth";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, ArrowLeft, ShieldAlert } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 interface StaffMember {
@@ -107,7 +107,7 @@ export default function StoreStaff() {
   }, [storeId, toast]);
 
   useEffect(() => {
-    loadStaff();
+    void loadStaff();
   }, [loadStaff]);
 
   const handleInputChange = (field: keyof CreateStaffPayload, value: string) => {
@@ -154,6 +154,7 @@ export default function StoreStaff() {
       toast({ title: "Staff member created", description: `${payload.staff.email} can now sign in.` });
       resetForm();
     } catch (error: any) {
+      console.error('Failed to create staff member', error);
       toast({
         title: "Creation failed",
         description: error.message || "Unable to create staff member",
@@ -184,6 +185,7 @@ export default function StoreStaff() {
       toast({ title: "Staff member removed" });
       setStaff((prev) => prev.filter((item) => item.id !== member.id));
     } catch (error: any) {
+      console.error('Failed to delete staff member', member.id, error);
       toast({
         title: "Removal failed",
         description: error.message || "Unable to delete staff member",

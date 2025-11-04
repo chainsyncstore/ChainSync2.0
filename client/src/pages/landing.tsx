@@ -1,9 +1,10 @@
+import { Check, Star, Zap, Shield, Store, ArrowRight, CreditCard } from "lucide-react";
+
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Check, Star, Zap, Shield, Users, Store, ArrowRight, Globe, CreditCard } from "lucide-react";
-import { useLocation } from "wouter";
 import { PRICING_TIERS } from "@/lib/constants";
 
 interface PricingTier {
@@ -77,18 +78,19 @@ export default function Landing() {
         // Use browser's built-in geolocation API instead of external service
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
-            (position) => {
+            () => {
               // For now, default to international since we can't easily determine country from coordinates
               // In production, you could use a reverse geocoding service that's allowed in your CSP
               setUserLocation('international');
             },
             (error) => {
-              console.log('Geolocation failed, defaulting to international:', error.message);
+              console.warn('Geolocation failed, defaulting to international:', error.message);
               setUserLocation('international');
             },
             { timeout: 5000, enableHighAccuracy: false }
           );
         } else {
+
           // Fallback: try to detect from timezone (less accurate but no external API needed)
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           if (timezone && timezone.includes('Africa/Lagos')) {
@@ -98,12 +100,12 @@ export default function Landing() {
           }
         }
       } catch (error) {
-        console.log('Could not detect location, defaulting to international');
+        console.warn('Could not detect location, defaulting to international', error);
         setUserLocation('international');
       }
     };
     
-    detectLocation();
+    void detectLocation();
   }, []);
 
   const handleSignup = async (tier: string) => {

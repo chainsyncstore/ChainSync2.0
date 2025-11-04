@@ -1,10 +1,11 @@
-import type { Express, Request, Response } from 'express';
-import { db } from '../db';
-import { sales, auditLogs, users, userRoles, stores } from '@shared/prd-schema';
 import { and, eq, gte, lte, sql, inArray } from 'drizzle-orm';
+import type { Express, Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
-import { requireAuth, requireRole } from '../middleware/authz';
+import { sales, users, userRoles, stores } from '@shared/prd-schema';
+import { db } from '../db';
+import { logger } from '../lib/logger';
 import { getTodayRollupForOrg, getTodayRollupForStore } from '../lib/redis';
+import { requireAuth, requireRole } from '../middleware/authz';
 import { requireActiveSubscription } from '../middleware/subscription';
 import { storage } from '../storage';
 
@@ -76,65 +77,73 @@ export async function registerAnalyticsRoutes(app: Express) {
 
   // Overview endpoint (scoped by org and optional store)
   app.get('/api/analytics/overview', auth, requireActiveSubscription, async (req: Request, res: Response) => {
-    if (process.env.NODE_ENV === 'test') {
-      return res.json({ gross: '315', discount: '0', tax: '15', transactions: 2 });
-    }
-    const { orgId, allowedStoreIds } = await getScope(req);
-    const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
-    const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
-    const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
+    try {
+      if (process.env.NODE_ENV === 'test') {
+        return res.json({ gross: '315', discount: '0', tax: '15', transactions: 2 });
+      }
+      const { orgId, allowedStoreIds } = await getScope(req);
+      const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
+      const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
+      const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
 
-    const where: any[] = [];
-    if (orgId) where.push(eq(sales.orgId, orgId));
-    if (storeId) {
-      if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) return res.status(403).json({ error: 'Forbidden: store scope' });
-      where.push(eq(sales.storeId, storeId));
-    } else if (allowedStoreIds.length) {
-      where.push(inArray(sales.storeId, allowedStoreIds));
-    }
-    if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
-    if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
+      const where: any[] = [];
+      if (orgId) where.push(eq(sales.orgId, orgId));
+      if (storeId) {
+        if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) return res.status(403).json({ error: 'Forbidden: store scope' });
+        where.push(eq(sales.storeId, storeId));
+      } else if (allowedStoreIds.length) {
+        where.push(inArray(sales.storeId, allowedStoreIds));
+      }
+      if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
+      if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
 
-    // Redis fast-path for "today" without custom date range
-    const now = new Date();
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - parseInt(String((req.query as any)?.period || '0') || '0'));
-
-    const noCustomRange = !dateFrom && !dateTo;
-    if (noCustomRange) {
-      try {
-        let rollup: { revenue: number; transactions: number; discount: number; tax: number } | null = null;
-        if (storeId) {
-          rollup = await getTodayRollupForStore(storeId);
-        } else if (orgId) {
-          rollup = await getTodayRollupForOrg(orgId);
-        }
-        if (rollup) {
-          return res.json({
-            gross: String(rollup.revenue),
-            discount: String(rollup.discount),
-            tax: String(rollup.tax),
-            transactions: rollup.transactions,
-            cache: 'hit'
+      // Redis fast-path for "today" without custom date range
+      const noCustomRange = !dateFrom && !dateTo;
+      if (noCustomRange) {
+        try {
+          let rollup: { revenue: number; transactions: number; discount: number; tax: number } | null = null;
+          if (storeId) {
+            rollup = await getTodayRollupForStore(storeId);
+          } else if (orgId) {
+            rollup = await getTodayRollupForOrg(orgId);
+          }
+          if (rollup) {
+            return res.json({
+              gross: String(rollup.revenue),
+              discount: String(rollup.discount),
+              tax: String(rollup.tax),
+              transactions: rollup.transactions,
+              cache: 'hit'
+            });
+          }
+        } catch (error) {
+          logger.warn('Failed to read analytics rollup cache', {
+            error: error instanceof Error ? error.message : String(error),
+            orgId,
+            storeId
           });
         }
-      } catch {}
+      }
+
+      const total = await db.execute(sql`SELECT 
+        COALESCE(SUM(total::numeric),0) as total, 
+        COALESCE(SUM(discount::numeric),0) as discount, 
+        COALESCE(SUM(tax::numeric),0) as tax,
+        COUNT(*) as transactions
+        FROM sales ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}`);
+
+      res.json({
+        gross: total.rows[0]?.total || '0',
+        discount: total.rows[0]?.discount || '0',
+        tax: total.rows[0]?.tax || '0',
+        transactions: Number(total.rows[0]?.transactions || 0)
+      });
+    } catch (error) {
+      logger.error('Failed to compute analytics overview', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      res.status(500).json({ error: 'Failed to compute analytics overview' });
     }
-
-    const total = await db.execute(sql`SELECT 
-      COALESCE(SUM(total::numeric),0) as total, 
-      COALESCE(SUM(discount::numeric),0) as discount, 
-      COALESCE(SUM(tax::numeric),0) as tax,
-      COUNT(*) as transactions
-      FROM sales ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}`);
-
-    res.json({
-      gross: total.rows[0]?.total || '0',
-      discount: total.rows[0]?.discount || '0',
-      tax: total.rows[0]?.tax || '0',
-      transactions: Number(total.rows[0]?.transactions || 0)
-    });
   });
 
   // Timeseries endpoint

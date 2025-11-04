@@ -1,9 +1,9 @@
-import express, { type Express, type Request, type Response } from 'express';
 import crypto from 'crypto';
-import { db } from '../db';
+import { eq, sql } from 'drizzle-orm';
+import express, { type Express, type Request, type Response } from 'express';
 import { subscriptions, subscriptionPayments, organizations, webhookEvents } from '@shared/prd-schema';
-import { sql } from 'drizzle-orm';
-import { eq } from 'drizzle-orm';
+import { db } from '../db';
+import { logger } from '../lib/logger';
 
 function verifyPaystackSignature(rawBody: string, signature: string | undefined): boolean {
   const secret = process.env.WEBHOOK_SECRET_PAYSTACK || process.env.PAYSTACK_SECRET_KEY || '';
@@ -114,7 +114,11 @@ export async function registerWebhookRoutes(app: Express) {
       // Idempotency: skip already-processed events (DB uniqueness)
       try {
         await db.insert(webhookEvents).values({ provider: 'PAYSTACK' as any, eventId: providerEventId } as any);
-      } catch {
+      } catch (error) {
+        logger.debug('Paystack webhook already processed', {
+          providerEventId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return res.json({ status: 'success', received: true, idempotent: true });
       }
       // Mark provider-level seen after successful uniqueness check/insert
@@ -204,7 +208,13 @@ export async function registerWebhookRoutes(app: Express) {
             eventType: evt?.event,
             raw: evt as any,
           } as any);
-        } catch {}
+        } catch (error) {
+          logger.warn('Failed to record Paystack subscription payment', {
+            orgId,
+            reference: data?.reference || data?.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
       }
 
       // Activate or lock org based on status
@@ -218,7 +228,10 @@ export async function registerWebhookRoutes(app: Express) {
       }
 
       return res.json({ status: 'success', received: true });
-    } catch {
+    } catch (error) {
+      logger.warn('Paystack webhook handling failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(400).json({ error: 'Invalid payload' });
     }
   };
@@ -253,7 +266,11 @@ export async function registerWebhookRoutes(app: Express) {
       // Idempotency: skip already-processed events (DB uniqueness)
       try {
         await db.insert(webhookEvents).values({ provider: 'FLW' as any, eventId: providerEventId } as any);
-      } catch {
+      } catch (error) {
+        logger.debug('Flutterwave webhook already processed', {
+          providerEventId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return res.json({ received: true, idempotent: true });
       }
       // Mark provider-level seen after successful uniqueness check/insert
@@ -340,7 +357,13 @@ export async function registerWebhookRoutes(app: Express) {
             eventType: evt?.event,
             raw: evt as any,
           } as any);
-        } catch {}
+        } catch (error) {
+          logger.warn('Failed to record Flutterwave subscription payment', {
+            orgId,
+            reference: data?.tx_ref || data?.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
       }
 
       if (status === 'ACTIVE') {

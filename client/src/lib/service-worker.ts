@@ -145,7 +145,9 @@ export class ServiceWorkerManager {
       // Signal SW to prewarm caches for POS data
       try {
         this.registration.active?.postMessage({ type: 'PREWARM_CACHES' });
-      } catch {}
+      } catch (messageError) {
+        console.warn('Failed to post PREWARM_CACHES message', messageError);
+      }
 
       // Handle service worker updates
       this.registration.addEventListener('updatefound', () => {
@@ -167,8 +169,8 @@ export class ServiceWorkerManager {
       });
 
       // Handle service worker errors
-      navigator.serviceWorker.addEventListener('error', (_event) => {
-        console.error('Service Worker error event');
+      navigator.serviceWorker.addEventListener('error', (event) => {
+        console.error('Service Worker error event', event);
       });
 
     } catch (error) {

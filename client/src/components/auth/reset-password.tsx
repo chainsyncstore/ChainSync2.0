@@ -1,10 +1,10 @@
+import { AlertCircle, Lock, CheckCircle } from "lucide-react";
 import { useState, useEffect } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, Lock, CheckCircle } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface ResetPasswordProps {
   token: string;
@@ -32,13 +32,14 @@ export default function ResetPassword({ token, onSuccess }: ResetPasswordProps) 
           setMessage({ type: 'error', text: data.message || "Invalid or expired reset link" });
         }
       } catch (error) {
+        console.error('Failed to validate reset token', error);
         setMessage({ type: 'error', text: "Network error. Please try again." });
       } finally {
         setIsValidating(false);
       }
     };
 
-    validateToken();
+    void validateToken();
   }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -78,6 +79,7 @@ export default function ResetPassword({ token, onSuccess }: ResetPasswordProps) 
         setMessage({ type: 'error', text: data.message || "Failed to reset password" });
       }
     } catch (error) {
+      console.error('Password reset request failed', error);
       setMessage({ type: 'error', text: "Network error. Please try again." });
     } finally {
       setIsLoading(false);

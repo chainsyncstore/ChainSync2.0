@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 
 export default function AdminIpWhitelistPage() {
   const [rows, setRows] = useState<any[]>([]);
@@ -12,7 +12,7 @@ export default function AdminIpWhitelistPage() {
   const [cidrOrIp, setCidrOrIp] = useState('');
   const [label, setLabel] = useState('');
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -21,13 +21,14 @@ export default function AdminIpWhitelistPage() {
       const data = await res.json();
       setRows(data.whitelist || []);
     } catch (e: any) {
+      console.error('Failed to load whitelist', e);
       setError(e?.message || 'Failed to load whitelist');
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, [load]);
 
   async function addEntry() {
     try {
@@ -41,6 +42,7 @@ export default function AdminIpWhitelistPage() {
       setCidrOrIp(''); setLabel('');
       await load();
     } catch (e: any) {
+      console.error('Failed to add whitelist entry', e);
       alert(e?.message || 'Add failed');
     }
   }
@@ -52,6 +54,7 @@ export default function AdminIpWhitelistPage() {
       if (res.status !== 204) throw new Error('Failed to delete entry');
       await load();
     } catch (e: any) {
+      console.error('Failed to delete whitelist entry', e);
       alert(e?.message || 'Delete failed');
     }
   }

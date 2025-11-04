@@ -36,7 +36,7 @@ const testDbOperations = async () => {
     
     if (csrfResponse.ok) {
       const csrfData = await csrfResponse.json();
-      console.log('✅ CSRF token received');
+      console.log('✅ CSRF token received:', csrfData);
     } else {
       const errorData = await csrfResponse.text();
       console.log('❌ CSRF failed:', errorData);

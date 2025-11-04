@@ -1,18 +1,18 @@
+import { Download, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAuth } from '../hooks/use-auth';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import QRCode from 'react-qr-code';
+import type { Store } from '@shared/schema';
 import { IpWhitelistManager } from '../components/ip-whitelist/ip-whitelist-manager';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
-import { Badge } from '../components/ui/badge';
-import { Download, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { useAuth } from '../hooks/use-auth';
 import { useToast } from '../hooks/use-toast';
-import type { Store } from '@shared/schema';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import QRCode from 'react-qr-code';
 
 export default function Settings() {
   const { user, logout, twoFactorEnabled, setupTwoFactor, verifyTwoFactor, disableTwoFactor } = useAuth();
@@ -76,7 +76,7 @@ export default function Settings() {
     };
 
     if (user) {
-      fetchStores();
+      void fetchStores();
 
       const fetchSettings = async () => {
         try {
@@ -89,7 +89,7 @@ export default function Settings() {
           console.error('Failed to fetch settings:', error);
         }
       };
-      fetchSettings();
+      void fetchSettings();
     }
   }, [user]);
 
@@ -253,6 +253,7 @@ export default function Settings() {
       if (!response.ok) throw new Error('Failed to save notification settings');
       toast({ title: "Success", description: "Notification settings saved." });
     } catch (error) {
+      console.error('Failed to save notification settings', error);
       toast({ title: "Error", description: "Could not save notification settings.", variant: "destructive" });
     } finally {
       setIsSavingNotifications(false);
@@ -302,12 +303,8 @@ export default function Settings() {
         description: `${type.charAt(0).toUpperCase() + type.slice(1)} data has been exported successfully.`,
       });
     } catch (error) {
-      console.error('Export error:', error);
-      toast({
-        title: "Export Failed",
-        description: `Failed to export ${type} data. Please try again.`,
-        variant: "destructive",
-      });
+      console.error('Failed to export data set', type, error);
+      toast({ title: 'Export Failed', description: `Failed to export ${type} data. Please try again.`, variant: "destructive" });
     } finally {
       setExporting(null);
     }
@@ -330,6 +327,7 @@ export default function Settings() {
       toast({ title: 'Account deleted', description: 'Your account has been permanently deleted.' });
       await logout();
     } catch (error) {
+      console.error('Failed to delete account', error);
       toast({ title: 'Deletion failed', description: 'Unable to delete account. Try again.', variant: 'destructive' });
       setIsDeleting(false);
     }

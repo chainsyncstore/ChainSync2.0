@@ -143,13 +143,16 @@ class ApiClient {
             console.log('Auth response missing Cache-Control header; server should set no-store');
           }
         }
-      } catch {}
+      } catch (headerError) {
+        console.warn('Unable to inspect cache-control headers', headerError);
+      }
 
       let data: ApiResponse<T>;
       try {
         data = await response.json();
-      } catch (e) {
+      } catch (parseError) {
         // Handle cases where server returned empty body or non-JSON (e.g., proxies, 4xx/5xx without JSON)
+        console.warn('Failed to parse response JSON', parseError);
         data = { status: response.ok ? 'success' : 'error', timestamp: new Date().toISOString() } as ApiResponse<T>;
       }
 

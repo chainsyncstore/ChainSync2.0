@@ -1,6 +1,6 @@
-import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
 import react from '@vitejs/plugin-react';
+import path from 'path';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
@@ -54,10 +54,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@shared': resolve(__dirname, './shared'),
-      '@server': resolve(__dirname, './server'),
-      '@client': resolve(__dirname, './client/src'),
-      '@': resolve(__dirname, './client/src'),
+      '@shared': path.resolve(__dirname, './shared'),
+      '@server': path.resolve(__dirname, './server'),
+      '@client': path.resolve(__dirname, './client/src'),
+      '@': path.resolve(__dirname, './client/src'),
       // Ensure crypto module is properly resolved for tests
       crypto: 'crypto-browserify'
     }

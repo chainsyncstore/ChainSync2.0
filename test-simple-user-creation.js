@@ -43,7 +43,7 @@ const testSimpleUserCreation = async () => {
     
     if (usersResponse.ok) {
       const usersData = await usersResponse.json();
-      console.log('✅ Users endpoint working');
+      console.log('✅ Users endpoint working, total users:', Array.isArray(usersData) ? usersData.length : 'unknown');
     } else {
       const errorData = await usersResponse.text();
       console.log('❌ Users endpoint failed:', errorData);

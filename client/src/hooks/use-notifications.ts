@@ -4,6 +4,10 @@ import type { NotificationData } from "@/types/pos";
 export function useNotifications() {
   const [notifications, setNotifications] = useState<NotificationData[]>([]);
 
+  const removeNotification = useCallback((id: string) => {
+    setNotifications(current => current.filter(notification => notification.id !== id));
+  }, []);
+
   const addNotification = useCallback((notification: Omit<NotificationData, "id" | "timestamp">) => {
     const newNotification: NotificationData = {
       ...notification,
@@ -19,11 +23,7 @@ export function useNotifications() {
     }, 5000);
 
     return newNotification.id;
-  }, []);
-
-  const removeNotification = useCallback((id: string) => {
-    setNotifications(current => current.filter(notification => notification.id !== id));
-  }, []);
+  }, [removeNotification]);
 
   const clearNotifications = useCallback(() => {
     setNotifications([]);

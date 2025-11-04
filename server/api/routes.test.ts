@@ -1,8 +1,9 @@
-import type { Express, Request, Response } from 'express';
-import { db } from '../db';
-import { storage } from '../storage';
-import { organizations, stores as prdStores, products as prdProducts, inventory as prdInventory } from '@shared/prd-schema';
 import { eq, and, sql } from 'drizzle-orm';
+import type { Express, Request, Response } from 'express';
+import { organizations, stores as prdStores, products as prdProducts, inventory as prdInventory } from '@shared/prd-schema';
+import { db } from '../db';
+import { logger } from '../lib/logger';
+import { storage } from '../storage';
 
 export async function registerTestRoutes(app: Express) {
   app.post('/api/test/seed-basic', async (req: Request, res: Response) => {
@@ -120,9 +121,20 @@ export async function registerTestRoutes(app: Express) {
                 reorderLevel: 5,
               } as any).catch(() => undefined);
             }
-          } catch {}
+          } catch (error) {
+            logger.warn('Failed to upsert PRD inventory during test seed', {
+              orgId,
+              storeId: s.id,
+              productId: pp?.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
         }
-      } catch {}
+      } catch (error) {
+        logger.warn('Failed to seed PRD schema during test seed', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
 
       return res.status(200).json({
         ok: true,
@@ -131,7 +143,10 @@ export async function registerTestRoutes(app: Express) {
         userId: (user as any)?.id || null,
         products: createdProducts,
       });
-    } catch (e) {
+    } catch (error) {
+      logger.error('Test seed route failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(500).json({ error: 'Failed to seed test data' });
     }
   });

@@ -1,5 +1,5 @@
-import { db } from "../server/db";
 import { AuthService } from "../server/auth";
+import { db } from "../server/db";
 import { users, stores, userStorePermissions } from "../shared/schema";
 
 async function seedSecureUsers() {

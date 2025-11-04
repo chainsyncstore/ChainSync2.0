@@ -43,4 +43,7 @@ async function verifyData() {
   }
 }
 
-verifyData();
+verifyData().catch((error) => {
+  console.error("❌ Unexpected error verifying data:", error);
+  process.exit(1);
+});

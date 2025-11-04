@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Plus, Search, ScanLine, Power, PowerOff } from "lucide-react";
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 async function getCachedBarcode(barcode: string): Promise<any | null> {
   try {
@@ -18,7 +18,7 @@ async function getCachedBarcode(barcode: string): Promise<any | null> {
 }
 
 interface BarcodeScannerProps {
-  onScan: (barcode: string) => void;
+  onScan: (barcode: string) => void; // eslint-disable-line no-unused-vars
   onOpenSearch: () => void;
   isLoading?: boolean;
   isScannerActive?: boolean;
@@ -46,6 +46,7 @@ export default function BarcodeScanner({
       try {
         onScan(barcodeInput.trim());
       } catch (err) {
+        console.error('Barcode scan submission failed', err);
         const p = await getCachedBarcode(barcodeInput.trim());
         if (p) {
           // Parent will fetch product via API normally; here we just preserve UX feedback
@@ -57,7 +58,7 @@ export default function BarcodeScanner({
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
-      handleSubmit(e);
+      void handleSubmit(e);
     }
   };
 

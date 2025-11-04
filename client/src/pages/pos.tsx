@@ -1,24 +1,22 @@
-import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/use-auth";
+import { useState, useEffect, useCallback } from "react";
+import ToastSystem from "@/components/notifications/toast-system";
 import BarcodeScanner from "@/components/pos/barcode-scanner";
-import ShoppingCart from "@/components/pos/shopping-cart";
 import CheckoutPanel from "@/components/pos/checkout-panel";
 import ProductSearchModal from "@/components/pos/product-search-modal";
+import ShoppingCart from "@/components/pos/shopping-cart";
 import SyncCenter from "@/components/pos/sync-center";
-import ToastSystem from "@/components/notifications/toast-system";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
 import { useNotifications } from "@/hooks/use-notifications";
-import { apiRequest } from "@/lib/queryClient";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useToast } from "@/hooks/use-toast";
 import type { Store, LowStockAlert } from "@shared/schema";
-import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 
 export default function POS() {
-  const { user } = useAuth();
+
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
@@ -48,12 +46,6 @@ export default function POS() {
     setOnScan,
   } = useScannerContext();
 
-  const userData = {
-    role: user?.role || "cashier",
-    name: `${user?.firstName || "User"} ${user?.lastName || ""}`.trim(),
-    initials: `${user?.firstName?.[0] || "U"}${user?.lastName?.[0] || ""}`,
-  };
-
   // Fetch stores
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -75,6 +67,7 @@ export default function POS() {
   const { data: alerts = [] } = useQuery<LowStockAlert[]>({
     queryKey: ["/api/stores", selectedStore, "alerts"],
   });
+  const lowStockCount = alerts.length;
 
   const currentStore = stores.find((s) => s.id === selectedStore) as any;
   const currency: 'USD' | 'NGN' = (currentStore?.currency === 'NGN' ? 'NGN' : 'USD');
@@ -91,11 +84,11 @@ export default function POS() {
       setQueuedCount(await getOfflineQueueCount());
       setEscalations(await getEscalatedCount(5));
     };
-    update();
+    void update();
     const onMsg = (event: MessageEvent) => {
       if (event.data?.type === 'SYNC_COMPLETED') {
         setLastSync(event.data.data);
-        update();
+        void update();
       } else if (event.data?.type === 'SYNC_SALE_OK') {
         const sale = event.data?.data?.sale;
         const receipt = sale?.receiptNumber || sale?.id || 'sale';
@@ -104,7 +97,7 @@ export default function POS() {
           title: 'Sale Synced',
           message: `Receipt #${receipt}`,
         });
-        update();
+        void update();
       }
     };
     navigator.serviceWorker?.addEventListener('message', onMsg as any);
@@ -116,7 +109,9 @@ export default function POS() {
         setQueuedCount(await getOfflineQueueCount());
         setEscalations(await getEscalatedCount(5));
         toast({ title: 'Back online', description: 'Sync started automatically.' });
-      } catch {}
+      } catch (error) {
+        console.error('Failed to process pending queue when coming online', error);
+      }
     };
     const onOffline = () => setIsOnline(false);
     window.addEventListener('online', onOnline);
@@ -126,7 +121,7 @@ export default function POS() {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
-  }, []);
+  }, [addNotification, toast]);
 
   const handleSyncNow = async () => {
     try {
@@ -135,7 +130,8 @@ export default function POS() {
       setQueuedCount(await getOfflineQueueCount());
       setEscalations(await getEscalatedCount(5));
       toast({ title: 'Sync requested', description: 'Background sync triggered.' });
-    } catch (e) {
+    } catch (error) {
+      console.error('Failed to trigger manual sync', error);
       toast({ title: 'Sync failed to start', description: 'Please try again later.', variant: 'destructive' });
     }
   };
@@ -198,7 +194,7 @@ export default function POS() {
         message: `Transaction completed successfully. Total: $${summary.total.toFixed(2)}`,
       });
       clearCart();
-      queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"] });
       // Try to process queue immediately (harmless if none)
       const { processQueueNow, getOfflineQueueCount } = await import('@/lib/offline-queue');
       await processQueueNow();
@@ -218,7 +214,7 @@ export default function POS() {
   useRealtimeSales({ orgId: null, storeId: selectedStore || null });
 
   // Barcode scanning
-  const handleBarcodeScanned = async (barcode: string) => {
+  const handleBarcodeScanned = useCallback(async (barcode: string) => {
     try {
       const response = await fetch(`/api/products/barcode/${barcode}`);
       if (response.ok) {
@@ -235,7 +231,6 @@ export default function POS() {
           message: `${product.name} added to cart`,
         });
       } else {
-        // fallback: try local catalog
         try {
           const mod = await import('@/lib/idb-catalog');
           const local = await mod.getProductByBarcodeLocally(barcode);
@@ -244,7 +239,9 @@ export default function POS() {
             addNotification({ type: 'success', title: 'Product Added (offline)', message: `${local.name} added to cart` });
             return;
           }
-        } catch {}
+        } catch (fallbackError) {
+          console.warn('Failed to hydrate product from local catalog after network miss', fallbackError);
+        }
         addNotification({
           type: "error",
           title: "Product Not Found",
@@ -252,7 +249,6 @@ export default function POS() {
         });
       }
     } catch (error) {
-      // offline fallback
       try {
         const mod = await import('@/lib/idb-catalog');
         const local = await mod.getProductByBarcodeLocally(barcode);
@@ -261,26 +257,18 @@ export default function POS() {
           addNotification({ type: 'success', title: 'Product Added (offline)', message: `${local.name} added to cart` });
           return;
         }
-      } catch {}
+      } catch (localFallbackError) {
+        console.warn('Failed to retrieve barcode from local catalog after fetch error', localFallbackError);
+      }
       addNotification({ type: 'error', title: 'Scan Error', message: 'Failed to scan product. Please try again.' });
       console.error("Barcode scan error:", error);
     }
-  };
+  }, [addItem, addNotification]);
 
-  // Set the scan callback in the global context
   useEffect(() => {
     setOnScan(handleBarcodeScanned);
-    return () => setOnScan(undefined as unknown as (barcode: string) => void);
-  }, [setOnScan]);
-
-  // Update date/time every minute
-  const [currentDateTime, setCurrentDateTime] = useState(new Date());
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentDateTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
+    return () => setOnScan(undefined);
+  }, [handleBarcodeScanned, setOnScan]);
 
   // Handle payment amount changes
   const handleAmountReceivedChange = (amount: number) => {
@@ -337,6 +325,11 @@ export default function POS() {
           </Badge>
           {lastSync && (
             <span className="text-xs text-slate-600">Last sync: attempted {lastSync.attempted}, synced {lastSync.synced}</span>
+          )}
+          {lowStockCount > 0 && (
+            <Badge variant="secondary" className="bg-amber-100 text-amber-900 border border-amber-200">
+              {lowStockCount} low stock alert{lowStockCount > 1 ? 's' : ''}
+            </Badge>
           )}
         </div>
         {queuedCount > 0 && (

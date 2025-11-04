@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from './use-auth';
+import { useState, useEffect, useCallback } from 'react';
 import { getCsrfToken, clearCsrfTokenCache } from '@/lib/csrf';
+import { useAuth } from './use-auth';
 
 export type WhitelistRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
 
@@ -37,7 +37,7 @@ export function useIpWhitelist() {
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
 
-  const fetchWhitelist = async () => {
+  const fetchWhitelist = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -56,13 +56,14 @@ export function useIpWhitelist() {
         setError(errorData.message || 'Failed to fetch IP whitelist');
       }
     } catch (err) {
+      console.error('Failed to fetch IP whitelist', err);
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const addStoreIpToWhitelist = async (ipAddress: string, storeId: string, roles: WhitelistRole[], description?: string) => {
+  const addStoreIpToWhitelist = useCallback(async (ipAddress: string, storeId: string, roles: WhitelistRole[], description?: string) => {
     setLoading(true);
     setError(null);
 
@@ -95,15 +96,16 @@ export function useIpWhitelist() {
         throw new Error(errorData.message);
       }
     } catch (err) {
+      console.error('Failed to add IP to whitelist', err);
       setError('Network error. Please try again.');
       clearCsrfTokenCache();
       throw err;
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const removeIpFromWhitelist = async (id: string) => {
+  const removeIpFromWhitelist = useCallback(async (id: string) => {
     setLoading(true);
     setError(null);
 
@@ -125,14 +127,15 @@ export function useIpWhitelist() {
         throw new Error(errorData.message);
       }
     } catch (err) {
+      console.error('Failed to remove IP from whitelist', err);
       setError('Network error. Please try again.');
       throw err;
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     if (user?.role !== 'admin') return;
 
     setLoading(true);
@@ -153,20 +156,23 @@ export function useIpWhitelist() {
         setError(errorData.message || 'Failed to fetch IP access logs');
       }
     } catch (err) {
+      console.error('Failed to fetch IP whitelist logs', err);
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.role]);
 
   useEffect(() => {
-    if (user) {
-      fetchWhitelist();
-      if (user.role === 'admin') {
-        fetchLogs();
-      }
+    if (!user) {
+      return;
     }
-  }, [user]);
+
+    void fetchWhitelist();
+    if (user.role === 'admin') {
+      void fetchLogs();
+    }
+  }, [user, fetchWhitelist, fetchLogs]);
 
   return {
     whitelist,

@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertTriangle, CheckCircle, Package, Clock } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, CheckCircle, Package, Clock } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/pos-utils";
 import { apiRequest } from "@/lib/queryClient";
 import type { Store, LowStockAlert, Product } from "@shared/schema";
@@ -13,12 +13,6 @@ import LowStockEmailOptOutToggle from "../../components/LowStockEmailOptOutToggl
 export default function Alerts() {
   const [selectedStore, setSelectedStore] = useState<string>("");
   const queryClient = useQueryClient();
-
-  const userData = {
-    role: "manager",
-    name: "John Doe",
-    initials: "JD",
-  };
 
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -44,20 +38,36 @@ export default function Alerts() {
     mutationFn: async (alertId: string) => {
       await apiRequest("PUT", `/api/alerts/${alertId}/resolve`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "alerts"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "alerts"] });
+    },
+    onError: (error) => {
+      console.error("Failed to resolve alert", error);
     },
   });
 
 
 
-  const alertsWithProducts = alerts.map((alert: any) => {
-    const product = products.find((p: any) => p.id === alert.productId);
-    return { ...alert, product };
-  }).filter((alert: any) => alert.product);
+  const alertsWithProducts = useMemo(
+    () =>
+      alerts
+        .map((alert) => {
+          const product = products.find((productItem) => productItem.id === alert.productId);
+          return product ? { ...alert, product } : null;
+        })
+        .filter((item): item is LowStockAlert & { product: Product } => Boolean(item)),
+    [alerts, products],
+  );
 
-  const criticalAlerts = alertsWithProducts.filter((alert: any) => alert.currentStock === 0);
-  const warningAlerts = alertsWithProducts.filter((alert: any) => alert.currentStock > 0);
+  const criticalAlerts = useMemo(
+    () => alertsWithProducts.filter((alert) => alert.currentStock === 0),
+    [alertsWithProducts],
+  );
+
+  const warningAlerts = useMemo(
+    () => alertsWithProducts.filter((alert) => alert.currentStock > 0),
+    [alertsWithProducts],
+  );
 
   return (
     <div className="space-y-6">

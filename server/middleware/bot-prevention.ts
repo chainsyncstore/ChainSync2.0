@@ -29,6 +29,19 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
       // Skip if bot prevention is not configured and we're allowed to skip
       if (!botPreventionService.isConfigured()) {
         const allowBypass = process.env.ALLOW_INSECURE_PAYMENT_NO_CAPTCHA === 'true';
+        if (!skipIfNotConfigured) {
+          logger.error('Bot prevention configuration required but missing', {
+            path: req.path,
+            ip: req.ip,
+            expectedAction,
+            required
+          });
+          return res.status(503).json({
+            error: 'Bot prevention unavailable',
+            message: 'Captcha verification is temporarily unavailable. Please try again later.'
+          });
+        }
+
         if (isProduction && required && !allowBypass) {
           logger.error('Bot prevention required in production but not configured', {
             path: req.path,
@@ -44,7 +57,8 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
           path: req.path,
           ip: req.ip,
           allowBypass,
-          environment: process.env.NODE_ENV
+          environment: process.env.NODE_ENV,
+          skipIfNotConfigured
         });
         return next();
       }
@@ -69,7 +83,13 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
                 path: req.path,
                 requestId: (req as any).requestId
               });
-            } catch {}
+            } catch (error) {
+              logger.error('Failed to record captcha failure (missing token)', {
+                path: req.path,
+                ip: req.ip,
+                error: error instanceof Error ? error.message : error
+              });
+            }
             return res.status(400).json({
               error: 'Captcha token required',
               message: 'Please complete the captcha verification'
@@ -107,7 +127,13 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
             path: req.path,
             requestId: (req as any).requestId
           });
-        } catch {}
+        } catch (error) {
+          logger.error('Failed to record captcha failure', {
+            path: req.path,
+            ip: req.ip,
+            error: error instanceof Error ? error.message : error
+          });
+        }
 
         return res.status(400).json({
           error: 'Captcha verification failed',

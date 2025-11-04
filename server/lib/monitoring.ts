@@ -70,7 +70,10 @@ class MonitoringService {
     } catch (err) {
       try {
         logger.error('Failed to send monitoring webhook', err as Error);
-      } catch {}
+      } catch (logError) {
+        const fallbackMessage = logError instanceof Error ? logError.message : String(logError);
+        process.stderr.write(`Monitoring webhook logging failed: ${fallbackMessage}\n`);
+      }
     }
   }
 

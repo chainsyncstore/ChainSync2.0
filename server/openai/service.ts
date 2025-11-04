@@ -1,7 +1,7 @@
+import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
-import { db } from '../db';
 import { transactions, products, stores, inventory } from '../../shared/schema';
-import { eq, and, gte, lte } from 'drizzle-orm';
+import { db } from '../db';
 
 export class OpenAIService {
     private openai: OpenAI;
@@ -137,7 +137,7 @@ Always provide specific, actionable insights based on the available data. If you
     }
 
     async handleForecastQuery(parameters: any) {
-        const { product, category, period, month } = parameters;
+        const { category, period } = parameters;
         
         // Generate forecast based on parameters
         const forecastData = await this.generateForecast(parameters);
@@ -152,7 +152,7 @@ Always provide specific, actionable insights based on the available data. If you
     }
 
     async handleInventoryQuery(parameters: any) {
-        const { product, category } = parameters;
+        const { category } = parameters;
         
         // Generate inventory insights
         const inventoryData = await this.generateInventoryInsights(parameters);

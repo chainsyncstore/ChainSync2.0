@@ -64,8 +64,8 @@ async function testFrontendSignup() {
       try {
         const data = JSON.parse(responseText);
         console.log('📊 Response data:', data);
-      } catch (e) {
-        console.log('⚠️ Response is not valid JSON');
+      } catch (parseError) {
+        console.log('⚠️ Response is not valid JSON:', parseError.message);
       }
     } else {
       console.log('❌ Frontend-style signup failed with status:', response.status);
@@ -80,8 +80,8 @@ async function testFrontendSignup() {
             console.log(`  ${index + 1}. Field: ${detail.field}, Message: ${detail.message}`);
           });
         }
-      } catch (e) {
-        console.log('⚠️ Error response is not valid JSON');
+      } catch (parseError) {
+        console.log('⚠️ Error response is not valid JSON:', parseError.message);
       }
     }
     

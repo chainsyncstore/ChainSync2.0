@@ -1,6 +1,6 @@
+import { eq } from 'drizzle-orm';
 import { db } from '../server/db';
 import { ipWhitelists, users } from '../shared/schema';
-import { eq } from 'drizzle-orm';
 
 async function seedIpWhitelist() {
   console.log('🌱 Seeding IP whitelist data...');
@@ -70,4 +70,7 @@ async function seedIpWhitelist() {
   }
 }
 
-seedIpWhitelist(); 
+seedIpWhitelist().catch((error) => {
+  console.error('❌ Unexpected error in IP whitelist seeding:', error);
+  process.exit(1);
+});

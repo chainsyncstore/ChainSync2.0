@@ -40,16 +40,16 @@ async function testSignup() {
       try {
         const data = JSON.parse(responseText);
         console.log('📊 Response data:', data);
-      } catch (e) {
-        console.log('⚠️ Response is not valid JSON');
+      } catch (parseError) {
+        console.log('⚠️ Response is not valid JSON:', parseError.message);
       }
     } else {
       console.log('❌ Signup failed with status:', response.status);
       try {
         const errorData = JSON.parse(responseText);
         console.log('🚨 Error details:', errorData);
-      } catch (e) {
-        console.log('⚠️ Error response is not valid JSON');
+      } catch (parseError) {
+        console.log('⚠️ Error response is not valid JSON:', parseError.message);
       }
     }
     

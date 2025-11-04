@@ -1,11 +1,11 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./api";
-import { setupVite, serveStatic, log } from "./vite";
 import { loadEnv } from "../shared/env";
-import { sendErrorResponse, AppError, isOperationalError } from "./lib/errors";
+import { registerRoutes } from "./api";
+import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, scheduleSubscriptionReconciliation, scheduleDunning } from "./jobs/cleanup";
+import { sendErrorResponse, isOperationalError } from "./lib/errors";
 import { logger, requestLogger, pinoHttpMiddleware } from "./lib/logger";
-import { monitoringService, monitoringMiddleware } from "./lib/monitoring";
+import { monitoringMiddleware } from "./lib/monitoring";
 import { 
   helmetConfig, 
   corsMiddleware, 
@@ -14,7 +14,7 @@ import {
   securityLogging,
   redirectSecurityCheck
 } from "./middleware/security";
-import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, scheduleSubscriptionReconciliation, scheduleDunning } from "./jobs/cleanup";
+import { setupVite, serveStatic } from "./vite";
 // WebSocket service will be set up after core APIs are migrated to PRD schema
 
 const app = express();
@@ -72,7 +72,7 @@ app.use(monitoringMiddleware);
 app.use(pinoHttpMiddleware);
 app.use(requestLogger);
 
-(async () => {
+void (async () => {
   try {
     logger.info('Starting server initialization...', {
       environment: process.env.NODE_ENV,
@@ -81,14 +81,10 @@ app.use(requestLogger);
     });
 
     // Startup validations: detect obvious placeholder env values and warn early.
-    try {
-      const rawSentry = String(process.env.SENTRY_DSN || '').trim();
-      if (rawSentry && /your[_-]?sentry|your_sentry_dsn_here|example_sentry/i.test(rawSentry)) {
-        logger.warn('SENTRY_DSN appears to be a placeholder; ignoring for this run. Update your production env to a valid DSN to enable Sentry.');
-        try { delete (process.env as any).SENTRY_DSN; } catch {}
-      }
-    } catch (e) {
-      // ignore
+    const rawSentry = String(process.env.SENTRY_DSN || '').trim();
+    if (rawSentry && /your[_-]?sentry|your_sentry_dsn_here|example_sentry/i.test(rawSentry)) {
+      logger.warn('SENTRY_DSN appears to be a placeholder; ignoring for this run. Update your production env to a valid DSN to enable Sentry.');
+      delete (process.env as any).SENTRY_DSN;
     }
 
     // Validate env early
@@ -98,7 +94,7 @@ app.use(requestLogger);
     // WebSocket init moved to PRD-compliant implementation
 
     // Kick off non-blocking SMTP verification; do not block startup
-    (async () => {
+    void (async () => {
       try {
         const { verifyEmailTransporter } = await import('./email');
         const ok = await verifyEmailTransporter();
@@ -126,6 +122,7 @@ app.use(requestLogger);
     // Error handling middleware - set up AFTER static file serving
     // to avoid interfering with static file requests
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      void _next;
       // Log the error with structured logging
       logger.error('Unhandled error occurred', {
         path: _req.path,

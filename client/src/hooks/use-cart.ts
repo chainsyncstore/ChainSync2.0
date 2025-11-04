@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
+import { saveCart, loadCart, clearCart as clearCartStorage } from "@/lib/utils";
 import type { CartItem, CartSummary, PaymentData } from "@/types/pos";
-import { CART_STORAGE_KEY, saveCart, loadCart, clearCart as clearCartStorage } from "@/lib/utils";
 
 export function useCart() {
   const [items, setItems] = useState<CartItem[]>([]);
@@ -25,6 +25,10 @@ export function useCart() {
     saveCart(cartData);
   }, [items, payment]);
 
+  const removeItem = useCallback((itemId: string) => {
+    setItems(currentItems => currentItems.filter(item => item.id !== itemId));
+  }, []);
+
   const addItem = useCallback((product: { id: string; name: string; barcode: string; price: number }) => {
     setItems(currentItems => {
       const existingItem = currentItems.find(item => item.productId === product.id);
@@ -47,7 +51,7 @@ export function useCart() {
         total: product.price,
       }];
     });
-  }, []);
+  }, [setItems]);
 
   const updateQuantity = useCallback((itemId: string, quantity: number) => {
     if (quantity <= 0) {
@@ -62,11 +66,7 @@ export function useCart() {
           : item
       )
     );
-  }, []);
-
-  const removeItem = useCallback((itemId: string) => {
-    setItems(currentItems => currentItems.filter(item => item.id !== itemId));
-  }, []);
+  }, [removeItem]);
 
   const clearCart = useCallback(() => {
     setItems([]);

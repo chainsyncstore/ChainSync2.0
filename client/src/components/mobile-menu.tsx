@@ -1,9 +1,11 @@
+import { Menu } from "lucide-react";
+
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import Sidebar from "./layout/sidebar";
 
+/* eslint-disable no-unused-vars -- prop parameter names document external API */
 interface MobileMenuProps {
   userRole: string;
   userName: string;
@@ -13,6 +15,7 @@ interface MobileMenuProps {
   onStoreChange: (storeId: string) => void;
   alertCount: number;
 }
+/* eslint-enable no-unused-vars */
 
 export default function MobileMenu({
   userRole,

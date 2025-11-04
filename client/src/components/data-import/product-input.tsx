@@ -1,13 +1,14 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Plus, ScanLine, AlertTriangle, CheckCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, ScanLine, Search, AlertTriangle, CheckCircle } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Textarea } from "@/components/ui/textarea";
 import type { Product, Inventory } from "@shared/schema";
 
 interface ProductInputProps {
@@ -43,7 +44,6 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
     maxStockLevel: "100",
   });
   const [existingProduct, setExistingProduct] = useState<Product | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
   const queryClient = useQueryClient();
 
   // Check if product exists by barcode
@@ -77,7 +77,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
           return products.length > 0 ? products[0] : null;
         }
         return null;
-      } catch {
+      } catch (error) {
+        console.error("Failed to search product by name", error);
         return null;
       }
     },
@@ -86,7 +87,7 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
   // Check if product exists by SKU
   const { data: existingProductBySku } = useQuery<Product | null>({
     queryKey: ["/api/products", "sku", formData.sku],
-    enabled: !!formData.sku && formData.sku.length > 0,
+    enabled: !!formData.sku && formData.sku.length > 0 && !formData.barcode,
     queryFn: async () => {
       if (!formData.sku) return null;
       try {
@@ -95,7 +96,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
           return response.json();
         }
         return null;
-      } catch {
+      } catch (error) {
+        console.error("Failed to search product by SKU", error);
         return null;
       }
     },
@@ -171,8 +173,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       resetForm();
     },
   });
@@ -218,15 +220,24 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
   };
 
   // Update existing product when barcode, SKU, or name search results change
-  if (existingProductData && !existingProduct) {
-    setExistingProduct(existingProductData);
-  }
-  if (existingProductBySku && !existingProduct && !formData.barcode) {
-    setExistingProduct(existingProductBySku);
-  }
-  if (existingProductByName && !existingProduct && !formData.barcode && !formData.sku) {
-    setExistingProduct(existingProductByName);
-  }
+  useEffect(() => {
+    if (existingProductData) {
+      setExistingProduct(existingProductData);
+      return;
+    }
+
+    if (!formData.barcode && existingProductBySku) {
+      setExistingProduct(existingProductBySku);
+      return;
+    }
+
+    if (!formData.barcode && !formData.sku && existingProductByName) {
+      setExistingProduct(existingProductByName);
+      return;
+    }
+
+    setExistingProduct(null);
+  }, [existingProductData, existingProductBySku, existingProductByName, formData.barcode, formData.sku]);
 
   return (
     <div className="space-y-6">

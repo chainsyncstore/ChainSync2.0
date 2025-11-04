@@ -345,6 +345,7 @@ export const globalCryptoMock = sharedCryptoMock;
 export type CryptoMock = ReturnType<typeof createCryptoMock> & {
   __callHistory: Record<string, any[]>;
   __reset: () => void;
+  // eslint-disable-next-line no-unused-vars
   __setSeed: (seed: number) => void;
   __getState: () => {
     seed: number;

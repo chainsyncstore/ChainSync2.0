@@ -10,12 +10,12 @@ interface ChatMessage {
 
 interface AIChatContextType {
     messages: ChatMessage[];
-    addMessage: (message: ChatMessage) => void;
-    clearMessages: () => void;
+    addMessage(message: ChatMessage): void; // eslint-disable-line no-unused-vars
+    clearMessages(): void;
     isOpen: boolean;
-    setIsOpen: (open: boolean) => void;
+    setIsOpen(open: boolean): void; // eslint-disable-line no-unused-vars
     isLoading: boolean;
-    setIsLoading: (loading: boolean) => void;
+    setIsLoading(loading: boolean): void; // eslint-disable-line no-unused-vars
 }
 
 const AIChatContext = createContext<AIChatContextType | undefined>(undefined);

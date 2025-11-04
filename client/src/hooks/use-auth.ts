@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { post } from "@/lib/api-client";
-import { User } from "@shared/schema";
 import { saveSession, loadSession, clearSession, refreshSession } from "@/lib/utils";
+import { User } from "@shared/schema";
 
 interface AuthState {
   user: User | null;
@@ -11,15 +11,17 @@ interface AuthState {
   twoFactorEnabled: boolean;
 }
 
+/* eslint-disable no-unused-vars -- function type parameter names are required for DX */
 interface AuthActions {
-  login: (usernameOrEmail: string, password: string) => Promise<void>;
+  login(usernameOrEmail: string, password: string): Promise<void>;
   logout: () => void;
   error: string | null;
-  refreshUser: () => Promise<void>;
-  setupTwoFactor: () => Promise<{ otpauth: string } | null>;
-  verifyTwoFactor: (token: string) => Promise<boolean>;
-  disableTwoFactor: (password: string) => Promise<boolean>;
+  refreshUser(): Promise<void>;
+  setupTwoFactor(): Promise<{ otpauth: string } | null>;
+  verifyTwoFactor(token: string): Promise<boolean>;
+  disableTwoFactor(password: string): Promise<boolean>;
 }
+/* eslint-enable no-unused-vars */
 
 const normalizeUserPayload = (raw: any | null) => {
   if (!raw) return raw;
@@ -114,7 +116,7 @@ export function useAuth(): AuthState & AuthActions {
       }
     };
 
-    checkAuth();
+    void checkAuth();
   }, []);
 
   const refreshUser = useCallback(async () => {
@@ -195,7 +197,7 @@ export function useAuth(): AuthState & AuthActions {
         saveSession(normalizedUser as any);
         refreshSession();
 
-        if (Boolean((normalizedUser as any)?.requiresPasswordChange)) {
+        if ((normalizedUser as any)?.requiresPasswordChange) {
           window.location.href = "/force-password-reset";
           return;
         }
@@ -226,7 +228,7 @@ export function useAuth(): AuthState & AuthActions {
       setTwoFactorEnabled(Boolean((normalizedUser as any)?.twofaVerified));
       saveSession(normalizedUser as any);
 
-      if (Boolean((normalizedUser as any)?.requiresPasswordChange)) {
+      if ((normalizedUser as any)?.requiresPasswordChange) {
         window.location.href = "/force-password-reset";
         return;
       }
@@ -237,6 +239,7 @@ export function useAuth(): AuthState & AuthActions {
       else if (role === "manager") defaultPath = "/inventory";
       window.location.href = defaultPath;
     } catch (err) {
+      console.error('Login request failed', err);
       setError("Login failed. Please check your credentials.");
     } finally {
       setIsLoading(false);
@@ -264,8 +267,8 @@ export function useAuth(): AuthState & AuthActions {
       if (verifyResponse.ok) {
         console.warn('Logout verify: /api/auth/me still returned 200 even after clearing local state.');
       }
-    } catch (err) {
-      console.warn('Logout verify request failed', err);
+    } catch (logoutVerifyError) {
+      console.warn('Logout verify request failed', logoutVerifyError);
     }
 
     clearSession();

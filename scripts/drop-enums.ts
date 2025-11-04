@@ -41,4 +41,7 @@ async function dropEnums() {
   }
 }
 
-dropEnums();
+dropEnums().catch((error) => {
+  console.error('❌ Unhandled error while dropping enums:', error);
+  process.exit(1);
+});

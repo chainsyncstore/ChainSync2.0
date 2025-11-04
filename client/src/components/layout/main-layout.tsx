@@ -4,7 +4,6 @@ const Sidebar = lazy(() => import("./sidebar"));
 const TopBar = lazy(() => import("./topbar"));
 const FloatingChat = lazy(() => import("../ai/floating-chat"));
 import { useAuth } from "@/hooks/use-auth";
-import { formatDateTime } from "@/lib/pos-utils";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -40,15 +39,16 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
           setStores(normalized);
           if (normalized.length > 0) setSelectedStore(normalized[0].id);
         }
-      } catch {
-        // Fallback to a single default placeholder but without retail names
+      } catch (error) {
+        console.error('Error loading stores:', error);
         if (!cancelled) {
           setStores([]);
           setSelectedStore("");
         }
       }
     };
-    loadStores();
+    void loadStores();
+
     return () => { cancelled = true; };
   }, []);
 
@@ -65,11 +65,13 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
           const normalized = Array.isArray(data) ? data : (data?.data || []);
           setAlertCount(normalized.length || 0);
         }
-      } catch {
+      } catch (error) {
+        console.error('Error loading alerts:', error);
         if (!cancelled) setAlertCount(0);
       }
     };
-    loadAlerts();
+    void loadAlerts();
+
     return () => { cancelled = true; };
   }, [selectedStore]);
 

@@ -33,17 +33,17 @@ const SKIP_FILES = new Set([
 ]);
 
 const KNOWN_PATTERNS = [
-  /SK[_-]?(LIVE|TEST)[A-Za-z0-9_\-]{12,}/i,                 // generic sk_live/test
-  /pk_live_[A-Za-z0-9]{20,}/i,                               // paystack style public
-  /sk_live_[A-Za-z0-9]{20,}/i,                               // paystack style secret
-  /FLWSECK[_A-Za-z0-9\-]{10,}/,                              // flutterwave secret
-  /FLWPUBK[_A-Za-z0-9\-]{10,}/,                              // flutterwave public
-  /AIza[0-9A-Za-z\-_]{35}/,                                  // Google API key
-  /AKIA[0-9A-Z]{16}/,                                         // AWS Access Key
-  /SECRET[_A-Z0-9]*\s*=\s*['\"][A-Za-z0-9._\-]{16,}['\"]/i,
-  /SESSION_SECRET\s*=\s*['\"][A-Za-z0-9._\-]{16,}['\"]/i,
-  /OPENAI_API_KEY\s*=\s*['\"][A-Za-z0-9_\-]{20,}['\"]/i,
-  /-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----/,
+  /SK[_-]?(LIVE|TEST)[A-Za-z0-9_-]{12,}/i,                 // generic sk_live/test
+  /pk_live_[A-Za-z0-9]{20,}/i,                             // paystack style public
+  /sk_live_[A-Za-z0-9]{20,}/i,                             // paystack style secret
+  /FLWSECK[_A-Za-z0-9-]{10,}/,                             // flutterwave secret
+  /FLWPUBK[_A-Za-z0-9-]{10,}/,                             // flutterwave public
+  /AIza[0-9A-Za-z-_]{35}/,                                 // Google API key
+  /AKIA[0-9A-Z]{16}/,                                       // AWS Access Key
+  /SECRET[_A-Z0-9]*\s*=\s*['"][A-Za-z0-9._-]{16,}['"]/i,
+  /SESSION_SECRET\s*=\s*['"][A-Za-z0-9._-]{16,}['"]/i,
+  /OPENAI_API_KEY\s*=\s*['"][A-Za-z0-9_-]{20,}['"]/i,
+  /-----BEGIN (RSA|EC|DSA )?PRIVATE KEY-----/,
 ];
 
 function shannonEntropy(str) {
@@ -66,7 +66,7 @@ function looksSensitiveToken(token) {
   return ent > 3.5; // heuristic threshold
 }
 
-function scanContent(content, file) {
+function scanContent(content) {
   const findings = [];
   for (const rx of KNOWN_PATTERNS) {
     if (rx.test(content)) findings.push({ type: 'pattern', pattern: rx.toString() });
@@ -104,7 +104,7 @@ function main() {
     if (!st.isFile()) continue;
     try {
       const content = readFileSync(abs, 'utf8');
-      const findings = scanContent(content, file);
+      const findings = scanContent(content);
       if (findings.length) {
         violations++;
         console.error(`\n[secret-scan] Potential secret(s) found in: ${file}`);
@@ -114,7 +114,7 @@ function main() {
         }
         if (findings.length > 5) console.error(`  ...and ${findings.length - 5} more findings`);
       }
-    } catch (e) {
+    } catch {
       // ignore unreadable
     }
   }

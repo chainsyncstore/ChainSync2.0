@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Input } from '../ui/input';
-import { Button } from '../ui/button';
-import { ScrollArea } from '../ui/scroll-area';
 import { Send, Bot, User, X, MessageCircle, Sparkles, Trash2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAIChat } from '@/hooks/use-ai-chat';
 import { apiClient, handleApiError } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Input } from '../ui/input';
+import { ScrollArea } from '../ui/scroll-area';
 
 interface ChatMessage {
     id: string;
@@ -109,7 +109,7 @@ export default function FloatingChat({ storeId = "default", className }: Floatin
     const handleKeyPress = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            sendMessage();
+            void sendMessage();
         }
     };
 
@@ -152,7 +152,7 @@ export default function FloatingChat({ storeId = "default", className }: Floatin
             setIsLoading(true);
             
             // Send the message
-            sendQuickAction(action);
+            void sendQuickAction(action);
         }, 100);
     };
 

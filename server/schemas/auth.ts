@@ -1,8 +1,5 @@
 import { z } from "zod";
 
-// E.164 phone format validation (7-16 digits, must start with +)
-const phoneRegex = /^\+[1-9]\d{6,15}$/;
-
 // Email validation with max 254 characters
 const emailSchema = z
   .string({ required_error: "Email is required" })
@@ -15,7 +12,7 @@ const passwordSchema = z
   .string({ required_error: "Password is required" })
   .min(8, "Password must be at least 8 characters")
   .max(128, "Password must be 128 characters or less")
-  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character");
+  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).+$/, "Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character");
 
 // Phone validation (more flexible format, allows common separators)
 const phoneSchema = z

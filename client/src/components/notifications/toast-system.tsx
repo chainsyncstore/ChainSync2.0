@@ -3,10 +3,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { NotificationData } from "@/types/pos";
 
+/* eslint-disable no-unused-vars -- prop names document external API */
 interface ToastSystemProps {
   notifications: NotificationData[];
   onRemoveNotification: (id: string) => void;
 }
+/* eslint-enable no-unused-vars */
 
 const iconMap = {
   success: CheckCircle,

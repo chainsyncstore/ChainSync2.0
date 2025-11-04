@@ -6,8 +6,8 @@
  * payment issues on the deployed ChainSync site.
  */
 
-import https from 'https';
 import http from 'http';
+import https from 'https';
 
 function makeRequest(url, data) {
   return new Promise((resolve, reject) => {
@@ -44,7 +44,7 @@ function makeRequest(url, data) {
             headers: res.headers,
             data: parsed
           });
-        } catch (error) {
+        } catch {
           resolve({
             statusCode: res.statusCode,
             headers: res.headers,

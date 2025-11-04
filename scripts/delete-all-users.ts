@@ -117,6 +117,9 @@ async function deleteAllUsers(): Promise<void> {
 	}
 }
 
-deleteAllUsers();
+deleteAllUsers().catch((error) => {
+	console.error("Unhandled error in delete-all-users script", error);
+	process.exit(1);
+});
 
 

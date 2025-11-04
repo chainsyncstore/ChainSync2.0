@@ -1,8 +1,8 @@
+import { eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { db } from '../db';
 import { users } from '@shared/prd-schema';
-import { eq } from 'drizzle-orm';
+import { db } from '../db';
 import { requireAuth } from '../middleware/authz';
 
 const NotificationSettingsSchema = z.object({

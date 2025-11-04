@@ -1,8 +1,8 @@
+import { CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiClient, handleApiError } from "@/lib/api-client";
 
 export default function PaymentCallback() {
@@ -44,7 +44,9 @@ export default function PaymentCallback() {
           try {
             const cachedRef = localStorage.getItem('chainsync_payment_reference');
             if (cachedRef) paymentReference = cachedRef;
-          } catch {}
+          } catch (error) {
+            console.warn('Failed to recover payment reference from local storage:', error);
+          }
         }
         
         if (!paymentReference) {
@@ -179,11 +181,11 @@ export default function PaymentCallback() {
           
           {status === 'success' && (
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <h4 className="font-medium text-green-800 mb-2">What's Next?</h4>
+              <h4 className="font-medium text-green-800 mb-2">What&apos;s Next?</h4>
               <ul className="text-sm text-green-700 space-y-1">
                 <li>• Your 2-week free trial is now active</li>
                 <li>• You can access all features immediately</li>
-                <li>• We'll notify you before your trial ends</li>
+                <li>• We&apos;ll notify you before your trial ends</li>
               </ul>
             </div>
           )}

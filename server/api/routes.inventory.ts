@@ -1,16 +1,17 @@
-import type { Express, Request, Response } from 'express';
-import { db } from '../db';
-import { products, inventory, stores, users } from '@shared/prd-schema';
-import { eq, and, sql } from 'drizzle-orm';
-import { z } from 'zod';
-import fs from 'fs';
-import path from 'path';
-import multer from 'multer';
 import { parse as csvParse } from 'csv-parse';
+import { eq, and, sql } from 'drizzle-orm';
+import type { Express, Request, Response } from 'express';
+import fs from 'fs';
+import multer from 'multer';
+import path from 'path';
+import { z } from 'zod';
+import { products, stores, users } from '@shared/prd-schema';
+import { db } from '../db';
+import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
-import { storage } from '../storage';
-import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { requireRole } from '../middleware/authz';
+import { sensitiveEndpointRateLimit } from '../middleware/security';
+import { storage } from '../storage';
 
 export async function registerInventoryRoutes(app: Express) {
   // Product catalog endpoints expected by client analytics/alerts pages
@@ -241,8 +242,19 @@ export async function registerInventoryRoutes(app: Express) {
         results.push({ sku: r.sku, productId });
       }
       await pg.query('COMMIT');
-    } catch (e: any) {
-      await pg.query('ROLLBACK');
+    } catch (error) {
+      try {
+        await pg.query('ROLLBACK');
+      } catch (rollbackError) {
+        logger.warn('Inventory import rollback failed', {
+          error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+        });
+      }
+      logger.error('Failed to import inventory', {
+        userId: req.session?.userId,
+        invalidRowCount: invalidRows.length,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(500).json({ error: 'Failed to import inventory' });
     } finally {
       pg.release();

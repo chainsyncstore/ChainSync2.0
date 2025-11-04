@@ -1,10 +1,10 @@
-import { Request, Response, NextFunction } from "express";
+import { Request, Response, NextFunction, RequestHandler } from "express";
 import { z, ZodError } from "zod";
+import { auditLogs } from "@shared/prd-schema";
+import { db } from "../db";
 import { sendErrorResponse } from "../lib/errors";
 import { ValidationError } from "../lib/errors";
-import { LogContext } from "../lib/logger";
-import { db } from "../db";
-import { auditLogs } from "@shared/prd-schema";
+import { LogContext, logger } from "../lib/logger";
 
 /**
  * Middleware to validate request body against a Zod schema
@@ -135,7 +135,8 @@ export function validateParams<T>(schema: z.ZodSchema<T>) {
  */
 export function validateRequest<T>(
   schema: z.ZodSchema<T>,
-  dataExtractor: (req: Request) => any
+  // eslint-disable-next-line no-unused-vars
+  dataExtractor: (req: Request) => unknown
 ) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -178,7 +179,7 @@ export function validateRequest<T>(
  * @param fn - Async function to wrap
  * @returns Express middleware function
  */
-export function handleAsyncError(fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) {
+export function handleAsyncError(fn: RequestHandler) {
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
@@ -232,7 +233,11 @@ export function auditMiddleware() {
           ip: ip as any,
           userAgent: userAgent as any,
         } as any);
-      } catch {}
+      } catch (error) {
+        logger.warn("Failed to write audit log", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     });
     next();
   };

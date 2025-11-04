@@ -1,7 +1,7 @@
-import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { fileURLToPath } from "url";
+import { defineConfig } from "vite";
 
 // Compute a base directory that's safe across CJS and ESM runtimes
 const baseDir = (typeof __dirname !== 'undefined')
@@ -35,7 +35,7 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks(id, { getModuleInfo }) {
+        manualChunks(id) {
           // Preserve explicit groups first
           const map: Record<string, string> = {
             'recharts': 'charts',
@@ -74,7 +74,7 @@ export default defineConfig({
             if (pkg.startsWith('@') && parts.length >= 2) {
               pkg = `${pkg}/${parts[1]}`;
             }
-            const name = pkg.replace(/[^a-zA-Z0-9@/_-]/g, '_').replace(/[\/]/g, '_');
+            const name = pkg.replace(/[^a-zA-Z0-9@/_-]/g, '_').replace(/[\\/]/g, '_');
             return `vendor-${name}`;
           }
 
@@ -83,8 +83,6 @@ export default defineConfig({
         },
         // Ensure proper asset handling
         assetFileNames: (assetInfo) => {
-          const info = assetInfo.name?.split('.') || [];
-          const ext = info[info.length - 1];
           if (/\.(css)$/.test(assetInfo.name || '')) {
             return `assets/[name]-[hash].css`;
           }

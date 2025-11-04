@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 require('dotenv').config();
-const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
+const { Pool } = require('pg');
 
 (async () => {
   if (!process.env.DATABASE_URL) {

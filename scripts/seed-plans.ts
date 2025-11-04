@@ -1,5 +1,4 @@
 import { db } from '../server/db';
-import { organizations } from '@shared/prd-schema';
 
 async function main() {
   // This script is a placeholder for future plan/price seeding if needed.

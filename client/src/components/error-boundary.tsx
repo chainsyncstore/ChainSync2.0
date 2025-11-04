@@ -1,8 +1,9 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
+/* eslint-disable no-unused-vars -- callback parameter names document the public API */
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
@@ -47,7 +48,7 @@ export class ErrorBoundary extends Component<Props, State> {
     }
 
     // Log to external service in production
-    if (process.env.NODE_ENV === 'production') {
+    if (import.meta.env.PROD) {
       // You can integrate with services like Sentry, LogRocket, etc.
       console.error('Production error:', {
         message: error.message,
@@ -93,7 +94,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {process.env.NODE_ENV === 'development' && this.state.error && (
+              {import.meta.env.DEV && this.state.error && (
                 <div className="bg-gray-100 p-3 rounded-md text-sm">
                   <p className="font-medium text-gray-700 mb-2">Error Details (Development):</p>
                   <p className="text-red-600 mb-2">{this.state.error.message}</p>
@@ -137,7 +138,6 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
-
 // Higher-order component for wrapping components with error boundary
 export function withErrorBoundary<P extends object>(
   Component: React.ComponentType<P>,
@@ -162,7 +162,7 @@ export function useErrorHandler() {
     // You can add additional error handling logic here
     //比如发送到错误监控服务
     
-    if (process.env.NODE_ENV === 'production') {
+    if (import.meta.env.PROD) {
       // Log to external service
       console.error('Production error from hook:', {
         message: error.message,
@@ -172,4 +172,6 @@ export function useErrorHandler() {
       });
     }
   }, []);
-} 
+}
+
+/* eslint-enable no-unused-vars */

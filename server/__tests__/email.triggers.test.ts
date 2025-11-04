@@ -1,10 +1,9 @@
-import request from 'supertest';
-import type { Express } from 'express';
 import { eq } from 'drizzle-orm';
-import app from '../index'; // Updated to import from index.ts
-import { db } from '../db';
+import request from 'supertest';
 import { users } from '@shared/schema';
+import { db } from '../db';
 import { sendEmail } from '../email';
+import app from '../index'; // Updated to import from index.ts
 
 // Add jest types for globals
 /// <reference types="jest" />

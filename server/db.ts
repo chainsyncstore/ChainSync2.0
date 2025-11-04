@@ -1,5 +1,5 @@
-import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 // Use full schema for all user fields
 import * as schema from "@shared/schema";
 import 'dotenv/config';
@@ -27,11 +27,12 @@ const dbConfig = {
   // Additional connection options
   application_name: 'ChainSync',
   // Handle connection errors gracefully
-  onConnect: (client: any) => {
+  onConnect: () => {
     console.log('🟢 New database connection established');
   },
-  onError: (err: Error, client: any) => {
+  onError: (err: Error) => {
     console.error('🔴 Database connection error:', err.message);
+
     // Log more details for debugging
     if ((err as any).code) {
       console.error('Error code:', (err as any).code);
@@ -40,7 +41,7 @@ const dbConfig = {
       console.error('Error detail:', (err as any).detail);
     }
   },
-  onRemove: (client: any) => {
+  onRemove: () => {
     console.log('🟡 Database connection removed from pool');
   },
   // Add retry logic for failed connections
@@ -53,7 +54,7 @@ const dbConfig = {
 export const pool = new Pool(dbConfig);
 
 // Test database connection on startup
-pool.on('connect', (client) => {
+pool.on('connect', () => {
   console.log('🟢 Database client connected');
 });
 
@@ -61,11 +62,11 @@ pool.on('error', (err) => {
   console.error('🔴 Database pool error:', err);
 });
 
-pool.on('acquire', (client) => {
+pool.on('acquire', () => {
   console.log('🟢 Database client acquired from pool');
 });
 
-pool.on('release', (client) => {
+pool.on('release', () => {
   console.log('🟡 Database client released back to pool');
 });
 

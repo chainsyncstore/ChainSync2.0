@@ -1,18 +1,20 @@
+import * as Sentry from '@sentry/node';
 import { Request, Response } from 'express';
 import pino, { Logger as PinoLogger } from 'pino';
 import pinoHttp from 'pino-http';
-import * as Sentry from '@sentry/node';
 // Use CommonJS __filename for compatibility with Jest/ts-jest
 // import { createRequire } from 'module';
 const createRequire = typeof require !== 'undefined' ? require : undefined;
 
-export enum LogLevel {
-  ERROR = 'error',
-  WARN = 'warn',
-  INFO = 'info',
-  DEBUG = 'debug',
-  TRACE = 'trace'
-}
+export const LOG_LEVELS = {
+  ERROR: 'error',
+  WARN: 'warn',
+  INFO: 'info',
+  DEBUG: 'debug',
+  TRACE: 'trace'
+} as const;
+
+export type LogLevel = typeof LOG_LEVELS[keyof typeof LOG_LEVELS];
 
 export interface LogContext {
   userId?: string;
@@ -41,7 +43,7 @@ class Logger {
   private pino: PinoLogger;
 
   constructor() {
-    this.logLevel = (process.env.LOG_LEVEL as LogLevel) || LogLevel.INFO;
+    this.logLevel = (process.env.LOG_LEVEL as LogLevel) || LOG_LEVELS.INFO;
     this.isDevelopment = process.env.NODE_ENV === 'development';
 
     const pinoLevel = (process.env.LOG_LEVEL || 'info') as any;
@@ -78,18 +80,11 @@ class Logger {
 
     if (process.env.SENTRY_DSN) {
       try {
-        // Guard against placeholder DSNs that are often left in example env files
         const rawDsn = String(process.env.SENTRY_DSN).trim();
         const looksLikePlaceholder = /your[_-]?sentry|your_sentry_dsn_here|example_sentry/i.test(rawDsn) || rawDsn.length === 0;
         if (looksLikePlaceholder) {
-          // Avoid initializing Sentry with a placeholder; log to console since pino may not be fully configured yet
-          // and ensure downstream code does not attempt to use Sentry.
-          // eslint-disable-next-line no-console
           console.warn('SENTRY_DSN appears to be a placeholder or invalid; skipping Sentry initialization.');
-          try {
-            // remove it from process.env so other modules know it's disabled
-            delete (process.env as any).SENTRY_DSN;
-          } catch {}
+          delete (process.env as any).SENTRY_DSN;
         } else {
           Sentry.init({
             dsn: rawDsn,
@@ -97,15 +92,14 @@ class Logger {
             tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0.0),
           });
         }
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('Sentry initialization failed (non-fatal):', e instanceof Error ? e.message : String(e));
+      } catch (error) {
+        console.warn('Sentry initialization failed (non-fatal):', error instanceof Error ? error.message : String(error));
       }
     }
   }
 
   private shouldLog(level: LogLevel): boolean {
-    const levels = Object.values(LogLevel);
+    const levels = Object.values(LOG_LEVELS);
     const currentLevelIndex = levels.indexOf(this.logLevel);
     const messageLevelIndex = levels.indexOf(level);
     return messageLevelIndex <= currentLevelIndex;
@@ -141,16 +135,16 @@ class Logger {
       };
     }
     switch (level) {
-      case LogLevel.ERROR:
+      case LOG_LEVELS.ERROR:
         this.pino.error(payload, message);
         break;
-      case LogLevel.WARN:
+      case LOG_LEVELS.WARN:
         this.pino.warn(payload, message);
         break;
-      case LogLevel.DEBUG:
+      case LOG_LEVELS.DEBUG:
         this.pino.debug(payload, message);
         break;
-      case LogLevel.TRACE:
+      case LOG_LEVELS.TRACE:
         this.pino.trace(payload, message);
         break;
       default:
@@ -159,8 +153,8 @@ class Logger {
   }
 
   error(message: string, context?: LogContext, error?: Error): void {
-    if (this.shouldLog(LogLevel.ERROR)) {
-      const logEntry = this.formatLog(LogLevel.ERROR, message, context, error);
+    if (this.shouldLog(LOG_LEVELS.ERROR)) {
+      const logEntry = this.formatLog(LOG_LEVELS.ERROR, message, context, error);
       this.outputLog(logEntry);
       if (process.env.SENTRY_DSN && error) {
         try {
@@ -169,35 +163,37 @@ class Logger {
             scope.setExtra('message', message);
             Sentry.captureException(error);
           });
-        } catch {}
+        } catch (scopeError) {
+          this.pino.warn({ scopeError: scopeError instanceof Error ? scopeError.message : scopeError }, 'Failed to capture exception in Sentry');
+        }
       }
     }
   }
 
   warn(message: string, context?: LogContext): void {
-    if (this.shouldLog(LogLevel.WARN)) {
-      const logEntry = this.formatLog(LogLevel.WARN, message, context);
+    if (this.shouldLog(LOG_LEVELS.WARN)) {
+      const logEntry = this.formatLog(LOG_LEVELS.WARN, message, context);
       this.outputLog(logEntry);
     }
   }
 
   info(message: string, context?: LogContext): void {
-    if (this.shouldLog(LogLevel.INFO)) {
-      const logEntry = this.formatLog(LogLevel.INFO, message, context);
+    if (this.shouldLog(LOG_LEVELS.INFO)) {
+      const logEntry = this.formatLog(LOG_LEVELS.INFO, message, context);
       this.outputLog(logEntry);
     }
   }
 
   debug(message: string, context?: LogContext): void {
-    if (this.shouldLog(LogLevel.DEBUG)) {
-      const logEntry = this.formatLog(LogLevel.DEBUG, message, context);
+    if (this.shouldLog(LOG_LEVELS.DEBUG)) {
+      const logEntry = this.formatLog(LOG_LEVELS.DEBUG, message, context);
       this.outputLog(logEntry);
     }
   }
 
   trace(message: string, context?: LogContext): void {
-    if (this.shouldLog(LogLevel.TRACE)) {
-      const logEntry = this.formatLog(LogLevel.TRACE, message, context);
+    if (this.shouldLog(LOG_LEVELS.TRACE)) {
+      const logEntry = this.formatLog(LOG_LEVELS.TRACE, message, context);
       this.outputLog(logEntry);
     }
   }

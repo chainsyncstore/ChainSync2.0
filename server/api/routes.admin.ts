@@ -1,12 +1,13 @@
-import type { Express, Request, Response } from 'express';
-import { db } from '../db';
-import { users, ipWhitelist, products, priceChanges, subscriptions, subscriptionPayments, dunningEvents, organizations } from '@shared/prd-schema';
-import { eq, and, sql, like, gte, lte } from 'drizzle-orm';
-import { z } from 'zod';
 import bcrypt from 'bcrypt';
+import { eq, and, sql, gte, lte } from 'drizzle-orm';
+import type { Express, Request, Response } from 'express';
 import multer from 'multer';
-import { requireAuth, requireRole, enforceIpWhitelist } from '../middleware/authz';
+import { z } from 'zod';
+import { users, ipWhitelist, priceChanges, subscriptions, subscriptionPayments, dunningEvents, organizations } from '@shared/prd-schema';
+import { db } from '../db';
+import { logger } from '../lib/logger';
 import { getPlan } from '../lib/plans';
+import { requireAuth, requireRole, enforceIpWhitelist } from '../middleware/authz';
 import { PaymentService } from '../payment/service';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
@@ -355,11 +356,6 @@ export async function registerAdminRoutes(app: Express) {
     }
 
     // Build selection criteria
-    const conditions: any[] = [eq(products.orgId as any, me.orgId as any)];
-    if (parsed.data.productIds?.length) {
-      // Use IN clause via raw SQL for simplicity in this codepath
-      // Note: Parameterize in production; this path trusts validated UUIDs
-    }
     const selectSqlParts: string[] = [
       'SELECT id, sale_price FROM products WHERE org_id = $1'
     ];
@@ -407,8 +403,20 @@ export async function registerAdminRoutes(app: Express) {
       if (pg) await pg.query('COMMIT');
       if (idempotencyKey) appliedIdempotency.add(idempotencyKey);
       res.status(200).json({ applied: parsed.data.dryRun ? 0 : changes.length, preview: parsed.data.dryRun, changes });
-    } catch (e) {
-      if (pg) await pg.query('ROLLBACK');
+    } catch (error) {
+      if (pg) {
+        try {
+          await pg.query('ROLLBACK');
+        } catch (rollbackError) {
+          logger.warn('Bulk pricing transaction rollback failed', {
+            error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+          });
+        }
+      }
+      logger.error('Bulk pricing apply failed', {
+        orgId: me.orgId,
+        error: error instanceof Error ? error.message : String(error)
+      });
       res.status(500).json({ error: 'Bulk pricing failed' });
     } finally {
       pg?.release?.();
@@ -444,8 +452,20 @@ export async function registerAdminRoutes(app: Express) {
       }
       if (pg) await pg.query('COMMIT');
       res.json({ applied: count });
-    } catch (e) {
-      if (pg) await pg.query('ROLLBACK');
+    } catch (error) {
+      if (pg) {
+        try {
+          await pg.query('ROLLBACK');
+        } catch (rollbackError) {
+          logger.warn('Bulk pricing upload rollback failed', {
+            error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+          });
+        }
+      }
+      logger.error('Bulk pricing upload failed', {
+        orgId: me.orgId,
+        error: error instanceof Error ? error.message : String(error)
+      });
       res.status(500).json({ error: 'Bulk upload failed' });
     } finally {
       pg?.release?.();

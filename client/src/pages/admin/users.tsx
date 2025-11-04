@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 
 export default function AdminUsersPage() {
   const [rows, setRows] = useState<any[]>([]);
@@ -12,7 +12,7 @@ export default function AdminUsersPage() {
   const [password, setPassword] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -21,13 +21,14 @@ export default function AdminUsersPage() {
       const data = await res.json();
       setRows(data.users || []);
     } catch (e: any) {
+      console.error('Failed to load admin users', e);
       setError(e?.message || 'Failed to load users');
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, [load]);
 
   async function createUser() {
     try {
@@ -41,6 +42,7 @@ export default function AdminUsersPage() {
       setEmail(''); setPassword(''); setIsAdmin(false);
       await load();
     } catch (e: any) {
+      console.error('Failed to create admin user', e);
       alert(e?.message || 'Create failed');
     }
   }
@@ -52,6 +54,7 @@ export default function AdminUsersPage() {
       if (res.status !== 204) throw new Error('Failed to delete user');
       await load();
     } catch (e: any) {
+      console.error('Failed to delete admin user', e);
       alert(e?.message || 'Delete failed');
     }
   }

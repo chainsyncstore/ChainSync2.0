@@ -24,7 +24,7 @@ if (isDevelopment() && !(self && self.__E2E_ENABLE_SW === true)) {
   // Don't register any other event listeners in development
   // Use a function to avoid illegal return statement
   const disableInDevelopment = () => {
-    // Early exit for development
+    /* empty */
   };
   disableInDevelopment();
 }
@@ -185,7 +185,9 @@ self.addEventListener('activate', (event) => {
     heartbeatTimer = setInterval(() => {
       // noop; could postMessage to clients if needed
     }, 60 * 60 * 1000); // hourly noop
-  } catch {}
+  } catch (error) {
+    console.warn('Heartbeat interval cleanup failed', error);
+  }
 });
 
 // Fetch event - handle offline requests
@@ -247,13 +249,43 @@ async function handleApiRequest(request) {
     }
     
     // For critical POS sales endpoint, do not fabricate success.
-    // Let page logic enqueue offline; return 503 to trigger fallback UI
     if (isCriticalEndpoint(request.url)) {
-      return new Response(JSON.stringify({ status: 'offline', message: 'Saved for offline sync (client)', data: null }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      const url = new URL(request.url);
+
+      if (url.pathname.startsWith('/api/pos/sales')) {
+        return new Response(JSON.stringify({
+          status: 'offline',
+          message: 'Sale saved locally. Will sync when online.',
+          data: null
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (url.pathname.startsWith('/api/products/barcode')) {
+        return new Response(JSON.stringify({
+          status: 'offline',
+          message: 'Product lookup unavailable offline',
+          data: null
+        }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      return new Response(JSON.stringify({
+        status: 'offline',
+        message: 'Service temporarily unavailable',
+        data: null
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
-    
+
     // Don't throw error, just return a fallback response
-    console.warn('API request failed, returning fallback:', request.url);
+    console.warn('API request failed, returning fallback:', request.url, error);
     return new Response(JSON.stringify({
       status: 'error',
       message: 'Service temporarily unavailable',
@@ -273,17 +305,16 @@ async function handleStaticResource(request) {
     if (cachedResponse) {
       return cachedResponse;
     }
-    
+
     // Fallback to network
     const response = await fetch(request);
     if (response.ok) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, response.clone());
     }
-    
+
     return response;
-  } catch (error) {
-    console.error('Static resource fetch failed:', error);
+  } catch {
     // Return a fallback response instead of throwing
     return new Response('Resource not available', {
       status: 404,
@@ -318,7 +349,7 @@ async function handleNavigation(request) {
     const response = await fetch(request);
     return response;
   } catch (error) {
-    console.log('Navigation failed, serving offline page');
+    console.log('Navigation failed, serving offline page', error);
     
     // Return cached index.html for offline navigation
     const cachedResponse = await caches.match('/index.html');
@@ -360,49 +391,6 @@ function isCriticalEndpoint(url) {
   return criticalPatterns.some(pattern => url.includes(pattern));
 }
 
-// Create offline response for critical endpoints
-function createOfflineResponse(request) {
-  const url = new URL(request.url);
-  
-  // Return appropriate offline response based on endpoint
-  if (url.pathname.startsWith('/api/pos/sales')) {
-    return new Response(JSON.stringify({
-      status: 'offline',
-      message: 'Sale saved locally. Will sync when online.',
-      data: { localId: generateLocalId() }
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  if (url.pathname.startsWith('/api/products/barcode')) {
-    return new Response(JSON.stringify({
-      status: 'offline',
-      message: 'Product lookup unavailable offline',
-      data: null
-    }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  // Default offline response
-  return new Response(JSON.stringify({
-    status: 'offline',
-    message: 'Service temporarily unavailable',
-    data: null
-  }), {
-    status: 503,
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
-// Generate local ID for offline transactions
-function generateLocalId() {
-  return `local_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
-}
-
 // Background sync for offline data
 self.addEventListener('sync', (event) => {
   if (event.tag === 'background-sync') {
@@ -416,7 +404,9 @@ self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'TRY_SYNC') {
       event.waitUntil(syncOfflineData());
     }
-  } catch {}
+  } catch {
+    /* empty */
+  }
 });
 
 // Sync offline data when connection is restored
@@ -511,7 +501,10 @@ async function syncOfflineData() {
           try {
             const ct = res.headers.get('content-type') || '';
             if (ct.includes('application/json')) payload = await res.clone().json();
-          } catch {}
+          } catch (error) {
+            console.warn('Failed to parse response:', error);
+          }
+          
           await deleteOfflineSale(item.id);
           syncedCount++;
           // Notify clients of each synced sale
@@ -527,7 +520,9 @@ async function syncOfflineData() {
                 }
               });
             });
-          } catch {}
+          } catch (error) {
+            console.error('Failed to notify clients:', error);
+          }
         } else {
           await updateOfflineSaleFailure(item.id, `HTTP ${res.status}`);
         }
@@ -649,9 +644,13 @@ self.addEventListener('message', (event) => {
             try {
               const res = await fetch(u, { credentials: 'include' });
               if (res.ok) await cache.put(u, res.clone());
-            } catch {}
+            } catch (error) {
+              console.warn('Failed to prewarm cache entry', u, error);
+            }
           }));
-        } catch {}
+        } catch (error) {
+          console.error('Failed to prewarm caches:', error);
+        }
       })());
       break;
     case 'DISABLE':
@@ -679,14 +678,14 @@ setInterval(async () => {
   try {
     const cache = await caches.open(OFFLINE_CACHE);
     const requests = await cache.keys();
-    
+
     // Remove old cached responses (older than 7 days)
     const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    
+
     for (const request of requests) {
       const response = await cache.match(request);
       const date = response.headers.get('date');
-      
+
       if (date && new Date(date).getTime() < cutoff) {
         await cache.delete(request);
       }
@@ -703,4 +702,4 @@ setInterval(async () => {
   } catch (error) {
     console.error('Cache cleanup failed:', error);
   }
-}, 24 * 60 * 60 * 1000); // Run daily 
+}, 24 * 60 * 60 * 1000); // Run daily

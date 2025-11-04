@@ -1,8 +1,9 @@
+import { and, desc, eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
-import { db } from '../db';
-import { customers, loyaltyAccounts, loyaltyTransactions, sales, saleItems, stores, users } from '@shared/prd-schema';
-import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { loyaltyAccounts, loyaltyTransactions, users } from '@shared/prd-schema';
+import { db } from '../db';
+import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/authz';
 
 const EarnSchema = z.object({
@@ -35,7 +36,12 @@ export async function registerLoyaltyRoutes(app: Express) {
         .orderBy(desc(loyaltyTransactions.createdAt))
         .limit(50);
       return res.json({ points: acct.points, tier: acct.tier, transactions: tx });
-    } catch (err) {
+    } catch (error) {
+      logger.error('Failed to load loyalty account', {
+        userId: req.session?.userId,
+        customerId: req.params.customerId,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(500).json({ error: 'Failed to load loyalty' });
     }
   });
@@ -81,13 +87,31 @@ export async function registerLoyaltyRoutes(app: Express) {
 
         if (hasTx && pg) await pg.query('COMMIT');
         return res.json({ points: updated.points });
-      } catch (err) {
-        if (hasTx && pg) { try { await pg.query('ROLLBACK'); } catch {} }
+      } catch (error) {
+        if (hasTx && pg) {
+          try {
+            await pg.query('ROLLBACK');
+          } catch (rollbackError) {
+            logger.warn('Loyalty earn rollback failed', {
+              error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+            });
+          }
+        }
+        logger.error('Failed to earn loyalty points', {
+          userId,
+          customerId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return res.status(500).json({ error: 'Failed to earn points' });
       } finally {
         if (hasTx && pg) pg.release();
       }
-    } catch (err) {
+    } catch (error) {
+      logger.error('Failed to earn loyalty points', {
+        userId: req.session?.userId,
+        customerId: req.params.customerId,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(500).json({ error: 'Failed to earn points' });
     }
   });
@@ -132,13 +156,31 @@ export async function registerLoyaltyRoutes(app: Express) {
 
         if (hasTx && pg) await pg.query('COMMIT');
         return res.json({ points: updated.points });
-      } catch (err) {
-        if (hasTx && pg) { try { await pg.query('ROLLBACK'); } catch {} }
+      } catch (error) {
+        if (hasTx && pg) {
+          try {
+            await pg.query('ROLLBACK');
+          } catch (rollbackError) {
+            logger.warn('Loyalty redeem rollback failed', {
+              error: rollbackError instanceof Error ? error.message : String(rollbackError)
+            });
+          }
+        }
+        logger.error('Failed to redeem loyalty points', {
+          userId,
+          customerId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return res.status(500).json({ error: 'Failed to redeem points' });
       } finally {
         if (hasTx && pg) pg.release();
       }
-    } catch (err) {
+    } catch (error) {
+      logger.error('Failed to redeem loyalty points', {
+        userId: req.session?.userId,
+        customerId: req.params.customerId,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(500).json({ error: 'Failed to redeem points' });
     }
   });

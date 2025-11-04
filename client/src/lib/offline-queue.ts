@@ -17,6 +17,12 @@ type OfflineSaleRecord = {
 const DB_NAME = 'chainsync_offline';
 const STORE = 'offline_sales';
 
+type SyncCapableRegistration = ServiceWorkerRegistration & {
+  sync?: {
+    register?: unknown;
+  };
+};
+
 function generateRandomString(): string {
   try {
     if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
@@ -24,14 +30,18 @@ function generateRandomString(): string {
       crypto.getRandomValues(arr);
       return Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('');
     }
-  } catch {}
+  } catch (error) {
+    console.warn('Falling back to Math.random for id generation', error);
+  }
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
 export function generateIdempotencyKey(): string {
   try {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return (crypto as any).randomUUID();
-  } catch {}
+  } catch (error) {
+    console.warn('Falling back to manual idempotency key generation', error);
+  }
   return `idemp_${Date.now()}_${generateRandomString()}`;
 }
 
@@ -108,15 +118,17 @@ export async function enqueueOfflineSale(params: { url: string; payload: any; id
   try {
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.ready;
-      type SWRegWithSync = ServiceWorkerRegistration & { sync?: { register: (tag: string) => Promise<void> } };
-      const regWithSync = reg as SWRegWithSync;
-      if (regWithSync.sync && typeof regWithSync.sync.register === 'function') {
-        await regWithSync.sync.register('background-sync');
+      const regWithSync = reg as SyncCapableRegistration;
+      const registerBackgroundSync = regWithSync.sync?.register;
+      if (typeof registerBackgroundSync === 'function') {
+        await registerBackgroundSync.call(regWithSync.sync, 'background-sync');
       }
       // Also ping SW to try immediate sync
       reg.active?.postMessage({ type: 'TRY_SYNC' });
     }
-  } catch {}
+  } catch (error) {
+    console.warn('Service worker sync registration failed', error);
+  }
 
   return { localId, idempotencyKey: params.idempotencyKey };
 }
@@ -141,13 +153,15 @@ export async function processQueueNow(): Promise<void> {
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.ready;
       reg.active?.postMessage({ type: 'TRY_SYNC' });
-      type SWRegWithSync = ServiceWorkerRegistration & { sync?: { register: (tag: string) => Promise<void> } };
-      const regWithSync = reg as SWRegWithSync;
-      if (regWithSync.sync && typeof regWithSync.sync.register === 'function') {
-        await regWithSync.sync.register('background-sync');
+      const regWithSync = reg as SyncCapableRegistration;
+      const registerBackgroundSync = regWithSync.sync?.register;
+      if (typeof registerBackgroundSync === 'function') {
+        await registerBackgroundSync.call(regWithSync.sync, 'background-sync');
       }
     }
-  } catch {}
+  } catch (error) {
+    console.warn('Manual queue processing failed to notify service worker', error);
+  }
 }
 
 export async function listQueuedSales(): Promise<OfflineSaleRecord[]> {

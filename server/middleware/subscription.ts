@@ -1,7 +1,7 @@
-import type { Request, Response, NextFunction } from 'express';
-import { db } from '../db';
-import { subscriptions, users } from '@shared/prd-schema';
 import { eq } from 'drizzle-orm';
+import type { Request, Response, NextFunction } from 'express';
+import { subscriptions, users } from '@shared/prd-schema';
+import { db } from '../db';
 
 // Enforce org active subscription for non-admin users
 export async function requireActiveSubscription(req: Request, res: Response, next: NextFunction) {

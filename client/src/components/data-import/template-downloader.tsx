@@ -1,5 +1,5 @@
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Download, FileText } from "lucide-react";
 
 interface TemplateDownloaderProps {
   type: "inventory" | "products" | "transactions" | "loyalty";
@@ -169,21 +169,6 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  const getTemplateDescription = () => {
-    switch (type) {
-      case "inventory":
-        return "Download inventory template with product details, pricing, and stock levels";
-      case "products":
-        return "Download product catalog template with pricing and category info";
-      case "transactions":
-        return "Download transaction history template for analytics";
-      case "loyalty":
-        return "Download loyalty program template with customer data and points";
-      default:
-        return "Download CSV template";
-    }
   };
 
   return (

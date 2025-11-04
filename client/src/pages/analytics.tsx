@@ -1,29 +1,21 @@
-import { useState, useEffect, Suspense, lazy } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/use-auth";
-const SalesChart = lazy(() => import("@/components/analytics/sales-chart"));
-// PRD: Remove AI features from v1
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Calendar, DollarSign, Package, TrendingUp, Users, Zap } from "lucide-react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartSkeleton } from "@/components/ui/loading";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Users, Calendar, Brain, Zap } from "lucide-react";
-import { formatCurrency } from "@/lib/pos-utils";
-import { LoadingSpinner, CardSkeleton, ChartSkeleton } from "@/components/ui/loading";
-import type { Store, LowStockAlert, Product } from "@shared/schema";
 import { useRealtimeSales } from "@/hooks/use-realtime-sales";
+import { formatCurrency } from "@/lib/pos-utils";
+import type { Store, LowStockAlert, Product } from "@shared/schema";
+
+const SalesChart = lazy(() => import("@/components/analytics/sales-chart"));
 
 export default function Analytics() {
-  const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [selectedPeriod, setSelectedPeriod] = useState("30");
-
-  const userData = {
-    role: (user as any)?.role || ((user as any)?.isAdmin ? 'admin' : 'manager'),
-    name: `${user?.firstName || "User"} ${user?.lastName || ""}`.trim(),
-    initials: `${user?.firstName?.[0] || "U"}${user?.lastName?.[0] || ""}`,
-  };
 
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -67,7 +59,7 @@ export default function Analytics() {
     queryFn: () => {
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 30); // Last 30 days
+      startDate.setDate(startDate.getDate() - 30);
 
       return fetch(`/api/stores/${storeId}/analytics/profit-loss?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`, {
         credentials: "include",
@@ -94,11 +86,7 @@ export default function Analytics() {
     enabled: Boolean(storeId),
   });
 
-
-
   const profitMargin = profitLoss.revenue > 0 ? (profitLoss.profit / profitLoss.revenue) * 100 : 0;
-
-
 
   return (
     <div className="space-y-6">
@@ -143,7 +131,7 @@ export default function Analytics() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Today's Revenue</CardTitle>
+                <CardTitle className="text-sm font-medium">Today&apos;s Revenue</CardTitle>
                 <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>

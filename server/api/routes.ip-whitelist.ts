@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { storage } from '../storage';
 import { requireAuth, requireRole } from '../middleware/authz';
+import { storage } from '../storage';
 
 const normalizeRole = (role?: string): 'ADMIN' | 'MANAGER' | 'CASHIER' => {
   const value = (role || '').toUpperCase();

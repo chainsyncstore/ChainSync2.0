@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface AuditLog {
 	id: string;
@@ -22,20 +22,23 @@ export default function AdminAuditPage() {
 
 	useEffect(() => {
 		let isMounted = true;
-		(async () => {
+		const loadLogs = async () => {
+			setLoading(true);
+			setError(null);
 			try {
-				setLoading(true);
 				const res = await fetch('/api/admin/audit?limit=50', { credentials: 'include' });
 				if (!res.ok) throw new Error(`Failed to load audit logs (${res.status})`);
 				const data = await res.json();
 				if (isMounted) setLogs(data.logs || []);
 			} catch (e: any) {
+				console.error('Failed to load audit logs', e);
 				if (isMounted) setError(e?.message || 'Failed to load audit logs');
 			} finally {
 				if (isMounted) setLoading(false);
 			}
-		})();
-		return () => { isMounted = false };
+		};
+		void loadLogs();
+		return () => { isMounted = false; };
 	}, []);
 
 	return (

@@ -29,7 +29,8 @@ async function testFlutterwavePayment() {
         try {
           const parsed = JSON.parse(responseData);
           resolve({ statusCode: res.statusCode, data: parsed });
-        } catch (error) {
+        } catch (parseError) {
+          console.warn('Unable to parse Flutterwave test response as JSON', parseError);
           resolve({ statusCode: res.statusCode, data: responseData });
         }
       });

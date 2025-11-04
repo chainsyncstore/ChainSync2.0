@@ -1,13 +1,12 @@
-import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Badge } from "@/components/ui/badge";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 import { CalendarIcon, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, BarChart3, PieChart as PieChartIcon } from "lucide-react";
+import { useState } from "react";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatDate } from "@/lib/pos-utils";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
@@ -223,7 +222,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
           </ResponsiveContainer>
         );
 
-      case "pie":
+      case "pie": {
         // For pie chart, we'll show revenue distribution by day
         const pieData = salesData.map((item, index) => ({
           name: formatDate(new Date(item.date), "MMM dd"),
@@ -254,6 +253,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
             </PieChart>
           </ResponsiveContainer>
         );
+      }
 
       default:
         return null;

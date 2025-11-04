@@ -1,17 +1,17 @@
-import { useState, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Building2, TrendingUp, Users, Package, DollarSign } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Building2, TrendingUp, Users, Package, DollarSign, BarChart3 } from "lucide-react";
-import { formatCurrency } from "@/lib/pos-utils";
-import type { Store, LowStockAlert } from "@shared/schema";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation } from "wouter";
+import { formatCurrency } from "@/lib/pos-utils";
+import type { Store, LowStockAlert } from "@shared/schema";
 
 export default function MultiStore() {
   const [selectedStore, setSelectedStore] = useState<string>("");
@@ -20,12 +20,7 @@ export default function MultiStore() {
   const [newStoreCurrency, setNewStoreCurrency] = useState<'NGN' | 'USD'>("NGN");
   const { toast } = useToast();
   const [, navigate] = useLocation();
-
-  const userData = {
-    role: "admin",
-    name: "John Doe",
-    initials: "JD",
-  };
+  const queryClient = useQueryClient();
 
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -41,8 +36,9 @@ export default function MultiStore() {
   const { data: alerts = [] } = useQuery<LowStockAlert[]>({
     queryKey: ["/api/stores", selectedStore, "alerts"],
   });
+  const selectedStoreLowStock = alerts.length;
 
-  const createStore = async () => {
+  const createStore = useCallback(async () => {
     if (!newStoreName.trim()) {
       toast({ title: "Store name required", variant: "destructive" });
       return;
@@ -58,11 +54,12 @@ export default function MultiStore() {
       setNewStoreName("");
       setNewStoreAddress("");
       toast({ title: "Store created", description: `Currency: ${newStoreCurrency}` });
-      location.reload();
-    } catch {
+      await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+    } catch (error) {
+      console.error("Failed to create store", error);
       toast({ title: "Failed to create store", variant: "destructive" });
     }
-  };
+  }, [newStoreAddress, newStoreCurrency, newStoreName, queryClient, toast]);
 
   const mockMetrics = useMemo(() => ([
     {
@@ -127,8 +124,18 @@ export default function MultiStore() {
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Add Store</CardTitle>
+          {selectedStore && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>Selected store:</span>
+              <Badge variant={selectedStoreLowStock > 0 ? "destructive" : "secondary"}>
+                {selectedStoreLowStock > 0
+                  ? `${selectedStoreLowStock} low stock alert${selectedStoreLowStock > 1 ? 's' : ''}`
+                  : 'No low stock alerts'}
+              </Badge>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
@@ -273,11 +280,11 @@ export default function MultiStore() {
                         )}
                       </div>
                     </div>
-                    
+
                     <Button
                       className="w-full mt-4"
                       variant="outline"
-                      disabled={!store.id.startsWith('placeholder-') && !store.id}
+                      disabled={store.id.startsWith('placeholder-')}
                       onClick={() => {
                         if (store.id.startsWith('placeholder-')) return;
                         navigate(`/stores/${store.id}/staff`);

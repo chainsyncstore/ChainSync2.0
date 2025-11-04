@@ -1,23 +1,25 @@
+import { CheckCircle, Pause, X, CreditCard, Banknote } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/pos-utils";
-import { CheckCircle, Pause, X, CreditCard, Banknote } from "lucide-react";
 import type { CartSummary, PaymentData } from "@/types/pos";
 
+/* eslint-disable no-unused-vars -- prop names document the external API */
 interface CheckoutPanelProps {
   summary: CartSummary;
   payment: PaymentData;
   dailyStats: { transactions: number; revenue: number };
-  onPaymentMethodChange: (method: "cash" | "card") => void;
-  onAmountReceivedChange: (amount: number) => void;
-  onCompleteSale: () => void;
-  onHoldTransaction: () => void;
-  onVoidTransaction: () => void;
+  onPaymentMethodChange(method: "cash" | "card"): void;
+  onAmountReceivedChange(amount: number): void;
+  onCompleteSale(): void;
+  onHoldTransaction(): void;
+  onVoidTransaction(): void;
   isProcessing?: boolean;
   currency?: 'USD' | 'NGN';
 }
+/* eslint-enable no-unused-vars */
 
 export default function CheckoutPanel({
   summary,
@@ -38,15 +40,23 @@ export default function CheckoutPanel({
 
   useEffect(() => {
     const load = async () => {
-      const { getOfflineQueueCount } = await import("@/lib/offline-queue");
-      setQueuedCount(await getOfflineQueueCount());
+      try {
+        const { getOfflineQueueCount } = await import("@/lib/offline-queue");
+        setQueuedCount(await getOfflineQueueCount());
+      } catch (err) {
+        console.error('Failed to load offline queue count', err);
+      }
     };
-    load();
+    void load();
     const onOnline = async () => {
-      setIsOnline(true);
-      const { processQueueNow, getOfflineQueueCount } = await import("@/lib/offline-queue");
-      await processQueueNow();
-      setQueuedCount(await getOfflineQueueCount());
+      try {
+        setIsOnline(true);
+        const { processQueueNow, getOfflineQueueCount } = await import("@/lib/offline-queue");
+        await processQueueNow();
+        setQueuedCount(await getOfflineQueueCount());
+      } catch (err) {
+        console.error('Failed to process offline queue on reconnect', err);
+      }
     };
     const onOffline = () => setIsOnline(false);
     window.addEventListener('online', onOnline);
@@ -87,7 +97,20 @@ export default function CheckoutPanel({
       <div className="flex items-center justify-between text-xs">
         <span className={`font-medium ${isOnline ? 'text-green-700' : 'text-amber-700'}`}>{isOnline ? 'Online' : 'Offline'}</span>
         {queuedCount > 0 && (
-          <button className="text-blue-600 hover:underline" onClick={async () => { const { processQueueNow, getOfflineQueueCount } = await import("@/lib/offline-queue"); await processQueueNow(); setQueuedCount(await getOfflineQueueCount()); }}>Sync pending ({queuedCount})</button>
+          <button
+            className="text-blue-600 hover:underline"
+            onClick={async () => {
+              try {
+                const { processQueueNow, getOfflineQueueCount } = await import("@/lib/offline-queue");
+                await processQueueNow();
+                setQueuedCount(await getOfflineQueueCount());
+              } catch (err) {
+                console.error('Failed to sync pending sales', err);
+              }
+            }}
+          >
+            Sync pending ({queuedCount})
+          </button>
         )}
       </div>
       {/* Order Summary */}
@@ -199,7 +222,7 @@ export default function CheckoutPanel({
 
       {/* Quick Stats */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Today's Stats</h3>
+        <h3 className="text-lg font-semibold text-slate-800 mb-4">Today&rsquo;s Stats</h3>
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <div>

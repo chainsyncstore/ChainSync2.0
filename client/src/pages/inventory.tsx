@@ -1,21 +1,25 @@
-import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/use-auth";
-import StockAdjustment from "@/components/inventory/stock-adjustment";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Package, AlertTriangle, Search, Filter, Edit, Eye } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Package, AlertTriangle, Search, Filter, Edit, Trash2, Eye } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/pos-utils";
-import { LoadingSpinner, CardSkeleton, TableRowSkeleton } from "@/components/ui/loading";
-import type { Store, Inventory, Product, LowStockAlert } from "@shared/schema";
+import type { Store, Inventory as InventoryEntry, Product, LowStockAlert } from "@shared/schema";
+
+type InventoryWithProduct = InventoryEntry & { product: Product };
+type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
+type StockStatus = {
+  status: "out" | "low" | "over" | "good";
+  color: BadgeVariant;
+  text: string;
+};
 
 export default function Inventory() {
-  const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
@@ -23,12 +27,6 @@ export default function Inventory() {
   const [stockFilter, setStockFilter] = useState<string>("all");
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [isBulkActionsOpen, setIsBulkActionsOpen] = useState(false);
-
-  const userData = {
-    role: user?.role || "manager",
-    name: `${user?.firstName || "User"} ${user?.lastName || ""}`.trim(),
-    initials: `${user?.firstName?.[0] || "U"}${user?.lastName?.[0] || ""}`,
-  };
 
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -43,7 +41,7 @@ export default function Inventory() {
 
   const storeId = selectedStore?.trim() || "";
 
-  const { data: inventory = [] } = useQuery<Inventory[]>({
+  const { data: inventory = [] } = useQuery<InventoryEntry[]>({
     queryKey: ["/api/stores", storeId, "inventory"],
     enabled: Boolean(storeId),
   });
@@ -64,52 +62,64 @@ export default function Inventory() {
   const { data: brands = [] } = useQuery<string[]>({
     queryKey: ["/api/products/brands"],
   });
+  const inventoryWithProducts = useMemo<InventoryWithProduct[]>(() => (
+    inventory
+      .map((inv) => {
+        const product = products.find((p: Product) => p.id === inv.productId);
+        return product ? { ...inv, product } : null;
+      })
+      .filter((item): item is InventoryWithProduct => Boolean(item))
+  ), [inventory, products]);
 
+  const filteredInventory = useMemo<InventoryWithProduct[]>(() => {
+    return inventoryWithProducts.filter((item) => {
+      const matchesSearch = item.product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.product.barcode?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = selectedCategory === "all" || !selectedCategory || item.product.category === selectedCategory;
+      const matchesBrand = selectedBrand === "all" || !selectedBrand || item.product.brand === selectedBrand;
 
+      let matchesStock = true;
+      switch (stockFilter) {
+        case "low":
+          matchesStock = item.quantity <= item.minStockLevel;
+          break;
+        case "out":
+          matchesStock = item.quantity === 0;
+          break;
+        case "overstocked":
+          matchesStock = item.quantity > item.maxStockLevel;
+          break;
+        default:
+          matchesStock = true;
+      }
 
-  const inventoryWithProducts = inventory.map((inv: any) => {
-    const product = products.find((p: any) => p.id === inv.productId);
-    return { ...inv, product };
-  }).filter((item: any) => item.product);
+      return matchesSearch && matchesCategory && matchesBrand && matchesStock;
+    });
+  }, [inventoryWithProducts, searchQuery, selectedCategory, selectedBrand, stockFilter]);
 
-  // Apply filters
-  let filteredInventory = inventoryWithProducts.filter((item: any) => {
-    const matchesSearch = item.product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         item.product.barcode.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === "all" || !selectedCategory || item.product.category === selectedCategory;
-    const matchesBrand = selectedBrand === "all" || !selectedBrand || item.product.brand === selectedBrand;
-    
-    let matchesStock = true;
-    switch (stockFilter) {
-      case "low":
-        matchesStock = item.quantity <= item.minStockLevel;
-        break;
-      case "out":
-        matchesStock = item.quantity === 0;
-        break;
-      case "overstocked":
-        matchesStock = item.quantity > item.maxStockLevel;
-        break;
-    }
-    
-    return matchesSearch && matchesCategory && matchesBrand && matchesStock;
-  });
-
-  const lowStockItems = filteredInventory.filter((item: any) => 
-    item.quantity <= item.minStockLevel
+  const lowStockItems = useMemo(
+    () => filteredInventory.filter((item) => item.quantity <= item.minStockLevel),
+    [filteredInventory],
   );
 
-  const outOfStockItems = filteredInventory.filter((item: any) => 
-    item.quantity === 0
+  const outOfStockItems = useMemo(
+    () => filteredInventory.filter((item) => item.quantity === 0),
+    [filteredInventory],
   );
 
-  const overstockedItems = filteredInventory.filter((item: any) => 
-    item.quantity > item.maxStockLevel
+  const overstockedItems = useMemo(
+    () => filteredInventory.filter((item) => item.quantity > item.maxStockLevel),
+    [filteredInventory],
   );
 
-  const handleSelectAll = (checked: boolean) => {
+  const totalStockValue = useMemo(
+    () => filteredInventory.reduce((sum, item) => sum + item.quantity * parseFloat(item.product.price), 0),
+    [filteredInventory],
+  );
+
+  const handleSelectAll = (checked: boolean | "indeterminate") => {
     if (checked) {
-      setSelectedItems(filteredInventory.map((item: any) => item.id));
+      setSelectedItems(filteredInventory.map((item) => item.id));
     } else {
       setSelectedItems([]);
     }
@@ -129,7 +139,7 @@ export default function Inventory() {
     setIsBulkActionsOpen(false);
   };
 
-  const getStockStatus = (item: any) => {
+  const getStockStatus = (item: InventoryWithProduct): StockStatus => {
     if (item.quantity === 0) return { status: "out", color: "destructive", text: "Out of Stock" };
     if (item.quantity <= item.minStockLevel) return { status: "low", color: "secondary", text: "Low Stock" };
     if (item.quantity > item.maxStockLevel) return { status: "over", color: "outline", text: "Overstocked" };
@@ -168,11 +178,7 @@ export default function Inventory() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {formatCurrency(
-                    filteredInventory.reduce((sum: number, item: any) => 
-                      sum + (item.quantity * parseFloat(item.product.price)), 0
-                    )
-                  )}
+                  {formatCurrency(totalStockValue)}
                 </div>
               </CardContent>
             </Card>
@@ -184,6 +190,26 @@ export default function Inventory() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-red-600">{outOfStockItems.length}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Overstocked Items</CardTitle>
+                <Package className="h-4 w-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-600">{overstockedItems.length}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Active Alerts</CardTitle>
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-amber-600">{alerts.length}</div>
               </CardContent>
             </Card>
           </div>
@@ -350,7 +376,14 @@ export default function Inventory() {
                                 <span className="font-medium text-slate-800">{formatCurrency(item.quantity * parseFloat(item.product.price))}</span>
                               </td>
                               <td className="p-3 sm:p-4 text-center">
-                                {(() => { const s = getStockStatus(item); return `${s.text}`; })()}
+                                {(() => {
+                                  const status = getStockStatus(item);
+                                  return (
+                                    <Badge variant={status.color} className="capitalize">
+                                      {status.text}
+                                    </Badge>
+                                  );
+                                })()}
                               </td>
                               <td className="p-3 sm:p-4 text-center">
                                 <div className="flex items-center justify-center space-x-1 sm:space-x-2">

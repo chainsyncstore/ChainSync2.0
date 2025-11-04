@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 let zxcvbn: any = null;
 const loadZxcvbnIfNeeded = () => {
   if (zxcvbn) return;
-  if (process.env.NODE_ENV === 'test') return; // In tests, use fallback logic
+  if (import.meta.env.MODE === 'test') return; // In tests, use fallback logic
   try {
     import('zxcvbn')
       .then(module => {
@@ -69,7 +69,7 @@ export function PasswordStrength({ password, className }: PasswordStrengthProps)
             <p className="font-medium">Suggestions:</p>
             <ul className="list-disc list-inside space-y-1">
               <li>Use a mix of uppercase, lowercase, numbers, and symbols</li>
-              <li>Avoid common words like "password"</li>
+              <li>Avoid common words like &quot;password&quot;</li>
               <li>Make it at least 12 characters long</li>
             </ul>
           </div>

@@ -1,8 +1,8 @@
 import 'dotenv/config';
+import bcrypt from 'bcrypt';
+import { eq } from 'drizzle-orm';
 import { db } from '../server/db';
 import { users } from '../shared/schema';
-import { eq } from 'drizzle-orm';
-import bcrypt from 'bcrypt';
 
 async function ensureAdmin(): Promise<void> {
   try {

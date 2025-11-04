@@ -1,8 +1,9 @@
-import type { Express, Request, Response } from 'express';
-import { db } from '../db';
-import { customers, users, stores } from '@shared/prd-schema';
 import { and, eq } from 'drizzle-orm';
+import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
+import { customers, users, stores } from '@shared/prd-schema';
+import { db } from '../db';
+import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
 
 const CreateCustomerSchema = z.object({
@@ -34,7 +35,12 @@ export async function registerCustomerRoutes(app: Express) {
 
       const rows = await db.select().from(customers).where(and(eq(customers.orgId, orgId), eq(customers.phone, phone))).limit(1);
       res.json(rows[0] || null);
-    } catch (err) {
+    } catch (error) {
+      logger.error('Failed to search customers', {
+        userId: req.session?.userId,
+        query: req.query,
+        error: error instanceof Error ? error.message : String(error)
+      });
       res.status(500).json({ error: 'Failed to search customers' });
     }
   });
@@ -68,7 +74,12 @@ export async function registerCustomerRoutes(app: Express) {
       } as unknown as typeof customers.$inferInsert).returning();
 
       return res.status(201).json(created);
-    } catch (err) {
+    } catch (error) {
+      logger.error('Failed to create customer', {
+        userId: req.session?.userId,
+        body: req.body,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(500).json({ error: 'Failed to create customer' });
     }
   });

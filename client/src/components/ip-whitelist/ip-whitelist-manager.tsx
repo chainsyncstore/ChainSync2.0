@@ -1,17 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import type { Store } from '@shared/schema';
-import { useIpWhitelist, type WhitelistRole } from '../../hooks/use-ip-whitelist';
 import { useAuth } from '../../hooks/use-auth';
+import { useIpWhitelist, type WhitelistRole } from '../../hooks/use-ip-whitelist';
+import { useToast } from '../../hooks/use-toast';
+import { Alert, AlertDescription } from '../ui/alert';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Badge } from '../ui/badge';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { useToast } from '../../hooks/use-toast';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 
 interface IpWhitelistManagerProps {
   stores: Store[];
@@ -79,6 +79,7 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
       setSelectedRoles(['MANAGER', 'CASHIER']);
       setDescription('');
     } catch (err) {
+      console.error('Failed to add IP to whitelist', err);
       toast({
         title: "Error",
         description: "Failed to add IP to whitelist",
@@ -95,6 +96,7 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
         description: "IP address removed from whitelist",
       });
     } catch (err) {
+      console.error('Failed to remove IP from whitelist', err);
       toast({
         title: "Error",
         description: "Failed to remove IP from whitelist",

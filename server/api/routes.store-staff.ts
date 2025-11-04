@@ -1,13 +1,13 @@
+import { and, eq, inArray } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { db } from '../db';
-import { users as sharedUsers, userRoles, userStorePermissions } from '@shared/schema';
 import { stores as prdStores } from '@shared/prd-schema';
-import { and, eq, inArray } from 'drizzle-orm';
+import { users as sharedUsers, userRoles, userStorePermissions } from '@shared/schema';
+import { AuthService } from '../auth';
+import { db } from '../db';
+import { generateStaffCredentialsEmail, sendEmail } from '../email';
 import { requireAuth } from '../middleware/authz';
 import { storage } from '../storage';
-import { AuthService } from '../auth';
-import { generateStaffCredentialsEmail, sendEmail } from '../email';
 
 const StaffCreateSchema = z.object({
   firstName: z.string().min(1, 'First name is required'),

@@ -1,29 +1,30 @@
-import express, { type Express } from 'express';
 import cookieParser from 'cookie-parser';
+import type { Express } from 'express';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
-import { configureSession } from '../session';
 import { loadEnv } from '../../shared/env';
 import { getEmailHealth } from '../email';
-import { registerAuthRoutes } from './routes.auth';
-import { registerSettingsRoutes } from './routes.settings';
-import { registerInventoryRoutes } from './routes.inventory';
-import { registerPosRoutes } from './routes.pos';
-import { registerAnalyticsRoutes } from './routes.analytics';
-import { registerAdminRoutes } from './routes.admin';
-import { registerIpWhitelistRoutes } from './routes.ip-whitelist';
-import { registerStoreRoutes } from './routes.stores';
-import { registerMeRoutes } from './routes.me';
-import { registerCustomerRoutes } from './routes.customers';
-import { registerLoyaltyRoutes } from './routes.loyalty';
-import { registerBillingRoutes } from './routes.billing';
-import { registerPaymentRoutes } from './routes.payment';
-import { registerWebhookRoutes } from './routes.webhooks';
-import { auditMiddleware } from '../middleware/validation';
-import rateLimit from 'express-rate-limit';
+import { logger } from '../lib/logger';
 import { csrfProtection, globalRateLimit, sensitiveEndpointRateLimit } from '../middleware/security';
-import { NotificationService } from '../websocket/notification-service';
+import { auditMiddleware } from '../middleware/validation';
 import { OpenAIService } from '../openai/service';
+import { configureSession } from '../session';
+import { NotificationService } from '../websocket/notification-service';
+import { registerAdminRoutes } from './routes.admin';
+import { registerAnalyticsRoutes } from './routes.analytics';
+import { registerAuthRoutes } from './routes.auth';
+import { registerBillingRoutes } from './routes.billing';
+import { registerCustomerRoutes } from './routes.customers';
+import { registerInventoryRoutes } from './routes.inventory';
+import { registerIpWhitelistRoutes } from './routes.ip-whitelist';
+import { registerLoyaltyRoutes } from './routes.loyalty';
+import { registerMeRoutes } from './routes.me';
+import { registerPaymentRoutes } from './routes.payment';
+import { registerPosRoutes } from './routes.pos';
+import { registerSettingsRoutes } from './routes.settings';
 import { registerStoreStaffRoutes } from './routes.store-staff';
+import { registerStoreRoutes } from './routes.stores';
+import { registerWebhookRoutes } from './routes.webhooks';
 
 export async function registerRoutes(app: Express) {
   const env = loadEnv(process.env);
@@ -53,27 +54,31 @@ export async function registerRoutes(app: Express) {
   });
 
   // API routes
+  await registerAdminRoutes(app);
+  await registerAnalyticsRoutes(app);
   await registerAuthRoutes(app);
-  await registerMeRoutes(app);
-  await registerSettingsRoutes(app);
+  await registerBillingRoutes(app);
+  await registerCustomerRoutes(app);
   await registerInventoryRoutes(app);
+  await registerIpWhitelistRoutes(app);
+  await registerLoyaltyRoutes(app);
+  await registerMeRoutes(app);
+  await registerPaymentRoutes(app);
+  await registerPosRoutes(app);
+  await registerSettingsRoutes(app);
   await registerStoreRoutes(app);
   await registerStoreStaffRoutes(app);
-  await registerCustomerRoutes(app);
-  await registerLoyaltyRoutes(app);
-  await registerPosRoutes(app);
-  await registerAnalyticsRoutes(app);
-  await registerIpWhitelistRoutes(app);
-  await registerAdminRoutes(app);
-  await registerBillingRoutes(app);
-  await registerPaymentRoutes(app);
   await registerWebhookRoutes(app);
 
   // Test-only utility routes
   try {
     const { registerTestRoutes } = await import('./routes.test');
     await registerTestRoutes(app);
-  } catch {}
+  } catch (error) {
+    logger.warn('Test routes unavailable; continuing without them', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 
   // Final API 404 handler for unmatched routes (all methods)
   app.all('/api/*', (req, res) => {
@@ -95,6 +100,9 @@ export async function registerRoutes(app: Express) {
         payload: openaiResponse.payload,
       });
     } catch (error) {
+      logger.error('OpenAI chat processing failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
       res.status(500).json({
         fulfillmentText: "I'm sorry, I encountered an error processing your request.",
       });
@@ -105,7 +113,11 @@ export async function registerRoutes(app: Express) {
   try {
     const { registerObservabilityRoutes } = await import('./routes.observability');
     await registerObservabilityRoutes(app);
-  } catch {}
+  } catch (error) {
+    logger.warn('Observability routes unavailable; continuing without them', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 
   // Phase 8: AI Analytics Routes (guarded by feature flag)
   try {
@@ -113,13 +125,21 @@ export async function registerRoutes(app: Express) {
       const { registerAIAnalyticsRoutes } = await import('./routes.ai-analytics');
       await registerAIAnalyticsRoutes(app);
     }
-  } catch {}
+  } catch (error) {
+    logger.warn('AI analytics routes unavailable or failed to register', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 
   // Phase 8: Offline Sync Routes (best-effort)
   try {
     const { registerOfflineSyncRoutes } = await import('./routes.offline-sync');
     await registerOfflineSyncRoutes(app);
-  } catch {}
+  } catch (error) {
+    logger.warn('Offline sync routes unavailable; continuing without them', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
   app.get('/api/billing/plans', (_req, res) => {
     res.json({ ok: true });
   });
@@ -129,7 +149,11 @@ export async function registerRoutes(app: Express) {
   try {
     const wsService = new NotificationService(server);
     (app as any).wsService = wsService;
-  } catch {}
+  } catch (error) {
+    logger.warn('Failed to initialize websocket notification service', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
   return server;
 }
 

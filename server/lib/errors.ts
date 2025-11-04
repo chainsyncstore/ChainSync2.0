@@ -151,7 +151,7 @@ export function sendSuccessResponse<T>(res: Response, data: T, message?: string)
 
 export function handleAsyncError(fn: Function) {
   return (req: any, res: any, next: any) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    return Promise.resolve(fn(req, res, next)).catch(next);
   };
 }
 

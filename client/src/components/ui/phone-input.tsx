@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Input } from './input';
 import { cn } from '@/lib/utils';
+import { Input } from './input';
 
 // E.164 phone validation regex (same as backend)
 const PHONE_REGEX = /^\+[1-9]\d{1,14}$/;
 
+/* eslint-disable no-unused-vars -- prop names required for API */
 interface PhoneInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -14,6 +15,7 @@ interface PhoneInputProps {
   required?: boolean;
   id?: string;
 }
+/* eslint-enable no-unused-vars */
 
 export function PhoneInput({ 
   value, 

@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 
+type BarcodeHandler = (code: string) => void; // eslint-disable-line no-unused-vars
+
 interface ScannerContextType {
   isScanning: boolean;
   inputBuffer: string;
   isScannerActive: boolean;
   activateScanner: () => void;
   deactivateScanner: () => void;
-  onScan: ((barcode: string) => void) | null;
-  setOnScan: (callback: (barcode: string) => void) => void;
+  onScan: BarcodeHandler | null;
+  setOnScan: (handler: BarcodeHandler) => void; // eslint-disable-line no-unused-vars
 }
 
 const ScannerContext = createContext<ScannerContextType | null>(null);
@@ -24,8 +26,8 @@ export function ScannerProvider({ children }: { children: React.ReactNode }) {
   const [inputBuffer, setInputBuffer] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [isScannerActive, setIsScannerActive] = useState(false);
-  const [onScan, setOnScan] = useState<((barcode: string) => void) | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [onScan, setOnScan] = useState<BarcodeHandler | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activateScanner = useCallback(() => {
     setIsScannerActive(true);
@@ -114,11 +116,11 @@ export function ScannerProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function useBarcodeScanner(onScan: (barcode: string) => void) {
+export function useBarcodeScanner(onScan: BarcodeHandler) {
   const [inputBuffer, setInputBuffer] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [isScannerActive, setIsScannerActive] = useState(false);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activateScanner = useCallback(() => {
     setIsScannerActive(true);

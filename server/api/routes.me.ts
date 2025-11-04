@@ -1,13 +1,14 @@
+import bcrypt from 'bcrypt';
+import { eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import bcrypt from 'bcrypt';
+import { users, userRoles } from '@shared/prd-schema';
 import { db } from '../db';
-import { users, userRoles, stores } from '@shared/prd-schema';
-import { eq } from 'drizzle-orm';
+import { sendEmail, generateProfileUpdateEmail } from '../email';
+import { logger } from '../lib/logger';
+import { securityAuditService } from '../lib/security-audit';
 import { requireAuth } from '../middleware/authz';
 import { storage } from '../storage';
-import { securityAuditService } from '../lib/security-audit';
-import { sendEmail, generateProfileUpdateEmail } from '../email';
 
 const ChangePasswordSchema = z.object({
   currentPassword: z.string(),
@@ -94,7 +95,10 @@ export async function registerMeRoutes(app: Express) {
 
       res.status(200).json({ message: 'Password updated successfully' });
     } catch (error) {
-      console.error('Password change error:', error);
+      logger.error('Password change error', {
+        userId,
+        error: error instanceof Error ? error.message : String(error)
+      });
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -147,7 +151,10 @@ export async function registerMeRoutes(app: Express) {
       await sendEmail(generateProfileUpdateEmail(updatedUser.email, oldProfile, updates));
       res.json({ message: 'Profile updated successfully', user: updatedUser });
     } catch (error) {
-      console.error('Profile update error:', error);
+      logger.error('Profile update error', {
+        userId,
+        error: error instanceof Error ? error.message : String(error)
+      });
       res.status(500).json({ error: 'Internal server error' });
     }
   });

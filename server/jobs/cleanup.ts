@@ -1,10 +1,10 @@
-import { pool } from "../db";
-import { logger } from "../lib/logger";
 import axios from "axios";
-import { db } from "../db";
-import { subscriptions, subscriptionPayments, dunningEvents, organizations, inventory, stockAlerts } from "@shared/prd-schema";
 import { and, eq, lt, sql as dsql } from "drizzle-orm";
+import { subscriptions, subscriptionPayments, dunningEvents, organizations, inventory, stockAlerts } from "@shared/prd-schema";
+import { db } from "../db";
+import { pool } from "../db";
 import { sendEmail } from "../email";
+import { logger } from "../lib/logger";
 
 async function runCleanupOnce(): Promise<void> {
 	try {
@@ -171,7 +171,14 @@ async function runSubscriptionReconciliationOnce(): Promise<void> {
                                     eventType: 'reconciliation',
                                     raw: it as any,
                                 } as any);
-                            } catch {}
+                            } catch (insertError) {
+                                logger.warn('Failed to persist Paystack reconciliation item', {
+                                    subscriptionId: sub.id,
+                                    invoiceId,
+                                    reference,
+                                    error: insertError instanceof Error ? insertError.message : String(insertError),
+                                });
+                            }
                         }
                     }
                 } else if (String(sub.provider) === 'FLW') {
@@ -206,7 +213,14 @@ async function runSubscriptionReconciliationOnce(): Promise<void> {
                                     eventType: 'reconciliation',
                                     raw: it as any,
                                 } as any);
-                            } catch {}
+                            } catch (insertError) {
+                                logger.warn('Failed to persist Flutterwave reconciliation item', {
+                                    subscriptionId: sub.id,
+                                    invoiceId,
+                                    reference,
+                                    error: insertError instanceof Error ? insertError.message : String(insertError),
+                                });
+                            }
                         }
                     }
                 }

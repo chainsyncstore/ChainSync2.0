@@ -1,12 +1,18 @@
-import { Request, Response, NextFunction } from "express";
+import cors, { type CorsOptions } from "cors";
 import { randomBytes } from "crypto";
-import helmet from "helmet";
-import cors from "cors";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { doubleCsrf } from "csrf-csrf";
-import { logger } from "../lib/logger";
+import { Request, Response, NextFunction } from "express";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 import { loadEnv, parseCorsOrigins } from "../../shared/env";
-import { monitoringService } from "../lib/monitoring";
+import { logger } from "../lib/logger";
+const requestKeyGenerator = (req: Request) => (
+  req.ip
+  || req.headers['x-forwarded-for']?.toString()
+  || req.socket.remoteAddress
+  || (req as any).connection?.remoteAddress
+  || 'unknown'
+);
 // Determine environment early for conditional security config
 const isDev = process.env.NODE_ENV !== 'production';
 // Discover app origins from env to permit SPA assets when hosted separately
@@ -20,8 +26,8 @@ const envForCors = loadEnv(process.env);
 const allowedCorsOrigins = parseCorsOrigins(envForCors.CORS_ORIGINS);
 
 // CORS configuration for API routes only (reads validated CORS_ORIGINS CSV)
-const corsOptions = {
-  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+const corsOptions: CorsOptions = {
+  origin(origin, callback) {
     // Allow requests with no origin (e.g., same-origin, service workers) in all envs
     if (!origin) {
       return callback(null, true);
@@ -67,7 +73,7 @@ export const globalRateLimit = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   // IPv6-safe key generation
-  keyGenerator: ipKeyGenerator as unknown as (req: Request) => string,
+  keyGenerator: requestKeyGenerator,
   // Disable rate limiting during tests
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
@@ -97,7 +103,7 @@ export const authRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator as unknown as (req: Request) => string,
+  keyGenerator: requestKeyGenerator,
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
@@ -128,7 +134,7 @@ export const sensitiveEndpointRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator as unknown as (req: Request) => string,
+  keyGenerator: requestKeyGenerator,
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
@@ -159,7 +165,7 @@ export const paymentRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator as unknown as (req: Request) => string,
+  keyGenerator: requestKeyGenerator,
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {
@@ -242,7 +248,8 @@ export const csrfErrorHandler = (err: any, req: Request, res: Response, next: Ne
 };
 
 // Helper to generate a CSRF token and set the cookie according to configured options
-export const generateCsrfToken = (res: Response, req: Request) => {
+export const generateCsrfToken = (res: Response, req?: Request) => {
+  void req;
   if (process.env.NODE_ENV === 'test') {
     const token = `test-${Math.random().toString(36).slice(2)}`;
     // Mirror cookie options from csrfUtils where reasonable in tests
@@ -484,6 +491,9 @@ export const redirectSecurityCheck = (req: Request, res: Response, next: NextFun
     } catch (error) {
       // Invalid URL format - log as suspicious
       logger.logSuspiciousRedirect(redirectUrl, ipAddress!, userAgent, userId);
+      if (error instanceof Error) {
+        logger.debug('Failed to parse redirect URL', { error: error.message, redirectUrl });
+      }
     }
   }
   

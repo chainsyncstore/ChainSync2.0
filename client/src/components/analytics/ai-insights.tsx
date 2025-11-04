@@ -1,15 +1,15 @@
-import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Brain, AlertTriangle, CheckCircle, Clock, TrendingUp, Lightbulb, BarChart3 } from "lucide-react";
+
+import { useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Brain, Zap, AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown, Target, Lightbulb, BarChart3, Users, Package, DollarSign } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/pos-utils";
-import { apiRequest } from "@/lib/queryClient";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiClient } from "@/lib/api-client";
+import { formatDate } from "@/lib/pos-utils";
 import { cn } from "@/lib/utils";
 
 interface AiInsight {

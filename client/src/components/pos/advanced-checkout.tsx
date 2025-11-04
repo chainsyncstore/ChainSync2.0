@@ -1,15 +1,4 @@
-import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
 import { 
   CreditCard, 
   DollarSign, 
@@ -18,15 +7,25 @@ import {
   Gift, 
   ArrowLeft, 
   ArrowRight,
-  Receipt,
   QrCode,
   Smartphone,
   Wallet,
-  CheckCircle,
-  AlertTriangle,
-  Calculator
+  CheckCircle
 } from "lucide-react";
+import { useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/pos-utils";
+import { apiRequest } from "@/lib/queryClient";
 
 interface CartItem {
   id: string;
@@ -54,13 +53,15 @@ interface PaymentMethod {
   type: "cash" | "card" | "digital";
 }
 
+/* eslint-disable no-unused-vars -- prop names document external contract */
 interface AdvancedCheckoutProps {
   items: CartItem[];
   summary: CheckoutSummary;
-  onComplete: (transaction: any) => void;
-  onCancel: () => void;
+  onComplete(transaction: any): void;
+  onCancel(): void;
   storeId: string;
 }
+/* eslint-enable no-unused-vars */
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   { id: "cash", name: "Cash", icon: DollarSign, type: "cash" },
@@ -135,8 +136,10 @@ export default function AdvancedCheckout({
         description: `Receipt #${transaction.receiptNumber}`,
       });
       onComplete(transaction);
+      void queryClient.invalidateQueries({ queryKey: ["pos", "sales", storeId] });
     },
     onError: (error) => {
+      console.error('Transaction completion failed', error);
       toast({
         title: "Transaction Failed",
         description: "Please try again",
@@ -177,7 +180,10 @@ export default function AdvancedCheckout({
     newTotal = newSubtotal + newTax;
 
     // Update summary (in real app, this would be passed as a callback)
-    console.log("New totals:", { newSubtotal, newTax, newTotal, newDiscount });
+    if (import.meta.env.DEV) {
+      console.log("New totals:", { newSubtotal, newTax, newTotal, newDiscount });
+    }
+
     setIsDiscountModalOpen(false);
   };
 
@@ -198,6 +204,7 @@ export default function AdvancedCheckout({
         });
       }
     } catch (error) {
+      console.error('Customer lookup failed, falling back to offline cache', error);
       try {
         const mod = await import('@/lib/idb-catalog');
         const local = await mod.getCustomerByPhone(phone);

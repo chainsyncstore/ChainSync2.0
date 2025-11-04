@@ -1,7 +1,7 @@
-import { logger } from '../lib/logger';
-import { db } from '../db';
-import { sales, saleItems, products, inventory } from '@shared/prd-schema';
 import { eq, and, gte, sql, desc } from 'drizzle-orm';
+import { sales, saleItems, products, inventory } from '@shared/prd-schema';
+import { db } from '../db';
+import { logger } from '../lib/logger';
 
 export interface DemandForecast {
   productId: string;
@@ -111,11 +111,7 @@ export class AdvancedAnalyticsService {
       return forecasts;
     } catch (error) {
       logger.error('Failed to generate demand forecast', { storeId, productId }, error as Error);
-      const message = (error as any)?.message || '';
-      if (process.env.NODE_ENV === 'test' && !message.includes('Database error')) {
-        return [];
-      }
-      throw new Error('Demand forecasting failed');
+      throw error;
     }
   }
 
@@ -149,10 +145,7 @@ export class AdvancedAnalyticsService {
       return anomalies;
     } catch (error) {
       logger.error('Failed to detect anomalies', { storeId }, error as Error);
-      if (process.env.NODE_ENV === 'test') {
-        return [];
-      }
-      throw new Error('Anomaly detection failed');
+      throw error;
     }
   }
 
@@ -166,17 +159,13 @@ export class AdvancedAnalyticsService {
       const insights: BusinessInsight[] = [];
 
       // Light DB check to surface DB failures in tests and real envs
-      try {
-        const probe = db
-          .select({ id: inventory.productId })
-          .from(inventory)
-          .where(eq(inventory.storeId, storeId as any));
-        const execProbe = (probe as any)?.execute;
-        if (typeof execProbe === 'function') {
-          await (probe as any).execute();
-        }
-      } catch (e) {
-        throw e;
+      const probe = db
+        .select({ id: inventory.productId })
+        .from(inventory)
+        .where(eq(inventory.storeId, storeId as any));
+      const execProbe = (probe as any)?.execute;
+      if (typeof execProbe === 'function') {
+        await (probe as any).execute();
       }
 
       // Generate revenue insights
@@ -204,10 +193,7 @@ export class AdvancedAnalyticsService {
       return insights;
     } catch (error) {
       logger.error('Failed to generate insights', { storeId }, error as Error);
-      if (process.env.NODE_ENV === 'test') {
-        return [];
-      }
-      throw new Error('Insight generation failed');
+      throw error;
     }
   }
 

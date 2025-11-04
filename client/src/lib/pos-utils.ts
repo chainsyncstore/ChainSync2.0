@@ -43,7 +43,7 @@ export function calculateTax(subtotal: number, taxRate: number = 0.085): number 
 }
 
 export function isValidBarcode(barcode: string): boolean {
-  return /^[0-9a-zA-Z\-]+$/.test(barcode) && barcode.length >= 4;
+  return /^[0-9a-zA-Z-]+$/.test(barcode) && barcode.length >= 4;
 }
 
 export function formatPhoneNumber(phone: string): string {

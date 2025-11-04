@@ -1,16 +1,18 @@
+import { Package, Search, Plus } from "lucide-react";
 import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Package, Search, Plus } from "lucide-react";
-import { LoadingSpinner, ListSkeleton } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/loading";
 import type { Product } from "@shared/schema";
 
+/* eslint-disable no-unused-vars -- prop parameter names describe consumer contract */
 interface ProductSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectProduct: (product: Product) => void;
+  onSelectProduct(product: Product): void;
 }
+/* eslint-enable no-unused-vars */
 
 export default function ProductSearchModal({ isOpen, onClose, onSelectProduct }: ProductSearchModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -25,26 +27,32 @@ export default function ProductSearchModal({ isOpen, onClose, onSelectProduct }:
         return;
       }
       setIsLoading(true);
-      // First try local search (lazy-load module)
-      const { searchProductsLocally, putProducts } = await import("@/lib/idb-catalog");
-      const local = await searchProductsLocally(searchQuery, 50);
-      if (!cancelled) {
-        setProducts(local as any);
-        setIsLoading(false);
-      }
-      // Then try network refresh (best-effort)
       try {
+        const { searchProductsLocally, putProducts } = await import("@/lib/idb-catalog");
+        const local = await searchProductsLocally(searchQuery, 50);
+        if (!cancelled) {
+          setProducts(local as Product[]);
+          setIsLoading(false);
+        }
+
         const res = await fetch(`/api/products?query=${encodeURIComponent(searchQuery)}`, { credentials: 'include' });
         if (res.ok) {
           const remote = await res.json();
           const mapped = (remote || []).map((p: any) => ({ id: p.id, name: p.name, barcode: p.barcode, price: String(p.price || p.salePrice || '0') }));
-          // Persist to local cache (reuse lazy-loaded module instance)
           await putProducts(mapped);
           if (!cancelled) setProducts(remote);
         }
-      } catch {}
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Product search failed', err);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
     };
-    run();
+    void run();
     return () => { cancelled = true; };
   }, [searchQuery]);
 
@@ -86,7 +94,7 @@ export default function ProductSearchModal({ isOpen, onClose, onSelectProduct }:
               </div>
             )}
 
-            {products.map((product: Product) => (
+            {products.map((product) => (
               <div
                 key={product.id}
                 className="flex items-center justify-between p-3 sm:p-4 border border-slate-200 rounded-lg hover:bg-slate-50"
@@ -98,9 +106,9 @@ export default function ProductSearchModal({ isOpen, onClose, onSelectProduct }:
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-slate-800 text-sm sm:text-base truncate">{product.name}</p>
                     <p className="text-xs sm:text-sm text-slate-500">SKU: {product.barcode}</p>
-                    {product.category && (
+                    {product.category ? (
                       <p className="text-xs text-slate-400">{product.category}</p>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">

@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Package, Search, Plus, Edit, Trash2, BarChart3 } from "lucide-react";
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/pos-utils";
 
 interface Product {
@@ -27,6 +27,7 @@ interface InventoryItem {
   product: Product;
 }
 
+/* eslint-disable no-unused-vars -- callback parameter names document the external API */
 interface ProductListProps {
   inventory: InventoryItem[];
   onEditProduct: (product: Product) => void;
@@ -34,6 +35,7 @@ interface ProductListProps {
   onUpdateStock: (productId: string, quantity: number) => void;
   onAddProduct: () => void;
 }
+/* eslint-enable no-unused-vars */
 
 export default function ProductList({
   inventory,

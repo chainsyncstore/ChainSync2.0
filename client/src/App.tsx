@@ -1,26 +1,26 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { Switch, Route, useLocation } from "wouter";
-import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { useAuth } from "@/hooks/use-auth";
-import { useProtectedRouteGuard } from "@/hooks/use-protected-route-guard";
-import { AIChatProvider } from "@/hooks/use-ai-chat";
-import { ScannerProvider } from "@/hooks/use-barcode-scanner";
+import React, { Suspense, lazy, useEffect } from 'react';
+import { Switch, Route, useLocation } from "wouter";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { PageLoading } from "@/components/ui/loading";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { AIChatProvider } from "@/hooks/use-ai-chat";
+import { useAuth } from "@/hooks/use-auth";
+import { ScannerProvider } from "@/hooks/use-barcode-scanner";
+import { useProtectedRouteGuard } from "@/hooks/use-protected-route-guard";
+import { RECAPTCHA_SITE_KEY } from "./lib/constants";
+import { queryClient } from "./lib/queryClient";
+
 const Login = lazy(() => import("@/components/auth/login"));
 const Signup = lazy(() => import("@/components/auth/signup"));
 const ForgotPassword = lazy(() => import("@/components/auth/forgot-password"));
 const ResetPassword = lazy(() => import("@/components/auth/reset-password"));
 const ForcePasswordReset = lazy(() => import("./components/auth/force-password-reset"));
 const MainLayout = lazy(() => import("@/components/layout/main-layout"));
-import { RECAPTCHA_SITE_KEY } from './lib/constants';
 
 // Lazy load pages for better performance
 const Landing = lazy(() => import("@/pages/landing"));
-const PaymentCallback = lazy(() => import("@/pages/payment-callback"));
 const POS = lazy(() => import("@/pages/pos"));
 const Inventory = lazy(() => import("@/pages/inventory"));
 const Analytics = lazy(() => import("@/pages/analytics"));  
@@ -29,7 +29,6 @@ const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminIp = lazy(() => import("@/pages/admin/ip-whitelist"));
 const AdminBulk = lazy(() => import("@/pages/admin/bulk-pricing"));
 const AdminBilling = lazy(() => import("@/pages/admin/billing"));
-const PostOnboarding = lazy(() => import("@/pages/post-onboarding"));
 const Loyalty = lazy(() => import("@/pages/loyalty"));
 const Alerts = lazy(() => import("@/pages/alerts"));
 const DataImport = lazy(() => import("@/pages/data-import"));
@@ -138,7 +137,6 @@ function Dashboard({ userRole }: { userRole: string }) {
 
 function App() {
   const { user, login, isAuthenticated, isLoading, error, requiresPasswordChange } = useAuth();
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [location, setLocation] = useLocation();
 
   useEffect(() => {

@@ -1,7 +1,7 @@
+import bcrypt from 'bcrypt';
+import { eq } from 'drizzle-orm';
 import { db } from '../server/db';
 import { organizations, subscriptions, stores, users, userRoles } from '../shared/prd-schema';
-import { eq } from 'drizzle-orm';
-import bcrypt from 'bcrypt';
 
 async function seedSubscriptionTestData() {
   console.log('🌱 Seeding subscription test data...');
@@ -30,8 +30,8 @@ async function seedSubscriptionTestData() {
     await db.insert(subscriptions).values({ orgId: basicOrg.id, provider: 'PAYSTACK', planCode: 'basic', status: 'ACTIVE' });
     const basicAdminPass = await bcrypt.hash('password', 10);
     const [basicAdmin] = await db.insert(users).values({ orgId: basicOrg.id, email: 'basic-admin@test.com', passwordHash: basicAdminPass, isAdmin: true }).returning();
-    await db.insert(stores).values({ orgId: basicOrg.id, name: 'Basic Store' });
-    console.log('✅ Created Basic Plan test data.');
+    const [basicStore] = await db.insert(stores).values({ orgId: basicOrg.id, name: 'Basic Store' }).returning();
+    console.log('✅ Created Basic Plan test data.', { adminId: basicAdmin.id, storeId: basicStore.id });
 
     // --- Pro Plan ---
     const [proOrg] = await db.insert(organizations).values({ name: 'Pro Org' }).returning();
@@ -42,14 +42,18 @@ async function seedSubscriptionTestData() {
     const [proStore1] = await db.insert(stores).values({ orgId: proOrg.id, name: 'Pro Store 1' }).returning();
     const [proStore2] = await db.insert(stores).values({ orgId: proOrg.id, name: 'Pro Store 2' }).returning();
     await db.insert(userRoles).values({ userId: proManager.id, orgId: proOrg.id, storeId: proStore1.id, role: 'MANAGER' });
-    console.log('✅ Created Pro Plan test data.');
+    console.log('✅ Created Pro Plan test data.', {
+      adminId: proAdmin.id,
+      managerId: proManager.id,
+      storeIds: [proStore1.id, proStore2.id]
+    });
 
     // --- Enterprise Plan ---
     const [enterpriseOrg] = await db.insert(organizations).values({ name: 'Enterprise Org' }).returning();
     await db.insert(subscriptions).values({ orgId: enterpriseOrg.id, provider: 'PAYSTACK', planCode: 'enterprise', status: 'ACTIVE' });
     const enterpriseAdminPass = await bcrypt.hash('password', 10);
-    await db.insert(users).values({ orgId: enterpriseOrg.id, email: 'enterprise-admin@test.com', passwordHash: enterpriseAdminPass, isAdmin: true });
-    console.log('✅ Created Enterprise Plan test data.');
+    const [enterpriseAdmin] = await db.insert(users).values({ orgId: enterpriseOrg.id, email: 'enterprise-admin@test.com', passwordHash: enterpriseAdminPass, isAdmin: true }).returning();
+    console.log('✅ Created Enterprise Plan test data.', { adminId: enterpriseAdmin.id });
 
     console.log('🎉 Subscription test data seeded successfully!');
   } catch (error) {
@@ -58,4 +62,7 @@ async function seedSubscriptionTestData() {
   }
 }
 
-seedSubscriptionTestData();
+seedSubscriptionTestData().catch((error) => {
+  console.error('❌ Unexpected error in subscription seeding:', error);
+  process.exit(1);
+});

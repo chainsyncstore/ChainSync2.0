@@ -1,10 +1,11 @@
-import { formatDateTime } from "@/lib/pos-utils";
-import { LogOut, Menu, ScanLine } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { LogOut, ScanLine } from "lucide-react";
 import MobileMenu from "@/components/mobile-menu";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useScannerContext } from "@/hooks/use-barcode-scanner";
+import { formatDateTime } from "@/lib/pos-utils";
 
+/* eslint-disable no-unused-vars -- prop names document external API */
 interface TopBarProps {
   title: string;
   subtitle: string;
@@ -19,6 +20,7 @@ interface TopBarProps {
   onStoreChange?: (storeId: string) => void;
   alertCount?: number;
 }
+/* eslint-enable no-unused-vars */
 
 export default function TopBar({ 
   title, 

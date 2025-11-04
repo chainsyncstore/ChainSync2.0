@@ -1,20 +1,20 @@
-import { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Barcode, Camera, Save, Plus, Image as ImageIcon } from "lucide-react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Barcode, Camera, Save, X, Plus, Image as ImageIcon } from "lucide-react";
 
 const productSchema = z.object({
   name: z.string()
@@ -126,12 +126,13 @@ export default function ProductForm({ product, onSuccess, mode = "create" }: Pro
         title: "Success",
         description: "Product created successfully",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       setIsOpen(false);
       reset();
       onSuccess?.();
     },
     onError: (error) => {
+      console.error('Failed to create product', error);
       toast({
         title: "Error",
         description: "Failed to create product",
@@ -150,11 +151,12 @@ export default function ProductForm({ product, onSuccess, mode = "create" }: Pro
         title: "Success",
         description: "Product updated successfully",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       setIsOpen(false);
       onSuccess?.();
     },
     onError: (error) => {
+      console.error('Failed to update product', error);
       toast({
         title: "Error",
         description: "Failed to update product",

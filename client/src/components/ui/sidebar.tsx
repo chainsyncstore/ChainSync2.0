@@ -1,10 +1,8 @@
-import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { VariantProps, cva } from "class-variance-authority"
 import { PanelLeft } from "lucide-react"
+import * as React from "react"
 
-import { useIsMobile } from "@/hooks/use-mobile"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -22,6 +20,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { cn } from "@/lib/utils"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
@@ -30,6 +30,7 @@ const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
+/* eslint-disable no-unused-vars -- context type members are consumed via indexing */
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
   open: boolean
@@ -39,6 +40,7 @@ type SidebarContextProps = {
   isMobile: boolean
   toggleSidebar: () => void
 }
+/* eslint-enable no-unused-vars */
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
 
@@ -53,11 +55,13 @@ function useSidebar() {
 
 const SidebarProvider = React.forwardRef<
   HTMLDivElement,
+  /* eslint-disable no-unused-vars -- prop names required for external API */
   React.ComponentProps<"div"> & {
     defaultOpen?: boolean
     open?: boolean
     onOpenChange?: (open: boolean) => void
   }
+  /* eslint-enable no-unused-vars */
 >(
   (
     {
@@ -79,8 +83,9 @@ const SidebarProvider = React.forwardRef<
     const [_open, _setOpen] = React.useState(defaultOpen)
     const open = openProp ?? _open
     const setOpen = React.useCallback(
-      (value: boolean | ((value: boolean) => boolean)) => {
-        const openState = typeof value === "function" ? value(open) : value
+      (nextState: React.SetStateAction<boolean>) => {
+        const openState =
+          typeof nextState === "function" ? nextState(open) : nextState
         if (setOpenProp) {
           setOpenProp(openState)
         } else {

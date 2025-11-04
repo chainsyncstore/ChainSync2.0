@@ -1,12 +1,12 @@
-import { Express, Request, Response } from 'express';
-import { requireAuth } from '../middleware/authz';
-import { logger, extractLogContext } from '../lib/logger';
-import { securityAuditService } from '../lib/security-audit';
-import { monitoringService } from '../lib/monitoring';
-import { db } from '../db';
-import { sales, saleItems, inventory, products } from '@shared/prd-schema';
 import { eq, and, sql } from 'drizzle-orm';
+import { Express, Request, Response } from 'express';
 import { z } from 'zod';
+import { sales, saleItems, inventory, products } from '@shared/prd-schema';
+import { db } from '../db';
+import { logger, extractLogContext } from '../lib/logger';
+import { monitoringService } from '../lib/monitoring';
+import { securityAuditService } from '../lib/security-audit';
+import { requireAuth } from '../middleware/authz';
 
 // Sync data schemas
 const OfflineSaleSchema = z.object({
@@ -251,6 +251,7 @@ export async function registerOfflineSyncRoutes(app: Express) {
       const storeIdStr = String(storeId);
       const includeProductsStr = String(includeProducts);
       const includeInventoryStr = String(includeInventory);
+      const lastSyncStr = lastSync != null ? String(lastSync) : undefined;
 
       if (!storeId) {
         return res.status(400).json({ error: 'storeId is required' });
@@ -259,7 +260,8 @@ export async function registerOfflineSyncRoutes(app: Express) {
       const syncData: any = {
         syncId: `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         timestamp: new Date().toISOString(),
-        storeId: storeIdStr
+        storeId: storeIdStr,
+        lastSync: lastSyncStr ?? null
       };
 
       // Get products for offline use
@@ -310,7 +312,8 @@ export async function registerOfflineSyncRoutes(app: Express) {
         ...context,
         storeId: storeIdStr,
         productsCount: syncData.products?.length || 0,
-        inventoryCount: syncData.inventory?.length || 0
+        inventoryCount: syncData.inventory?.length || 0,
+        lastSync: lastSyncStr
       });
 
       res.json({

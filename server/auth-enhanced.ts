@@ -1,9 +1,8 @@
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import jwt from 'jsonwebtoken';
-import { User, EmailVerificationToken, PhoneVerificationOTP, AccountLockoutLog, UserSession } from '@shared/schema';
-import { db } from './db';
 import { eq, and, lt, gte, or } from 'drizzle-orm';
+import jwt from 'jsonwebtoken';
+import { User, EmailVerificationToken, UserSession } from '@shared/schema';
 import { 
   users, 
   emailVerificationTokens, 
@@ -11,6 +10,8 @@ import {
   accountLockoutLogs, 
   userSessions 
 } from '@shared/schema';
+import { db } from './db';
+import { logger } from './lib/logger';
 
 export interface AuthConfig {
   saltRounds: number;
@@ -244,7 +245,11 @@ export class EnhancedAuthService {
       return { success: true, user: userData };
 
     } catch (error) {
-      console.error('Authentication error:', error);
+      logger.error('Authentication error', {
+        username,
+        ipAddress,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return { success: false, error: 'Authentication failed' };
     }
   }
@@ -354,7 +359,9 @@ export class EnhancedAuthService {
       return { success: true, accessToken: newAccessToken };
 
     } catch (error) {
-      console.error('Token refresh error:', error);
+      logger.error('Token refresh error', {
+        error: error instanceof Error ? error.message : String(error)
+      });
       return { success: false, error: 'Token refresh failed' };
     }
   }
@@ -435,8 +442,9 @@ export class EnhancedAuthService {
       return { success: true, message: 'Email verified successfully' };
 
     } catch (error) {
-      console.error('Email verification error:', error);
-      return { success: false, message: 'Email verification failed', error: error.message };
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Email verification error', { error: message });
+      return { success: false, message: 'Email verification failed', error: message };
     }
   }
 
@@ -476,8 +484,13 @@ export class EnhancedAuthService {
       return { success: true, message: `OTP sent to ${phone}` };
 
     } catch (error) {
-      console.error('Phone verification OTP creation error:', error);
-      return { success: false, message: 'Failed to create OTP', error: error.message };
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Phone verification OTP creation error', {
+        userId,
+        phone,
+        error: message
+      });
+      return { success: false, message: 'Failed to create OTP', error: message };
     }
   }
 
@@ -538,8 +551,12 @@ export class EnhancedAuthService {
       return { success: true, message: 'Phone number verified successfully' };
 
     } catch (error) {
-      console.error('Phone OTP verification error:', error);
-      return { success: false, message: 'Phone verification failed', error: error.message };
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Phone OTP verification error', {
+        userId,
+        error: message
+      });
+      return { success: false, message: 'Phone verification failed', error: message };
     }
   }
 
@@ -563,7 +580,8 @@ export class EnhancedAuthService {
    * Sanitize user data for session storage (remove sensitive fields)
    */
   static sanitizeUserForSession(user: User): Omit<User, 'password'> {
-    const { password, ...sanitizedUser } = user;
+    const { password: _password, ...sanitizedUser } = user;
+    void _password;
     return sanitizedUser;
   }
 
@@ -617,7 +635,9 @@ export class EnhancedAuthService {
         .where(lt(accountLockoutLogs.createdAt, thirtyDaysAgo));
 
     } catch (error) {
-      console.error('Cleanup error:', error);
+      logger.error('Auth cleanup error', {
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 }

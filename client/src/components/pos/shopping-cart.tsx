@@ -1,8 +1,9 @@
+import { Minus, Plus, Trash2, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/pos-utils";
-import { Minus, Plus, Trash2, Package } from "lucide-react";
 import type { CartItem } from "@/types/pos";
 
+/* eslint-disable no-unused-vars -- prop names describe the public contract */
 interface ShoppingCartProps {
   items: CartItem[];
   onUpdateQuantity: (itemId: string, quantity: number) => void;
@@ -10,6 +11,7 @@ interface ShoppingCartProps {
   onClearCart: () => void;
   currency?: 'USD' | 'NGN';
 }
+/* eslint-enable no-unused-vars */
 
 export default function ShoppingCart({
   items,

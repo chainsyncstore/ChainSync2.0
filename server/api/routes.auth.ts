@@ -1,29 +1,21 @@
-import type { Express, Request, Response } from 'express';
-import { db } from '../db';
-import { users, userStorePermissions } from '@shared/schema';
-import { eq, or, sql } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
-import { z } from 'zod';
-import { storage } from '../storage';
-import { SignupSchema, LoginSchema as ValidationLoginSchema, PasswordResetSchema, PasswordResetConfirmSchema } from '../schemas/auth';
-import { authenticator } from 'otplib';
+import { sql } from 'drizzle-orm';
+import type { Express, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { authenticator } from 'otplib';
+import { users } from '@shared/schema';
 import { loadEnv } from '../../shared/env';
-import { sendEmail, generatePasswordResetEmail, generatePasswordResetSuccessEmail } from '../email';
 import { AuthService } from '../auth';
-import { securityAuditService } from '../lib/security-audit';
-import { monitoringService } from '../lib/monitoring';
+import { db } from '../db';
+import { sendEmail } from '../email';
 import { logger, extractLogContext } from '../lib/logger';
-import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '../middleware/security';
+import { monitoringService } from '../lib/monitoring';
 import { requireAuth } from '../middleware/authz';
-import { PendingSignup } from './pending-signup';
 import { signupBotPrevention, botPreventionMiddleware } from '../middleware/bot-prevention';
+import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '../middleware/security';
+import { SignupSchema, LoginSchema as ValidationLoginSchema } from '../schemas/auth';
+import { storage } from '../storage';
 // duplicate import removed
-
-const LoginSchema = z.union([
-  z.object({ email: z.string().email(), password: z.string().min(8) }),
-  z.object({ username: z.string().min(3), password: z.string().min(8) }),
-]);
 
 export async function registerAuthRoutes(app: Express) {
   const env = loadEnv(process.env);
@@ -39,16 +31,14 @@ export async function registerAuthRoutes(app: Express) {
       }
       res.setHeader('X-CSRF-Token', token);
       res.status(200).json({ token });
-    } catch (e) {
-      try {
-        logger.error('CSRF token generation failed', {
-          error: e instanceof Error ? e.message : String(e),
-          stack: e instanceof Error ? e.stack : undefined,
-          ip: req.ip,
-          headers: req.headers,
-          requestId: (req as any).requestId
-        });
-      } catch {}
+    } catch (error) {
+      logger.error('CSRF token generation failed', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        ip: req.ip,
+        headers: req.headers,
+        requestId: (req as any).requestId
+      });
       // Fallback: issue a non-signed token to satisfy client preflight; validation may be bypassed per route
       try {
         const fallback = `fallback-${Math.random().toString(36).slice(2)}`;
@@ -60,7 +50,12 @@ export async function registerAuthRoutes(app: Express) {
         });
         res.setHeader('X-CSRF-Token', fallback);
         return res.status(200).json({ token: fallback, status: 'ok' });
-      } catch {
+      } catch (fallbackError) {
+        logger.error('Fallback CSRF token generation failed', {
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          ip: req.ip,
+          requestId: (req as any).requestId
+        });
         return res.status(500).json({ error: 'Failed to generate CSRF token' });
       }
     }
@@ -153,7 +148,11 @@ export async function registerAuthRoutes(app: Express) {
           if (memCount > 0) {
             return res.status(403).json({ message: 'Signup is disabled' });
           }
-        } catch {}
+        } catch (memoryError) {
+          logger.warn('Failed to inspect in-memory storage during signup', {
+            error: memoryError instanceof Error ? memoryError.message : String(memoryError)
+          });
+        }
       } else {
         const allUsers = await db.select().from(users);
         if (allUsers.length > 0) {
@@ -193,16 +192,18 @@ export async function registerAuthRoutes(app: Express) {
       
       // Send welcome email
       try {
-        const { generateWelcomeEmail, sendEmail } = await import('../email');
+        const { generateWelcomeEmail, sendEmail: sendWelcomeEmail } = await import('../email');
         const welcomeEmail = generateWelcomeEmail(
           user.email,
           (user as any).firstName || user.email,
           (user as any).tier || tier || 'starter',
           (user as any).companyName || companyName || ''
         );
-        await sendEmail(welcomeEmail);
-      } catch (e) {
-        logger.error('Failed to send welcome email', e);
+        await sendWelcomeEmail(welcomeEmail);
+      } catch (welcomeError) {
+        logger.error('Failed to send welcome email', {
+          error: welcomeError instanceof Error ? welcomeError.message : String(welcomeError)
+        });
       }
 
       // Send verification email
@@ -216,6 +217,7 @@ export async function registerAuthRoutes(app: Express) {
 
       // Respond with user data excluding sensitive information
       const { password: _pw, ...userData } = (user as any);
+      void _pw;
       res.status(201).json({ 
         message: 'Signup successful, please verify your email', 
         user: userData 
@@ -232,7 +234,13 @@ export async function registerAuthRoutes(app: Express) {
     if (!parse.success) {
       return res.status(400).json({ message: 'Invalid email or password' });
     }
-    try { logger.info('login-parse-success', { req: extractLogContext(req) }); } catch {}
+    try {
+      logger.info('login-parse-success', { req: extractLogContext(req) });
+    } catch (logError) {
+      logger.warn('Failed to log login parse success', {
+        error: logError instanceof Error ? logError.message : String(logError)
+      });
+    }
 
     // Safely extract email or username
     let email: string | undefined;
@@ -247,7 +255,13 @@ export async function registerAuthRoutes(app: Express) {
     }
 
     try {
-      try { logger.info('login-start', { req: extractLogContext(req) }); } catch {}
+      try {
+        logger.info('login-start', { req: extractLogContext(req) });
+      } catch (startLogError) {
+        logger.warn('Failed to log login start', {
+          error: startLogError instanceof Error ? startLogError.message : String(startLogError)
+        });
+      }
       // Check if user exists
       let user: any = null;
       if (email) {
@@ -271,17 +285,25 @@ export async function registerAuthRoutes(app: Express) {
           userKeys: user ? Object.keys(user) : [],
           req: extractLogContext(req) 
         }); 
-      } catch {}
+      } catch (lookupLogError) {
+        logger.warn('Failed to log login user lookup completion', {
+          error: lookupLogError instanceof Error ? lookupLogError.message : String(lookupLogError)
+        });
+      }
       if (!user) {
         // Security alert: failed login attempt
         try {
-          const { sendEmail } = await import('../email');
-          await sendEmail({
+          const { sendEmail: sendSecurityAlert } = await import('../email');
+          await sendSecurityAlert({
             to: email || username || '',
             subject: 'Security Alert: Failed Login Attempt',
             html: `<p>There was a failed login attempt for your account. If this was not you, please reset your password immediately.</p>`
           });
-        } catch (e) { logger.error('Failed to send security alert email', e); }
+        } catch (securityAlertError) {
+          logger.error('Failed to send security alert email', {
+            error: securityAlertError instanceof Error ? securityAlertError.message : String(securityAlertError)
+          });
+        }
         return res.status(400).json({ message: 'Invalid email or password' });
       }
 
@@ -302,7 +324,13 @@ export async function registerAuthRoutes(app: Express) {
         });
         
         isPasswordValid = storedHash ? await bcrypt.compare(password!, String(storedHash)) : false;
-        try { logger.info('login-password-compare-done', { result: isPasswordValid, req: extractLogContext(req) }); } catch {}
+        try {
+          logger.info('login-password-compare-done', { result: isPasswordValid, req: extractLogContext(req) });
+        } catch (passwordLogError) {
+          logger.warn('Failed to log password comparison completion', {
+            error: passwordLogError instanceof Error ? passwordLogError.message : String(passwordLogError)
+          });
+        }
       } catch {
         // In test environments with mocked storage, passwords may be stored in plaintext.
         const plainCandidate = (user as any).password ?? '';
@@ -311,18 +339,28 @@ export async function registerAuthRoutes(app: Express) {
         if (!looksHashed && process.env.NODE_ENV === 'test') {
           isPasswordValid = (password! === plainCandidate);
         }
-        try { logger.info('login-password-compare-fallback', { result: isPasswordValid, req: extractLogContext(req) }); } catch {}
+        try {
+          logger.info('login-password-compare-fallback', { result: isPasswordValid, req: extractLogContext(req) });
+        } catch (fallbackLogError) {
+          logger.warn('Failed to log password comparison fallback', {
+            error: fallbackLogError instanceof Error ? fallbackLogError.message : String(fallbackLogError)
+          });
+        }
       }
       if (!isPasswordValid) {
         // Security alert: failed login attempt
         try {
-          const { sendEmail } = await import('../email');
-          await sendEmail({
+          const { sendEmail: sendSecurityAlert } = await import('../email');
+          await sendSecurityAlert({
             to: user.email,
             subject: 'Security Alert: Failed Login Attempt',
             html: `<p>There was a failed login attempt for your account. If this was not you, please reset your password immediately.</p>`
           });
-        } catch (e) { logger.error('Failed to send security alert email', e); }
+        } catch (securityAlertError) {
+          logger.error('Failed to send security alert email', {
+            error: securityAlertError instanceof Error ? securityAlertError.message : String(securityAlertError)
+          });
+        }
         return res.status(400).json({ message: 'Invalid email or password' });
       }
 
@@ -332,7 +370,13 @@ export async function registerAuthRoutes(app: Express) {
       }
 
       // Successful login
-      try { logger.info('login-session-set-begin', { uid: user.id, req: extractLogContext(req) }); } catch {}
+      try {
+        logger.info('login-session-set-begin', { uid: user.id, req: extractLogContext(req) });
+      } catch (sessionBeginError) {
+        logger.warn('Failed to log login session set begin', {
+          error: sessionBeginError instanceof Error ? sessionBeginError.message : String(sessionBeginError)
+        });
+      }
       await new Promise<void>((resolve, reject) => {
         req.session!.regenerate((err) => {
           if (err) return reject(err);
@@ -341,7 +385,13 @@ export async function registerAuthRoutes(app: Express) {
           req.session!.save((err2) => (err2 ? reject(err2) : resolve()));
         });
       });
-      try { logger.info('login-session-set-complete', { uid: user.id, req: extractLogContext(req) }); } catch {}
+      try {
+        logger.info('login-session-set-complete', { uid: user.id, req: extractLogContext(req) });
+      } catch (sessionCompleteError) {
+        logger.warn('Failed to log login session set completion', {
+          error: sessionCompleteError instanceof Error ? sessionCompleteError.message : String(sessionCompleteError)
+        });
+      }
 
       const {
         password: _legacyPassword,
@@ -350,6 +400,10 @@ export async function registerAuthRoutes(app: Express) {
         passwordHashLegacy,
         ...userData
       } = user as any;
+      void _legacyPassword;
+      void _passwordHash;
+      void _password_hash;
+      void passwordHashLegacy;
 
       res.json({ 
         status: 'success',
@@ -526,14 +580,21 @@ export async function registerAuthRoutes(app: Express) {
       try {
         const decoded = jwt.verify(token, env.JWT_SECRET!) as any;
         userId = decoded?.id;
-      } catch (e) {
+      } catch (jwtError) {
+        logger.warn('JWT email verification token validation failed', {
+          error: jwtError instanceof Error ? jwtError.message : String(jwtError)
+        });
         // Fallback: support mocked token verification in tests
         try {
           const result: any = await (AuthService as any).verifyEmailToken?.(token);
           if (result?.success) {
             userId = result.userId;
           }
-        } catch {}
+        } catch (fallbackError) {
+          logger.error('Fallback email verification token validation failed', {
+            error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+          });
+        }
       }
 
       if (!userId) {

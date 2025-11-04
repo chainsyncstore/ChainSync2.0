@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 interface Options {
   orgId?: string | null;
@@ -23,7 +23,9 @@ export function useRealtimeSales(options: Options) {
         const r = await fetch('/api/auth/realtime-token', { credentials: 'include' });
         const j = await r.json();
         token = j.token || '';
-      } catch {}
+      } catch (error) {
+        console.warn('Failed to fetch realtime auth token', error);
+      }
       ws.send(JSON.stringify({ type: 'auth', data: { token, storeId } }));
       if (orgId) ws.send(JSON.stringify({ type: 'subscribe', data: { channel: `org:${orgId}` } }));
       if (storeId) ws.send(JSON.stringify({ type: 'subscribe', data: { channel: `store:${storeId}` } }));
@@ -34,17 +36,23 @@ export function useRealtimeSales(options: Options) {
         const msg = JSON.parse(evt.data);
         if (msg.type === 'event' && msg.data?.event === 'sale:created') {
           // Invalidate analytics queries that show KPIs
-          queryClient.invalidateQueries({ queryKey: ["/api/analytics/overview"] });
+          void queryClient.invalidateQueries({ queryKey: ["/api/analytics/overview"] });
           if (storeId) {
-            queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "analytics/daily-sales"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "analytics/profit-loss"] });
+            void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "analytics/daily-sales"] });
+            void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "analytics/profit-loss"] });
           }
         }
-      } catch {}
+      } catch (error) {
+        console.warn('Failed to process realtime sale message', error);
+      }
     };
 
     return () => {
-      try { ws.close(); } catch {}
+      try {
+        ws.close();
+      } catch (error) {
+        console.warn('Failed to close realtime websocket cleanly', error);
+      }
       wsRef.current = null;
     };
   }, [orgId, storeId, queryClient]);

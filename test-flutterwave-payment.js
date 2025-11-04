@@ -29,7 +29,8 @@ function makeRequest(options, data = null) {
             headers: res.headers,
             data: parsed
           });
-        } catch (error) {
+        } catch (parseError) {
+          console.warn('Failed to parse Flutterwave response as JSON', parseError);
           resolve({
             statusCode: res.statusCode,
             headers: res.headers,

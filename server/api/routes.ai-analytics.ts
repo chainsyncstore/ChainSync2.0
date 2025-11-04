@@ -1,8 +1,8 @@
 import { Express, Request, Response } from 'express';
-import { requireAuth, requireRole } from '../middleware/authz';
-import { logger, extractLogContext } from '../lib/logger';
-import { AdvancedAnalyticsService } from '../ai/advanced-analytics';
 import { loadEnv } from '../../shared/env';
+import { AdvancedAnalyticsService } from '../ai/advanced-analytics';
+import { logger, extractLogContext } from '../lib/logger';
+import { requireAuth, requireRole } from '../middleware/authz';
 
 const analyticsService = new AdvancedAnalyticsService();
 

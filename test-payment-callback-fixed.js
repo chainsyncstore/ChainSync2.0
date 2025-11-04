@@ -2,7 +2,6 @@
 // This tests the payment callback without service worker interference
 
 const http = require('http');
-const https = require('https');
 
 // Test configuration
 const TEST_CONFIG = {
@@ -30,7 +29,8 @@ function makeRequest(options, data = null) {
             headers: res.headers,
             data: parsed
           });
-        } catch (error) {
+        } catch (parseError) {
+          console.warn('Failed to parse response JSON during payment callback test', parseError);
           resolve({
             statusCode: res.statusCode,
             headers: res.headers,

@@ -50,7 +50,7 @@ async function init() {
     });
 }
 
-init();
+void init();
 
 // Expose test helper for E2E
 // @ts-ignore

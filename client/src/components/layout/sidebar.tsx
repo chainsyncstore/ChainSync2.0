@@ -1,6 +1,3 @@
-import { Link, useLocation } from "wouter";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import {
 	ScanBarcode,
 	Package,
@@ -14,7 +11,11 @@ import {
 	ListChecks,
     CreditCard,
 } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
+/* eslint-disable no-unused-vars -- prop parameter names document external contract */
 interface SidebarProps {
 	userRole: string;
 	userName: string;
@@ -26,6 +27,7 @@ interface SidebarProps {
 	isMobile?: boolean; // Add prop to indicate if it's in mobile menu
 
 }
+/* eslint-enable no-unused-vars */
 
 const getNavigationItems = (userRole: string) => {
 	// Tailor visible routes per role to avoid navigating to pages

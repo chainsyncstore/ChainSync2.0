@@ -167,12 +167,19 @@ export async function generateHcaptchaToken(): Promise<string> {
   return new Promise((resolve, reject) => {
     if (typeof window !== 'undefined' && window.hcaptcha) {
       try {
-        window.hcaptcha.execute({
+        const execution = window.hcaptcha.execute({
           sitekey: HCAPTCHA_SITE_KEY,
           callback: (token: string) => resolve(token),
           'expired-callback': () => reject(new Error('hCaptcha expired')),
           'error-callback': () => reject(new Error('hCaptcha error'))
         });
+        // Some hCaptcha implementations return a promise we should observe
+        if (execution && typeof (execution as Promise<unknown>).catch === 'function') {
+          (execution as Promise<unknown>).catch((err) => {
+            console.warn('hCaptcha execution rejected', err);
+            reject(err instanceof Error ? err : new Error('hCaptcha execution rejected'));
+          });
+        }
       } catch (error) {
         reject(error);
       }

@@ -5,7 +5,9 @@
     "server/**/*",
     "shared/**/*",
     "tests/**/*",
-    "scripts/**/*"
+    "scripts/**/*",
+    "*.config.ts",
+    "*.config.mts"
   ],
   "exclude": [
     "dist",

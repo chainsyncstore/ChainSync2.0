@@ -1,15 +1,19 @@
-import React, { useState, useEffect } from "react";
-import { useLocation } from "wouter";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { CheckCircle } from "lucide-react";
+import React from "react";
+import { useLocation } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function PostOnboarding() {
   const [, setLocation] = useLocation();
 
   React.useEffect(() => {
     // Clear onboarding context after arriving
-    try { localStorage.removeItem('chainsync_onboarding'); } catch {}
+    try {
+      localStorage.removeItem('chainsync_onboarding');
+    } catch (error) {
+      console.warn('Failed to clear onboarding context', error);
+    }
   }, []);
 
   return (
@@ -19,7 +23,7 @@ export default function PostOnboarding() {
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="h-8 w-8 text-green-600" />
           </div>
-          <CardTitle className="text-2xl font-bold">You're almost there!</CardTitle>
+          <CardTitle className="text-2xl font-bold">You&apos;re almost there!</CardTitle>
           <CardDescription>
             Your payment was successful! Your account is now active and ready to use.
           </CardDescription>

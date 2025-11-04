@@ -1,27 +1,25 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/hooks/use-toast";
-import { 
-  Users, 
-  Crown, 
-  Gift, 
-  Plus, 
-  Search, 
-  Edit, 
-  Trash2, 
+import {
+  Users,
+  Crown,
+  Plus,
+  Search,
+  Edit,
+  Trash2,
   Award,
   TrendingUp,
-  UserPlus
+  UserPlus,
 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 
 interface Customer {
   id: string;
@@ -97,11 +95,7 @@ export default function Loyalty() {
     color: "#6B7280",
   });
 
-  useEffect(() => {
-    fetchLoyaltyData();
-  }, []);
-
-  const fetchLoyaltyData = async () => {
+  const fetchLoyaltyData = useCallback(async () => {
     try {
       setIsLoading(true);
       // In a real app, these would be API calls
@@ -213,6 +207,7 @@ export default function Loyalty() {
       setTiers(mockTiers);
       setTransactions(mockTransactions);
     } catch (error) {
+      console.error("Failed to load loyalty program data", error);
       toast({
         title: "Error",
         description: "Failed to load loyalty program data",
@@ -221,7 +216,11 @@ export default function Loyalty() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    void fetchLoyaltyData();
+  }, [fetchLoyaltyData]);
 
   const filteredCustomers = customers.filter(
     (customer) =>
@@ -263,7 +262,7 @@ export default function Loyalty() {
 
     // Phone validation (optional but must be valid if provided)
     if (newCustomer.phone.trim()) {
-      if (!/^[\+]?[1-9][\d]{9,15}$/.test(newCustomer.phone.replace(/\s/g, ''))) {
+      if (!/^[+]?\d{9,16}$/.test(newCustomer.phone.replace(/\s/g, ''))) {
         errors.phone = "Invalid phone number format";
       }
     }
@@ -303,6 +302,7 @@ export default function Loyalty() {
         description: "Customer added successfully",
       });
     } catch (error) {
+      console.error("Failed to add customer", error);
       toast({
         title: "Error",
         description: "Failed to add customer",
@@ -328,19 +328,13 @@ export default function Loyalty() {
         description: "Tier added successfully",
       });
     } catch (error) {
+      console.error("Failed to add loyalty tier", error);
       toast({
         title: "Error",
         description: "Failed to add tier",
         variant: "destructive",
       });
     }
-  };
-
-  const getTierForPoints = (points: number) => {
-    return tiers
-      .filter(tier => tier.isActive)
-      .sort((a, b) => b.pointsRequired - a.pointsRequired)
-      .find(tier => points >= tier.pointsRequired);
   };
 
   if (isLoading) {

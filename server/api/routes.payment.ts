@@ -1,8 +1,9 @@
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 import { PaymentService } from '@server/payment/service';
-import { PendingSignup } from './pending-signup';
+import { logger } from '../lib/logger';
 import { storage } from '../storage';
+import { PendingSignup } from './pending-signup';
 
 const InitializeSchema = z.object({
   email: z.string().email({ message: 'Invalid email format' }),
@@ -188,7 +189,12 @@ export async function registerPaymentRoutes(app: Express) {
         if (token) PendingSignup.associateReference(token, reference);
         return res.json(payload);
       }
-    } catch (e) {
+    } catch (error) {
+      logger.error('Payment initialization failed', {
+        provider: providerLower,
+        reference,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(500).json({ message: 'Failed to initialize payment' });
     }
   });
@@ -233,7 +239,12 @@ export async function registerPaymentRoutes(app: Express) {
             if ((storage as any).markSignupCompleted) {
               await (storage as any).markSignupCompleted(userId);
             }
-          } catch {}
+          } catch (error) {
+            logger.warn('Failed to mark signup completed during payment verification', {
+              userId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
         }
         // If there is a pending signup associated with this reference, create the user now
         const pending = await (PendingSignup as any).getByReferenceAsync?.(reference) || PendingSignup.getByReference(reference);
@@ -265,7 +276,11 @@ export async function registerPaymentRoutes(app: Express) {
         return res.json({ status: 'success', data: { success: true }, message: 'Payment verified successfully' });
       }
       return res.status(400).json({ status: 'error', message: 'Payment verification failed' });
-    } catch (e) {
+    } catch (error) {
+      logger.warn('Payment verification failed', {
+        reference,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return res.status(400).json({ status: 'error', message: 'Payment verification failed' });
     }
   });

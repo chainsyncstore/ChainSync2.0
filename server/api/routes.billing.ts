@@ -1,8 +1,8 @@
+import { eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
-import { db } from '../db';
-import { subscriptions, users, organizations } from '@shared/prd-schema';
-import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { organizations } from '@shared/prd-schema';
+import { db } from '../db';
 import { getPlan } from '../lib/plans';
 import { PaymentService } from '../payment/service';
 

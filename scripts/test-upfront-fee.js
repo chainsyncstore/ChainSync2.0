@@ -5,8 +5,8 @@
  * This script tests the payment initialization with upfront fees
  */
 
-const https = require('https');
 const http = require('http');
+const https = require('https');
 
 // Configuration
 const TEST_CONFIG = {
@@ -102,7 +102,7 @@ function makeRequest(url, data = null, method = 'GET') {
             headers: res.headers,
             data: responseData
           });
-        } catch (error) {
+        } catch {
           resolve({
             statusCode: res.statusCode,
             headers: res.headers,
@@ -200,7 +200,7 @@ async function testSubscriptionEndpoint(baseUrl) {
     } else {
       console.log(`   ⚠️  Subscription endpoint returned status: ${response.statusCode}`);
     }
-  } catch (error) {
+  } catch {
     console.log(`   ℹ️  Subscription endpoint not accessible (expected for new feature)`);
   }
   
@@ -233,7 +233,7 @@ async function testPricingEndpoint(baseUrl) {
     } else {
       console.log(`   ⚠️  Pricing endpoint returned status: ${response.statusCode}`);
     }
-  } catch (error) {
+  } catch {
     console.log(`   ℹ️  Pricing endpoint not accessible (expected)`);
   }
   
