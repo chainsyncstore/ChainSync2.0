@@ -9,7 +9,8 @@ import {
 	Link as LinkIcon,
 	Crown,
 	ListChecks,
-    CreditCard,
+	CreditCard,
+	Users,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -25,20 +26,30 @@ interface SidebarProps {
 	onStoreChange: (storeId: string) => void;
 	alertCount: number;
 	isMobile?: boolean; // Add prop to indicate if it's in mobile menu
-
+	hideStoreSelector?: boolean;
 }
 /* eslint-enable no-unused-vars */
 
-const getNavigationItems = (userRole: string) => {
-	// Tailor visible routes per role to avoid navigating to pages
-	// that aren't registered for that role (prevents 404s)
+type NavigationItem = {
+	path: string;
+	icon: typeof ScanBarcode;
+	label: string;
+	hasAlert?: boolean;
+	disabled?: boolean;
+};
+
+const getNavigationItems = (
+	userRole: string,
+	options: { selectedStore?: string } = {}
+): NavigationItem[] => {
 	if (userRole === "cashier") {
 		return [
 			{ path: "/pos", icon: ScanBarcode, label: "POS" },
+			{ path: "/settings", icon: Settings, label: "Settings" },
 		];
 	}
 
-	const items = [
+	const items: NavigationItem[] = [
 		{ path: "/inventory", icon: Package, label: "Inventory" },
 		{ path: "/analytics", icon: TrendingUp, label: "Analytics" },
 		{ path: "/loyalty", icon: Crown, label: "Loyalty" },
@@ -47,11 +58,25 @@ const getNavigationItems = (userRole: string) => {
 		{ path: "/settings", icon: Settings, label: "Settings" },
 	];
 
+	if (userRole === "manager") {
+		items.unshift({ path: "/pos", icon: ScanBarcode, label: "POS" });
+		const manageStaffPath = options.selectedStore
+			? `/stores/${options.selectedStore}/staff`
+			: "";
+		items.splice(1, 0, {
+			path: manageStaffPath,
+			icon: Users,
+			label: "Manage Staff",
+			disabled: !options.selectedStore,
+		});
+	}
+
 	if (userRole === "admin") {
 		items.splice(-1, 0, { path: "/multi-store", icon: Building2, label: "Multi-Store" });
 		items.splice(-1, 0, { path: "/admin/audit", icon: ListChecks, label: "Audit" });
 		items.splice(-1, 0, { path: "/admin/billing", icon: CreditCard, label: "Billing" });
 	}
+
 	return items;
 };
 
@@ -64,7 +89,7 @@ export default function Sidebar({
 	onStoreChange,
 	alertCount,
 	isMobile = false,
-
+	hideStoreSelector = false,
 }: SidebarProps) {
 	const [location] = useLocation();
 
@@ -101,50 +126,58 @@ export default function Sidebar({
 
 			{/* Navigation */}
 			<nav className="flex-1 px-2 md:px-4 py-4 sm:py-6 space-y-1 sm:space-y-2">
-				{getNavigationItems(userRole).map((item) => {
+				{getNavigationItems(userRole, { selectedStore }).map((item) => {
 					const Icon = item.icon;
 					const isActive = location === item.path;
 					const showAlert = (item as any).hasAlert && alertCount > 0;
+					const isDisabled = Boolean(item.disabled || !item.path);
 
-					return (
+					const content = (
+						<div
+							className={cn(
+								"flex items-center space-x-3 px-3 py-2.5 sm:py-2 rounded-lg transition-colors min-h-[44px] sm:min-h-[40px]",
+								isActive ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100",
+								isDisabled && !isActive ? "opacity-60 cursor-not-allowed hover:bg-transparent" : "cursor-pointer"
+							)}
+						>
+							<Icon className="w-5 h-5 flex-shrink-0" />
+							<span className="truncate min-w-0 text-sm sm:text-base">
+								{item.label}
+							</span>
+							{showAlert && (
+								<Badge variant="destructive" className="ml-auto text-xs flex-shrink-0 min-w-[20px] h-5">
+									{alertCount}
+								</Badge>
+							)}
+						</div>
+					);
+
+					return item.path && !isDisabled ? (
 						<Link key={item.path} href={item.path}>
-							<div
-								className={cn(
-									"flex items-center space-x-3 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer min-h-[44px] sm:min-h-[40px]",
-									isActive
-										? "bg-primary text-white"
-										: "text-slate-600 hover:bg-slate-100"
-								)}
-							>
-								<Icon className="w-5 h-5 flex-shrink-0" />
-								<span className="truncate min-w-0 text-sm sm:text-base">
-									{item.label}
-								</span>
-								{showAlert && (
-									<Badge variant="destructive" className="ml-auto text-xs flex-shrink-0 min-w-[20px] h-5">
-										{alertCount}
-									</Badge>
-								)}
-							</div>
+							{content}
 						</Link>
+					) : (
+						<div key={item.label}>{content}</div>
 					);
 				})}
 			</nav>
 
 			{/* Store Selector */}
-			<div className="p-2 md:p-4 border-t border-slate-200">
-				<select
-					value={selectedStore}
-					onChange={(e) => onStoreChange(e.target.value)}
-					className="w-full px-2 md:px-3 py-2.5 sm:py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent min-h-[40px]"
-				>
-					{stores.map((store) => (
-						<option key={store.id} value={store.id}>
-							{store.name}
-						</option>
-					))}
-				</select>
-			</div>
+			{!hideStoreSelector && (
+				<div className="p-2 md:p-4 border-t border-slate-200">
+					<select
+						value={selectedStore}
+						onChange={(e) => onStoreChange(e.target.value)}
+						className="w-full px-2 md:px-3 py-2.5 sm:py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent min-h-[40px]"
+					>
+						{stores.map((store) => (
+							<option key={store.id} value={store.id}>
+								{store.name}
+							</option>
+						))}
+					</select>
+				</div>
+			)}
 		</div>
 	);
 }

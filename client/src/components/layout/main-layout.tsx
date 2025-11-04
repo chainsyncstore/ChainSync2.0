@@ -1,4 +1,4 @@
-import { useState, useEffect, Suspense, lazy } from "react";
+import { useMemo, useState, useEffect, Suspense, lazy } from "react";
 import { useLocation } from "wouter";
 const Sidebar = lazy(() => import("./sidebar"));
 const TopBar = lazy(() => import("./topbar"));
@@ -30,27 +30,56 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
   useEffect(() => {
     let cancelled = false;
     const loadStores = async () => {
+      if (userRole === "cashier") {
+        const assignedStoreId = user?.storeId || "";
+        setStores(assignedStoreId ? [{ id: assignedStoreId, name: "Assigned Store" }] : []);
+        setSelectedStore(assignedStoreId);
+        return;
+      }
+
       try {
         const res = await fetch('/api/stores', { credentials: 'include' });
         if (!res.ok) throw new Error('Failed to load stores');
         const data = await res.json();
         if (!cancelled) {
           const normalized = Array.isArray(data) ? data : (data?.data || []);
-          setStores(normalized);
-          if (normalized.length > 0) setSelectedStore(normalized[0].id);
+          let scopedStores = normalized;
+
+          if (userRole === "manager") {
+            const assignedStoreId = user?.storeId;
+            scopedStores = assignedStoreId
+              ? normalized.filter((store) => store.id === assignedStoreId)
+              : [];
+            if (scopedStores.length === 0 && assignedStoreId) {
+              scopedStores = [{ id: assignedStoreId, name: "Assigned Store" }];
+            }
+          }
+
+          setStores(scopedStores);
+
+          if (scopedStores.length > 0) {
+            const effectiveStoreId = userRole === "manager"
+              ? (user?.storeId || scopedStores[0].id)
+              : scopedStores[0].id;
+            setSelectedStore(effectiveStoreId);
+          } else {
+            setSelectedStore(userRole === "manager" ? (user?.storeId || "") : "");
+          }
         }
       } catch (error) {
         console.error('Error loading stores:', error);
         if (!cancelled) {
-          setStores([]);
-          setSelectedStore("");
+          const fallbackStoreId = userRole === "manager" ? (user?.storeId || "") : "";
+          setStores(fallbackStoreId ? [{ id: fallbackStoreId, name: "Assigned Store" }] : []);
+          setSelectedStore(fallbackStoreId);
         }
       }
     };
+
     void loadStores();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [userRole, user?.storeId]);
 
   // Load alert count for selected store
   useEffect(() => {
@@ -131,21 +160,33 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     ? `${user.firstName[0]}${user.lastName[0]}`
     : user?.username?.substring(0, 2).toUpperCase() || "U";
 
+  const hideStoreSelector = useMemo(() => userRole !== "admin", [userRole]);
+
+  const topBarStores = userRole === "cashier" ? [] : stores;
+
+  const sidebarProps = userRole === "cashier" ? null : {
+    userRole,
+    userName,
+    userInitials,
+    selectedStore,
+    stores,
+    onStoreChange: (storeId: string) => {
+      if (userRole === "manager") return; // manager store fixed
+      setSelectedStore(storeId);
+    },
+    alertCount,
+    hideStoreSelector,
+  } as const;
+
   return (
     <div className="flex h-screen bg-slate-50">
       {/* Sidebar */}
-      <Suspense fallback={null}>
-        <Sidebar
-          userRole={userRole}
-          userName={userName}
-          userInitials={userInitials}
-          selectedStore={selectedStore}
-          stores={stores}
-          onStoreChange={setSelectedStore}
-          alertCount={alertCount}
-        />
-      </Suspense>
-      
+      {sidebarProps ? (
+        <Suspense fallback={null}>
+          <Sidebar {...sidebarProps} />
+        </Suspense>
+      ) : null}
+
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar */}
@@ -159,9 +200,10 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
             userName={userName}
             userInitials={userInitials}
             selectedStore={selectedStore}
-            stores={stores}
-            onStoreChange={setSelectedStore}
+            stores={topBarStores}
+            onStoreChange={userRole === "cashier" ? undefined : setSelectedStore}
             alertCount={alertCount}
+            hideStoreSelector={hideStoreSelector}
           />
         </Suspense>
         

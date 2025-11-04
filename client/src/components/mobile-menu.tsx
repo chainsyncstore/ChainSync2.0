@@ -14,6 +14,7 @@ interface MobileMenuProps {
   stores: Array<{ id: string; name: string }>;
   onStoreChange: (storeId: string) => void;
   alertCount: number;
+  hideStoreSelector?: boolean;
 }
 /* eslint-enable no-unused-vars */
 
@@ -25,6 +26,7 @@ export default function MobileMenu({
   stores,
   onStoreChange,
   alertCount,
+  hideStoreSelector = false,
 }: MobileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -57,6 +59,7 @@ export default function MobileMenu({
               }}
               alertCount={alertCount}
               isMobile={true} // Enable mobile mode for full labels
+              hideStoreSelector={hideStoreSelector}
             />
           </div>
         </SheetContent>

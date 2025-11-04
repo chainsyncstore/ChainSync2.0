@@ -19,6 +19,7 @@ interface TopBarProps {
   stores?: Array<{ id: string; name: string }>;
   onStoreChange?: (storeId: string) => void;
   alertCount?: number;
+  hideStoreSelector?: boolean;
 }
 /* eslint-enable no-unused-vars */
 
@@ -33,7 +34,8 @@ export default function TopBar({
   selectedStore,
   stores,
   onStoreChange,
-  alertCount
+  alertCount,
+  hideStoreSelector,
 }: TopBarProps) {
   const { isScannerActive, isScanning, inputBuffer } = useScannerContext();
 
@@ -42,7 +44,7 @@ export default function TopBar({
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           {/* Mobile menu */}
-          {userRole && userName && userInitials && selectedStore && stores && onStoreChange && (
+          {userRole && userName && userInitials && stores && onStoreChange && (
             <MobileMenu
               userRole={userRole}
               userName={userName}
@@ -51,6 +53,7 @@ export default function TopBar({
               stores={stores}
               onStoreChange={onStoreChange}
               alertCount={alertCount || 0}
+              hideStoreSelector={hideStoreSelector}
             />
           )}
           <div className="min-w-0 flex-1">
