@@ -59,7 +59,6 @@ const getNavigationItems = (
 	];
 
 	if (userRole === "manager") {
-		items.unshift({ path: "/pos", icon: ScanBarcode, label: "POS" });
 		const manageStaffPath = options.selectedStore
 			? `/stores/${options.selectedStore}/staff`
 			: "";
