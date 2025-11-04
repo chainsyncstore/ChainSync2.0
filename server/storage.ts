@@ -296,6 +296,11 @@ export class DatabaseStorage implements IStorage {
         requires2fa: users.requires2fa,
         settings: users.settings,
         orgId: users.orgId,
+        role: users.role,
+        storeId: users.storeId,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        username: users.username,
         createdAt: users.createdAt,
         lastLoginAt: users.lastLoginAt,
       })
@@ -343,6 +348,11 @@ export class DatabaseStorage implements IStorage {
         requires2fa: users.requires2fa,
         settings: users.settings,
         orgId: users.orgId,
+        role: users.role,
+        storeId: users.storeId,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        username: users.username,
         createdAt: users.createdAt,
         lastLoginAt: users.lastLoginAt,
       })
