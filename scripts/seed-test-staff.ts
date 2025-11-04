@@ -59,6 +59,7 @@ async function upsertUser(profile: StaffProfile, storeId: string | null) {
     passwordHash: hashedPassword,
     password: hashedPassword,
     isActive: true,
+    isAdmin: false,
     emailVerified: true,
     signupCompleted: true,
     signupAttempts: 1,
