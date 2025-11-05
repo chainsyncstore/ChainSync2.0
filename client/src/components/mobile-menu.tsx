@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import Sidebar from "./layout/sidebar";
+import { cn } from "@/lib/utils";
 
 /* eslint-disable no-unused-vars -- prop parameter names document external API */
 interface MobileMenuProps {
@@ -15,6 +16,7 @@ interface MobileMenuProps {
   onStoreChange: (storeId: string) => void;
   alertCount: number;
   hideStoreSelector?: boolean;
+  alwaysVisible?: boolean;
 }
 /* eslint-enable no-unused-vars */
 
@@ -27,11 +29,12 @@ export default function MobileMenu({
   onStoreChange,
   alertCount,
   hideStoreSelector = false,
+  alwaysVisible = false,
 }: MobileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="lg:hidden">
+    <div className={cn("inline-block", !alwaysVisible && "lg:hidden")}> 
       <Sheet open={isOpen} onOpenChange={setIsOpen}>
         <SheetTrigger asChild>
           <Button 

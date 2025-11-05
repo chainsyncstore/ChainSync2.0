@@ -15,6 +15,7 @@ import {
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useLayout } from "@/hooks/use-layout";
 
 /* eslint-disable no-unused-vars -- prop parameter names document external contract */
 interface SidebarProps {
@@ -91,6 +92,7 @@ export default function Sidebar({
 	hideStoreSelector = false,
 }: SidebarProps) {
 	const [location] = useLocation();
+	const { sidebarFooter } = useLayout();
 
 	return (
 		<div className={cn(
@@ -177,6 +179,12 @@ export default function Sidebar({
 					</select>
 				</div>
 			)}
+
+			{sidebarFooter ? (
+				<div className="p-3 md:p-4 border-t border-slate-200 space-y-3">
+					{sidebarFooter}
+				</div>
+			) : null}
 		</div>
 	);
 }

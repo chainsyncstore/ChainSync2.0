@@ -13,6 +13,7 @@ import { useCart } from "@/hooks/use-cart";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useToast } from "@/hooks/use-toast";
+import { useLayout } from "@/hooks/use-layout";
 import type { Store, LowStockAlert } from "@shared/schema";
 
 export default function POS() {
@@ -46,6 +47,8 @@ export default function POS() {
     setOnScan,
   } = useScannerContext();
 
+  const { setSidebarFooter } = useLayout();
+
   // Fetch stores
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -71,6 +74,30 @@ export default function POS() {
 
   const currentStore = stores.find((s) => s.id === selectedStore) as any;
   const currency: 'USD' | 'NGN' = (currentStore?.currency === 'NGN' ? 'NGN' : 'USD');
+
+  useEffect(() => {
+    setSidebarFooter(
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Today&apos;s Stats</p>
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-slate-500">Transactions</p>
+            <p className="text-lg font-semibold text-slate-800">{dailyStats.transactions}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-slate-500">Revenue</p>
+            <p className="text-lg font-semibold text-green-600">{currency === 'NGN' ? `₦${dailyStats.revenue.toLocaleString()}` : `$${dailyStats.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</p>
+          </div>
+        </div>
+      </div>
+    );
+
+    return () => {
+      setSidebarFooter(null);
+    };
+  }, [dailyStats.revenue, dailyStats.transactions, currency, setSidebarFooter]);
 
   // Track offline sync state
   const [queuedCount, setQueuedCount] = useState(0);
@@ -351,8 +378,18 @@ export default function POS() {
           Some sales have failed to sync after multiple attempts. Please check connection or contact support.
         </div>
       )}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 h-full">
-        <div className="xl:col-span-8 flex flex-col space-y-3 sm:space-y-4 lg:space-y-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-3 sm:gap-4 lg:gap-6 h-full">
+        <div className="flex flex-col h-full min-h-0">
+          <ShoppingCart
+            items={items}
+            onUpdateQuantity={updateQuantity}
+            onRemoveItem={removeItem}
+            onClearCart={clearCart}
+            currency={currency}
+          />
+        </div>
+
+        <div className="flex flex-col h-full min-h-0 space-y-3 sm:space-y-4 lg:space-y-6">
           <BarcodeScanner
             onScan={handleBarcodeScanned}
             onOpenSearch={() => setIsSearchModalOpen(true)}
@@ -363,29 +400,19 @@ export default function POS() {
             isScanning={isScanning}
             inputBuffer={inputBuffer}
           />
-          
-          <ShoppingCart
-            items={items}
-            onUpdateQuantity={updateQuantity}
-            onRemoveItem={removeItem}
-            onClearCart={clearCart}
-            currency={currency}
-          />
-        </div>
-
-        <div className="xl:col-span-4">
-          <CheckoutPanel
-            summary={summary}
-            payment={payment}
-            dailyStats={dailyStats}
-            onPaymentMethodChange={(method) => updatePayment({ method })}
-            onAmountReceivedChange={handleAmountReceivedChange}
-            onCompleteSale={handleCompleteSale}
-            onHoldTransaction={handleHoldTransaction}
-            onVoidTransaction={handleVoidTransaction}
-            isProcessing={createTransactionMutation.isPending}
-            currency={currency}
-          />
+          <div className="flex-1 min-h-0 overflow-auto">
+            <CheckoutPanel
+              summary={summary}
+              payment={payment}
+              onPaymentMethodChange={(method) => updatePayment({ method })}
+              onAmountReceivedChange={handleAmountReceivedChange}
+              onCompleteSale={handleCompleteSale}
+              onHoldTransaction={handleHoldTransaction}
+              onVoidTransaction={handleVoidTransaction}
+              isProcessing={createTransactionMutation.isPending}
+              currency={currency}
+            />
+          </div>
         </div>
       </div>
 

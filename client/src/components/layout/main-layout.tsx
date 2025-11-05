@@ -4,6 +4,7 @@ const Sidebar = lazy(() => import("./sidebar"));
 const TopBar = lazy(() => import("./topbar"));
 const FloatingChat = lazy(() => import("../ai/floating-chat"));
 import { useAuth } from "@/hooks/use-auth";
+import { LayoutContext } from "@/hooks/use-layout";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -17,6 +18,7 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
   const [selectedStore, setSelectedStore] = useState("");
   const [stores, setStores] = useState<Array<{ id: string; name: string }>>([]);
   const [alertCount, setAlertCount] = useState(0);
+  const [sidebarFooter, setSidebarFooter] = useState<React.ReactNode | null>(null);
 
   // Update current time
   useEffect(() => {
@@ -79,7 +81,7 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     void loadStores();
 
     return () => { cancelled = true; };
-  }, [userRole, user?.storeId]);
+  }, [userRole, user?.storeId, user?.orgId]);
 
   // Load alert count for selected store
   useEffect(() => {
@@ -162,7 +164,10 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
 
   const hideStoreSelector = useMemo(() => userRole !== "admin", [userRole]);
 
-  const topBarStores = userRole === "cashier" ? [] : stores;
+  const handleStoreChange = (storeId: string) => {
+    if (userRole === "manager") return;
+    setSelectedStore(storeId);
+  };
 
   const sidebarProps = userRole === "cashier" ? null : {
     userRole,
@@ -170,53 +175,52 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     userInitials,
     selectedStore,
     stores,
-    onStoreChange: (storeId: string) => {
-      if (userRole === "manager") return; // manager store fixed
-      setSelectedStore(storeId);
-    },
+    onStoreChange: handleStoreChange,
     alertCount,
     hideStoreSelector,
   } as const;
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      {/* Sidebar */}
-      {sidebarProps ? (
-        <Suspense fallback={null}>
-          <Sidebar {...sidebarProps} />
-        </Suspense>
-      ) : null}
+    <LayoutContext.Provider value={{ sidebarFooter, setSidebarFooter }}>
+      <div className="flex h-screen bg-slate-50">
+        {/* Sidebar */}
+        {sidebarProps ? (
+          <Suspense fallback={null}>
+            <Sidebar {...sidebarProps} />
+          </Suspense>
+        ) : null}
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <Suspense fallback={null}>
-          <TopBar
-            title={pageInfo.title}
-            subtitle={pageInfo.subtitle}
-            currentDateTime={currentDateTime}
-            onLogout={logout}
-            userRole={userRole}
-            userName={userName}
-            userInitials={userInitials}
-            selectedStore={selectedStore}
-            stores={topBarStores}
-            onStoreChange={userRole === "cashier" ? undefined : setSelectedStore}
-            alertCount={alertCount}
-            hideStoreSelector={hideStoreSelector}
-          />
-        </Suspense>
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Top Bar */}
+          <Suspense fallback={null}>
+            <TopBar
+              title={pageInfo.title}
+              subtitle={pageInfo.subtitle}
+              currentDateTime={currentDateTime}
+              onLogout={logout}
+              userRole={userRole}
+              userName={userName}
+              userInitials={userInitials}
+              selectedStore={selectedStore}
+              stores={stores}
+              onStoreChange={handleStoreChange}
+              alertCount={alertCount}
+              hideStoreSelector={hideStoreSelector}
+            />
+          </Suspense>
+          
+          {/* Page Content */}
+          <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
+            {children}
+          </main>
+        </div>
         
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
-          {children}
-        </main>
+        {/* Floating AI Chat (lazy) */}
+        <Suspense fallback={null}>
+          <FloatingChat storeId={selectedStore} />
+        </Suspense>
       </div>
-      
-      {/* Floating AI Chat (lazy) */}
-      <Suspense fallback={null}>
-        <FloatingChat storeId={selectedStore} />
-      </Suspense>
-    </div>
+    </LayoutContext.Provider>
   );
 }

@@ -10,7 +10,6 @@ import type { CartSummary, PaymentData } from "@/types/pos";
 interface CheckoutPanelProps {
   summary: CartSummary;
   payment: PaymentData;
-  dailyStats: { transactions: number; revenue: number };
   onPaymentMethodChange(method: "cash" | "card"): void;
   onAmountReceivedChange(amount: number): void;
   onCompleteSale(): void;
@@ -24,7 +23,6 @@ interface CheckoutPanelProps {
 export default function CheckoutPanel({
   summary,
   payment,
-  dailyStats,
   onPaymentMethodChange,
   onAmountReceivedChange,
   onCompleteSale,
@@ -92,9 +90,9 @@ export default function CheckoutPanel({
   const canCompleteSale = summary.itemCount > 0 && (payment.method === "card" || (payment.amountReceived && payment.amountReceived >= summary.total));
 
   return (
-    <div className="flex flex-col space-y-4 sm:space-y-6">
+    <div className="flex flex-col space-y-4 sm:space-y-5">
       {/* Lightweight status row */}
-      <div className="flex items-center justify-between text-xs">
+      <div className="flex items-center justify-between text-xs text-slate-600">
         <span className={`font-medium ${isOnline ? 'text-green-700' : 'text-amber-700'}`}>{isOnline ? 'Online' : 'Offline'}</span>
         {queuedCount > 0 && (
           <button
@@ -114,33 +112,30 @@ export default function CheckoutPanel({
         )}
       </div>
       {/* Order Summary */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Order Summary</h3>
-        <div className="space-y-3">
-          <div className="flex justify-between">
-            <span className="text-slate-600">Items</span>
-            <span className="font-medium">{summary.itemCount}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-600">Subtotal</span>
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-800">Order Summary</h3>
+          <span className="text-sm text-slate-500">{summary.itemCount} item{summary.itemCount === 1 ? "" : "s"}</span>
+        </div>
+        <div className="space-y-2 text-sm sm:text-base">
+          <div className="flex justify-between text-slate-600">
+            <span>Subtotal</span>
             <span className="font-medium">{formatCurrency(summary.subtotal, currency)}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-slate-600">Tax (8.5%)</span>
+          <div className="flex justify-between text-slate-600">
+            <span>Tax (8.5%)</span>
             <span className="font-medium">{formatCurrency(summary.tax, currency)}</span>
           </div>
-          <div className="border-t border-slate-200 pt-3">
-            <div className="flex justify-between items-center">
-              <span className="text-lg font-semibold text-slate-800">Total</span>
-              <span className="text-xl sm:text-2xl font-bold text-primary">{formatCurrency(summary.total, currency)}</span>
-            </div>
-          </div>
+        </div>
+        <div className="border-t border-slate-200 pt-3 flex items-center justify-between">
+          <span className="text-lg font-semibold text-slate-800">Total Due</span>
+          <span className="text-xl sm:text-2xl font-bold text-primary">{formatCurrency(summary.total, currency)}</span>
         </div>
       </div>
 
       {/* Payment Methods */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Payment Method</h3>
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-slate-800">Payment Method</h3>
         <div className="grid grid-cols-2 gap-3 mb-4">
           <Button
             variant={payment.method === "cash" ? "default" : "outline"}
@@ -189,60 +184,33 @@ export default function CheckoutPanel({
       </div>
 
       {/* Checkout Actions */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6">
-        <div className="space-y-3">
-          <Button
-            className="w-full py-3 sm:py-4 text-base sm:text-lg font-semibold min-h-[48px] sm:min-h-[52px]"
-            onClick={onCompleteSale}
-            disabled={!canCompleteSale || isProcessing}
-          >
-            <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-            Complete Sale
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full py-3 font-medium min-h-[44px]"
-            onClick={onHoldTransaction}
-            disabled={summary.itemCount === 0 || isProcessing}
-          >
-            <Pause className="w-4 h-4 mr-2" />
-            Hold Transaction
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full py-3 font-medium border-red-300 text-red-600 hover:bg-red-50 min-h-[44px]"
-            onClick={onVoidTransaction}
-            disabled={summary.itemCount === 0 || isProcessing}
-          >
-            <X className="w-4 h-4 mr-2" />
-            Void Sale
-          </Button>
-        </div>
-      </div>
-
-      {/* Quick Stats */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Today&rsquo;s Stats</h3>
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="text-sm text-slate-600">Transactions</p>
-              <p className="text-xl sm:text-2xl font-bold text-slate-800">{dailyStats.transactions}</p>
-            </div>
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <CheckCircle className="text-primary w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
-          </div>
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="text-sm text-slate-600">Revenue</p>
-              <p className="text-xl sm:text-2xl font-bold text-green-600">{formatCurrency(dailyStats.revenue, currency)}</p>
-            </div>
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <Banknote className="text-green-600 w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
-          </div>
-        </div>
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 space-y-3">
+        <Button
+          className="w-full py-3 sm:py-4 text-base sm:text-lg font-semibold min-h-[48px] sm:min-h-[52px]"
+          onClick={onCompleteSale}
+          disabled={!canCompleteSale || isProcessing}
+        >
+          <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+          Complete Sale
+        </Button>
+        <Button
+          variant="outline"
+          className="w-full py-3 font-medium min-h-[44px]"
+          onClick={onHoldTransaction}
+          disabled={summary.itemCount === 0 || isProcessing}
+        >
+          <Pause className="w-4 h-4 mr-2" />
+          Hold Transaction
+        </Button>
+        <Button
+          variant="outline"
+          className="w-full py-3 font-medium border-red-300 text-red-600 hover:bg-red-50 min-h-[44px]"
+          onClick={onVoidTransaction}
+          disabled={summary.itemCount === 0 || isProcessing}
+        >
+          <X className="w-4 h-4 mr-2" />
+          Void Sale
+        </Button>
       </div>
     </div>
   );
