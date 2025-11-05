@@ -347,9 +347,6 @@ export default function POS() {
       {/* Sync/Connectivity status */}
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Badge variant={isOnline ? 'outline' : 'secondary'} className={isOnline ? 'text-green-700 border-green-300' : 'bg-amber-100 text-amber-800'}>
-            {isOnline ? 'Online' : 'Offline'}
-          </Badge>
           {lastSync && (
             <span className="text-xs text-slate-600">Last sync: attempted {lastSync.attempted}, synced {lastSync.synced}</span>
           )}

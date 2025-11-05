@@ -125,6 +125,7 @@ function Dashboard({ userRole }: { userRole: string }) {
             <Route path="/" component={POS} /> {/* Cashier sees POS as default */}
             <Route path="/login" component={POS} /> {/* Redirect login to default */}
             <Route path="/pos" component={POS} />
+            <Route path="/settings" component={Settings} />
             <Route component={NotFound} />
           </Switch>
         </Suspense>
