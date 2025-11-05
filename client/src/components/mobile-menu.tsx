@@ -40,7 +40,7 @@ export default function MobileMenu({
           <Button 
             variant="ghost" 
             size="icon" 
-            className="lg:hidden w-10 h-10 min-h-[40px] min-w-[40px]"
+            className={cn("w-10 h-10 min-h-[40px] min-w-[40px]", !alwaysVisible && "lg:hidden")}
           >
             <Menu className="h-5 w-5" />
           </Button>

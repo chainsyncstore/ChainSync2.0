@@ -38,6 +38,7 @@ export default function TopBar({
   hideStoreSelector,
 }: TopBarProps) {
   const { isScannerActive, isScanning, inputBuffer } = useScannerContext();
+  const alwaysShowMenu = userRole === "cashier";
 
   return (
     <header className="bg-white shadow-sm border-b border-slate-200 px-3 sm:px-4 lg:px-6 py-3 sm:py-4">
@@ -54,6 +55,7 @@ export default function TopBar({
               onStoreChange={onStoreChange}
               alertCount={alertCount || 0}
               hideStoreSelector={hideStoreSelector}
+              alwaysVisible={alwaysShowMenu}
             />
           )}
           <div className="min-w-0 flex-1">

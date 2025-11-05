@@ -378,8 +378,8 @@ export default function POS() {
           Some sales have failed to sync after multiple attempts. Please check connection or contact support.
         </div>
       )}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-3 sm:gap-4 lg:gap-6 h-full">
-        <div className="flex flex-col h-full min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-3 sm:gap-4 lg:gap-6 h-full">
+        <div className="order-2 lg:order-1 flex flex-col gap-3 sm:gap-4 lg:gap-6 h-full">
           <ShoppingCart
             items={items}
             onUpdateQuantity={updateQuantity}
@@ -389,7 +389,7 @@ export default function POS() {
           />
         </div>
 
-        <div className="flex flex-col h-full min-h-0 space-y-3 sm:space-y-4 lg:space-y-6">
+        <div className="order-1 lg:order-2 flex flex-col gap-3 sm:gap-4 lg:gap-6 h-full">
           <BarcodeScanner
             onScan={handleBarcodeScanned}
             onOpenSearch={() => setIsSearchModalOpen(true)}
@@ -400,19 +400,17 @@ export default function POS() {
             isScanning={isScanning}
             inputBuffer={inputBuffer}
           />
-          <div className="flex-1 min-h-0 overflow-auto">
-            <CheckoutPanel
-              summary={summary}
-              payment={payment}
-              onPaymentMethodChange={(method) => updatePayment({ method })}
-              onAmountReceivedChange={handleAmountReceivedChange}
-              onCompleteSale={handleCompleteSale}
-              onHoldTransaction={handleHoldTransaction}
-              onVoidTransaction={handleVoidTransaction}
-              isProcessing={createTransactionMutation.isPending}
-              currency={currency}
-            />
-          </div>
+          <CheckoutPanel
+            summary={summary}
+            payment={payment}
+            onPaymentMethodChange={(method) => updatePayment({ method })}
+            onAmountReceivedChange={handleAmountReceivedChange}
+            onCompleteSale={handleCompleteSale}
+            onHoldTransaction={handleHoldTransaction}
+            onVoidTransaction={handleVoidTransaction}
+            isProcessing={createTransactionMutation.isPending}
+            currency={currency}
+          />
         </div>
       </div>
 
