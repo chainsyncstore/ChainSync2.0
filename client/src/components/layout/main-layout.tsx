@@ -217,9 +217,11 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
         </div>
         
         {/* Floating AI Chat (lazy) */}
-        <Suspense fallback={null}>
-          <FloatingChat storeId={selectedStore} />
-        </Suspense>
+        {userRole !== "cashier" ? (
+          <Suspense fallback={null}>
+            <FloatingChat storeId={selectedStore} />
+          </Suspense>
+        ) : null}
       </div>
     </LayoutContext.Provider>
   );

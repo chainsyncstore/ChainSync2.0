@@ -54,6 +54,8 @@ export default function Settings() {
   const [disablePassword, setDisablePassword] = useState('');
   const [isDisablingTwoFactor, setIsDisablingTwoFactor] = useState(false);
 
+  const isCashier = user?.role === 'cashier';
+
   const twoFactorSecret = useMemo(() => {
     if (!twoFactorOtpauth) return '';
     const secretMatch = twoFactorOtpauth.match(/secret=([^&]+)/i);
@@ -362,23 +364,27 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="security" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className={`grid w-full ${isCashier ? 'grid-cols-1' : 'grid-cols-4'}`}>
           <TabsTrigger value="security" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             Security
           </TabsTrigger>
-          <TabsTrigger value="notifications" className="flex items-center gap-2">
-            <Bell className="h-4 w-4" />
-            Notifications
-          </TabsTrigger>
-          <TabsTrigger value="data" className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            Data
-          </TabsTrigger>
-          <TabsTrigger value="profile" className="flex items-center gap-2">
-            <SettingsIcon className="h-4 w-4" />
-            Profile
-          </TabsTrigger>
+          {!isCashier && (
+            <>
+              <TabsTrigger value="notifications" className="flex items-center gap-2">
+                <Bell className="h-4 w-4" />
+                Notifications
+              </TabsTrigger>
+              <TabsTrigger value="data" className="flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                Data
+              </TabsTrigger>
+              <TabsTrigger value="profile" className="flex items-center gap-2">
+                <SettingsIcon className="h-4 w-4" />
+                Profile
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value="security" className="space-y-6">
@@ -604,153 +610,157 @@ export default function Settings() {
           )}
         </TabsContent>
 
-        <TabsContent value="notifications" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Notification Preferences</CardTitle>
-              <CardDescription>Choose how you want to be notified</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Low Stock Alerts</p>
-                  <p className="text-sm text-gray-600">Get notified when inventory is running low</p>
-                </div>
-                <Switch checked={notificationSettings.lowStockAlerts} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, lowStockAlerts: checked })} />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Sales Reports</p>
-                  <p className="text-sm text-gray-600">Receive daily sales summaries</p>
-                </div>
-                <Switch checked={notificationSettings.salesReports} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, salesReports: checked })} />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">System Updates</p>
-                  <p className="text-sm text-gray-600">Get notified about system maintenance and updates</p>
-                </div>
-                <Switch checked={notificationSettings.systemUpdates} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, systemUpdates: checked })} />
-              </div>
-              
-              <Button onClick={handleSaveNotificationSettings} disabled={isSavingNotifications}>
-                {isSavingNotifications ? 'Saving...' : 'Save Preferences'}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {!isCashier && (
+          <>
+            <TabsContent value="notifications" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Notification Preferences</CardTitle>
+                  <CardDescription>Choose how you want to be notified</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Low Stock Alerts</p>
+                      <p className="text-sm text-gray-600">Get notified when inventory is running low</p>
+                    </div>
+                    <Switch checked={notificationSettings.lowStockAlerts} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, lowStockAlerts: checked })} />
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Sales Reports</p>
+                      <p className="text-sm text-gray-600">Receive daily sales summaries</p>
+                    </div>
+                    <Switch checked={notificationSettings.salesReports} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, salesReports: checked })} />
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">System Updates</p>
+                      <p className="text-sm text-gray-600">Get notified about system maintenance and updates</p>
+                    </div>
+                    <Switch checked={notificationSettings.systemUpdates} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, systemUpdates: checked })} />
+                  </div>
+                  
+                  <Button onClick={handleSaveNotificationSettings} disabled={isSavingNotifications}>
+                    {isSavingNotifications ? 'Saving...' : 'Save Preferences'}
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-        <TabsContent value="data" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Data Export</CardTitle>
-              <CardDescription>Export your data for backup or analysis</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {user.role === 'admin' && stores.length > 1 && (
-                <div>
-                  <Label htmlFor="store-select">Select Store</Label>
-                  <select
-                    id="store-select"
-                    value={selectedStoreId}
-                    onChange={(e) => setSelectedStoreId(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-md mt-1"
-                  >
-                    {stores.map((store) => (
-                      <option key={store.id} value={store.id}>
-                        {store.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                <Button 
-                  variant="outline" 
-                  className="flex items-center gap-2"
-                  onClick={() => handleExport('products')}
-                  disabled={exporting === 'products'}
-                >
-                  <Download className="h-4 w-4" />
-                  {exporting === 'products' ? 'Exporting...' : 'Export Products'}
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="flex items-center gap-2"
-                  onClick={() => handleExport('transactions')}
-                  disabled={exporting === 'transactions'}
-                >
-                  <Download className="h-4 w-4" />
-                  {exporting === 'transactions' ? 'Exporting...' : 'Export Transactions'}
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="flex items-center gap-2"
-                  onClick={() => handleExport('customers')}
-                  disabled={exporting === 'customers'}
-                >
-                  <Download className="h-4 w-4" />
-                  {exporting === 'customers' ? 'Exporting...' : 'Export Customers'}
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="flex items-center gap-2"
-                  onClick={() => handleExport('inventory')}
-                  disabled={exporting === 'inventory'}
-                >
-                  <Download className="h-4 w-4" />
-                  {exporting === 'inventory' ? 'Exporting...' : 'Export Inventory'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            <TabsContent value="data" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data Export</CardTitle>
+                  <CardDescription>Export your data for backup or analysis</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {user.role === 'admin' && stores.length > 1 && (
+                    <div>
+                      <Label htmlFor="store-select">Select Store</Label>
+                      <select
+                        id="store-select"
+                        value={selectedStoreId}
+                        onChange={(e) => setSelectedStoreId(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-md mt-1"
+                      >
+                        {stores.map((store) => (
+                          <option key={store.id} value={store.id}>
+                            {store.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button 
+                      variant="outline" 
+                      className="flex items-center gap-2"
+                      onClick={() => handleExport('products')}
+                      disabled={exporting === 'products'}
+                    >
+                      <Download className="h-4 w-4" />
+                      {exporting === 'products' ? 'Exporting...' : 'Export Products'}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="flex items-center gap-2"
+                      onClick={() => handleExport('transactions')}
+                      disabled={exporting === 'transactions'}
+                    >
+                      <Download className="h-4 w-4" />
+                      {exporting === 'transactions' ? 'Exporting...' : 'Export Transactions'}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="flex items-center gap-2"
+                      onClick={() => handleExport('customers')}
+                      disabled={exporting === 'customers'}
+                    >
+                      <Download className="h-4 w-4" />
+                      {exporting === 'customers' ? 'Exporting...' : 'Export Customers'}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="flex items-center gap-2"
+                      onClick={() => handleExport('inventory')}
+                      disabled={exporting === 'inventory'}
+                    >
+                      <Download className="h-4 w-4" />
+                      {exporting === 'inventory' ? 'Exporting...' : 'Export Inventory'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-        <TabsContent value="profile" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Information</CardTitle>
-              <CardDescription>Update your personal details</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="firstName">First Name</Label>
-                <Input id="firstName" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input id="lastName" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" value={profileForm.email} onChange={e => setProfileForm({ ...profileForm, email: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="phone">Phone</Label>
-                <Input id="phone" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="companyName">Company</Label>
-                <Input id="companyName" value={profileForm.companyName} onChange={e => setProfileForm({ ...profileForm, companyName: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="location">Location</Label>
-                <Input id="location" value={profileForm.location} onChange={e => setProfileForm({ ...profileForm, location: e.target.value })} />
-              </div>
-              {profileForm.email !== user.email && (
-                <div>
-                  <Label htmlFor="password">Current Password (required to change email)</Label>
-                  <Input id="password" type="password" value={profileForm.password} onChange={e => setProfileForm({ ...profileForm, password: e.target.value })} />
-                </div>
-              )}
-              <Button onClick={handleSaveProfile} disabled={isSavingProfile}>
-                {isSavingProfile ? 'Saving...' : 'Save Profile'}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            <TabsContent value="profile" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Profile Information</CardTitle>
+                  <CardDescription>Update your personal details</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input id="firstName" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input id="lastName" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="email">Email</Label>
+                    <Input id="email" type="email" value={profileForm.email} onChange={e => setProfileForm({ ...profileForm, email: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="phone">Phone</Label>
+                    <Input id="phone" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="companyName">Company</Label>
+                    <Input id="companyName" value={profileForm.companyName} onChange={e => setProfileForm({ ...profileForm, companyName: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="location">Location</Label>
+                    <Input id="location" value={profileForm.location} onChange={e => setProfileForm({ ...profileForm, location: e.target.value })} />
+                  </div>
+                  {profileForm.email !== user.email && (
+                    <div>
+                      <Label htmlFor="password">Current Password (required to change email)</Label>
+                      <Input id="password" type="password" value={profileForm.password} onChange={e => setProfileForm({ ...profileForm, password: e.target.value })} />
+                    </div>
+                  )}
+                  <Button onClick={handleSaveProfile} disabled={isSavingProfile}>
+                    {isSavingProfile ? 'Saving...' : 'Save Profile'}
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   );
