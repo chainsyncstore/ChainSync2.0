@@ -55,6 +55,7 @@ export default function Settings() {
   const [isDisablingTwoFactor, setIsDisablingTwoFactor] = useState(false);
 
   const isCashier = user?.role === 'cashier';
+  const isManager = user?.role === 'manager';
 
   const twoFactorSecret = useMemo(() => {
     if (!twoFactorOtpauth) return '';
@@ -364,7 +365,7 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="security" className="space-y-6">
-        <TabsList className={`grid w-full ${isCashier ? 'grid-cols-1' : 'grid-cols-4'}`}>
+        <TabsList className={`grid w-full ${isCashier ? 'grid-cols-1' : isManager ? 'grid-cols-3' : 'grid-cols-4'}`}>
           <TabsTrigger value="security" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             Security
@@ -379,10 +380,12 @@ export default function Settings() {
                 <Database className="h-4 w-4" />
                 Data
               </TabsTrigger>
-              <TabsTrigger value="profile" className="flex items-center gap-2">
-                <SettingsIcon className="h-4 w-4" />
-                Profile
-              </TabsTrigger>
+              {user?.role === 'admin' && (
+                <TabsTrigger value="profile" className="flex items-center gap-2">
+                  <SettingsIcon className="h-4 w-4" />
+                  Profile
+                </TabsTrigger>
+              )}
             </>
           )}
         </TabsList>
@@ -716,49 +719,51 @@ export default function Settings() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="profile" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Profile Information</CardTitle>
-                  <CardDescription>Update your personal details</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label htmlFor="firstName">First Name</Label>
-                    <Input id="firstName" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label htmlFor="lastName">Last Name</Label>
-                    <Input id="lastName" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" value={profileForm.email} onChange={e => setProfileForm({ ...profileForm, email: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label htmlFor="phone">Phone</Label>
-                    <Input id="phone" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label htmlFor="companyName">Company</Label>
-                    <Input id="companyName" value={profileForm.companyName} onChange={e => setProfileForm({ ...profileForm, companyName: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label htmlFor="location">Location</Label>
-                    <Input id="location" value={profileForm.location} onChange={e => setProfileForm({ ...profileForm, location: e.target.value })} />
-                  </div>
-                  {profileForm.email !== user.email && (
+            {user?.role === 'admin' && (
+              <TabsContent value="profile" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Profile Information</CardTitle>
+                    <CardDescription>Update your personal details</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
                     <div>
-                      <Label htmlFor="password">Current Password (required to change email)</Label>
-                      <Input id="password" type="password" value={profileForm.password} onChange={e => setProfileForm({ ...profileForm, password: e.target.value })} />
+                      <Label htmlFor="firstName">First Name</Label>
+                      <Input id="firstName" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} />
                     </div>
-                  )}
-                  <Button onClick={handleSaveProfile} disabled={isSavingProfile}>
-                    {isSavingProfile ? 'Saving...' : 'Save Profile'}
-                  </Button>
-                </CardContent>
-              </Card>
-            </TabsContent>
+                    <div>
+                      <Label htmlFor="lastName">Last Name</Label>
+                      <Input id="lastName" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label htmlFor="email">Email</Label>
+                      <Input id="email" type="email" value={profileForm.email} onChange={e => setProfileForm({ ...profileForm, email: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label htmlFor="phone">Phone</Label>
+                      <Input id="phone" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label htmlFor="companyName">Company</Label>
+                      <Input id="companyName" value={profileForm.companyName} onChange={e => setProfileForm({ ...profileForm, companyName: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label htmlFor="location">Location</Label>
+                      <Input id="location" value={profileForm.location} onChange={e => setProfileForm({ ...profileForm, location: e.target.value })} />
+                    </div>
+                    {profileForm.email !== user.email && (
+                      <div>
+                        <Label htmlFor="password">Current Password (required to change email)</Label>
+                        <Input id="password" type="password" value={profileForm.password} onChange={e => setProfileForm({ ...profileForm, password: e.target.value })} />
+                      </div>
+                    )}
+                    <Button onClick={handleSaveProfile} disabled={isSavingProfile}>
+                      {isSavingProfile ? 'Saving...' : 'Save Profile'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
           </>
         )}
       </Tabs>

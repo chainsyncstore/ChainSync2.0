@@ -108,6 +108,7 @@ function Dashboard({ userRole }: { userRole: string }) {
               <Route path="/alerts" component={Alerts} />
               <Route path="/data-import" component={DataImport} />
               <Route path="/settings" component={Settings} />
+              <Route path="/stores/:storeId/staff" component={StoreStaff} />
               <Route component={NotFound} />
             </Switch>
           </Suspense>
