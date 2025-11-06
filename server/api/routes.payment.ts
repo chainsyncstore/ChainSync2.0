@@ -274,7 +274,7 @@ export async function registerPaymentRoutes(app: Express) {
             tier: pending.tier,
             location: pending.location,
             role: pending.role,
-            emailVerified: false,
+            emailVerified: true,
             isActive: true,
           } as any);
 
