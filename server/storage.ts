@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { eq, and, desc, asc, sql, lt, lte, gte, isNotNull, or } from "drizzle-orm";
 import {
   users,
+  subscriptions,
   stores,
   products,
   inventory,
@@ -649,6 +650,13 @@ export class DatabaseStorage implements IStorage {
       signupCompleted: false,
       signupAttempts: 1
     };
+    if (userData.role) {
+      const roleValue = String(userData.role).toUpperCase();
+      const validRoles = ['ADMIN', 'MANAGER', 'CASHIER'];
+      userData.role = validRoles.includes(roleValue) ? roleValue : 'CASHIER';
+    } else {
+      userData.role = 'CASHIER';
+    }
     if (userData.password) {
       const hashed = userData.password;
       userData.passwordHash = hashed;
@@ -2266,6 +2274,7 @@ export class DatabaseStorage implements IStorage {
       this.mem.lowStockAlerts.clear();
       return;
     }
+    await db.delete(subscriptions);
     await db.delete(users);
   }
 }

@@ -2,6 +2,7 @@ import { eq, and, lte } from 'drizzle-orm';
 
 import { subscriptions, subscriptionPayments, users, type InsertSubscription, type InsertSubscriptionPayment } from '../../shared/schema';
 import { db } from '../db';
+import { logger } from '../lib/logger';
 
 export class SubscriptionService {
   /**
@@ -22,7 +23,7 @@ export class SubscriptionService {
     const subscriptionData: InsertSubscription = {
       userId,
       tier,
-      status: 'trial',
+      status: 'TRIAL',
       upfrontFeePaid: (upfrontFeeAmount / 100).toFixed(2),
       upfrontFeeCurrency,
       monthlyAmount: (monthlyAmount / 100).toFixed(2),
@@ -32,12 +33,33 @@ export class SubscriptionService {
       upfrontFeeCredited: false,
     };
 
-    const [subscription] = await db.insert(subscriptions).values(subscriptionData as unknown as typeof subscriptions.$inferInsert).returning();
+    logger.info('createSubscription:start', { userId, tier, upfrontFeeAmount, monthlyAmount });
+
+    const existingSubscription = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, userId))
+      .limit(1);
+
+    let subscription: typeof subscriptions.$inferSelect;
+
+    if (existingSubscription.length > 0) {
+      [subscription] = existingSubscription;
+      logger.info('createSubscription:reuse', { userId, subscriptionId: subscription.id });
+    } else {
+      [subscription] = await db
+        .insert(subscriptions)
+        .values(subscriptionData as unknown as typeof subscriptions.$inferInsert)
+        .returning();
+      logger.info('createSubscription:insert', { userId, subscriptionId: subscription.id });
+    }
 
     // Update user with subscription ID
     await db.update(users)
       .set({ subscriptionId: subscription.id } as any)
       .where(eq(users.id, userId));
+
+    logger.info('createSubscription:complete', { userId, subscriptionId: subscription.id });
 
     return subscription;
   }
@@ -61,7 +83,7 @@ export class SubscriptionService {
       amount: (amount / 100).toFixed(2),
       currency,
       paymentType,
-      status,
+      status: status.toUpperCase() as any,
       provider,
       metadata,
     };
@@ -100,10 +122,11 @@ export class SubscriptionService {
    * Update subscription status
    */
   async updateSubscriptionStatus(subscriptionId: string, status: 'trial' | 'active' | 'past_due' | 'cancelled' | 'suspended') {
+    const normalizedStatus = status.toUpperCase();
     const [subscription] = await db
       .update(subscriptions)
       .set({ 
-        status: status as any,
+        status: normalizedStatus as any,
         updatedAt: new Date()
       } as any)
       .where(eq(subscriptions.id, subscriptionId))
@@ -139,7 +162,7 @@ export class SubscriptionService {
       .from(subscriptions)
       .where(
         and(
-          eq(subscriptions.status, 'trial'),
+          eq(subscriptions.status, 'TRIAL'),
           lte(subscriptions.trialEndDate, now),
           eq(subscriptions.upfrontFeeCredited, true)
         )
@@ -159,7 +182,7 @@ export class SubscriptionService {
       .from(subscriptions)
       .where(
         and(
-          eq(subscriptions.status, 'trial'),
+          eq(subscriptions.status, 'TRIAL'),
           lte(subscriptions.trialEndDate, now),
           eq(subscriptions.upfrontFeeCredited, false)
         )

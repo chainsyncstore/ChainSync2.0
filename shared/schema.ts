@@ -22,7 +22,7 @@ export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "c
 export const paymentMethodEnum = pgEnum("payment_method", ["cash", "card", "digital"]);
 
 // Subscription Status Enum
-export const subscriptionStatusEnum = pgEnum("subscription_status", ["trial", "active", "past_due", "cancelled", "suspended"]);
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["TRIAL", "ACTIVE", "PAST_DUE", "CANCELLED", "SUSPENDED"]);
 
 // Users table (align with production migrations)
 export const users = pgTable("users", {
@@ -1024,7 +1024,7 @@ export const subscriptions = pgTable("subscriptions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   tier: varchar("tier", { length: 50 }).notNull(),
-  status: subscriptionStatusEnum("status").notNull().default("trial"),
+  status: subscriptionStatusEnum("status").notNull().default("TRIAL"),
   upfrontFeePaid: decimal("upfront_fee_paid", { precision: 10, scale: 2 }).notNull(),
   upfrontFeeCurrency: varchar("upfront_fee_currency", { length: 3 }).notNull(),
   monthlyAmount: decimal("monthly_amount", { precision: 10, scale: 2 }).notNull(),

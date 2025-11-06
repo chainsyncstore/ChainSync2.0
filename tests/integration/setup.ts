@@ -3,7 +3,6 @@ import dotenv from 'dotenv';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
 import {
-  users as T_USERS,
   stores as T_STORES,
   products as T_PRODUCTS,
   inventory as T_INVENTORY,
@@ -13,8 +12,13 @@ import {
   sales as T_SALES,
   saleItems as T_SALE_ITEMS,
   auditLogs as T_AUDIT,
-  subscriptions as T_SUBSCRIPTIONS,
 } from '../../shared/prd-schema';
+import {
+  users as T_USERS,
+  userRoles as T_USER_ROLES,
+  subscriptions as T_SUBSCRIPTIONS,
+  subscriptionPayments as T_SUBSCRIPTION_PAYMENTS,
+} from '../../shared/schema';
 import { cryptoModuleMock } from '../utils/crypto-mocks';
 
 // Load test environment variables
@@ -30,8 +34,10 @@ if (process.env.LOYALTY_REALDB !== '1') {
     type Row = Record<string, any>;
     const store: Record<string, Row[]> = {
       users: [],
+      user_roles: [],
       stores: [],
       subscriptions: [],
+      subscription_payments: [],
       products: [],
       inventory: [],
       customers: [],
@@ -44,6 +50,7 @@ if (process.env.LOYALTY_REALDB !== '1') {
 
     function tableName(t: any): keyof typeof store {
       if (t === T_USERS) return 'users';
+      if (t === T_USER_ROLES) return 'user_roles';
       if (t === T_STORES) return 'stores';
       if (t === T_PRODUCTS) return 'products';
       if (t === T_INVENTORY) return 'inventory';
@@ -54,12 +61,15 @@ if (process.env.LOYALTY_REALDB !== '1') {
       if (t === T_SALE_ITEMS) return 'sale_items';
       if (t === T_AUDIT) return 'audit_logs';
       if (t === T_SUBSCRIPTIONS) return 'subscriptions';
+      if (t === T_SUBSCRIPTION_PAYMENTS) return 'subscription_payments';
       return 'audit_logs';
     }
 
     function genId(prefix: string) {
       return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
     }
+
+    const toCamel = (name: string) => name.replace(/_([a-z])/g, (_m, c) => c.toUpperCase());
 
     const select = vi.fn(() => ({
       from: (tbl: any) => {
@@ -78,10 +88,21 @@ if (process.env.LOYALTY_REALDB !== '1') {
           orderBy: () => this,
           groupBy: () => this,
           where: (expr?: any) => {
-            // This is a hacky mock of the where clause to support the user lookup in authz.
-            // It assumes an `eq` expression on an `id` column.
-            if (expr && expr.right && expr.left?.name === 'id') {
-              const filtered = result.filter(row => row.id === expr.right);
+            if (expr && expr.right && expr.left) {
+              const candidates = new Set<string>();
+              const rawName = expr.left.name || expr.left.column;
+              if (typeof rawName === 'string') {
+                candidates.add(rawName);
+                const parts = rawName.split('.');
+                candidates.add(parts[parts.length - 1]);
+              }
+              if (expr.left.column) candidates.add(expr.left.column);
+              if (expr.left.key) candidates.add(expr.left.key);
+              const camelCandidates = Array.from(candidates).map(name => toCamel(name));
+              const value = expr.right;
+              const filtered = result.filter(row => {
+                return camelCandidates.some(col => row[col] === value || row[col] === String(value));
+              });
               return thenable(filtered);
             }
             return thenable(result);
@@ -184,11 +205,13 @@ async function clearTestData() {
     'loyalty_transactions',
     'transaction_items',
     'transactions',
+    'subscription_payments',
     'subscriptions',
     'low_stock_alerts',
     'inventory',
     'products',
     'loyalty_tiers',
+    'user_roles',
     'customers',
     'user_store_permissions',
     'users',
@@ -283,7 +306,6 @@ beforeEach(async () => {
       seed({
         users: [{ id: 'u-test', orgId: 'org-test', email: 'user@test', isAdmin: true }],
         stores: [{ id: '00000000-0000-0000-0000-000000000001', orgId: 'org-test', name: 'Test Store' }],
-        subscriptions: [{ id: 'sub-test', orgId: 'org-test', planCode: 'enterprise', status: 'ACTIVE' }],
         products: [{ id: '00000000-0000-0000-0000-000000000010', orgId: 'org-test', sku: 'SKU', name: 'P', costPrice: '0', salePrice: '100', vatRate: '0' }],
         inventory: [{ id: 'inv-1', storeId: '00000000-0000-0000-0000-000000000001', productId: '00000000-0000-0000-0000-000000000010', quantity: 999 }],
       });

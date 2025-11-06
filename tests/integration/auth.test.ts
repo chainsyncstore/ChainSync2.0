@@ -97,8 +97,25 @@ describe('Authentication Integration Tests', () => {
       const { subscriptions, emailVerificationTokens } = await import('@shared/schema');
       const { db } = await import('@server/db');
       const subs = await db.select().from(subscriptions).where(eq(subscriptions.userId, created!.id));
+      console.log('subscriptions for user', created!.id, subs.map(sub => ({
+        id: sub.id,
+        userId: sub.userId,
+        tier: sub.tier,
+        status: sub.status,
+        createdAt: sub.createdAt,
+        updatedAt: sub.updatedAt,
+      })));
+      if (subs.length !== 1) {
+        throw new Error(`unexpected subscriptions for ${created!.id}: ${JSON.stringify(subs.map(sub => ({
+          id: sub.id,
+          tier: sub.tier,
+          status: sub.status,
+          createdAt: sub.createdAt,
+          updatedAt: sub.updatedAt,
+        })), null, 2)}`);
+      }
       expect(subs).toHaveLength(1);
-      expect(subs[0].status).toBe('trial');
+      expect(subs[0].status).toBe('TRIAL');
 
       const tokens = await db.select().from(emailVerificationTokens).where(eq(emailVerificationTokens.userId, created!.id));
       expect(tokens).toHaveLength(1);
@@ -160,7 +177,7 @@ describe('Authentication Integration Tests', () => {
 
       const createdUser = await storage.getUserByEmail(userData.email);
       expect(createdUser).toBeTruthy();
-      expect((createdUser as any).role).toBe('admin');
+      expect((createdUser as any).role).toBe('ADMIN');
     });
     it('should require all fields', async () => {
       const response = await request(app)
