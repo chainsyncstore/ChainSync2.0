@@ -8,7 +8,6 @@ import { loadEnv } from '../../shared/env';
 import { AuthService } from '../auth';
 import { db } from '../db';
 import { sendEmail } from '../email';
-import { SecureCookieManager } from '../lib/cookies';
 import { logger, extractLogContext } from '../lib/logger';
 import { monitoringService } from '../lib/monitoring';
 import { requireAuth } from '../middleware/authz';
@@ -16,7 +15,9 @@ import { signupBotPrevention, botPreventionMiddleware } from '../middleware/bot-
 import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '../middleware/security';
 import { SignupSchema, LoginSchema as ValidationLoginSchema } from '../schemas/auth';
 import { storage } from '../storage';
-import { PendingSignup } from './pending-signup';
+import { generateEmailVerificationEmail } from '../email';
+import { SubscriptionService } from '../subscription/service';
+import { PRICING_TIERS } from '../lib/constants';
 
 export async function registerAuthRoutes(app: Express) {
   const env = loadEnv(process.env);
@@ -86,26 +87,8 @@ export async function registerAuthRoutes(app: Express) {
     req.session!.twofaVerified = true;
     res.json({ status: 'success', userId: (admin as any).id });
   });
-  app.get('/api/auth/pending-signup', async (req: Request, res: Response) => {
-    try {
-      const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
-      const cookieToken = (req.cookies?.pending_signup as string | undefined) || undefined;
-      const token = queryToken || cookieToken;
-      const pending = await PendingSignup.getByTokenAsync(token) || PendingSignup.getByToken(token);
-
-      if (!pending) {
-        return res.json({ pending: false });
-      }
-
-      const { passwordHash: _passwordHash, role: _role, ...safe } = pending;
-      void _passwordHash;
-      void _role;
-
-      return res.json({ pending: true, data: safe, token: token ?? null });
-    } catch (error) {
-      logger.error('Pending signup lookup failed', { error, req: extractLogContext(req) });
-      return res.status(500).json({ pending: false, message: 'Failed to lookup pending signup' });
-    }
+  app.get('/api/auth/pending-signup', async (_req: Request, res: Response) => {
+    res.json({ pending: false });
   });
 
   // Signup endpoint with rate limit and bot prevention
@@ -194,40 +177,69 @@ export async function registerAuthRoutes(app: Express) {
       const role = userCount === 0 ? 'admin' : 'user';
       const hashedPassword = await AuthService.hashPassword(password);
 
-      const pendingData = {
+      const username = email.toLowerCase();
+      const user = await storage.createUser({
         firstName,
         lastName,
         email,
+        username,
         phone,
         companyName,
-        passwordHash: hashedPassword,
-        tier,
+        password: hashedPassword,
+        role: role as any,
         location,
-        role,
-        createdAt: new Date().toISOString(),
-      } as const;
+        isActive: false,
+        emailVerified: false,
+      } as any);
 
-      const pendingToken = PendingSignup.create(pendingData);
+      const tierKey = String(tier || 'basic').toLowerCase() as keyof typeof PRICING_TIERS;
+      const tierPricing = PRICING_TIERS[tierKey] ?? PRICING_TIERS.basic;
+      const currency = (location === 'nigeria' ? 'NGN' : 'USD') as 'NGN' | 'USD';
+      const monthlyAmount = currency === 'NGN' ? tierPricing.ngn : tierPricing.usd;
 
-      const cookieOptions = {
-        httpOnly: true,
-        sameSite: 'lax' as const,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 30 * 60 * 1000,
-        path: '/',
-        ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
-      };
+      const subscriptionService = new SubscriptionService();
+      const subscription = await subscriptionService.createSubscription(
+        user.id,
+        tierKey,
+        0,
+        currency,
+        monthlyAmount,
+        currency
+      );
 
-      res.cookie('pending_signup', pendingToken, cookieOptions);
-      SecureCookieManager.setPendingSignupTier(res, tier);
-      SecureCookieManager.setPendingSignupLocation(res, location as 'nigeria' | 'international');
+      const verificationToken = await AuthService.createEmailVerificationToken(user.id);
+      const frontendBase = (env.FRONTEND_URL || env.APP_URL || env.BASE_URL || '').replace(/\/$/, '');
+      const verificationUrl = frontendBase
+        ? `${frontendBase}/verify-email?token=${verificationToken.token}`
+        : `${req.protocol}://${req.get('host')}/verify-email?token=${verificationToken.token}`;
 
-      monitoringService.recordSignupEvent('staged', { ...attemptContext, email });
+      try {
+        const verificationEmail = generateEmailVerificationEmail(
+          user.email,
+          firstName || user.email,
+          verificationUrl,
+          subscription?.trialEndDate ? new Date(subscription.trialEndDate) : undefined
+        );
+        await sendEmail(verificationEmail);
+      } catch (emailError) {
+        logger.error('Failed to send verification email', {
+          error: emailError instanceof Error ? emailError.message : String(emailError),
+          userId: user.id,
+          email,
+        });
+      }
 
-      return res.status(202).json({
-        message: 'Signup details saved. Please complete payment to finalize your account.',
-        pending: true,
-        pendingToken,
+      monitoringService.recordSignupEvent('completed', { ...attemptContext, email, userId: user.id });
+
+      const trialEndsAt = subscription?.trialEndDate
+        ? new Date(subscription.trialEndDate).toISOString()
+        : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      return res.status(201).json({
+        status: 'success',
+        message: 'Signup successful! Please verify your email to start your free trial.',
+        verifyEmailSent: true,
+        trialEndsAt,
       });
     } catch (error) {
       logger.error('Signup error', { error, req: extractLogContext(req) });

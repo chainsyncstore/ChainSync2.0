@@ -1,4 +1,4 @@
-import { Check, Star, Zap, Shield, Store, ArrowRight, CreditCard } from "lucide-react";
+import { Check, Star, Zap, Shield, Store, ArrowRight, Calendar } from "lucide-react";
 
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -7,13 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PRICING_TIERS } from "@/lib/constants";
 
+function formatCurrency(amountMinor: number, currency: "NGN" | "USD") {
+  return new Intl.NumberFormat(currency === "NGN" ? "en-NG" : "en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amountMinor / 100);
+}
+
 interface PricingTier {
   name: string;
   price: {
-    ngn: string;
-    usd: string;
-  };
-  upfrontFee: {
     ngn: string;
     usd: string;
   };
@@ -26,43 +31,31 @@ const pricingTiers: PricingTier[] = [
   {
     name: "Basic",
     price: {
-      ngn: "₦30,000",
-      usd: "$30"
-    },
-    upfrontFee: {
-      ngn: "₦1,000",
-      usd: "$1"
+      ngn: formatCurrency(PRICING_TIERS.basic.ngn, "NGN"),
+      usd: formatCurrency(PRICING_TIERS.basic.usd, "USD"),
     },
     features: PRICING_TIERS.basic.features,
-    stores: "1 store only"
+    stores: "1 store only",
   },
   {
     name: "Pro",
     price: {
-      ngn: "₦100,000",
-      usd: "$100"
-    },
-    upfrontFee: {
-      ngn: "₦1,000",
-      usd: "$1"
+      ngn: formatCurrency(PRICING_TIERS.pro.ngn, "NGN"),
+      usd: formatCurrency(PRICING_TIERS.pro.usd, "USD"),
     },
     features: PRICING_TIERS.pro.features,
     stores: "Max 10 stores",
-    popular: true
+    popular: true,
   },
   {
     name: "Enterprise",
     price: {
-      ngn: "₦500,000",
-      usd: "$500"
-    },
-    upfrontFee: {
-      ngn: "₦1,000",
-      usd: "$1"
+      ngn: formatCurrency(PRICING_TIERS.enterprise.ngn, "NGN"),
+      usd: formatCurrency(PRICING_TIERS.enterprise.usd, "USD"),
     },
     features: PRICING_TIERS.enterprise.features,
-    stores: "10+ stores"
-  }
+    stores: "10+ stores",
+  },
 ];
 
 export default function Landing() {
@@ -118,10 +111,6 @@ export default function Landing() {
 
   const getPrice = (tier: PricingTier) => {
     return userLocation === 'nigeria' ? tier.price.ngn : tier.price.usd;
-  };
-
-  const getPaymentProvider = () => {
-    return userLocation === 'nigeria' ? 'Paystack' : 'Flutterwave';
   };
 
   return (
@@ -229,7 +218,7 @@ export default function Landing() {
               Simple, Transparent Pricing
             </h2>
             <p className="text-xl text-gray-600 mb-8">
-              2-week free trial • Small upfront fee • Credited to first month
+              2-week free trial • No credit card required • Cancel anytime
             </p>
             
             {/* Location Toggle */}
@@ -260,8 +249,8 @@ export default function Landing() {
             </div>
             
             <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-              <CreditCard className="h-4 w-4" />
-              <span>Powered by {getPaymentProvider()}</span>
+              <Calendar className="h-4 w-4" />
+              <span>Enjoy full access for 14 days before billing begins</span>
             </div>
           </div>
 
@@ -283,15 +272,13 @@ export default function Landing() {
                 <CardHeader className="text-center">
                   <CardTitle className="text-2xl">{tier.name}</CardTitle>
                   <div className="mt-4">
-                    <div className="text-2xl font-bold text-primary">
-                      {userLocation === 'nigeria' ? tier.upfrontFee.ngn : tier.upfrontFee.usd} upfront
-                    </div>
+                    <div className="text-2xl font-bold text-primary">Free for 14 days</div>
                     <div className="text-lg text-gray-600">
                       <span className="font-semibold">{getPrice(tier)}</span>/month after trial
                     </div>
                   </div>
                   <CardDescription className="text-sm">
-                    {tier.stores} • 2-week free trial
+                    {tier.stores} • No credit card required to start
                   </CardDescription>
                 </CardHeader>
                 

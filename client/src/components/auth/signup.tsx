@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, UserPlus, CreditCard, Check } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import { AlertCircle, UserPlus, Check } from "lucide-react";
+import React, { useEffect, useState } from "react";
 
 import { useForm } from "react-hook-form";
 import { useLocation } from "wouter";
@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordStrength } from "@/components/ui/password-strength";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { useAuth } from "@/hooks/use-auth";
 import { apiClient } from "@/lib/api-client";
 
 // Zod schema for form validation
@@ -54,15 +53,11 @@ const signupSchema = z.object({
 type SignupFormData = z.infer<typeof signupSchema>;
 
 import { PRICING_TIERS, VALID_LOCATIONS } from '../../lib/constants';
-import { validatePaymentUrl, generateRecaptchaToken } from '../../lib/security';
+import { generateRecaptchaToken } from '../../lib/security';
 
 interface PricingTier {
   name: string;
   price: {
-    ngn: string;
-    usd: string;
-  };
-  upfrontFee: {
     ngn: string;
     usd: string;
   };
@@ -78,85 +73,33 @@ function normalizeTier(tier: string | undefined | null): "basic" | "pro" | "ente
   return "basic";
 }
 
-// Convert numeric pricing to display format with upfront fees
-const pricingTiers: PricingTier[] = [
-  {
-    name: "basic",
-    price: {
-      ngn: "₦30,000",
-      usd: "$30"
-    },
-    upfrontFee: {
-      ngn: "₦1,000",
-      usd: "$1"
-    },
-    stores: "1 store only",
-    features: [
-      "1 Store Management",
-      "Basic POS System",
-      "Inventory Tracking",
-      "Sales Reports",
-      "Customer Management",
-      "Email Support"
-    ]
+const tierOrder: Array<keyof typeof PRICING_TIERS> = ["basic", "pro", "enterprise"];
+
+function formatCurrencyFromMinor(amountMinor: number, currency: "NGN" | "USD") {
+  return new Intl.NumberFormat(currency === "NGN" ? "en-NG" : "en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amountMinor / 100);
+}
+
+const pricingTiers: PricingTier[] = tierOrder.map((tier) => ({
+  name: tier,
+  price: {
+    ngn: formatCurrencyFromMinor(PRICING_TIERS[tier].ngn, "NGN"),
+    usd: formatCurrencyFromMinor(PRICING_TIERS[tier].usd, "USD"),
   },
-  {
-    name: "pro",
-    price: {
-      ngn: "₦100,000",
-      usd: "$100"
-    },
-    upfrontFee: {
-      ngn: "₦1,000",
-      usd: "$1"
-    },
-    stores: "Max 10 stores",
-    features: [
-      "Up to 10 Stores",
-      "Advanced POS Features",
-      "Real-time Analytics",
-      "AI-powered Insights",
-      "Multi-location Support",
-      "Priority Support",
-      "Custom Branding",
-      "Advanced Reporting"
-    ]
-  },
-  {
-    name: "enterprise",
-    price: {
-      ngn: "₦500,000",
-      usd: "$500"
-    },
-    upfrontFee: {
-      ngn: "₦1,000",
-      usd: "$1"
-    },
-    stores: "10+ stores",
-    features: [
-      "Unlimited Stores",
-      "Custom Integrations",
-      "Dedicated Account Manager",
-      "White-label Solutions",
-      "API Access",
-      "24/7 Phone Support",
-      "Custom Training",
-      "Advanced Security"
-    ]
-  }
-];
+  stores: PRICING_TIERS[tier].stores,
+  features: [...PRICING_TIERS[tier].features],
+}));
 
 function SignupForm() {
-  const { login } = useAuth();
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
-  const [step, setStep] = useState<'form' | 'payment'>('form');
-  const [userData, setUserData] = useState<any>(null);
   const [generalError, setGeneralError] = useState<string>('');
-
   const [showStrength, setShowStrength] = useState(false);
 
-  // Get URL parameters and validate them before setting form defaults
   const urlParams = new URLSearchParams(window.location.search);
   const tierFromUrl = urlParams.get('tier');
   const locationFromUrl = urlParams.get('location');
@@ -230,11 +173,7 @@ function SignupForm() {
 
   // Handle form submission
   const onSubmit = async (data: SignupFormData) => {
-    console.log('Form submission started with data:', data);
-    console.log('Form validation state:', { isValid, errors });
-    
     if (!isValid) {
-      console.error('Form validation failed:', errors);
       return;
     }
 
@@ -257,36 +196,13 @@ function SignupForm() {
         recaptchaToken
       };
       
-      console.log('Signup data prepared:', signupData);
-      
-      // Create the user account using API client (includes CSRF token)
-      const responseData: any = await apiClient.post('/auth/signup', signupData);
-
-      // Signup is now staged until payment verification
-      if (responseData?.pending) {
-        console.log('Signup staged, token:', responseData.pendingToken);
-        setStep('payment');
-        setUserData({
-          email: data.email,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          tier: data.tier,
-          location: data.location
-        });
-        // Clear any previous errors and allow user to proceed to payment
-        clearErrors();
-        return;
-      }
-
-      // Fallback: if server returns legacy user response, continue old flow
-      setUserData(responseData.user ?? null);
-
-      if (responseData.user) {
-        await login(data.email, data.password);
-      }
+      await apiClient.post('/auth/signup', signupData);
+      clearErrors();
+      setGeneralError('');
+      setTimeout(() => {
+        setLocation(`/verify-email?sent=1&email=${encodeURIComponent(data.email)}`);
+      }, 500);
     } catch (error: any) {
-      console.error('Signup error:', error);
-      
       // Handle specific error cases
       if (error.message?.includes('reCAPTCHA site key not configured')) {
         setGeneralError('Security verification is not properly configured. Please contact support.');
@@ -320,286 +236,6 @@ function SignupForm() {
     }
   };
 
-  const handlePayment = async () => {
-    const data = getValues();
-    console.log('Payment process started with form data:', data);
-    
-    setIsLoading(true);
-    setGeneralError('');
-    
-    try {
-      console.log('Starting payment process...', { data });
-      
-      // Generate captcha token for bot prevention in production
-      let recaptchaToken: string | undefined;
-      try {
-        // Generate token specifically for payment action to satisfy server verification
-        recaptchaToken = await generateRecaptchaToken('payment');
-      } catch (e) {
-        console.warn('Failed to generate reCAPTCHA token (continuing if allowed):', e);
-      }
-      
-      const paymentProvider = data.location === 'nigeria' ? 'paystack' : 'flutterwave';
-      const normalizedTier = normalizeTier(data.tier);
-      const selectedTier = pricingTiers.find(t => t.name === normalizedTier);
-      
-      console.log('Payment provider:', paymentProvider);
-      console.log('Selected tier:', selectedTier);
-      console.log('Tier from data:', data.tier);
-      console.log('Location from data:', data.location);
-      
-      // Use upfront fee from constants instead of monthly amount
-      const upfrontFee = data.location === 'nigeria' 
-        ? PRICING_TIERS[normalizedTier as keyof typeof PRICING_TIERS]?.upfrontFee.ngn
-        : PRICING_TIERS[normalizedTier as keyof typeof PRICING_TIERS]?.upfrontFee.usd;
-
-      console.log('Upfront fee amount:', upfrontFee);
-
-      if (!upfrontFee) {
-        throw new Error('Invalid pricing tier selected');
-      }
-
-      const paymentRequest = {
-        email: userData?.email || data.email,
-        amount: upfrontFee, // Use upfront fee instead of monthly amount
-        currency: data.location === 'nigeria' ? 'NGN' : 'USD',
-        provider: paymentProvider,
-        tier: normalizedTier,
-        location: data.location,
-        userId: userData?.id,
-        ...(recaptchaToken ? { recaptchaToken } : {}),
-        metadata: {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          companyName: data.companyName,
-          phone: data.phone
-        }
-      };
-
-      console.log('Sending payment request:', paymentRequest);
-
-      // Persist minimal onboarding context locally for callback consumption
-      try {
-        const onboardingContext = {
-          userId: userData?.id || null,
-          tier: normalizedTier,
-          location: data.location,
-          savedAt: Date.now()
-        };
-        localStorage.setItem('chainsync_onboarding', JSON.stringify(onboardingContext));
-      } catch (e) {
-        console.warn('Failed to persist onboarding context:', e);
-      }
-
-      const paymentData = await apiClient.post('/payment/initialize', paymentRequest);
-      
-      console.log('Payment response received:', paymentData);
-      
-      // Persist the payment reference locally in case provider omits it on redirect
-      try {
-        const referenceCandidate = (paymentData as any)?.reference || (paymentData as any)?.data?.reference;
-        if (referenceCandidate) {
-          localStorage.setItem('chainsync_payment_reference', String(referenceCandidate));
-        }
-      } catch (error) {
-        console.warn('Failed to persist payment reference locally', error);
-      }
-
-      // Validate payment URL before redirecting for security
-      // Extract redirect URL robustly for both providers and response shapes
-      let paymentUrl: string | undefined;
-      if (paymentProvider === 'paystack') {
-        paymentUrl = (paymentData as any)?.authorization_url
-          || (paymentData as any)?.data?.authorization_url
-          || (paymentData as any)?.data?.data?.authorization_url;
-        console.log('Paystack payment URL:', paymentUrl);
-      } else {
-        paymentUrl = (paymentData as any)?.link
-          || (paymentData as any)?.data?.link
-          || (paymentData as any)?.data?.data?.link;
-        console.log('Flutterwave payment URL:', paymentUrl);
-      }
-
-      if (!paymentUrl) {
-        throw new Error(`No payment URL received from ${paymentProvider}`);
-      }
-
-      // Security: Validate that the payment URL is from an expected provider domain
-      if (!validatePaymentUrl(paymentUrl, paymentProvider)) {
-        throw new Error('Invalid payment provider URL detected');
-      }
-      
-      console.log('Redirecting to payment gateway:', paymentUrl);
-      
-      // Redirect to payment gateway
-      window.location.href = paymentUrl;
-    } catch (error: any) {
-      console.error('Payment error details:', {
-        error,
-        message: error.message,
-        stack: error.stack,
-        response: error.response
-      });
-      
-      let errorMessage = 'Payment initialization failed. Please try again.';
-      
-      if (error.response?.status === 500) {
-        errorMessage = 'Server error during payment initialization. Please contact support.';
-      } else if (error.response?.status === 400) {
-        errorMessage = error.response.data?.message || 'Invalid payment request. Please check your details.';
-      } else if (error.message?.includes('CSRF token')) {
-        errorMessage = 'Security token expired. Please refresh the page and try again.';
-      } else if (error.message?.includes('Network')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
-      }
-      
-      setGeneralError(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const selectedTier = useMemo(
-    () => pricingTiers.find((t) => t.name === watchedValues.tier),
-    [watchedValues.tier]
-  );
-
-  console.log('Selected tier:', selectedTier, 'for watchedValues.tier:', watchedValues.tier);
-  console.log('Available pricing tiers:', pricingTiers.map(t => t.name));
-  console.log('Current form values:', watchedValues);
-  
-  const getPaymentProvider = () => {
-    return watchedValues.location === 'nigeria' ? 'Paystack' : 'Flutterwave';
-  };
-
-  // Check for pending signup completion on component mount
-  useEffect(() => {
-    const checkPendingSignup = async () => {
-      try {
-        const response: any = await apiClient.get('/auth/pending-signup');
-        if (response?.pending && response?.data) {
-          const pendingData = response.data as Partial<SignupFormData> & { tier?: string; location?: 'nigeria' | 'international' };
-
-          setStep('payment');
-          setUserData((prev: any) => ({ ...pendingData, ...prev }));
-
-          if (pendingData.firstName) setValue('firstName', pendingData.firstName);
-          if (pendingData.lastName) setValue('lastName', pendingData.lastName);
-          if (pendingData.email) setValue('email', pendingData.email);
-          if (pendingData.phone) setValue('phone', pendingData.phone);
-          if (pendingData.companyName) setValue('companyName', pendingData.companyName);
-          if (pendingData.tier) setValue('tier', normalizeTier(pendingData.tier));
-          if (pendingData.location) setValue('location', pendingData.location);
-
-          clearErrors();
-        }
-      } catch (error) {
-        console.error('Failed to check pending signup:', error);
-        // Continue with normal signup flow
-      }
-    };
-
-    void checkPendingSignup();
-  }, [clearErrors, setValue]);
-
-  if (step === 'payment') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-slate-50 p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="space-y-1 text-center">
-            <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mx-auto mb-4">
-              <CreditCard className="text-white text-xl" />
-            </div>
-            <CardTitle className="text-2xl font-bold">Complete Your Subscription</CardTitle>
-            <CardDescription>
-              You&apos;re almost there! Complete your payment to start your free trial.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Subscription Summary */}
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-medium">Plan:</span>
-                <span className="text-primary font-semibold capitalize">{watchedValues.tier}</span>
-              </div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-medium">Upfront Fee:</span>
-                <span className="font-semibold text-primary">
-                  {selectedTier ? (watchedValues.location === 'nigeria' ? selectedTier.upfrontFee.ngn : selectedTier.upfrontFee.usd) : 'Fee not available'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-medium">Monthly Price:</span>
-                <span className="font-semibold">
-                  {selectedTier ? (watchedValues.location === 'nigeria' ? selectedTier.price.ngn : selectedTier.price.usd) : 'Price not available'}/month
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-medium">Payment:</span>
-                <span className="text-sm text-gray-600">{getPaymentProvider()}</span>
-              </div>
-            </div>
-
-            {/* Features */}
-            <div>
-              <h4 className="font-medium mb-3">What&apos;s included:</h4>
-              <ul className="space-y-2">
-                {selectedTier?.features.slice(0, 4).map((feature) => (
-                  <li key={feature} className="flex items-center space-x-2">
-                    <Check className="h-4 w-4 text-green-500" />
-                    <span className="text-sm text-gray-600">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-              <p className="text-sm text-yellow-900">
-                Verify your email to activate your account and log in.
-              </p>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                <strong>Free Trial:</strong> Start with a 2-week free trial. Pay a small upfront fee to access your trial. This fee will be credited toward your first month&apos;s subscription.
-              </p>
-            </div>
-
-            <Button
-              onClick={handlePayment}
-              className="w-full"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  <span>Processing Payment...</span>
-                </div>
-              ) : (
-                `Pay with ${getPaymentProvider()}`
-              )}
-            </Button>
-
-            {generalError && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{generalError}</AlertDescription>
-              </Alert>
-            )}
-
-            <Button
-              variant="outline"
-              onClick={() => setStep('form')}
-              className="w-full"
-            >
-              Back to Form
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-slate-50 p-4">
       <Card className="w-full max-w-2xl">
@@ -609,7 +245,7 @@ function SignupForm() {
           </div>
           <CardTitle className="text-2xl font-bold">Create Your ChainSync Account</CardTitle>
           <CardDescription>
-            Start your 2-week free trial. Small upfront fee required to access your trial.
+            Start your 2-week free trial instantly. No payment required today.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -725,9 +361,9 @@ function SignupForm() {
                         <Check className="h-4 w-4 text-primary" />
                       )}
                     </div>
-                    <div className="text-sm text-gray-600 mb-1">
+                    <div className="text-sm text-gray-600">
                       <div className="font-semibold text-primary">
-                        {watchedValues.location === 'nigeria' ? tier.upfrontFee.ngn : tier.upfrontFee.usd} upfront
+                        Free for 14 days
                       </div>
                       <div className="text-xs text-gray-500">
                         {watchedValues.location === 'nigeria' ? tier.price.ngn : tier.price.usd}/month after trial

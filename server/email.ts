@@ -114,6 +114,69 @@ If you did not expect this invitation, contact your administrator.
   };
 }
 
+export function generateEmailVerificationEmail(
+  userEmail: string,
+  userName: string,
+  verificationUrl: string,
+  trialEndDate?: Date
+): EmailOptions {
+  const friendlyName = userName?.trim().length ? userName.trim() : 'there';
+  const trialMessage = trialEndDate
+    ? `<p style="color: #666; line-height: 1.6; margin-bottom: 20px;">Your 14-day free trial is already active and will end on <strong>${trialEndDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</strong>.</p>`
+    : '';
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%); padding: 20px; text-align: center;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">Verify your ChainSync account</h1>
+      </div>
+      <div style="padding: 28px; background: #f9fafb;">
+        <p style="color: #374151; font-size: 16px;">Hello ${friendlyName},</p>
+        <p style="color: #4b5563; line-height: 1.6;">
+          Thanks for signing up for ChainSync! Please confirm your email address so we can secure your account and finish setting things up.
+        </p>
+        ${trialMessage}
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${verificationUrl}"
+             style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+                    color: white;
+                    padding: 15px 30px;
+                    text-decoration: none;
+                    border-radius: 6px;
+                    display: inline-block;
+                    font-weight: bold;">
+            Verify Email
+          </a>
+        </div>
+        <p style="color: #4b5563; line-height: 1.6;">
+          Or copy and paste this link in your browser:
+        </p>
+        <p style="word-break: break-all; color: #6366f1;">
+          ${verificationUrl}
+        </p>
+        <p style="color: #9ca3af; font-size: 12px; line-height: 1.6; margin-top: 32px;">
+          If you didn’t create this account, you can safely ignore this email.
+        </p>
+      </div>
+    </div>
+  `;
+
+  const text = `Hello ${friendlyName},
+
+Thanks for signing up for ChainSync! Confirm your email address to activate your account.
+
+${trialEndDate ? `Your 14-day free trial is active and will end on ${trialEndDate.toLocaleDateString()}.\n\n` : ''}Verify your email: ${verificationUrl}
+
+If you didn’t create this account, you can ignore this message.`;
+
+  return {
+    to: userEmail,
+    subject: 'Confirm your ChainSync email',
+    html,
+    text,
+  };
+}
+
 export interface EmailOptions {
   to: string;
   subject: string;

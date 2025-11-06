@@ -1,22 +1,16 @@
 import express, { type Express } from 'express';
 import session from 'express-session';
 import request from 'supertest';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { and, eq } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { vi } from 'vitest';
-
-import { PaymentService } from '@server/payment/service';
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';
-import { stageUserAndCompletePayment } from './helpers/pending-signup';
 
 describe('Authentication Integration Tests', () => {
   let app: Express;
 
   beforeAll(async () => {
-    vi.spyOn(PaymentService.prototype, 'verifyPaystackPayment').mockResolvedValue(true);
-    vi.spyOn(PaymentService.prototype, 'verifyFlutterwavePayment').mockResolvedValue(true);
-
     // Create a fresh Express app once for all tests
     app = express();
     app.use(express.json());
@@ -35,57 +29,80 @@ describe('Authentication Integration Tests', () => {
   });
 
   afterAll(async () => {
-    // Clear the users table after all tests
-    const { users } = await import('@shared/schema');
+    // Clear the users and subscription tables after all tests
+    const { users, subscriptions, emailVerificationTokens } = await import('@shared/schema');
     const { db } = await import('@server/db');
+    await db.delete(emailVerificationTokens);
+    await db.delete(subscriptions);
     await db.delete(users);
     vi.restoreAllMocks();
   });
 
   beforeEach(async () => {
-    // Clear the storage and users table after each test
+    // Clear storage and tables after each test
     await storage.clear();
+    const { users, subscriptions, subscriptionPayments, emailVerificationTokens } = await import('@shared/schema');
+    const { db } = await import('@server/db');
+    await db.delete(subscriptionPayments);
+    await db.delete(subscriptions);
+    await db.delete(emailVerificationTokens);
+    await db.delete(users);
   });
 
   afterEach(async () => {
-    // Clear the storage and users table after each test
     await storage.clear();
-    const { users } = await import('@shared/schema');
+    const { users, subscriptions, subscriptionPayments, emailVerificationTokens } = await import('@shared/schema');
     const { db } = await import('@server/db');
+    await db.delete(subscriptionPayments);
+    await db.delete(subscriptions);
+    await db.delete(emailVerificationTokens);
     await db.delete(users);
   });
 
   describe('POST /api/auth/signup', () => {
-    // DB is cleaned in afterEach to keep state during a single test block
-    it('should stage a signup and require payment completion', async () => {
-      const userData = {
+    let counter = 0;
+    const makeSignupPayload = () => {
+      counter += 1;
+      const suffix = `${Date.now()}${counter}`;
+      return {
         firstName: 'Test',
-        lastName: 'User',
-        email: 'test@example.com',
-        phone: '+1234567890',
-        companyName: 'Test Company',
+        lastName: `User${counter}`,
+        email: `signup${suffix}@example.com`,
+        phone: `+23480${(10000000 + counter).toString().slice(-8)}`,
+        companyName: `Test Company ${counter}`,
         password: 'StrongPass123!',
         tier: 'basic',
         location: 'international'
       };
+    };
+
+    it('creates an account, issues email verification, and starts trial immediately', async () => {
+      const userData = makeSignupPayload();
 
       const response = await request(app)
         .post('/api/auth/signup')
         .send(userData)
-        .expect(202);
+        .expect(201);
 
-      expect(response.body.message).toContain('Signup details saved');
-      expect(response.body.pending).toBe(true);
-      expect(typeof response.body.pendingToken).toBe('string');
+      expect(response.body.status).toBe('success');
+      expect(response.body.verifyEmailSent).toBe(true);
+      expect(typeof response.body.trialEndsAt).toBe('string');
+      expect(response.body.message).toContain('Please verify your email');
 
-      const pendingResponse = await request(app)
-        .get('/api/auth/pending-signup')
-        .query({ token: response.body.pendingToken })
-        .expect(200);
+      const created = await storage.getUserByEmail(userData.email);
+      expect(created).toBeTruthy();
+      expect(created?.emailVerified).toBe(false);
+      expect(created?.isActive).toBe(false);
 
-      expect(pendingResponse.body.pending).toBe(true);
-      expect(pendingResponse.body.data.email).toBe(userData.email);
-      expect(pendingResponse.body.data).not.toHaveProperty('passwordHash');
+      const { subscriptions, emailVerificationTokens } = await import('@shared/schema');
+      const { db } = await import('@server/db');
+      const subs = await db.select().from(subscriptions).where(eq(subscriptions.userId, created!.id));
+      expect(subs).toHaveLength(1);
+      expect(subs[0].status).toBe('trial');
+
+      const tokens = await db.select().from(emailVerificationTokens).where(eq(emailVerificationTokens.userId, created!.id));
+      expect(tokens).toHaveLength(1);
+      expect(tokens[0].isUsed).toBe(false);
     });
 
     it('should reject weak passwords', async () => {
@@ -110,19 +127,13 @@ describe('Authentication Integration Tests', () => {
     });
 
     it('should reject duplicate email addresses', async () => {
-      const userData = {
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'duplicate@example.com',
-        phone: '+1234567890',
-        companyName: 'Test Company',
-        password: 'StrongPass123!',
-        tier: 'basic',
-        location: 'international'
-      };
+      const userData = makeSignupPayload();
 
-      // Create first user and complete payment
-      await stageUserAndCompletePayment(app, request, userData);
+      // Create first user
+      await request(app)
+        .post('/api/auth/signup')
+        .send(userData)
+        .expect(201);
 
       // Try to create second user with same email
       const response = await request(app)
@@ -133,72 +144,23 @@ describe('Authentication Integration Tests', () => {
       expect(response.body.message).toBe('User with this email exists');
     });
 
-    it('should create the first user as an admin after payment completion', async () => {
-      const userData = {
-        firstName: 'Admin',
-        lastName: 'User',
-        email: 'admin@example.com',
-        phone: '+1234567890',
-        companyName: 'Admin Company',
-        password: 'StrongPass123!',
-        tier: 'enterprise',
-        location: 'international'
-      };
+    it('marks the very first signup as admin while respecting SIGNUPS_ENABLED flag', async () => {
+      const { loadEnv } = await import('@shared/env');
+      const env = loadEnv(process.env);
+      expect(env.SIGNUPS_ENABLED).toBe(true);
+
+      const userData = makeSignupPayload();
 
       const response = await request(app)
         .post('/api/auth/signup')
         .send(userData)
-        .expect(202);
+        .expect(201);
 
-      expect(response.body.pending).toBe(true);
-      const pendingToken = response.body.pendingToken as string;
+      expect(response.body.status).toBe('success');
 
-      const pendingResponse = await request(app)
-        .get('/api/auth/pending-signup')
-        .query({ token: pendingToken })
-        .expect(200);
-
-      expect(pendingResponse.body.pending).toBe(true);
-      expect(pendingResponse.body.data.email).toBe(userData.email);
-
-      // Complete payment using the staged reference
-      await stageUserAndCompletePayment(app, request, userData);
-
-      const createdUser = await storage.getUserByEmail('admin@example.com');
+      const createdUser = await storage.getUserByEmail(userData.email);
       expect(createdUser).toBeTruthy();
       expect((createdUser as any).role).toBe('admin');
-      expect((createdUser as any).signupCompleted).toBe(true);
-    });
-
-    it('should block subsequent signups', async () => {
-      // First user (admin) staged and completed
-      await stageUserAndCompletePayment(app, request, {
-        firstName: 'Admin',
-        lastName: 'User',
-        email: 'first@example.com',
-        phone: '+1234567890',
-        companyName: 'Admin Company',
-        password: 'StrongPass123!',
-        tier: 'enterprise',
-        location: 'international'
-      });
-
-      // Second user
-      const response = await request(app)
-        .post('/api/auth/signup')
-        .send({
-          firstName: 'Second',
-          lastName: 'User',
-          email: 'second@example.com',
-          phone: '+1234567891',
-          companyName: 'Second Company',
-          password: 'StrongPass123!',
-          tier: 'basic',
-          location: 'international'
-        })
-        .expect(403);
-
-      expect(response.body.message).toBe('Signup is disabled');
     });
     it('should require all fields', async () => {
       const response = await request(app)
