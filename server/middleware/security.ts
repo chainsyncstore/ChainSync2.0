@@ -1,4 +1,5 @@
 import cors, { type CorsOptions } from "cors";
+import { randomBytes } from "crypto";
 import { doubleCsrf } from "csrf-csrf";
 import { Request, Response, NextFunction } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
@@ -181,18 +182,52 @@ export const paymentRateLimit = rateLimit({
 
 const env = loadEnv(process.env);
 
+const ensureCsrfSessionIdentity = (req: Request): string => {
+  const session = req.session as any;
+  if (session) {
+    const existing = typeof session.csrfTokenIdentity === 'string' ? session.csrfTokenIdentity : undefined;
+    if (existing && existing.length > 0) {
+      return existing;
+    }
+
+    const generated = randomBytes(32).toString('hex');
+    session.csrfTokenIdentity = generated;
+    try {
+      if (typeof req.session?.save === 'function') {
+        req.session.save((err) => {
+          if (err) {
+            logger.warn('Failed to persist CSRF session identity', {
+              error: err instanceof Error ? err.message : String(err),
+              path: req.path,
+              ip: req.ip,
+            });
+          }
+        });
+      }
+    } catch (error) {
+      logger.warn('Exception while saving CSRF session identity', {
+        error: error instanceof Error ? error.message : String(error),
+        path: req.path,
+        ip: req.ip,
+      });
+    }
+    return generated;
+  }
+
+  if (typeof req.sessionID === 'string' && req.sessionID.length > 0) {
+    return req.sessionID;
+  }
+
+  return req.ip || 'anon';
+};
+
 const {
   invalidCsrfTokenError,
   doubleCsrfProtection,
   generateCsrfToken: generateDoubleCsrfToken,
 } = doubleCsrf({
   getSecret: () => env.SESSION_SECRET,
-  getSessionIdentifier: (req: Request) => (
-    (req.session as any)?.userId ||
-    (req as any).requestId ||
-    req.ip ||
-    'anon'
-  ),
+  getSessionIdentifier: (req: Request) => ensureCsrfSessionIdentity(req),
   cookieName: "csrf-token",
   cookieOptions: {
     httpOnly: true,
