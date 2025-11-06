@@ -649,6 +649,10 @@ export class DatabaseStorage implements IStorage {
       signupCompleted: false,
       signupAttempts: 1
     };
+    if (userData.password) {
+      userData.password_hash = userData.password;
+      delete userData.password;
+    }
     if (this.isTestEnv) {
       const id = this.generateId();
       const user = {
