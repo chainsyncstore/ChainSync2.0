@@ -187,8 +187,8 @@ export async function registerAuthRoutes(app: Express) {
         userCount = Number(result?.[0]?.count ?? 0);
       }
 
-      if (userCount > 0) {
-        return res.status(403).json({ message: 'Signup is disabled' });
+      if (!env.SIGNUPS_ENABLED && userCount > 0) {
+        return res.status(403).json({ message: 'Signup is disabled', code: 'SIGNUPS_DISABLED' });
       }
 
       const role = userCount === 0 ? 'admin' : 'user';

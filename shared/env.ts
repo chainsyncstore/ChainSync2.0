@@ -30,6 +30,7 @@ export const envSchema = z.object({
   OFFLINE_SYNC_ENABLED: z.string().transform((v) => v === 'true').default('true' as any),
   OFFLINE_SYNC_INTERVAL: z.string().transform((v) => parseInt(v) || 30000).default('30000' as any),
   SECURITY_AUDIT_ENABLED: z.string().transform((v) => v === 'true').default('true' as any),
+  SIGNUPS_ENABLED: z.string().transform((v) => v === 'true').default('false' as any),
   MONITORING_ALERT_WEBHOOK: z.string().url().optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug', 'trace']).default('info'),
   // Feature flags
@@ -48,6 +49,7 @@ export type Env = z.infer<typeof envSchema> & {
   OFFLINE_SYNC_ENABLED: boolean;
   OFFLINE_SYNC_INTERVAL: number;
   SECURITY_AUDIT_ENABLED: boolean;
+  SIGNUPS_ENABLED: boolean;
   BASE_URL?: string;
   FLUTTERWAVE_SECRET_KEY?: string;
   FLUTTERWAVE_PUBLIC_KEY?: string;
@@ -62,6 +64,7 @@ export function loadEnv(raw: NodeJS.ProcessEnv): Env {
     CORS_ORIGINS: 'http://localhost:5173,http://localhost:3000,http://localhost:5000',
     SESSION_SECRET: 'test-session-secret-123456',
     JWT_SECRET: 'test-jwt-secret-123456',
+    SIGNUPS_ENABLED: 'true',
     DATABASE_URL: raw.DATABASE_URL || 'postgresql://test:test@localhost:5432/chainsync_test',
   } : {};
 
