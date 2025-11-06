@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import { useLayout } from "@/hooks/use-layout";
+import { cn } from "@/lib/utils";
 
 /* eslint-disable no-unused-vars -- prop parameter names document external contract */
 interface SidebarProps {

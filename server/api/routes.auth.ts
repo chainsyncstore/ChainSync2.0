@@ -8,6 +8,7 @@ import { loadEnv } from '../../shared/env';
 import { AuthService } from '../auth';
 import { db } from '../db';
 import { sendEmail } from '../email';
+import { SecureCookieManager } from '../lib/cookies';
 import { logger, extractLogContext } from '../lib/logger';
 import { monitoringService } from '../lib/monitoring';
 import { requireAuth } from '../middleware/authz';
@@ -15,7 +16,7 @@ import { signupBotPrevention, botPreventionMiddleware } from '../middleware/bot-
 import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '../middleware/security';
 import { SignupSchema, LoginSchema as ValidationLoginSchema } from '../schemas/auth';
 import { storage } from '../storage';
-// duplicate import removed
+import { PendingSignup } from './pending-signup';
 
 export async function registerAuthRoutes(app: Express) {
   const env = loadEnv(process.env);
@@ -85,6 +86,28 @@ export async function registerAuthRoutes(app: Express) {
     req.session!.twofaVerified = true;
     res.json({ status: 'success', userId: (admin as any).id });
   });
+  app.get('/api/auth/pending-signup', async (req: Request, res: Response) => {
+    try {
+      const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
+      const cookieToken = (req.cookies?.pending_signup as string | undefined) || undefined;
+      const token = queryToken || cookieToken;
+      const pending = await PendingSignup.getByTokenAsync(token) || PendingSignup.getByToken(token);
+
+      if (!pending) {
+        return res.json({ pending: false });
+      }
+
+      const { passwordHash: _passwordHash, role: _role, ...safe } = pending;
+      void _passwordHash;
+      void _role;
+
+      return res.json({ pending: true, data: safe, token: token ?? null });
+    } catch (error) {
+      logger.error('Pending signup lookup failed', { error, req: extractLogContext(req) });
+      return res.status(500).json({ pending: false, message: 'Failed to lookup pending signup' });
+    }
+  });
+
   // Signup endpoint with rate limit and bot prevention
   app.post('/api/auth/signup', authRateLimit, signupBotPrevention, async (req: Request, res: Response) => {
     try {
@@ -130,6 +153,15 @@ export async function registerAuthRoutes(app: Express) {
       
       const { firstName, lastName, email, phone, companyName, password, tier, location } = parse.data;
 
+      const passwordValidation = AuthService.validatePassword(password);
+      if (!passwordValidation.isValid) {
+        return res.status(400).json({
+          message: 'Password does not meet security requirements',
+          error: 'password',
+          errors: passwordValidation.errors,
+        });
+      }
+
       // Check if user already exists
       const exists = await storage.getUserByEmail(email);
       if (exists) {
@@ -141,86 +173,61 @@ export async function registerAuthRoutes(app: Express) {
       }
 
       // Block signup if a user already exists
-      // In test mode, prefer in-memory storage visibility to avoid flakiness
+      let userCount = 0;
       if (process.env.NODE_ENV === 'test') {
         try {
-          const memCount = (storage as any)?.mem?.users?.size || 0;
-          if (memCount > 0) {
-            return res.status(403).json({ message: 'Signup is disabled' });
-          }
+          userCount = (storage as any)?.mem?.users?.size || 0;
         } catch (memoryError) {
           logger.warn('Failed to inspect in-memory storage during signup', {
             error: memoryError instanceof Error ? memoryError.message : String(memoryError)
           });
         }
       } else {
-        const allUsers = await db.select().from(users);
-        if (allUsers.length > 0) {
-          return res.status(403).json({ message: 'Signup is disabled' });
-        }
+        const result = await db.select({ count: sql`count(*)` }).from(users);
+        userCount = Number(result?.[0]?.count ?? 0);
       }
 
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
+      if (userCount > 0) {
+        return res.status(403).json({ message: 'Signup is disabled' });
+      }
 
-      // Determine role: first user is admin
-      const userCount = process.env.NODE_ENV === 'test'
-        ? ((storage as any)?.mem?.users?.size || 0)
-        : (await db.select({ count: sql`count(*)` }).from(users))[0].count;
+      const role = userCount === 0 ? 'admin' : 'user';
+      const hashedPassword = await AuthService.hashPassword(password);
 
-      const role = Number(userCount) === 0 ? 'admin' : 'user';
-
-      // Create user
-      const user = await storage.createUser({
+      const pendingData = {
         firstName,
         lastName,
         email,
         phone,
         companyName,
-        password: hashedPassword,
+        passwordHash: hashedPassword,
         tier,
         location,
-        role: role, // Default role
-        isActive: true,
-        emailVerified: false, // Email not verified by default
-        signupCompleted: true, // Mark signup as complete
-      });
+        role,
+        createdAt: new Date().toISOString(),
+      } as const;
 
-      // Auto-login the user after signup
-      req.session!.userId = (user as any).id;
-      req.session!.twofaVerified = false; // Two-factor authentication not verified
-      
-      // Send welcome email
-      try {
-        const { generateWelcomeEmail, sendEmail: sendWelcomeEmail } = await import('../email');
-        const welcomeEmail = generateWelcomeEmail(
-          user.email,
-          (user as any).firstName || user.email,
-          (user as any).tier || tier || 'starter',
-          (user as any).companyName || companyName || ''
-        );
-        await sendWelcomeEmail(welcomeEmail);
-      } catch (welcomeError) {
-        logger.error('Failed to send welcome email', {
-          error: welcomeError instanceof Error ? welcomeError.message : String(welcomeError)
-        });
-      }
+      const pendingToken = PendingSignup.create(pendingData);
 
-      // Send verification email
-      const emailToken = jwt.sign({ id: user.id, email: user.email }, env.JWT_SECRET!, { expiresIn: '1d' });
-      const verifyUrl = `${process.env.FRONTEND_URL}/verify-email?token=${emailToken}`;
-      await sendEmail({
-        to: user.email,
-        subject: 'Verify your email address',
-        html: `<p>Hi ${(user as any).firstName || user.email},</p><p>Thank you for signing up. Please verify your email address by clicking the link below:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>If you did not create an account, please ignore this email.</p>`,
-      });
+      const cookieOptions = {
+        httpOnly: true,
+        sameSite: 'lax' as const,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 30 * 60 * 1000,
+        path: '/',
+        ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
+      };
 
-      // Respond with user data excluding sensitive information
-      const { password: _pw, ...userData } = (user as any);
-      void _pw;
-      res.status(201).json({ 
-        message: 'Signup successful, please verify your email', 
-        user: userData 
+      res.cookie('pending_signup', pendingToken, cookieOptions);
+      SecureCookieManager.setPendingSignupTier(res, tier);
+      SecureCookieManager.setPendingSignupLocation(res, location as 'nigeria' | 'international');
+
+      monitoringService.recordSignupEvent('staged', { ...attemptContext, email });
+
+      return res.status(202).json({
+        message: 'Signup details saved. Please complete payment to finalize your account.',
+        pending: true,
+        pendingToken,
       });
     } catch (error) {
       logger.error('Signup error', { error, req: extractLogContext(req) });

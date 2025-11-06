@@ -628,16 +628,20 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     // CRITICAL: Always hash passwords before storage for security
     if ((insertUser as any).password) {
-      // In test environment, align with integration tests which allow passwords
-      // without special characters. Skip the stricter validation there.
-      if (!this.isTestEnv) {
-        const validation = AuthService.validatePassword((insertUser as any).password);
-        if (!validation.isValid) {
-          throw new Error(`Password validation failed: ${validation.errors.join(', ')}`);
+      const passwordValue = String((insertUser as any).password);
+      const looksHashed = passwordValue.startsWith('$2');
+      if (!looksHashed) {
+        // In test environment, align with integration tests which allow passwords
+        // without special characters. Skip the stricter validation there.
+        if (!this.isTestEnv) {
+          const validation = AuthService.validatePassword(passwordValue);
+          if (!validation.isValid) {
+            throw new Error(`Password validation failed: ${validation.errors.join(', ')}`);
+          }
         }
+        const hashedPassword = await AuthService.hashPassword(passwordValue);
+        (insertUser as any).password = hashedPassword;
       }
-      const hashedPassword = await AuthService.hashPassword((insertUser as any).password);
-      (insertUser as any).password = hashedPassword;
     }
     const userData: any = {
       ...insertUser,

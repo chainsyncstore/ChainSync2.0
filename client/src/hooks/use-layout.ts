@@ -1,13 +1,14 @@
 import { createContext, useContext } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 
 export interface LayoutContextValue {
-  sidebarFooter: React.ReactNode | null;
-  setSidebarFooter: (footer: React.ReactNode | null) => void;
+  sidebarFooter: ReactNode | null;
+  setSidebarFooter: Dispatch<SetStateAction<ReactNode | null>>;
 }
 
 const defaultLayoutContext: LayoutContextValue = {
   sidebarFooter: null,
-  setSidebarFooter: () => undefined,
+  setSidebarFooter: (() => undefined) as Dispatch<SetStateAction<ReactNode | null>>,
 };
 
 export const LayoutContext = createContext<LayoutContextValue>(defaultLayoutContext);

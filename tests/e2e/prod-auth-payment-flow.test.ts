@@ -1,9 +1,12 @@
+import bcrypt from 'bcrypt';
 import cookieParser from 'cookie-parser';
 import express, { type Express } from 'express';
 import session from 'express-session';
 import request from 'supertest';
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { PendingSignup } from '../../server/api/pending-signup';
 
 // Ensure required env for routes
 process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/chainsync_test';
@@ -122,6 +125,9 @@ vi.mock('../../server/auth', () => ({
       void password;
       return rest;
     }
+    static async hashPassword(password: string) {
+      return bcrypt.hash(password, 10);
+    }
   }
 }));
 
@@ -202,11 +208,23 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
         password: 'SecurePass123!',
         tier: 'basic',
         location: 'international'
-      })
-      .expect(201);
+      });
 
-    expect(signupRes.body.user).toBeTruthy();
-    const userId = signupRes.body.user.id;
+    expect({ status: signupRes.status, body: signupRes.body }).toMatchObject({ status: 202 });
+
+    expect(signupRes.body.pending).toBe(true);
+    const pendingToken = signupRes.body.pendingToken as string;
+    const reference = `PAYSTACK_${pendingToken}`;
+    PendingSignup.associateReference(pendingToken, reference);
+
+    await agent
+      .post('/api/payment/verify')
+      .send({ reference, status: 'success' })
+      .expect(200);
+
+    const createdSignupUser = users.find(u => u.email === email);
+    expect(createdSignupUser).toBeTruthy();
+    const userId = createdSignupUser!.id;
     // In current flow, signup does not send verification email before payment. Skip this assertion.
     // expect(sendEmailMock).toHaveBeenCalled();
 
@@ -247,10 +265,11 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
         password: 'SecurePass123!',
         tier: 'basic',
         location: 'international'
-      })
-      .expect(201);
+      });
 
-    const userId = signupRes.body.user.id;
+    expect({ status: signupRes.status, body: signupRes.body }).toMatchObject({ status: 202 });
+
+    const pendingToken = signupRes.body.pendingToken as string;
 
     // 3) Initialize payment for USD/Flutterwave
     const initRes = await agent
@@ -260,7 +279,6 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
         currency: 'USD',
         provider: 'flutterwave',
         tier: 'basic',
-        userId,
         metadata: { note: 'test' }
       })
       .expect(200);
@@ -269,13 +287,15 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
     const reference = initRes.body.reference || initRes.body.data?.reference;
 
     // 4) Verify payment (mocked success)
+    PendingSignup.associateReference(pendingToken, reference);
+
     await agent
       .post('/api/payment/verify')
-      .send({ reference, status: 'successful', userId, tier: 'basic', location: 'international' })
+      .send({ reference, status: 'successful', tier: 'basic', location: 'international' })
       .expect(200);
 
     // Ensure signupCompleted is true server-side
-    const created = users.find(u => u.id === userId);
+    const created = users.find(u => u.email === email);
     expect(created?.signupCompleted).toBe(true);
 
     // 5) Login should still be blocked due to email not verified

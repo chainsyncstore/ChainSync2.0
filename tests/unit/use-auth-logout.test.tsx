@@ -3,12 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAuth } from '@/hooks/use-auth';
 
-const { postMock } = vi.hoisted(() => ({
-  postMock: vi.fn(),
-}));
-
 vi.mock('@/lib/api-client', () => ({
-  post: postMock,
+  post: vi.fn(),
 }));
 
 const utilsMocks = vi.hoisted(() => ({
@@ -38,13 +34,30 @@ describe('useAuth logout behaviour', () => {
     utilsMocks.saveSessionMock.mockReset();
     utilsMocks.clearSessionMock.mockReset();
     utilsMocks.refreshSessionMock.mockReset();
-    postMock.mockReset();
-    postMock.mockResolvedValue({});
+    fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/api/auth/logout')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        } as Response;
+      }
 
-    fetchMock = vi.fn(async () => ({
-      ok: false,
-      json: async () => ({}),
-    }));
+      if (url.includes('/api/auth/me')) {
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({}),
+        } as Response;
+      }
+
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+      } as Response;
+    });
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const locationMock: Location & { replace: ReturnType<typeof vi.fn> } = {
@@ -88,8 +101,8 @@ describe('useAuth logout behaviour', () => {
       await result.current.logout();
     });
 
-    expect(postMock).toHaveBeenCalledWith('/auth/logout');
-    expect(utilsMocks.clearSessionMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', expect.any(Object));
+    expect(utilsMocks.clearSessionMock).toHaveBeenCalledTimes(2);
     expect((window.location as any).replace).toHaveBeenCalledWith('/login');
     expect(historyReplaceSpy).not.toHaveBeenCalled();
   });
@@ -109,8 +122,8 @@ describe('useAuth logout behaviour', () => {
       await result.current.logout();
     });
 
-    expect(postMock).toHaveBeenCalledWith('/auth/logout');
-    expect(utilsMocks.clearSessionMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', expect.any(Object));
+    expect(utilsMocks.clearSessionMock).toHaveBeenCalledTimes(2);
     expect((window.location as any).replace).not.toHaveBeenCalled();
     expect(historyReplaceSpy).toHaveBeenCalledWith(null, '', '/login');
   });

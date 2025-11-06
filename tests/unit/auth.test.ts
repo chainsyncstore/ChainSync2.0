@@ -1,6 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 
-import { AuthService } from '../../server/auth';
 import { cryptoModuleMock } from '../utils/crypto-mocks';
 
 const trackedCryptoMock = cryptoModuleMock as unknown as {
@@ -10,7 +9,6 @@ const trackedCryptoMock = cryptoModuleMock as unknown as {
   };
 };
 
-// Import AuthService before mocking
 // Mock the database module
 vi.mock('../../server/db', () => {
   let callCount = 0;
@@ -75,6 +73,8 @@ vi.mock('drizzle-orm', () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values, type: 'sql' })),
   relations: vi.fn((table, config) => ({ table, config, type: 'relations' }))
 }));
+
+const { AuthService } = await import('../../server/auth');
 
 describe('AuthService', () => {
 

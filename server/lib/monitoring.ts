@@ -95,6 +95,7 @@ class MonitoringService {
       'signup_attempts_total',
       'signup_success_total',
       'signup_duplicate_total',
+      'signup_staged_total',
       'captcha_failures_total',
       'csrf_failures_total',
       'db_health_timeouts_total'
@@ -193,7 +194,7 @@ class MonitoringService {
   }
 
   // Signup Monitoring
-  recordSignupEvent(event: 'attempt' | 'success' | 'duplicate', context?: LogContext): void {
+  recordSignupEvent(event: 'attempt' | 'success' | 'duplicate' | 'staged', context?: LogContext): void {
     const tags: Record<string, string> = {
       event,
       ip_address: context?.ipAddress || 'unknown',
@@ -202,12 +203,13 @@ class MonitoringService {
 
     if (event === 'attempt') {
       this.addMetric('signup_attempts_total', 1, tags);
-      this.alertIfSpike('signup_attempts_total', 'ALERT_THRESHOLD_SIGNUP_ATTEMPTS_PER_MINUTE', 100);
+      this.alertIfSpike('signup_attempts_total', 'SIGNUP_ATTEMPT_SPIKE_THRESHOLD', 20, tags);
     } else if (event === 'success') {
       this.addMetric('signup_success_total', 1, tags);
     } else if (event === 'duplicate') {
       this.addMetric('signup_duplicate_total', 1, tags);
-      this.alertIfSpike('signup_duplicate_total', 'ALERT_THRESHOLD_DUPLICATE_SIGNUPS_PER_MINUTE', 10);
+    } else if (event === 'staged') {
+      this.addMetric('signup_staged_total', 1, tags);
     }
   }
 

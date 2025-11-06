@@ -19,9 +19,10 @@ vi.mock('../../server/db', () => ({
 }));
 
 vi.mock('@shared/prd-schema', () => ({
-  sales: { id: 'sales.id', productId: 'sales.productId', createdAt: 'sales.createdAt' },
+  sales: { id: 'sales.id', storeId: 'sales.storeId', occurredAt: 'sales.occurredAt' },
+  saleItems: { saleId: 'sale_items.saleId', productId: 'sale_items.productId', quantity: 'sale_items.quantity' },
   products: { id: 'products.id', name: 'products.name', storeId: 'products.storeId' },
-  inventory: { productId: 'inventory.productId', currentStock: 'inventory.currentStock' }
+  inventory: { id: 'inventory.id', productId: 'inventory.productId', storeId: 'inventory.storeId', quantity: 'inventory.quantity', reorderLevel: 'inventory.reorderLevel' }
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -196,11 +197,22 @@ describe('Phase 8: Enhanced Observability & Security', () => {
   describe('Advanced Analytics Service', () => {
     let analyticsService: AdvancedAnalyticsService;
 
-    beforeEach(() => {
+    const mockSalesData = [
+      { productId: 'product-1', productName: 'Test Product', date: '2024-01-01T00:00:00.000Z', quantity: 5 },
+      { productId: 'product-1', productName: 'Test Product', date: '2024-01-02T00:00:00.000Z', quantity: 7 },
+    ];
+
+    beforeEach(async () => {
       analyticsService = new AdvancedAnalyticsService();
+      const { db } = await import('../../server/db');
+      vi.mocked(db.execute).mockResolvedValue(mockSalesData as any);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      analyticsService.clearCache();
+      const { db } = await import('../../server/db');
+      vi.mocked(db.execute).mockReset();
+      vi.mocked(db.execute).mockResolvedValue([] as any);
       analyticsService.clearCache();
     });
 

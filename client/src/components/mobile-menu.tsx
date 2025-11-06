@@ -1,10 +1,9 @@
 import { Menu } from "lucide-react";
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import Sidebar from "./layout/sidebar";
 import { cn } from "@/lib/utils";
+import Sidebar from "./layout/sidebar";
 
 /* eslint-disable no-unused-vars -- prop parameter names document external API */
 interface MobileMenuProps {

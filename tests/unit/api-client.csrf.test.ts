@@ -31,6 +31,7 @@ describe('ApiClient CSRF behavior', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     setCookie('');
+    (apiClient as any).csrfToken = null;
   });
 
   it('uses CSRF token from cookie for non-GET requests', async () => {

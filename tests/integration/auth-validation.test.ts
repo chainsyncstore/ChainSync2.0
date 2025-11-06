@@ -48,10 +48,10 @@ describe('Auth Validation Integration Tests', () => {
         const response = await request(server)
           .post(baseUrl)
           .send(validPayload)
-          .expect(201);
+          .expect(202);
 
-        expect(response.body).toHaveProperty('message', 'Signup successful, please verify your email');
-        expect(response.body).toHaveProperty('user');
+        expect(response.body.pending).toBe(true);
+        expect(typeof response.body.pendingToken).toBe('string');
       });
 
       it('should accept signup with pro tier', async () => {
@@ -69,9 +69,9 @@ describe('Auth Validation Integration Tests', () => {
         const response = await request(server)
           .post(baseUrl)
           .send(validPayload)
-          .expect(201);
+          .expect(202);
 
-        expect(response.body.user.tier).toBe('pro');
+        expect(response.body.pending).toBe(true);
       });
 
       it('should accept signup with enterprise tier', async () => {
@@ -89,9 +89,9 @@ describe('Auth Validation Integration Tests', () => {
         const response = await request(server)
           .post(baseUrl)
           .send(validPayload)
-          .expect(201);
+          .expect(202);
 
-        expect(response.body.user.tier).toBe('enterprise');
+        expect(response.body.pending).toBe(true);
       });
     });
 

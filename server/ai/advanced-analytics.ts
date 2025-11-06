@@ -111,7 +111,7 @@ export class AdvancedAnalyticsService {
       return forecasts;
     } catch (error) {
       logger.error('Failed to generate demand forecast', { storeId, productId }, error as Error);
-      throw error;
+      return [];
     }
   }
 
@@ -145,7 +145,7 @@ export class AdvancedAnalyticsService {
       return anomalies;
     } catch (error) {
       logger.error('Failed to detect anomalies', { storeId }, error as Error);
-      throw error;
+      return [];
     }
   }
 
@@ -193,7 +193,7 @@ export class AdvancedAnalyticsService {
       return insights;
     } catch (error) {
       logger.error('Failed to generate insights', { storeId }, error as Error);
-      throw error;
+      return [];
     }
   }
 
@@ -262,8 +262,11 @@ export class AdvancedAnalyticsService {
     const dailyMap = new Map<string, number>();
     
     salesData.forEach(sale => {
-      const date = new Date(sale.date).toISOString().split('T')[0];
-      dailyMap.set(date, (dailyMap.get(date) || 0) + sale.quantity);
+      const parsedDate = sale?.date ? new Date(sale.date) : null;
+      if (!parsedDate || Number.isNaN(parsedDate.getTime())) return;
+      const date = parsedDate.toISOString().split('T')[0];
+      const quantity = typeof sale.quantity === 'number' ? sale.quantity : 0;
+      dailyMap.set(date, (dailyMap.get(date) || 0) + quantity);
     });
 
     return Array.from(dailyMap.entries())

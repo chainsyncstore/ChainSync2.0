@@ -4,9 +4,11 @@ export interface PendingSignupData {
   email: string;
   phone: string;
   companyName: string;
-  password: string;
+  passwordHash: string;
   tier: string;
   location: string;
+  role: string;
+  createdAt: string;
 }
 
 // In-memory stores for pending signups (fallback for dev/test or when Redis unavailable)
@@ -57,6 +59,20 @@ export const PendingSignup = {
       return undefined;
     }
     return tokenToSignup.get(token);
+  },
+  async getByTokenAsync(token: string | undefined | null): Promise<PendingSignupData | undefined> {
+    if (!token) return undefined;
+    const client = getRedisClient();
+    if (!client) {
+      return tokenToSignup.get(token);
+    }
+    try {
+      const json = await client.get(tokenKey(token));
+      if (!json) return undefined;
+      return JSON.parse(json) as PendingSignupData;
+    } catch {
+      return undefined;
+    }
   },
   associateReference(token: string, reference: string): void {
     const client = getRedisClient();

@@ -261,22 +261,29 @@ function SignupForm() {
       
       // Create the user account using API client (includes CSRF token)
       const responseData: any = await apiClient.post('/auth/signup', signupData);
-      setUserData(responseData.user ?? null);
 
-      // Check if this is resuming an incomplete signup
-      if (responseData.isResume) {
-        // Pre-fill the form with existing data
-        setValue('firstName', responseData.user.firstName || data.firstName);
-        setValue('lastName', responseData.user.lastName || data.lastName);
-        // Preserve the tier the user just selected; fall back to server value only if missing
-        setValue('tier', normalizeTier(data.tier || responseData.user.tier));
-        
-        // Clear any existing errors
+      // Signup is now staged until payment verification
+      if (responseData?.pending) {
+        console.log('Signup staged, token:', responseData.pendingToken);
+        setStep('payment');
+        setUserData({
+          email: data.email,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          tier: data.tier,
+          location: data.location
+        });
+        // Clear any previous errors and allow user to proceed to payment
         clearErrors();
+        return;
       }
 
-      // Log the user in directly
-      await login(data.email, data.password);
+      // Fallback: if server returns legacy user response, continue old flow
+      setUserData(responseData.user ?? null);
+
+      if (responseData.user) {
+        await login(data.email, data.password);
+      }
     } catch (error: any) {
       console.error('Signup error:', error);
       
@@ -465,36 +472,35 @@ function SignupForm() {
     return watchedValues.location === 'nigeria' ? 'Paystack' : 'Flutterwave';
   };
 
-  // Function to complete signup after successful payment
-  const completeSignup = async (userId: string) => {
-    try {
-      await apiClient.post('/auth/complete-signup', { userId });
-      // Cookie is automatically cleared by the server
-      // Redirect to success page or dashboard
-      window.location.href = '/dashboard';
-    } catch (error) {
-      console.error('Failed to complete signup:', error);
-      // Handle error - maybe show a message to contact support
-    }
-  };
-
   // Check for pending signup completion on component mount
   useEffect(() => {
     const checkPendingSignup = async () => {
       try {
         const response: any = await apiClient.get('/auth/pending-signup');
-        if (response.pendingSignupId) {
-          // Complete the signup
-          void completeSignup(response.pendingSignupId);
+        if (response?.pending && response?.data) {
+          const pendingData = response.data as Partial<SignupFormData> & { tier?: string; location?: 'nigeria' | 'international' };
+
+          setStep('payment');
+          setUserData((prev: any) => ({ ...pendingData, ...prev }));
+
+          if (pendingData.firstName) setValue('firstName', pendingData.firstName);
+          if (pendingData.lastName) setValue('lastName', pendingData.lastName);
+          if (pendingData.email) setValue('email', pendingData.email);
+          if (pendingData.phone) setValue('phone', pendingData.phone);
+          if (pendingData.companyName) setValue('companyName', pendingData.companyName);
+          if (pendingData.tier) setValue('tier', normalizeTier(pendingData.tier));
+          if (pendingData.location) setValue('location', pendingData.location);
+
+          clearErrors();
         }
       } catch (error) {
         console.error('Failed to check pending signup:', error);
         // Continue with normal signup flow
       }
     };
-    
+
     void checkPendingSignup();
-  }, []);
+  }, [clearErrors, setValue]);
 
   if (step === 'payment') {
     return (

@@ -10,10 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
+import { useLayout } from "@/hooks/use-layout";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useToast } from "@/hooks/use-toast";
-import { useLayout } from "@/hooks/use-layout";
 import type { Store, LowStockAlert } from "@shared/schema";
 
 export default function POS() {
@@ -102,7 +102,6 @@ export default function POS() {
   // Track offline sync state
   const [queuedCount, setQueuedCount] = useState(0);
   const [lastSync, setLastSync] = useState<{ attempted: number; synced: number } | null>(null);
-  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [escalations, setEscalations] = useState(0);
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -129,7 +128,6 @@ export default function POS() {
     };
     navigator.serviceWorker?.addEventListener('message', onMsg as any);
     const onOnline = async () => {
-      setIsOnline(true);
       try {
         const { processQueueNow, getOfflineQueueCount, getEscalatedCount } = await import('@/lib/offline-queue');
         await processQueueNow();
@@ -140,13 +138,10 @@ export default function POS() {
         console.error('Failed to process pending queue when coming online', error);
       }
     };
-    const onOffline = () => setIsOnline(false);
     window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
     return () => {
       navigator.serviceWorker?.removeEventListener('message', onMsg as any);
       window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
     };
   }, [addNotification, toast]);
 

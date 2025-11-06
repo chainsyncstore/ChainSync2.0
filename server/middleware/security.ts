@@ -2,17 +2,11 @@ import cors, { type CorsOptions } from "cors";
 import { randomBytes } from "crypto";
 import { doubleCsrf } from "csrf-csrf";
 import { Request, Response, NextFunction } from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import helmet from "helmet";
 import { loadEnv, parseCorsOrigins } from "../../shared/env";
 import { logger } from "../lib/logger";
-const requestKeyGenerator = (req: Request) => (
-  req.ip
-  || req.headers['x-forwarded-for']?.toString()
-  || req.socket.remoteAddress
-  || (req as any).connection?.remoteAddress
-  || 'unknown'
-);
+const deriveRateLimitKey = (req: Request) => ipKeyGenerator(req.ip ?? "unknown");
 // Determine environment early for conditional security config
 const isDev = process.env.NODE_ENV !== 'production';
 // Discover app origins from env to permit SPA assets when hosted separately
@@ -73,7 +67,7 @@ export const globalRateLimit = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   // IPv6-safe key generation
-  keyGenerator: requestKeyGenerator,
+  keyGenerator: deriveRateLimitKey,
   // Disable rate limiting during tests
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
@@ -103,7 +97,7 @@ export const authRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: requestKeyGenerator,
+  keyGenerator: deriveRateLimitKey,
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Auth rate limit exceeded', {
@@ -134,7 +128,7 @@ export const sensitiveEndpointRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: requestKeyGenerator,
+  keyGenerator: deriveRateLimitKey,
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Sensitive endpoint rate limit exceeded', {
@@ -165,7 +159,7 @@ export const paymentRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: requestKeyGenerator,
+  keyGenerator: deriveRateLimitKey,
   skip: () => process.env.NODE_ENV === 'test',
   handler: (req: Request, res: Response) => {
     logger.warn('Payment rate limit exceeded', {

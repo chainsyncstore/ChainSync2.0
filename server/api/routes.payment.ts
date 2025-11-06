@@ -247,20 +247,46 @@ export async function registerPaymentRoutes(app: Express) {
           }
         }
         // If there is a pending signup associated with this reference, create the user now
-        const pending = await (PendingSignup as any).getByReferenceAsync?.(reference) || PendingSignup.getByReference(reference);
+        let pending = await (PendingSignup as any).getByReferenceAsync?.(reference);
+        if (!pending) {
+          pending = PendingSignup.getByReference(reference);
+        }
+        if (!pending) {
+          const directToken = reference.replace(/^PAYSTACK_/, '');
+          pending = await (PendingSignup as any).getByTokenAsync?.(directToken) || PendingSignup.getByToken(directToken);
+        }
         let userEmail = '';
         let userName = '';
         let amount = req.body.amount || '';
         let currency = req.body.currency || '';
+        let createdUserId: string | null = null;
         if (pending) {
           userEmail = pending.email;
           userName = pending.firstName || pending.email;
+
+          const insertedUser = await storage.createUser({
+            firstName: pending.firstName,
+            lastName: pending.lastName,
+            email: pending.email,
+            phone: pending.phone,
+            companyName: pending.companyName,
+            password: pending.passwordHash,
+            tier: pending.tier,
+            location: pending.location,
+            role: pending.role,
+            emailVerified: false,
+            isActive: true,
+          } as any);
+
+          createdUserId = insertedUser.id;
+          await storage.markSignupCompleted(insertedUser.id);
         } else if (userId) {
           // Try to fetch user by id
           const user = await storage.getUserById(userId);
           if (user) {
             userEmail = user.email;
             userName = user.firstName || user.email;
+            createdUserId = user.id;
           }
         }
         // Try to get amount/currency from request or metadata
@@ -271,6 +297,9 @@ export async function registerPaymentRoutes(app: Express) {
           const { generatePaymentConfirmationEmail, sendEmail } = await import('../email');
           const emailObj = generatePaymentConfirmationEmail(userEmail, userName, amount, currency, reference);
           await sendEmail(emailObj);
+        }
+        if (createdUserId) {
+          await storage.markSignupCompleted(createdUserId);
         }
         PendingSignup.clearByReference(reference);
         return res.json({ status: 'success', data: { success: true }, message: 'Payment verified successfully' });
