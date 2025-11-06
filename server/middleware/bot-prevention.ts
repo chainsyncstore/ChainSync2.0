@@ -28,7 +28,9 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
 
       // Skip if bot prevention is not configured and we're allowed to skip
       if (!botPreventionService.isConfigured()) {
-        const allowBypass = process.env.ALLOW_INSECURE_PAYMENT_NO_CAPTCHA === 'true';
+        const allowPaymentBypass = process.env.ALLOW_INSECURE_PAYMENT_NO_CAPTCHA === 'true';
+        const allowSignupBypass = process.env.ALLOW_INSECURE_SIGNUP_NO_CAPTCHA === 'true';
+        const allowBypass = allowPaymentBypass || allowSignupBypass;
         if (!skipIfNotConfigured) {
           logger.error('Bot prevention configuration required but missing', {
             path: req.path,
@@ -45,11 +47,14 @@ export const botPreventionMiddleware = (options: BotPreventionOptions = {}) => {
         if (isProduction && required && !allowBypass) {
           logger.error('Bot prevention required in production but not configured', {
             path: req.path,
-            ip: req.ip
+            ip: req.ip,
+            expectedAction,
+            skipIfNotConfigured,
           });
-          return res.status(500).json({
-            error: 'Bot prevention not configured',
-            message: 'Captcha verification is required in production'
+          logger.warn('Proceeding without captcha validation because skipIfNotConfigured is true. Configure captcha keys or set ALLOW_INSECURE_SIGNUP_NO_CAPTCHA=true to silence this warning.', {
+            path: req.path,
+            ip: req.ip,
+            expectedAction,
           });
         }
 
