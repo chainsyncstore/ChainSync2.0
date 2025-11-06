@@ -7,7 +7,8 @@ import { users } from '@shared/schema';
 import { loadEnv } from '../../shared/env';
 import { AuthService } from '../auth';
 import { db } from '../db';
-import { sendEmail } from '../email';
+import { sendEmail, generateEmailVerificationEmail } from '../email';
+import { PRICING_TIERS } from '../lib/constants';
 import { logger, extractLogContext } from '../lib/logger';
 import { monitoringService } from '../lib/monitoring';
 import { requireAuth } from '../middleware/authz';
@@ -15,9 +16,7 @@ import { signupBotPrevention, botPreventionMiddleware } from '../middleware/bot-
 import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '../middleware/security';
 import { SignupSchema, LoginSchema as ValidationLoginSchema } from '../schemas/auth';
 import { storage } from '../storage';
-import { generateEmailVerificationEmail } from '../email';
 import { SubscriptionService } from '../subscription/service';
-import { PRICING_TIERS } from '../lib/constants';
 
 export async function registerAuthRoutes(app: Express) {
   const env = loadEnv(process.env);
@@ -229,7 +228,7 @@ export async function registerAuthRoutes(app: Express) {
         });
       }
 
-      monitoringService.recordSignupEvent('completed', { ...attemptContext, email, userId: user.id });
+      monitoringService.recordSignupEvent('success', { ...attemptContext, email, userId: user.id });
 
       const trialEndsAt = subscription?.trialEndDate
         ? new Date(subscription.trialEndDate).toISOString()

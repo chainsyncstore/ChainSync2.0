@@ -98,32 +98,22 @@ beforeEach(() => {
   setLocationMock.mockReset();
 });
 
-describe('Signup staged flow UI', () => {
-  it('enters payment step when a pending signup exists', async () => {
-    apiMocks.getMock.mockResolvedValueOnce({
-      pending: true,
-      data: {
-        firstName: 'Pending',
-        lastName: 'User',
-        email: 'pending@example.com',
-        phone: '+1234567890',
-        companyName: 'Pending Co',
-        tier: 'basic',
-        location: 'international',
-      },
-    });
+describe('Signup free trial flow UI', () => {
+  it('displays free trial messaging without payment prompts', async () => {
+    apiMocks.postMock.mockResolvedValueOnce({ status: 'success' });
 
     const { default: Signup } = await import('@/components/auth/signup');
 
     render(<Signup />);
 
-    await waitFor(() => expect(screen.getByText('Complete Your Subscription')).toBeInTheDocument());
-    expect(screen.getByText(/Pay with/i)).toBeInTheDocument();
+    expect(screen.getByText('Create Your ChainSync Account')).toBeInTheDocument();
+    expect(screen.getByText('Start your 2-week free trial instantly. No payment required today.')).toBeInTheDocument();
+    expect(screen.queryByText(/Complete Your Subscription/i)).toBeNull();
+    expect(apiMocks.getMock).not.toHaveBeenCalled();
   });
 
-  it('stages signup on submit and avoids login call', async () => {
-    apiMocks.getMock.mockResolvedValueOnce({ pending: false });
-    apiMocks.postMock.mockResolvedValueOnce({ pending: true, pendingToken: 'pending-token-123' });
+  it('submits signup data and redirects to email verification', async () => {
+    apiMocks.postMock.mockResolvedValueOnce({ status: 'success', verifyEmailSent: true });
 
     const { default: Signup } = await import('@/components/auth/signup');
 
@@ -142,17 +132,26 @@ describe('Signup staged flow UI', () => {
     fillInput(/^Password/i, 'StrongPass123!');
     fillInput(/Confirm Password/i, 'StrongPass123!');
 
-    const submitButton = screen.getByRole('button', { name: /Create Account/i });
+    const submitButton = screen.getByRole('button', { name: /Create Account & Continue/i });
 
     await waitFor(() => expect(submitButton).toBeEnabled());
 
     fireEvent.click(submitButton);
 
-    await waitFor(() => expect(apiMocks.postMock).toHaveBeenCalledWith('/auth/signup', expect.any(Object)));
-
-    await waitFor(() => expect(screen.getByText('Complete Your Subscription')).toBeInTheDocument());
+    await waitFor(() => {
+      expect(apiMocks.postMock).toHaveBeenCalledWith(
+        '/auth/signup',
+        expect.objectContaining({
+          email: 'jane@example.com',
+          recaptchaToken: 'recaptcha-token',
+        })
+      );
+    });
 
     expect(loginMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/Pay with/i)).toBeInTheDocument();
+
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    expect(setLocationMock).toHaveBeenCalledWith(expect.stringContaining('/verify-email'));
   });
 });

@@ -1,7 +1,7 @@
+import { eq } from 'drizzle-orm';
 import express, { type Express } from 'express';
 import session from 'express-session';
 import request from 'supertest';
-import { and, eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { registerRoutes } from '@server/routes';
