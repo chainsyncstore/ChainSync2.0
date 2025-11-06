@@ -1,5 +1,4 @@
 import cors, { type CorsOptions } from "cors";
-import { randomBytes } from "crypto";
 import { doubleCsrf } from "csrf-csrf";
 import { Request, Response, NextFunction } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
@@ -185,6 +184,7 @@ const env = loadEnv(process.env);
 const {
   invalidCsrfTokenError,
   doubleCsrfProtection,
+  generateCsrfToken: generateDoubleCsrfToken,
 } = doubleCsrf({
   getSecret: () => env.SESSION_SECRET,
   getSessionIdentifier: (req: Request) => (
@@ -243,7 +243,6 @@ export const csrfErrorHandler = (err: any, req: Request, res: Response, next: Ne
 
 // Helper to generate a CSRF token and set the cookie according to configured options
 export const generateCsrfToken = (res: Response, req?: Request) => {
-  void req;
   if (process.env.NODE_ENV === 'test') {
     const token = `test-${Math.random().toString(36).slice(2)}`;
     // Mirror cookie options from csrfUtils where reasonable in tests
@@ -254,15 +253,13 @@ export const generateCsrfToken = (res: Response, req?: Request) => {
     });
     return token;
   }
-  // Local token generation fallback to avoid runtime dependency issues
-  const token = randomBytes(24).toString('hex');
-  res.cookie('csrf-token', token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: !isDev,
-    ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
-  });
-  return token;
+  const request = req ?? (res.req as Request | undefined);
+
+  if (!request) {
+    throw new Error('Unable to access request for CSRF token generation');
+  }
+
+  return generateDoubleCsrfToken(request, res);
 };
 
 // Helmet configuration with CSP
