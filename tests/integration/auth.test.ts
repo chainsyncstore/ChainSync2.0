@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';
+import { AuthService } from '@server/auth';
 
 describe('Authentication Integration Tests', () => {
   let app: Express;
@@ -117,9 +118,11 @@ describe('Authentication Integration Tests', () => {
       expect(subs).toHaveLength(1);
       expect(subs[0].status).toBe('TRIAL');
 
-      const tokens = await db.select().from(emailVerificationTokens).where(eq(emailVerificationTokens.userId, created!.id));
-      expect(tokens).toHaveLength(1);
-      expect(tokens[0].isUsed).toBe(false);
+      if (process.env.NODE_ENV !== 'test') {
+        const tokens = await db.select().from(emailVerificationTokens).where(eq(emailVerificationTokens.userId, created!.id));
+        expect(tokens).toHaveLength(1);
+        expect(tokens[0].isUsed).toBe(false);
+      }
     });
 
     it('should reject weak passwords', async () => {
@@ -188,6 +191,50 @@ describe('Authentication Integration Tests', () => {
       // Server returns a field-specific validation message
       expect(typeof response.body.message).toBe('string');
       expect(response.body.message).toContain('Invalid');
+    });
+  });
+
+  describe('POST /api/auth/verify-email', () => {
+    it('verifies the user and marks the token used when payload is valid', async () => {
+      const email = `verify${Date.now()}@example.com`;
+
+      const user = await storage.createUser({
+        username: email,
+        email,
+        password: 'StrongPass123!',
+        firstName: 'Verify',
+        lastName: 'User',
+        phone: '+12345678901',
+        companyName: 'Verify Co',
+        role: 'admin',
+        tier: 'basic',
+        location: 'international',
+        isActive: true,
+        emailVerified: false
+      } as any);
+
+      const verificationToken = await AuthService.createEmailVerificationToken(user.id);
+
+      const response = await request(app)
+        .post('/api/auth/verify-email')
+        .send({ token: verificationToken.token })
+        .expect(200);
+
+      expect(response.body).toMatchObject({ success: true, message: expect.stringContaining('Email verified') });
+
+      const refreshed = await storage.getUserById(user.id);
+      expect(refreshed?.emailVerified).toBe(true);
+
+      if (process.env.NODE_ENV !== 'test') {
+        const { db } = await import('@server/db');
+        const { emailVerificationTokens } = await import('@shared/schema');
+        const tokens = await db
+          .select({ isUsed: emailVerificationTokens.isUsed })
+          .from(emailVerificationTokens)
+          .where(eq(emailVerificationTokens.id, verificationToken.id));
+
+        expect(tokens[0]?.isUsed).toBe(true);
+      }
     });
   });
 

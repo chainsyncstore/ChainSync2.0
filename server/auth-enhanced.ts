@@ -50,6 +50,7 @@ export interface LoginResult {
 export interface VerificationResult {
   success: boolean;
   message: string;
+  userId?: string;
   error?: string;
 }
 
@@ -439,7 +440,7 @@ export class EnhancedAuthService {
         .set({ emailVerified: true } as any)
         .where(eq(users.id, tokenData.userId));
 
-      return { success: true, message: 'Email verified successfully' };
+      return { success: true, message: 'Email verified successfully', userId: tokenData.userId };
 
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';

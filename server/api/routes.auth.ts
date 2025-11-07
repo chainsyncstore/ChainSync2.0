@@ -627,24 +627,30 @@ export async function registerAuthRoutes(app: Express) {
     }
 
     try {
-      // Attempt JWT verification first (current production flow)
       let userId: string | undefined;
-      try {
-        const decoded = jwt.verify(token, env.JWT_SECRET!) as any;
-        userId = decoded?.id;
-      } catch (jwtError) {
-        logger.warn('JWT email verification token validation failed', {
-          error: jwtError instanceof Error ? jwtError.message : String(jwtError)
-        });
-        // Fallback: support mocked token verification in tests
+
+      // Primary path: DB-backed verification tokens
+      if (typeof (AuthService as any).verifyEmailToken === 'function') {
         try {
-          const result: any = await (AuthService as any).verifyEmailToken?.(token);
-          if (result?.success) {
+          const result: any = await (AuthService as any).verifyEmailToken(token);
+          if (result?.success && typeof result.userId === 'string') {
             userId = result.userId;
           }
-        } catch (fallbackError) {
-          logger.error('Fallback email verification token validation failed', {
-            error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+        } catch (dbTokenError) {
+          logger.error('Database email verification token validation failed', {
+            error: dbTokenError instanceof Error ? dbTokenError.message : String(dbTokenError)
+          });
+        }
+      }
+
+      // Legacy fallback: JWT-based verification tokens
+      if (!userId) {
+        try {
+          const decoded = jwt.verify(token, env.JWT_SECRET!) as any;
+          userId = decoded?.id;
+        } catch (jwtError) {
+          logger.warn('JWT email verification token validation failed', {
+            error: jwtError instanceof Error ? jwtError.message : String(jwtError)
           });
         }
       }
