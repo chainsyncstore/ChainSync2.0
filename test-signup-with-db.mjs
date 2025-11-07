@@ -19,7 +19,23 @@ const testSignupWithDatabase = async () => {
     }
     
     const csrfData = await csrfResponse.json();
-    console.log('✅ CSRF token received');
+    console.log('✅ CSRF token received:', csrfData);
+
+    const csrfToken = csrfData.token ?? csrfData.csrfToken;
+    if (!csrfToken) {
+      throw new Error('CSRF token missing from response payload');
+    }
+
+    const setCookieHeader = csrfResponse.headers.raw()?.['set-cookie'];
+    const csrfCookie = Array.isArray(setCookieHeader)
+      ? setCookieHeader.map((cookie) => cookie.split(';')[0]).join('; ')
+      : setCookieHeader?.split?.(';')?.[0];
+
+    if (!csrfCookie) {
+      console.warn('⚠️ CSRF cookie missing from response headers. Signup may fail.');
+    } else {
+      console.log('🍪 Forwarding cookies:', csrfCookie);
+    }
     
     // Step 2: Test signup
     console.log('📡 Step 2: Testing signup...');
@@ -28,7 +44,8 @@ const testSignupWithDatabase = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfData.csrfToken
+        'X-CSRF-Token': csrfToken,
+        ...(csrfCookie ? { Cookie: csrfCookie } : {}),
       },
       body: JSON.stringify({
         firstName: 'Test',
