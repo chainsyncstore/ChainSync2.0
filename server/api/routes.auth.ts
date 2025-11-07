@@ -225,12 +225,14 @@ export async function registerAuthRoutes(app: Express) {
       const tierKey = String(tier || 'basic').toLowerCase() as keyof typeof PRICING_TIERS;
       const tierPricing = PRICING_TIERS[tierKey] ?? PRICING_TIERS.basic;
       const monthlyAmount = currencyCode === 'NGN' ? tierPricing.ngn : tierPricing.usd;
+      const provider = currencyCode === 'NGN' ? 'PAYSTACK' : 'FLW';
 
       const subscriptionService = new SubscriptionService();
       const subscription = await subscriptionService.createSubscription(
         user.id,
         organization.id,
         tierKey,
+        provider,
         0,
         currencyCode,
         monthlyAmount,

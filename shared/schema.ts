@@ -21,8 +21,9 @@ export const roleEnum = pgEnum("role", ["ADMIN", "MANAGER", "CASHIER"]);
 export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "voided", "held"]);
 export const paymentMethodEnum = pgEnum("payment_method", ["cash", "card", "digital"]);
 
-// Subscription Status Enum
+// Subscription Enums
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["TRIAL", "ACTIVE", "PAST_DUE", "CANCELLED", "SUSPENDED"]);
+export const subscriptionProviderEnum = pgEnum("subscription_provider", ["PAYSTACK", "FLW"]);
 
 // Core organizations table for multi-tenancy
 export const organizations = pgTable("organizations", {
@@ -1036,6 +1037,7 @@ export const subscriptions = pgTable("subscriptions", {
   orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   tier: varchar("tier", { length: 50 }).notNull(),
+  provider: subscriptionProviderEnum("provider").notNull().default("PAYSTACK"),
   status: subscriptionStatusEnum("status").notNull().default("TRIAL"),
   upfrontFeePaid: decimal("upfront_fee_paid", { precision: 10, scale: 2 }).notNull(),
   upfrontFeeCurrency: varchar("upfront_fee_currency", { length: 3 }).notNull(),
