@@ -232,6 +232,7 @@ export async function registerAuthRoutes(app: Express) {
         user.id,
         organization.id,
         tierKey,
+        tierKey,
         provider,
         0,
         currencyCode,

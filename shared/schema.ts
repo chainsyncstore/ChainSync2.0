@@ -1037,6 +1037,7 @@ export const subscriptions = pgTable("subscriptions", {
   orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   tier: varchar("tier", { length: 50 }).notNull(),
+  planCode: varchar("plan_code", { length: 128 }).notNull(),
   provider: subscriptionProviderEnum("provider").notNull().default("PAYSTACK"),
   status: subscriptionStatusEnum("status").notNull().default("TRIAL"),
   upfrontFeePaid: decimal("upfront_fee_paid", { precision: 10, scale: 2 }).notNull(),
