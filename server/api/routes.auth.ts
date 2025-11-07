@@ -1,9 +1,9 @@
 import bcrypt from 'bcrypt';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
-import { users } from '@shared/schema';
+import { organizations, userRoles, users } from '@shared/schema';
 import { loadEnv } from '../../shared/env';
 import { AuthService } from '../auth';
 import { db } from '../db';
@@ -191,19 +191,50 @@ export async function registerAuthRoutes(app: Express) {
         emailVerified: false,
       } as any);
 
+      const currencyCode = (location === 'nigeria' ? 'NGN' : 'USD') as 'NGN' | 'USD';
+
+      const orgCurrency = currencyCode;
+      const [organization] = await db
+        .insert(organizations)
+        .values({
+          name: companyName,
+          currency: orgCurrency,
+          isActive: role === 'admin',
+        } as any)
+        .returning();
+
+      const normalizedRole = role === 'admin' ? 'ADMIN' : 'MANAGER';
+
+      await db
+        .update(users)
+        .set({
+          orgId: organization.id,
+          role: normalizedRole,
+          isAdmin: role === 'admin',
+        } as any)
+        .where(eq(users.id, user.id));
+
+      await db
+        .insert(userRoles)
+        .values({
+          userId: user.id,
+          orgId: organization.id,
+          role: normalizedRole,
+        } as any);
+
       const tierKey = String(tier || 'basic').toLowerCase() as keyof typeof PRICING_TIERS;
       const tierPricing = PRICING_TIERS[tierKey] ?? PRICING_TIERS.basic;
-      const currency = (location === 'nigeria' ? 'NGN' : 'USD') as 'NGN' | 'USD';
-      const monthlyAmount = currency === 'NGN' ? tierPricing.ngn : tierPricing.usd;
+      const monthlyAmount = currencyCode === 'NGN' ? tierPricing.ngn : tierPricing.usd;
 
       const subscriptionService = new SubscriptionService();
       const subscription = await subscriptionService.createSubscription(
         user.id,
+        organization.id,
         tierKey,
         0,
-        currency,
+        currencyCode,
         monthlyAmount,
-        currency
+        currencyCode
       );
 
       const verificationToken = await AuthService.createEmailVerificationToken(user.id);

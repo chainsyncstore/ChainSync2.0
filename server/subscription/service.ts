@@ -10,6 +10,7 @@ export class SubscriptionService {
    */
   async createSubscription(
     userId: string,
+    orgId: string,
     tier: string,
     upfrontFeeAmount: number,
     upfrontFeeCurrency: string,
@@ -22,6 +23,7 @@ export class SubscriptionService {
 
     const subscriptionData: InsertSubscription = {
       userId,
+      orgId,
       tier,
       status: 'TRIAL',
       upfrontFeePaid: (upfrontFeeAmount / 100).toFixed(2),

@@ -24,10 +24,21 @@ export const paymentMethodEnum = pgEnum("payment_method", ["cash", "card", "digi
 // Subscription Status Enum
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["TRIAL", "ACTIVE", "PAST_DUE", "CANCELLED", "SUSPENDED"]);
 
+// Core organizations table for multi-tenancy
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 255 }).notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  isActive: boolean("is_active").notNull().default(false),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  billingEmail: varchar("billing_email", { length: 255 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 // Users table (align with production migrations)
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  orgId: uuid("org_id"),
+  orgId: uuid("org_id").references(() => organizations.id, { onDelete: "set null" }),
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   settings: jsonb("settings").default({}),
@@ -68,7 +79,7 @@ export const users = pgTable("users", {
 export const userRoles = pgTable('user_roles', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   userId: uuid('user_id').notNull(),
-  orgId: uuid('org_id').notNull(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   storeId: uuid('store_id'),
   role: roleEnum('role').notNull(),
 }, (t) => ({
@@ -1022,6 +1033,7 @@ export const userSessionsRelations = relations(userSessions, ({ one }) => ({
 // Subscriptions table
 export const subscriptions = pgTable("subscriptions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   tier: varchar("tier", { length: 50 }).notNull(),
   status: subscriptionStatusEnum("status").notNull().default("TRIAL"),
@@ -1036,6 +1048,7 @@ export const subscriptions = pgTable("subscriptions", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
+  orgIdx: index("subscriptions_org_idx").on(table.orgId),
   userIdIdx: index("subscriptions_user_id_idx").on(table.userId),
   statusIdx: index("subscriptions_status_idx").on(table.status),
   trialEndDateIdx: index("subscriptions_trial_end_date_idx").on(table.trialEndDate),
@@ -1062,6 +1075,10 @@ export const subscriptionPayments = pgTable("subscription_payments", {
 
 // Add subscription relations to existing tables
 export const subscriptionsRelations = relations(subscriptions, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [subscriptions.orgId],
+    references: [organizations.id],
+  }),
   user: one(users, {
     fields: [subscriptions.userId],
     references: [users.id],
