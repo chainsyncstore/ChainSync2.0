@@ -205,13 +205,14 @@ function SignupForm() {
         return;
       }
 
-      if (response?.status === 'success' || response?.verifyEmailSent) {
+      if (response?.verifyEmailSent) {
         setLocation(`/verify-email?sent=1&email=${encodeURIComponent(data.email)}`);
         return;
       }
 
-      // Fallback: if API returned unexpected shape but was successful, send user to login
-      setLocation('/login');
+      // Unexpected success payload
+      console.warn('Signup returned unexpected payload', response);
+      setGeneralError('Signup response was not recognized. Please try again or contact support.');
     } catch (error: any) {
       // Handle specific error cases
       if (error.message?.includes('reCAPTCHA site key not configured')) {
