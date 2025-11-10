@@ -36,6 +36,59 @@ export class SubscriptionService {
     return this.subscriptionColumns;
   }
 
+  private async getSubscriptionStatusValues(): Promise<string[]> {
+    if (this.subscriptionStatusValues) {
+      return this.subscriptionStatusValues;
+    }
+
+    try {
+      const result = await db.execute<{ enumlabel: string }>(
+        sql`SELECT e.enumlabel
+            FROM information_schema.columns c
+            JOIN pg_type t ON c.udt_name = t.typname
+            JOIN pg_enum e ON t.oid = e.enumtypid
+            JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid
+            WHERE c.table_schema = 'public'
+              AND c.table_name = 'subscriptions'
+              AND c.column_name = 'status'
+              AND n.nspname = 'public'
+            ORDER BY e.enumsortorder`
+      );
+
+      const rows = Array.isArray(result)
+        ? result
+        : Array.isArray((result as QueryResult<any>).rows)
+          ? (result as QueryResult<any>).rows
+          : [];
+
+      this.subscriptionStatusValues = rows.map((row) => row.enumlabel);
+    } catch (error) {
+      logger.warn('SubscriptionService failed to load subscription status enum values', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.subscriptionStatusValues = [];
+    }
+
+    return this.subscriptionStatusValues;
+  }
+
+  private resolveSubscriptionStatus = async (preferred: string): Promise<string> => {
+    const statusValues = await this.getSubscriptionStatusValues();
+
+    if (statusValues.length === 0) {
+      return preferred;
+    }
+
+    if (statusValues.includes(preferred)) {
+      return preferred;
+    }
+
+    const normalizedPreferred = preferred.toLowerCase();
+    const looseMatch = statusValues.find((value) => value.toLowerCase() === normalizedPreferred);
+
+    return looseMatch ?? statusValues[0];
+  };
+
   private async ensureSubscriptionUserIdCapability(): Promise<boolean> {
     if (this.subscriptionsHasUserIdColumn !== null) {
       return this.subscriptionsHasUserIdColumn;
