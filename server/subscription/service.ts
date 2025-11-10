@@ -1,4 +1,4 @@
-import { eq, and, lte } from 'drizzle-orm';
+import { eq, and, lte, sql } from 'drizzle-orm';
 import type { QueryResult } from 'pg';
 
 import { subscriptions as prdSubscriptions } from '@shared/prd-schema';
@@ -7,6 +7,33 @@ import { db } from '../db';
 import { logger } from '../lib/logger';
 
 export class SubscriptionService {
+  private subscriptionsHasUserIdColumn: boolean | null = null;
+
+  private async ensureSubscriptionUserIdCapability(): Promise<boolean> {
+    if (this.subscriptionsHasUserIdColumn !== null) {
+      return this.subscriptionsHasUserIdColumn;
+    }
+
+    try {
+      const result = await db.execute<{ exists: number }>(
+        sql`SELECT 1 AS exists FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'subscriptions' AND column_name = 'user_id' LIMIT 1`
+      );
+      const rows = Array.isArray(result)
+        ? result
+        : Array.isArray((result as QueryResult<any>).rows)
+          ? (result as QueryResult<any>).rows
+          : [];
+      this.subscriptionsHasUserIdColumn = rows.length > 0;
+    } catch (error) {
+      logger.warn('SubscriptionService schema capability check failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.subscriptionsHasUserIdColumn = false;
+    }
+
+    return this.subscriptionsHasUserIdColumn;
+  }
+
   private extractFirstRow<T>(result: T[] | QueryResult<any>): T {
     const row = Array.isArray(result) ? result[0] : (result.rows?.[0] as T | undefined);
     if (!row) {
@@ -34,8 +61,9 @@ export class SubscriptionService {
     const trialEndDate = new Date();
     trialEndDate.setDate(trialEndDate.getDate() + 14); // 2-week trial
 
-    const subscriptionData = {
-      userId,
+    const supportsUserIdColumn = await this.ensureSubscriptionUserIdCapability();
+
+    const subscriptionData: typeof subscriptions.$inferInsert = {
       orgId,
       tier,
       planCode,
@@ -48,20 +76,44 @@ export class SubscriptionService {
       trialStartDate,
       trialEndDate,
       upfrontFeeCredited: false,
-    } as typeof subscriptions.$inferInsert;
+    } as any;
+
+    if (supportsUserIdColumn) {
+      subscriptionData.userId = userId;
+    }
 
     logger.info('createSubscription:start', { userId, tier, upfrontFeeAmount, monthlyAmount });
 
-    const existingSubscription = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.userId, userId))
-      .limit(1);
+    let existingSubscription: typeof subscriptions.$inferSelect | undefined;
+
+    if (supportsUserIdColumn) {
+      const result = await db
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .limit(1);
+      existingSubscription = result[0];
+    } else {
+      const [userRecord] = await db
+        .select({ subscriptionId: users.subscriptionId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (userRecord?.subscriptionId) {
+        const fallback = await db
+          .select()
+          .from(subscriptions)
+          .where(eq(subscriptions.id, userRecord.subscriptionId))
+          .limit(1);
+        existingSubscription = fallback[0];
+      }
+    }
 
     let subscription: typeof subscriptions.$inferSelect;
 
-    if (existingSubscription.length > 0) {
-      [subscription] = existingSubscription;
+    if (existingSubscription) {
+      subscription = existingSubscription;
       logger.info('createSubscription:reuse', { userId, subscriptionId: subscription.id });
     } else {
       const insertResult = await db
