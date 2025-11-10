@@ -8,29 +8,40 @@ import { logger } from '../lib/logger';
 
 export class SubscriptionService {
   private subscriptionsHasUserIdColumn: boolean | null = null;
+  private subscriptionColumns: Set<string> | null = null;
 
-  private async ensureSubscriptionUserIdCapability(): Promise<boolean> {
-    if (this.subscriptionsHasUserIdColumn !== null) {
-      return this.subscriptionsHasUserIdColumn;
+  private async getSubscriptionColumns(): Promise<Set<string>> {
+    if (this.subscriptionColumns) {
+      return this.subscriptionColumns;
     }
 
     try {
-      const result = await db.execute<{ exists: number }>(
-        sql`SELECT 1 AS exists FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'subscriptions' AND column_name = 'user_id' LIMIT 1`
+      const result = await db.execute<{ column_name: string }>(
+        sql`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'subscriptions'`
       );
       const rows = Array.isArray(result)
         ? result
         : Array.isArray((result as QueryResult<any>).rows)
           ? (result as QueryResult<any>).rows
           : [];
-      this.subscriptionsHasUserIdColumn = rows.length > 0;
+      this.subscriptionColumns = new Set(rows.map((row) => row.column_name));
     } catch (error) {
-      logger.warn('SubscriptionService schema capability check failed', {
+      logger.warn('SubscriptionService failed to load subscription columns', {
         error: error instanceof Error ? error.message : String(error),
       });
-      this.subscriptionsHasUserIdColumn = false;
+      this.subscriptionColumns = new Set();
     }
 
+    return this.subscriptionColumns;
+  }
+
+  private async ensureSubscriptionUserIdCapability(): Promise<boolean> {
+    if (this.subscriptionsHasUserIdColumn !== null) {
+      return this.subscriptionsHasUserIdColumn;
+    }
+
+    const columns = await this.getSubscriptionColumns();
+    this.subscriptionsHasUserIdColumn = columns.has('user_id');
     return this.subscriptionsHasUserIdColumn;
   }
 
@@ -62,6 +73,7 @@ export class SubscriptionService {
     trialEndDate.setDate(trialEndDate.getDate() + 14); // 2-week trial
 
     const supportsUserIdColumn = await this.ensureSubscriptionUserIdCapability();
+    const subscriptionColumns = await this.getSubscriptionColumns();
 
     const subscriptionData: typeof subscriptions.$inferInsert = {
       orgId,
@@ -105,74 +117,64 @@ export class SubscriptionService {
         logger.info('createSubscription:insert', { userId, subscriptionId: subscription.id });
       }
     } else {
+      const insertColumns: string[] = [];
+      const insertValues: Array<typeof sql> = [];
+
+      const pushColumn = (column: string, value: unknown) => {
+        if (subscriptionColumns.has(column)) {
+          insertColumns.push(column);
+          insertValues.push(sql`${value}`);
+        }
+      };
+
+      pushColumn('org_id', orgId);
+      pushColumn('tier', tier);
+      pushColumn('plan_code', planCode);
+      pushColumn('provider', provider);
+      pushColumn('status', 'TRIAL');
+      pushColumn('upfront_fee_paid', subscriptionData.upfrontFeePaid);
+      pushColumn('upfront_fee_currency', upfrontFeeCurrency);
+      pushColumn('monthly_amount', subscriptionData.monthlyAmount);
+      pushColumn('monthly_currency', monthlyCurrency);
+      pushColumn('trial_start_date', trialStartDate);
+      pushColumn('trial_end_date', trialEndDate);
+      pushColumn('upfront_fee_credited', subscriptionData.upfrontFeeCredited);
+      pushColumn('created_at', trialStartDate);
+      pushColumn('updated_at', trialStartDate);
+
+      if (insertColumns.length === 0) {
+        throw new Error('Unable to insert subscription: no compatible columns found');
+      }
+
+      const columnSql = sql.join(insertColumns.map((column) => sql.identifier(column)), sql`, `);
+      const valuesSql = sql.join(insertValues, sql`, `);
+
+      const returningColumns = ['id', ...insertColumns.filter((column) => column !== 'id')];
+      const returningSql = sql.join(returningColumns.map((column) => sql.identifier(column)), sql`, `);
+
       const insertResult = await db.execute(
-        sql`INSERT INTO subscriptions (
-              org_id,
-              tier,
-              plan_code,
-              provider,
-              status,
-              upfront_fee_paid,
-              upfront_fee_currency,
-              monthly_amount,
-              monthly_currency,
-              trial_start_date,
-              trial_end_date,
-              upfront_fee_credited,
-              created_at,
-              updated_at
-            ) VALUES (
-              ${orgId},
-              ${tier},
-              ${planCode},
-              ${provider},
-              ${'TRIAL'},
-              ${subscriptionData.upfrontFeePaid},
-              ${upfrontFeeCurrency},
-              ${subscriptionData.monthlyAmount},
-              ${monthlyCurrency},
-              ${trialStartDate},
-              ${trialEndDate},
-              ${subscriptionData.upfrontFeeCredited},
-              ${trialStartDate},
-              ${trialStartDate}
-            )
-            RETURNING id,
-              org_id,
-              tier,
-              plan_code,
-              provider,
-              status,
-              upfront_fee_paid,
-              upfront_fee_currency,
-              monthly_amount,
-              monthly_currency,
-              trial_start_date,
-              trial_end_date,
-              upfront_fee_credited,
-              created_at,
-              updated_at`
+        sql`INSERT INTO subscriptions (${columnSql}) VALUES (${valuesSql}) RETURNING ${returningSql}`
       );
 
-      const inserted = this.extractFirstRow(insertResult);
+      const inserted = this.extractFirstRow(insertResult) as Record<string, unknown>;
 
       subscription = {
-        id: inserted.id,
-        orgId: inserted.org_id,
+        id: inserted.id as string,
+        orgId: (inserted.org_id as string) ?? orgId,
         userId: null,
-        tier: inserted.tier,
-        planCode: inserted.plan_code,
-        provider: inserted.provider,
-        status: inserted.status,
-        upfrontFeePaid: inserted.upfront_fee_paid,
-        upfrontFeeCurrency: inserted.upfront_fee_currency,
-        monthlyAmount: inserted.monthly_amount,
-        monthlyCurrency: inserted.monthly_currency,
-        trialStartDate: inserted.trial_start_date,
-        trialEndDate: inserted.trial_end_date,
-        upfrontFeeCredited: inserted.upfront_fee_credited,
-        createdAt: inserted.created_at,
-        updatedAt: inserted.updated_at,
+        tier: (inserted.tier as string) ?? tier,
+        planCode: (inserted.plan_code as string) ?? planCode,
+        provider: (inserted.provider as typeof subscriptionData.provider) ?? provider,
+        status: (inserted.status as typeof subscriptionData.status) ?? 'TRIAL',
+        upfrontFeePaid: (inserted.upfront_fee_paid as typeof subscriptionData.upfrontFeePaid) ?? subscriptionData.upfrontFeePaid,
+        upfrontFeeCurrency: (inserted.upfront_fee_currency as string) ?? upfrontFeeCurrency,
+        monthlyAmount: (inserted.monthly_amount as typeof subscriptionData.monthlyAmount) ?? subscriptionData.monthlyAmount,
+        monthlyCurrency: (inserted.monthly_currency as string) ?? monthlyCurrency,
+        trialStartDate: (inserted.trial_start_date as Date | null) ?? trialStartDate,
+        trialEndDate: (inserted.trial_end_date as Date | null) ?? trialEndDate,
+        upfrontFeeCredited: (inserted.upfront_fee_credited as boolean | null) ?? subscriptionData.upfrontFeeCredited,
+        createdAt: (inserted.created_at as Date | null) ?? trialStartDate,
+        updatedAt: (inserted.updated_at as Date | null) ?? trialStartDate,
       } as typeof subscriptions.$inferSelect;
 
       logger.info('createSubscription:insert:compat', { userId, subscriptionId: subscription.id });
