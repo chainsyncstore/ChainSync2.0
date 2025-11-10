@@ -84,44 +84,53 @@ export class SubscriptionService {
 
     logger.info('createSubscription:start', { userId, tier, upfrontFeeAmount, monthlyAmount });
 
-    let existingSubscription: typeof subscriptions.$inferSelect | undefined;
-
+    let subscription: typeof subscriptions.$inferSelect;
     if (supportsUserIdColumn) {
-      const result = await db
+      const existing = await db
         .select()
         .from(subscriptions)
         .where(eq(subscriptions.userId, userId))
         .limit(1);
-      existingSubscription = result[0];
-    } else {
-      const [userRecord] = await db
-        .select({ subscriptionId: users.subscriptionId })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
+      const existingSubscription = existing[0];
 
-      if (userRecord?.subscriptionId) {
-        const fallback = await db
-          .select()
-          .from(subscriptions)
-          .where(eq(subscriptions.id, userRecord.subscriptionId))
-          .limit(1);
-        existingSubscription = fallback[0];
+      if (existingSubscription) {
+        subscription = existingSubscription;
+        logger.info('createSubscription:reuse', { userId, subscriptionId: subscription.id });
+      } else {
+        const insertResult = await db
+          .insert(subscriptions)
+          .values(subscriptionData)
+          .returning();
+        subscription = this.extractFirstRow<typeof subscriptions.$inferSelect>(insertResult);
+        logger.info('createSubscription:insert', { userId, subscriptionId: subscription.id });
       }
-    }
-
-    let subscription: typeof subscriptions.$inferSelect;
-
-    if (existingSubscription) {
-      subscription = existingSubscription;
-      logger.info('createSubscription:reuse', { userId, subscriptionId: subscription.id });
     } else {
       const insertResult = await db
         .insert(subscriptions)
         .values(subscriptionData)
-        .returning();
-      subscription = this.extractFirstRow<typeof subscriptions.$inferSelect>(insertResult);
-      logger.info('createSubscription:insert', { userId, subscriptionId: subscription.id });
+        .returning({ id: subscriptions.id });
+      const inserted = this.extractFirstRow(insertResult);
+
+      subscription = {
+        id: inserted.id,
+        orgId,
+        userId: null,
+        tier,
+        planCode,
+        provider,
+        status: 'TRIAL',
+        upfrontFeePaid: subscriptionData.upfrontFeePaid,
+        upfrontFeeCurrency,
+        monthlyAmount: subscriptionData.monthlyAmount,
+        monthlyCurrency,
+        trialStartDate,
+        trialEndDate,
+        upfrontFeeCredited: subscriptionData.upfrontFeeCredited,
+        createdAt: trialStartDate,
+        updatedAt: trialStartDate,
+      } as typeof subscriptions.$inferSelect;
+
+      logger.info('createSubscription:insert:compat', { userId, subscriptionId: subscription.id });
     }
 
     // Update user with subscription ID
