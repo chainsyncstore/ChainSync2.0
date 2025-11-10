@@ -8,6 +8,147 @@ const users = new Map<string, any>();
 const sessions = new Map<string, any>();
 let currentSessionId: string | null = null;
 
+type StoreRecord = {
+  id: string;
+  name: string;
+  address?: string;
+  currency: 'NGN' | 'USD';
+  createdAt: string;
+};
+
+const stores: StoreRecord[] = [
+  { id: 'store_1', name: 'Main Store', currency: 'NGN', createdAt: new Date().toISOString() },
+  { id: 'store_2', name: 'Branch Store', currency: 'NGN', createdAt: new Date().toISOString() },
+];
+
+type StaffRecord = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: 'manager' | 'cashier';
+  createdAt: string;
+  createdBy?: {
+    id: string;
+    name: string;
+  } | null;
+};
+
+const storeStaff = new Map<string, StaffRecord[]>([
+  ['store_1', []],
+  ['store_2', []],
+]);
+
+function createStoreRecord(partial: { name: string; address?: string; currency: 'NGN' | 'USD' }) {
+  const record: StoreRecord = {
+    id: `store_${Date.now()}`,
+    name: partial.name,
+    address: partial.address,
+    currency: partial.currency,
+    createdAt: new Date().toISOString(),
+  };
+  stores.unshift(record);
+  if (!storeStaff.has(record.id)) {
+    storeStaff.set(record.id, []);
+  }
+  return record;
+}
+
+function getCurrentUser() {
+  if (!currentSessionId) return null;
+  return sessions.get(currentSessionId) ?? null;
+}
+
+function findStoreById(id: string) {
+  return stores.find((store) => store.id === id) ?? null;
+}
+
+function getStaffForStore(id: string) {
+  if (!storeStaff.has(id)) {
+    storeStaff.set(id, []);
+  }
+  return storeStaff.get(id)!;
+}
+
+// Subscription & billing state for admin flows
+const org = {
+  id: 'org-test',
+  name: 'Test Org',
+  billingEmail: 'billing@example.com',
+  isActive: true,
+  lockedUntil: null as Date | null,
+};
+
+const subscription = {
+  id: 'sub-test',
+  orgId: org.id,
+  planCode: 'pro',
+  provider: 'PAYSTACK',
+  status: 'TRIAL',
+  autopayEnabled: false,
+  autopayProvider: null as null | 'PAYSTACK' | 'FLW',
+  autopayReference: null as string | null,
+  autopayConfiguredAt: null as Date | null,
+  autopayLastStatus: 'trial',
+  trialEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  nextBillingDate: null as Date | null,
+  currentPeriodEnd: null as Date | null,
+};
+
+type AutopayDetails = {
+  autopayReference: string;
+  email: string;
+  last4: string;
+  expMonth: string;
+  expYear: string;
+  cardType: string;
+  bank: string;
+};
+
+let autopayDetails: AutopayDetails | null = null;
+const subscriptionPayments: Array<Record<string, unknown>> = [];
+const dunningEvents: Array<Record<string, unknown>> = [];
+
+function getSubscriptionSummary() {
+  return {
+    id: subscription.id,
+    status: subscription.status,
+    tier: subscription.planCode,
+    trialEndsAt: subscription.trialEndDate?.toISOString() ?? null,
+    autopayEnabled: subscription.autopayEnabled,
+    autopayProvider: subscription.autopayProvider,
+    autopayConfiguredAt: subscription.autopayConfiguredAt?.toISOString() ?? null,
+    autopayLastStatus: subscription.autopayLastStatus,
+  };
+}
+
+function registerSubscriptionPayment(partial: Partial<Record<string, unknown>>) {
+  subscriptionPayments.unshift({
+    id: `pay_${Date.now()}`,
+    provider: subscription.autopayProvider ?? subscription.provider,
+    amount: '200.00',
+    currency: 'NGN',
+    status: 'completed',
+    occurredAt: new Date().toISOString(),
+    reference: `PAYMENT_${Date.now()}`,
+    planCode: subscription.planCode,
+    eventType: 'auto_renew',
+    ...partial,
+  });
+}
+
+function recordDunningAttempt() {
+  const event = {
+    id: `dunning_${Date.now()}`,
+    subscriptionId: subscription.id,
+    attempt: dunningEvents.length + 1,
+    status: 'sent',
+    sentAt: new Date().toISOString(),
+  };
+  dunningEvents.unshift(event);
+  return event;
+}
+
 // Validation schemas
 const SignupSchema = z.object({
   firstName: z.string().min(1),
@@ -120,16 +261,21 @@ app.post('/api/auth/signup', (req, res) => {
 
 // Minimal auth endpoints for E2E tests
 app.post('/api/auth/login', (req, res) => {
-  const { email, username } = req.body || {};
+  const { email, username, role: incomingRole } = req.body || {};
   const identifier = email || username || '';
   const lower = String(identifier).toLowerCase();
-  const role = lower.includes('admin') ? 'admin' : lower.includes('manager') ? 'manager' : 'cashier';
+  const normalizedRole = typeof incomingRole === 'string' && incomingRole.trim().length > 0
+    ? incomingRole.trim().toLowerCase()
+    : lower.includes('admin') ? 'admin' : lower.includes('manager') ? 'manager' : 'cashier';
+  const role = ['admin', 'manager', 'cashier'].includes(normalizedRole) ? normalizedRole : 'cashier';
   const user = {
     id: `user_${role}`,
     email: identifier || `${role}@example.com`,
     firstName: role.charAt(0).toUpperCase() + role.slice(1),
     lastName: 'User',
     role,
+    orgId: org.id,
+    subscription: getSubscriptionSummary(),
   };
   const sid = `sid_${Date.now()}`;
   sessions.set(sid, user);
@@ -142,7 +288,10 @@ app.get('/api/auth/me', (_req, res) => {
   if (!currentSessionId) return res.status(401).json({ error: 'unauthorized' });
   const user = sessions.get(currentSessionId);
   if (!user) return res.status(401).json({ error: 'unauthorized' });
-  return res.json(user);
+  return res.json({
+    ...user,
+    subscription: getSubscriptionSummary(),
+  });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -252,16 +401,93 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Mock stores and analytics endpoints for POS and analytics pages
 app.get('/api/stores', (_req, res) => {
-  res.json([
-    { id: 'store_1', name: 'Main Store' },
-    { id: 'store_2', name: 'Branch Store' },
-  ]);
+  res.json(stores);
+});
+
+app.post('/api/stores', (req, res) => {
+  const { name, address, currency } = req.body || {};
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+  if (currency !== 'NGN' && currency !== 'USD') {
+    return res.status(400).json({ error: 'Unsupported currency' });
+  }
+  const record = createStoreRecord({ name: name.trim(), address: typeof address === 'string' ? address.trim() || undefined : undefined, currency });
+  res.status(201).json({ store: record });
 });
 
 app.get('/api/stores/:id/analytics/daily-sales', (req, res) => {
   res.json({ transactions: 3, revenue: 315 });
+});
+
+app.get('/api/stores/:storeId/staff', (req, res) => {
+  const store = findStoreById(req.params.storeId);
+  if (!store) {
+    return res.status(404).json({ error: 'Store not found' });
+  }
+  const staff = getStaffForStore(store.id);
+  res.json({
+    store: { id: store.id, name: store.name },
+    staff,
+  });
+});
+
+app.post('/api/stores/:storeId/staff', (req, res) => {
+  const store = findStoreById(req.params.storeId);
+  if (!store) {
+    return res.status(404).json({ error: 'Store not found' });
+  }
+  const { firstName, lastName, email, role } = req.body || {};
+  if (typeof firstName !== 'string' || !firstName.trim()) {
+    return res.status(400).json({ error: 'First name required' });
+  }
+  if (typeof lastName !== 'string' || !lastName.trim()) {
+    return res.status(400).json({ error: 'Last name required' });
+  }
+  if (typeof email !== 'string' || !email.includes('@')) {
+    return res.status(400).json({ error: 'Valid email required' });
+  }
+  if (role !== 'manager' && role !== 'cashier') {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+  const staffList = getStaffForStore(store.id);
+  const record: StaffRecord = {
+    id: `staff_${Date.now()}`,
+    firstName: firstName.trim(),
+    lastName: lastName.trim(),
+    email: email.trim(),
+    role,
+    createdAt: new Date().toISOString(),
+    createdBy: (() => {
+      const user = getCurrentUser();
+      if (!user) return null;
+      return { id: user.id, name: `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email };
+    })(),
+  };
+  staffList.unshift(record);
+  const tempPassword = `Temp${Math.random().toString(36).slice(2, 8)}!`;
+  res.status(201).json({
+    staff: record,
+    credentials: {
+      email: record.email,
+      password: tempPassword,
+    },
+  });
+});
+
+app.delete('/api/stores/:storeId/staff/:staffId', (req, res) => {
+  const store = findStoreById(req.params.storeId);
+  if (!store) {
+    return res.status(404).json({ error: 'Store not found' });
+  }
+  const staffList = getStaffForStore(store.id);
+  const index = staffList.findIndex((member) => member.id === req.params.staffId);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Staff not found' });
+  }
+  staffList.splice(index, 1);
+  res.json({ ok: true });
 });
 
 // Simple in-memory idempotency tracking for tests
@@ -298,6 +524,143 @@ app.get('/api/products/barcode/:barcode', (req, res) => {
     return res.json({ id: 'product_1', name: 'Test Product', barcode: '12345', price: '9.99' });
   }
   return res.status(404).json({ error: 'not found' });
+});
+
+// Billing & subscription management endpoints
+app.get('/api/admin/org/billing', (_req, res) => {
+  res.json({ org: { id: org.id, billingEmail: org.billingEmail } });
+});
+
+app.patch('/api/admin/org/billing', (req, res) => {
+  const { billingEmail } = req.body || {};
+  if (!billingEmail || typeof billingEmail !== 'string') {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+  org.billingEmail = billingEmail;
+  res.json({ org: { id: org.id, billingEmail: org.billingEmail } });
+});
+
+app.get('/api/admin/subscriptions', (_req, res) => {
+  res.json({ subscriptions: [{
+    id: subscription.id,
+    planCode: subscription.planCode,
+    provider: subscription.autopayProvider ?? subscription.provider,
+    status: subscription.status,
+    currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+  }] });
+});
+
+app.get('/api/admin/subscription-payments', (_req, res) => {
+  res.json({ payments: subscriptionPayments });
+});
+
+app.get('/api/admin/dunning-events', (_req, res) => {
+  res.json({ events: dunningEvents });
+});
+
+app.post('/api/admin/dunning/:subscriptionId/retry', (req, res) => {
+  if (req.params.subscriptionId !== subscription.id) {
+    return res.status(404).json({ error: 'Subscription not found' });
+  }
+  recordDunningAttempt();
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/subscriptions/:id/update-payment', (req, res) => {
+  if (req.params.id !== subscription.id) {
+    return res.status(404).json({ error: 'Subscription not found' });
+  }
+  const reference = `PAYSTACK_UPD_${Date.now()}`;
+  res.json({
+    redirectUrl: `https://checkout.paystack.com/${reference}`,
+    reference,
+    provider: 'PAYSTACK',
+  });
+});
+
+const handleSubscribe = (req: express.Request, res: express.Response) => {
+  const { orgId, planCode, email } = req.body || {};
+  if (orgId !== org.id || typeof planCode !== 'string' || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+  const reference = `PAYSTACK_SUB_${Date.now()}`;
+  res.json({
+    provider: 'PAYSTACK',
+    reference,
+    redirectUrl: `https://checkout.paystack.com/${reference}`,
+  });
+};
+
+app.post('/billing/subscribe', handleSubscribe);
+app.post('/api/billing/subscribe', handleSubscribe);
+
+app.get('/api/billing/autopay', (_req, res) => {
+  res.json({
+    autopay: {
+      enabled: subscription.autopayEnabled,
+      provider: subscription.autopayProvider,
+      status: subscription.autopayLastStatus,
+      configuredAt: subscription.autopayConfiguredAt?.toISOString() ?? null,
+      details: autopayDetails,
+    },
+  });
+});
+
+app.post('/api/billing/autopay/confirm', (req, res) => {
+  const { provider, reference } = req.body || {};
+  const normalized = typeof provider === 'string' ? provider.toString().toUpperCase() : '';
+  if (!reference || (normalized !== 'PAYSTACK' && normalized !== 'FLW')) {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+
+  subscription.autopayEnabled = true;
+  subscription.autopayProvider = normalized as 'PAYSTACK' | 'FLW';
+  subscription.autopayReference = reference;
+  subscription.autopayConfiguredAt = new Date();
+  subscription.autopayLastStatus = 'configured';
+  subscription.status = 'ACTIVE';
+  subscription.currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  autopayDetails = {
+    autopayReference: reference,
+    email: org.billingEmail,
+    last4: '4242',
+    expMonth: '09',
+    expYear: '30',
+    cardType: 'visa',
+    bank: 'Test Bank',
+  };
+
+  registerSubscriptionPayment({ status: 'completed', reference: `AUTO_${Date.now()}` });
+
+  res.json({
+    autopay: {
+      enabled: true,
+      provider: subscription.autopayProvider,
+      status: subscription.autopayLastStatus,
+      configuredAt: subscription.autopayConfiguredAt.toISOString(),
+      details: autopayDetails,
+    },
+  });
+});
+
+app.delete('/api/billing/autopay', (_req, res) => {
+  subscription.autopayEnabled = false;
+  subscription.autopayProvider = null;
+  subscription.autopayReference = null;
+  subscription.autopayConfiguredAt = null;
+  subscription.autopayLastStatus = 'disabled';
+  autopayDetails = null;
+
+  res.json({
+    autopay: {
+      enabled: false,
+      provider: null,
+      status: subscription.autopayLastStatus,
+      configuredAt: null,
+      details: null,
+    },
+  });
 });
 
 // Analytics exports

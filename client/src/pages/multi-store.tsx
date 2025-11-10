@@ -139,18 +139,18 @@ export default function MultiStore() {
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
-            <Label>Store Name</Label>
-            <Input value={newStoreName} onChange={(e) => setNewStoreName(e.target.value)} placeholder="e.g., Downtown Store" />
+            <Label htmlFor="new-store-name">Store Name</Label>
+            <Input id="new-store-name" value={newStoreName} onChange={(e) => setNewStoreName(e.target.value)} />
           </div>
           <div>
-            <Label>Address</Label>
-            <Input value={newStoreAddress} onChange={(e) => setNewStoreAddress(e.target.value)} placeholder="Optional" />
+            <Label htmlFor="new-store-address">Address</Label>
+            <Input id="new-store-address" value={newStoreAddress} onChange={(e) => setNewStoreAddress(e.target.value)} />
           </div>
           <div>
             <Label>Currency</Label>
             <Select value={newStoreCurrency} onValueChange={(v) => setNewStoreCurrency(v as 'NGN' | 'USD')}>
               <SelectTrigger>
-                <SelectValue placeholder="Select currency" />
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="NGN">NGN (₦)</SelectItem>

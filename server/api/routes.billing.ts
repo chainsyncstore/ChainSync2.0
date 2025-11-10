@@ -42,7 +42,10 @@ function summarizeAutopayDetails(details: AutopayDetails | null | undefined) {
 }
 
 export async function registerBillingRoutes(app: Express) {
-  app.post('/billing/subscribe', async (req: Request, res: Response) => {
+  app.post('/api/billing/subscribe', requireAuth, async (req: Request, res: Response) => {
+    const currentUserId = (req.session as any)?.userId as string | undefined;
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+
     const parsed = SubscribeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
 
