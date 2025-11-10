@@ -1,6 +1,7 @@
 import { parse as csvParse } from 'csv-parse';
 import { eq, and, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
+import type { QueryResult } from 'pg';
 import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
@@ -13,6 +14,35 @@ import { requireRole } from '../middleware/authz';
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { storage } from '../storage';
 
+let productColumnsCache: Set<string> | null = null;
+
+const getProductColumns = async (): Promise<Set<string>> => {
+  if (productColumnsCache) {
+    return productColumnsCache;
+  }
+
+  try {
+    const result = await db.execute<{ column_name: string }>(
+      sql`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'products'`
+    );
+
+    const rows = Array.isArray(result)
+      ? result
+      : Array.isArray((result as QueryResult<any>).rows)
+        ? (result as QueryResult<any>).rows
+        : [];
+
+    productColumnsCache = new Set(rows.map((row) => row.column_name));
+  } catch (error) {
+    logger.warn('Failed to inspect products columns', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    productColumnsCache = new Set();
+  }
+
+  return productColumnsCache;
+};
+
 export async function registerInventoryRoutes(app: Express) {
   // Product catalog endpoints expected by client analytics/alerts pages
   app.get('/api/products', requireAuth, async (_req: Request, res: Response) => {
@@ -21,12 +51,24 @@ export async function registerInventoryRoutes(app: Express) {
   });
 
   app.get('/api/products/categories', requireAuth, async (_req: Request, res: Response) => {
+    const columns = await getProductColumns();
+    if (!columns.has('category')) {
+      logger.warn('Products categories requested but category column is missing');
+      return res.json([]);
+    }
+
     const result = await db.execute(sql`SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category <> '' ORDER BY category ASC`);
     const categories = (result.rows || []).map((row: any) => row.category);
     res.json(categories);
   });
 
   app.get('/api/products/brands', requireAuth, async (_req: Request, res: Response) => {
+    const columns = await getProductColumns();
+    if (!columns.has('brand')) {
+      logger.warn('Products brands requested but brand column is missing');
+      return res.json([]);
+    }
+
     const result = await db.execute(sql`SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand <> '' ORDER BY brand ASC`);
     const brands = (result.rows || []).map((row: any) => row.brand);
     res.json(brands);

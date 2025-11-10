@@ -362,10 +362,35 @@ export class SubscriptionService {
    * Get subscription by user ID
    */
   async getSubscriptionByUserId(userId: string) {
+    const supportsUserIdColumn = await this.ensureSubscriptionUserIdCapability();
+
+    if (supportsUserIdColumn) {
+      const [subscription] = await db
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .limit(1);
+
+      return subscription;
+    }
+
+    const [userRow] = await db
+      .select({ subscriptionId: users.subscriptionId })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!userRow?.subscriptionId) {
+      logger.warn('Subscription lookup skipped: subscriptions.user_id column missing and user has no subscriptionId', {
+        userId,
+      });
+      return undefined;
+    }
+
     const [subscription] = await db
       .select()
       .from(subscriptions)
-      .where(eq(subscriptions.userId, userId))
+      .where(eq(subscriptions.id, userRow.subscriptionId))
       .limit(1);
 
     return subscription;

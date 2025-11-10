@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { eq, and, desc, asc, sql, lt, lte, gte, isNotNull, or } from "drizzle-orm";
+import type { QueryResult } from "pg";
 import { users as prdUsers } from "@shared/prd-schema";
 import {
   customers,
@@ -848,19 +849,163 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Store operations
+  private storeColumns: Set<string> | null = null;
+
+  private async getStoreColumns(): Promise<Set<string>> {
+    if (this.storeColumns) {
+      return this.storeColumns;
+    }
+
+    try {
+      const result = await db.execute<{ column_name: string }>(
+        sql`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stores'`
+      );
+
+      const rows = Array.isArray(result)
+        ? result
+        : Array.isArray((result as QueryResult<any>).rows)
+          ? (result as QueryResult<any>).rows
+          : [];
+
+      this.storeColumns = new Set(rows.map((row) => row.column_name));
+    } catch (error) {
+      logger.warn('Failed to inspect stores columns', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.storeColumns = new Set();
+    }
+
+    return this.storeColumns;
+  }
+
+  private normalizeStoreRow(row: Record<string, unknown>): Store {
+    const normalized = { ...row } as Record<string, unknown>;
+
+    const getValue = <T>(keys: string[], fallback: T): T => {
+      for (const key of keys) {
+        if (normalized[key] !== undefined && normalized[key] !== null) {
+          return normalized[key] as T;
+        }
+      }
+
+      // set the first key so downstream callers can rely on its presence
+      normalized[keys[0]] = fallback as unknown as T;
+      return fallback;
+    };
+
+    const currency = getValue(['currency', 'currency'], 'USD');
+    const taxRate = getValue<any>(['taxRate', 'tax_rate'], '0.00');
+    const createdAt = getValue<Date | null>(['createdAt', 'created_at'], null);
+    const updatedAt = getValue<Date | null>(['updatedAt', 'updated_at'], createdAt);
+    const ownerId = getValue<string | null>(['ownerId', 'owner_id'], null);
+    const address = getValue<string | null>(['address'], null);
+    const phone = getValue<string | null>(['phone'], null);
+    const email = getValue<string | null>(['email'], null);
+    const isActive = Boolean(getValue<boolean | null>(['isActive', 'is_active'], true));
+
+    return {
+      id: getValue<string>(['id'], ''),
+      name: getValue<string>(['name'], ''),
+      ownerId,
+      address,
+      phone,
+      email,
+      currency,
+      taxRate,
+      isActive,
+      createdAt,
+      updatedAt,
+    } as Store;
+  }
+
   async getAllStores(): Promise<Store[]> {
     if (this.isTestEnv) {
       return Array.from(this.mem.stores.values());
     }
-    return await db.select().from(stores).where(eq(stores.isActive, true));
+
+    const storeColumns = await this.getStoreColumns();
+    const supportsCurrency = storeColumns.has('currency');
+    const supportsTaxRate = storeColumns.has('tax_rate');
+    const supportsCreatedAt = storeColumns.has('created_at');
+    const supportsUpdatedAt = storeColumns.has('updated_at');
+
+    const selectFields: Record<string, any> = {
+      id: stores.id,
+      name: stores.name,
+      ownerId: stores.ownerId,
+      address: stores.address,
+      phone: stores.phone,
+      email: stores.email,
+      isActive: stores.isActive,
+    };
+
+    if (supportsCurrency) {
+      selectFields.currency = stores.currency;
+    }
+
+    if (supportsTaxRate) {
+      selectFields.taxRate = stores.taxRate;
+    }
+
+    if (supportsCreatedAt) {
+      selectFields.createdAt = stores.createdAt;
+    }
+
+    if (supportsUpdatedAt) {
+      selectFields.updatedAt = stores.updatedAt;
+    }
+
+    const rows = await db
+      .select(selectFields)
+      .from(stores)
+      .where(eq(stores.isActive, true));
+
+    return rows.map((row) => this.normalizeStoreRow(row));
   }
 
   async getStore(id: string): Promise<Store | undefined> {
     if (this.isTestEnv) {
       return this.mem.stores.get(id);
     }
-    const [store] = await db.select().from(stores).where(eq(stores.id, id));
-    return store || undefined;
+
+    const storeColumns = await this.getStoreColumns();
+    const supportsCurrency = storeColumns.has('currency');
+    const supportsTaxRate = storeColumns.has('tax_rate');
+    const supportsCreatedAt = storeColumns.has('created_at');
+    const supportsUpdatedAt = storeColumns.has('updated_at');
+
+    const selectFields: Record<string, any> = {
+      id: stores.id,
+      name: stores.name,
+      ownerId: stores.ownerId,
+      address: stores.address,
+      phone: stores.phone,
+      email: stores.email,
+      isActive: stores.isActive,
+    };
+
+    if (supportsCurrency) {
+      selectFields.currency = stores.currency;
+    }
+
+    if (supportsTaxRate) {
+      selectFields.taxRate = stores.taxRate;
+    }
+
+    if (supportsCreatedAt) {
+      selectFields.createdAt = stores.createdAt;
+    }
+
+    if (supportsUpdatedAt) {
+      selectFields.updatedAt = stores.updatedAt;
+    }
+
+    const [store] = await db
+      .select(selectFields)
+      .from(stores)
+      .where(eq(stores.id, id));
+
+    return store ? this.normalizeStoreRow(store) : undefined;
   }
 
   async createStore(insertStore: InsertStore): Promise<Store> {
