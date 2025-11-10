@@ -9,6 +9,7 @@ import { logger } from '../lib/logger';
 export class SubscriptionService {
   private subscriptionsHasUserIdColumn: boolean | null = null;
   private subscriptionColumns: Set<string> | null = null;
+  private subscriptionStatusValues: string[] | null = null;
 
   private async getSubscriptionColumns(): Promise<Set<string>> {
     if (this.subscriptionColumns) {
@@ -74,13 +75,14 @@ export class SubscriptionService {
 
     const supportsUserIdColumn = await this.ensureSubscriptionUserIdCapability();
     const subscriptionColumns = await this.getSubscriptionColumns();
+    const statusValue = await this.resolveSubscriptionStatus('TRIAL');
 
     const subscriptionData: typeof subscriptions.$inferInsert = {
       orgId,
       tier,
       planCode,
       provider,
-      status: 'TRIAL',
+      status: statusValue as typeof subscriptions.$inferInsert['status'],
       upfrontFeePaid: (upfrontFeeAmount / 100).toFixed(2),
       upfrontFeeCurrency,
       monthlyAmount: (monthlyAmount / 100).toFixed(2),
@@ -131,7 +133,7 @@ export class SubscriptionService {
       pushColumn('tier', tier);
       pushColumn('plan_code', planCode);
       pushColumn('provider', provider);
-      pushColumn('status', 'TRIAL');
+      pushColumn('status', statusValue);
       pushColumn('upfront_fee_paid', subscriptionData.upfrontFeePaid);
       pushColumn('upfront_fee_currency', upfrontFeeCurrency);
       pushColumn('monthly_amount', subscriptionData.monthlyAmount);
@@ -165,7 +167,7 @@ export class SubscriptionService {
         tier: (inserted.tier as string) ?? tier,
         planCode: (inserted.plan_code as string) ?? planCode,
         provider: (inserted.provider as typeof subscriptionData.provider) ?? provider,
-        status: (inserted.status as typeof subscriptionData.status) ?? 'TRIAL',
+        status: (inserted.status as typeof subscriptionData.status) ?? (statusValue as typeof subscriptionData.status),
         upfrontFeePaid: (inserted.upfront_fee_paid as typeof subscriptionData.upfrontFeePaid) ?? subscriptionData.upfrontFeePaid,
         upfrontFeeCurrency: (inserted.upfront_fee_currency as string) ?? upfrontFeeCurrency,
         monthlyAmount: (inserted.monthly_amount as typeof subscriptionData.monthlyAmount) ?? subscriptionData.monthlyAmount,
