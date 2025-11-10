@@ -154,17 +154,58 @@ test('full supermarket workflow including subscription & autopay', async ({ page
   await page.waitForLoadState('networkidle');
   const billingInput = page.getByPlaceholder('billing@example.com');
   await expect(billingInput).toBeVisible();
-  await billingInput.fill('qa-billing@chainsync.test');
-  await page.getByRole('button', { name: 'Save' }).click();
+
+  adminAuth = await fetchAuthHeaders(page);
+  const billingDetailsResp = await page.request.get('/api/admin/org/billing', {
+    headers: {
+      ...adminAuth.headers,
+      'cache-control': 'no-cache',
+      accept: 'application/json',
+    },
+  });
+  if (!billingDetailsResp.ok()) {
+    const body = await billingDetailsResp.text();
+    await testInfo.attach('billing-details.response.txt', {
+      contentType: 'text/plain',
+      body: `status=${billingDetailsResp.status()}\n${body}`,
+    });
+    throw new Error(`Failed to fetch billing details with status ${billingDetailsResp.status()}`);
+  }
+  const billingDetails = await billingDetailsResp.json().catch(() => ({}));
+  const orgId = billingDetails?.org?.id ?? billingDetails?.organization?.id;
+  if (!orgId) {
+    await testInfo.attach('billing-details.payload.json', {
+      contentType: 'application/json',
+      body: JSON.stringify(billingDetails, null, 2),
+    });
+    throw new Error('Organization id missing from billing details response');
+  }
+
+  const newBillingEmail = `qa-billing+${Date.now()}@chainsync.test`;
+  await billingInput.fill(newBillingEmail);
+
+  adminAuth = await fetchAuthHeaders(page);
+  const billingPatchResp = await page.request.patch('/api/admin/org/billing', {
+    headers: adminAuth.headers,
+    data: { billingEmail: newBillingEmail },
+  });
+  if (!billingPatchResp.ok()) {
+    const body = await billingPatchResp.text();
+    await testInfo.attach('billing-update.response.txt', {
+      contentType: 'text/plain',
+      body: `status=${billingPatchResp.status()}\n${body}`,
+    });
+    throw new Error(`Billing update failed with status ${billingPatchResp.status()}`);
+  }
 
   // Subscribe & configure autopay (mocked)
   adminAuth = await fetchAuthHeaders(page);
   const subscribeResponse = await page.request.post('/api/billing/subscribe', {
     headers: adminAuth.headers,
     data: {
-      orgId: 'org-test',
+      orgId,
       planCode: 'pro',
-      email: 'qa-billing@chainsync.test',
+      email: newBillingEmail,
     },
   });
   if (!subscribeResponse.ok()) {

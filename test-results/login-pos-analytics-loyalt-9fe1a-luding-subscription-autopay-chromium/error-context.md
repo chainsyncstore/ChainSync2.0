@@ -50,7 +50,7 @@
 - banner:
   - heading "ChainSync" [level=2]
   - paragraph: POS & Analytics System
-  - text: Live Sync Nov 10, 2025, 10:45 PM
+  - text: Live Sync Nov 10, 2025, 11:30 PM
   - button "Logout":
     - img
     - text: Logout

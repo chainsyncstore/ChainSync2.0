@@ -184,10 +184,17 @@ const env = loadEnv(process.env);
 
 const ensureCsrfSessionIdentity = (req: Request): string => {
   const session = req.session as any;
+  const sessionId = typeof req.sessionID === 'string' && req.sessionID.length > 0 ? req.sessionID : undefined;
+
   if (session) {
     const existing = typeof session.csrfTokenIdentity === 'string' ? session.csrfTokenIdentity : undefined;
     if (existing && existing.length > 0) {
       return existing;
+    }
+
+    if (sessionId) {
+      session.csrfTokenIdentity = sessionId;
+      return sessionId;
     }
 
     const generated = randomBytes(32).toString('hex');
@@ -214,8 +221,8 @@ const ensureCsrfSessionIdentity = (req: Request): string => {
     return generated;
   }
 
-  if (typeof req.sessionID === 'string' && req.sessionID.length > 0) {
-    return req.sessionID;
+  if (sessionId) {
+    return sessionId;
   }
 
   return req.ip || 'anon';
