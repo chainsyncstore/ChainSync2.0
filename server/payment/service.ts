@@ -24,6 +24,24 @@ export interface PaymentResponse {
   };
 }
 
+interface PaymentChargeResult {
+  success: boolean;
+  reference?: string;
+  raw?: any;
+  message?: string;
+}
+
+export interface AutopayDetails {
+  autopayReference: string;
+  email?: string;
+  last4?: string;
+  expMonth?: string;
+  expYear?: string;
+  cardType?: string;
+  bank?: string;
+  raw?: any;
+}
+
 export class PaymentService {
   private paystackSecretKey: string;
   private flutterwaveSecretKey: string;
@@ -330,6 +348,220 @@ export class PaymentService {
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 8).toUpperCase();
     return `${provider.toUpperCase()}_${timestamp}_${random}`;
+  }
+
+  async getAutopayDetails(provider: 'PAYSTACK' | 'FLW', reference: string): Promise<AutopayDetails | null> {
+    const normalized = provider.toUpperCase() as 'PAYSTACK' | 'FLW';
+    const trimmedRef = reference?.trim();
+    if (!trimmedRef) {
+      return null;
+    }
+
+    if (normalized === 'PAYSTACK') {
+      if (!this.paystackSecretKey) {
+        return { autopayReference: trimmedRef };
+      }
+
+      try {
+        const response = await axios.get(
+          `${this.paystackBaseUrl}/transaction/verify/${trimmedRef}`,
+          {
+            headers: {
+              Authorization: `Bearer ${this.paystackSecretKey}`,
+            },
+          },
+        );
+
+        const data = response.data?.data;
+        const authorization = data?.authorization;
+        const authorizationCode = authorization?.authorization_code;
+        if (!authorizationCode) {
+          return null;
+        }
+
+        return {
+          autopayReference: authorizationCode,
+          email: data?.customer?.email,
+          last4: authorization?.last4,
+          expMonth: authorization?.exp_month ? String(authorization.exp_month) : undefined,
+          expYear: authorization?.exp_year ? String(authorization.exp_year) : undefined,
+          cardType: authorization?.card_type || authorization?.brand,
+          bank: authorization?.bank,
+          raw: data,
+        } satisfies AutopayDetails;
+      } catch (error) {
+        const axiosError = error as AxiosError;
+        console.error('Failed to fetch Paystack autopay details', {
+          reference: trimmedRef,
+          status: axiosError.response?.status,
+          message: axiosError.message,
+        });
+        throw new PaymentError('Failed to fetch Paystack autopay details', {
+          provider: 'PAYSTACK',
+          reference: trimmedRef,
+          status: axiosError.response?.status,
+        });
+      }
+    }
+
+    if (!this.flutterwaveSecretKey) {
+      return { autopayReference: trimmedRef };
+    }
+
+    try {
+      const response = await axios.get(
+        `${this.flutterwaveBaseUrl}/transactions/verify_by_reference`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.flutterwaveSecretKey}`,
+          },
+          params: { tx_ref: trimmedRef },
+        },
+      );
+
+      const data = response.data?.data;
+      const card = data?.card || data?.source?.card;
+      const token = card?.token || data?.card_token || data?.meta?.authorization?.token;
+      if (!token) {
+        return null;
+      }
+
+      let expMonth: string | undefined;
+      let expYear: string | undefined;
+      const expiryCandidate = card?.expiry || card?.expiry_date || data?.card?.expiry;
+      if (typeof expiryCandidate === 'string' && expiryCandidate.includes('/')) {
+        const [month, year] = expiryCandidate.split('/');
+        expMonth = month?.trim() || undefined;
+        expYear = year?.trim() || undefined;
+      } else {
+        expMonth = card?.expirymonth || data?.card?.expirymonth;
+        expYear = card?.expiryyear || data?.card?.expiryyear;
+      }
+
+      return {
+        autopayReference: token,
+        email: data?.customer?.email || data?.customer?.email_address,
+        last4: card?.last_4digits || card?.last4 || data?.card?.last_4digits,
+        cardType: card?.type,
+        expMonth,
+        expYear,
+        bank: card?.issuer || data?.card?.issuer,
+        raw: data,
+      } satisfies AutopayDetails;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      console.error('Failed to fetch Flutterwave autopay details', {
+        reference: trimmedRef,
+        status: axiosError.response?.status,
+        message: axiosError.message,
+      });
+      throw new PaymentError('Failed to fetch Flutterwave autopay details', {
+        provider: 'FLW',
+        reference: trimmedRef,
+        status: axiosError.response?.status,
+      });
+    }
+  }
+
+  async chargePaystackAuthorization(
+    authorizationCode: string,
+    email: string,
+    amountMinor: number,
+    currency: string,
+    reference?: string,
+    metadata?: Record<string, any>
+  ): Promise<PaymentChargeResult> {
+    try {
+      const payload: Record<string, any> = {
+        authorization_code: authorizationCode,
+        email,
+        amount: amountMinor,
+        currency,
+        metadata,
+      };
+      if (reference) {
+        payload.reference = reference;
+      }
+
+      const response = await axios.post(
+        `${this.paystackBaseUrl}/transaction/charge_authorization`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${this.paystackSecretKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const data = response.data?.data;
+      const status = data?.status === 'success';
+      return {
+        success: status,
+        reference: data?.reference || data?.id || reference,
+        raw: response.data,
+        message: data?.gateway_response,
+      };
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const responseData = axiosError.response?.data as { message?: string } | undefined;
+      return {
+        success: false,
+        reference,
+        raw: axiosError.response?.data,
+        message: responseData?.message || axiosError.message,
+      };
+    }
+  }
+
+  async chargeFlutterwaveToken(
+    token: string,
+    email: string,
+    amountMajor: number,
+    currency: string,
+    reference?: string,
+    metadata?: Record<string, any>
+  ): Promise<PaymentChargeResult> {
+    try {
+      const txRef = reference || this.generateReference('flutterwave');
+      const payload: Record<string, any> = {
+        token,
+        email,
+        amount: amountMajor,
+        currency,
+        tx_ref: txRef,
+        meta: metadata,
+      };
+
+      const response = await axios.post(
+        `${this.flutterwaveBaseUrl}/tokenized-charges`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${this.flutterwaveSecretKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const data = response.data?.data;
+      const status = data?.status === 'successful';
+      return {
+        success: status,
+        reference: data?.flw_ref || data?.id || txRef,
+        raw: response.data,
+        message: response.data?.message,
+      };
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const responseData = axiosError.response?.data as { message?: string } | undefined;
+      return {
+        success: false,
+        reference,
+        raw: axiosError.response?.data,
+        message: responseData?.message || axiosError.message,
+      };
+    }
   }
 
   // Mock payment methods for development/testing

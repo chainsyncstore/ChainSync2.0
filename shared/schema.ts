@@ -1036,7 +1036,7 @@ export const userSessionsRelations = relations(userSessions, ({ one }) => ({
 export const subscriptions = pgTable("subscriptions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
-  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   tier: varchar("tier", { length: 50 }).notNull(),
   planCode: varchar("plan_code", { length: 128 }).notNull(),
   provider: subscriptionProviderEnum("provider").notNull().default("PAYSTACK"),
@@ -1049,6 +1049,13 @@ export const subscriptions = pgTable("subscriptions", {
   trialEndDate: timestamp("trial_end_date").notNull(),
   nextBillingDate: timestamp("next_billing_date"),
   upfrontFeeCredited: boolean("upfront_fee_credited").notNull().default(false),
+  autopayEnabled: boolean("autopay_enabled").notNull().default(false),
+  autopayProvider: subscriptionProviderEnum("autopay_provider"),
+  autopayReference: varchar("autopay_reference", { length: 255 }),
+  autopayConfiguredAt: timestamp("autopay_configured_at", { withTimezone: true }),
+  autopayLastStatus: varchar("autopay_last_status", { length: 32 }),
+  trialReminder7SentAt: timestamp("trial_reminder_7_sent_at", { withTimezone: true }),
+  trialReminder3SentAt: timestamp("trial_reminder_3_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -1068,7 +1075,7 @@ export const subscriptionPayments = pgTable("subscription_payments", {
   paymentType: varchar("payment_type", { length: 50 }).notNull(), // 'upfront_fee', 'monthly_billing'
   status: varchar("status", { length: 50 }).notNull(), // 'pending', 'completed', 'failed'
   provider: varchar("provider", { length: 50 }).notNull(), // 'paystack', 'flutterwave'
-  metadata: jsonb("metadata"),
+  metadata: jsonb("metadata").$type<Record<string, unknown> | null>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

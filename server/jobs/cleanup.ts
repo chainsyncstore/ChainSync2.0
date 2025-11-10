@@ -1,10 +1,23 @@
 import axios from "axios";
-import { and, eq, lt, sql as dsql } from "drizzle-orm";
-import { subscriptions, subscriptionPayments, dunningEvents, organizations, inventory, stockAlerts } from "@shared/prd-schema";
+import { and, eq, isNull, isNotNull, lt, lte, or, sql as dsql } from "drizzle-orm";
+import { appendFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+
+import {
+  dunningEvents,
+  inventory,
+  organizations,
+  subscriptionPayments,
+  stockAlerts,
+  subscriptions,
+  users
+} from "@shared/prd-schema";
 import { db } from "../db";
 import { pool } from "../db";
-import { sendEmail } from "../email";
+import { generateTrialPaymentReminderEmail, sendEmail } from "../email";
+import { PRICING_TIERS } from "../lib/constants";
 import { logger } from "../lib/logger";
+import { PaymentService } from "../payment/service";
 
 async function runCleanupOnce(): Promise<void> {
 	try {
@@ -63,6 +76,371 @@ export function scheduleAbandonedSignupCleanup(): void {
 
 export async function runAbandonedSignupCleanupNow(): Promise<void> {
 	await runCleanupOnce();
+}
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+const trialDebugLogPath = path.join(process.cwd(), 'test-results', 'trial-expiration.job.log');
+
+async function appendTrialJobLog(label: string, payload: unknown) {
+	if (process.env.NODE_ENV !== 'test') {
+		return;
+	}
+	try {
+		await mkdir(path.dirname(trialDebugLogPath), { recursive: true });
+		const entry = `${new Date().toISOString()} [${label}]\n${JSON.stringify(payload, null, 2)}\n\n`;
+		await appendFile(trialDebugLogPath, entry, 'utf8');
+	} catch (error) {
+		logger.warn('Failed to write trial job debug log', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+async function runTrialReminderScan(): Promise<void> {
+	const now = new Date();
+
+	try {
+		const candidates = await db
+			.select({
+				subscription: subscriptions,
+				user: users,
+				organization: organizations,
+			})
+			.from(subscriptions)
+			.leftJoin(users, eq(users.id, subscriptions.userId))
+			.innerJoin(organizations, eq(organizations.id, subscriptions.orgId))
+			.where(
+				and(
+					eq(subscriptions.status as any, 'TRIAL' as any),
+					or(
+						eq(subscriptions.autopayEnabled, false),
+						isNull(subscriptions.autopayReference)
+					)
+				)
+			);
+
+		for (const row of candidates) {
+			const { subscription, user, organization } = row;
+			if (!subscription?.trialEndDate || !user?.email) continue;
+
+			const trialEnd = new Date(subscription.trialEndDate as unknown as string);
+			const diffMs = trialEnd.getTime() - now.getTime();
+			if (diffMs <= 0) continue;
+			const daysRemaining = Math.ceil(diffMs / ONE_DAY_MS);
+			if (daysRemaining !== 7 && daysRemaining !== 3) continue;
+
+			if (daysRemaining === 7 && subscription.trialReminder7SentAt) continue;
+			if (daysRemaining === 3 && subscription.trialReminder3SentAt) continue;
+
+			const displayName = organization?.name || user?.email || organization?.billingEmail || 'there';
+			try {
+				const emailOptions = generateTrialPaymentReminderEmail(
+					user.email,
+					displayName,
+					organization?.name,
+					daysRemaining,
+					trialEnd,
+					undefined,
+					process.env.SUPPORT_EMAIL
+				);
+				const sent = await sendEmail(emailOptions);
+				if (!sent) {
+					logger.warn('Trial reminder email failed to send', {
+						subscriptionId: subscription.id,
+						email: user.email,
+						daysRemaining,
+					});
+					continue;
+				}
+
+				await db
+					.update(subscriptions)
+					.set({
+						[daysRemaining === 7 ? 'trialReminder7SentAt' : 'trialReminder3SentAt']: new Date(),
+						updatedAt: new Date(),
+					} as any)
+					.where(eq(subscriptions.id, subscription.id));
+				logger.info('Trial reminder email sent', {
+					subscriptionId: subscription.id,
+					email: user.email,
+					daysRemaining,
+				});
+			} catch (error) {
+				logger.error('Trial reminder processing failed', {
+					subscriptionId: subscription.id,
+					email: user.email,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+	} catch (error) {
+		logger.error('Trial reminder scan failed', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+export async function runTrialReminderScanNow(): Promise<void> {
+	await runTrialReminderScan();
+}
+
+export function scheduleTrialReminders(): void {
+	const enabled = process.env.TRIAL_REMINDER_SCHEDULE !== "false";
+	if (!enabled) {
+		logger.info("Trial reminder scheduler disabled via env");
+		return;
+	}
+	const hourUtc = Number(process.env.TRIAL_REMINDER_HOUR_UTC ?? 9);
+	const scheduleNext = () => {
+		const delay = msUntilNextHourUtc(hourUtc);
+		logger.info("Scheduling trial reminder scan", { runInMs: delay });
+		setTimeout(async () => {
+			await runTrialReminderScan();
+			setInterval(runTrialReminderScan, ONE_DAY_MS);
+		}, delay);
+	};
+	scheduleNext();
+}
+
+async function runTrialExpirationBillingOnce(paymentService?: PaymentService): Promise<void> {
+	const now = new Date();
+	let service = paymentService;
+
+	if (!service) {
+		if (process.env.NODE_ENV === 'test') {
+			throw new Error('runTrialExpirationBillingOnce requires a PaymentService instance in test environment');
+		}
+		service = new PaymentService();
+	}
+
+	try {
+		const dueSubscriptions = await db
+			.select()
+			.from(subscriptions)
+			.where(
+				and(
+					eq(subscriptions.autopayEnabled, true as any),
+					isNotNull(subscriptions.autopayReference),
+					or(
+						and(
+							eq(subscriptions.status as any, 'TRIAL' as any),
+							isNotNull(subscriptions.trialEndDate),
+							lte(subscriptions.trialEndDate as any, now)
+						),
+						and(
+							eq(subscriptions.status as any, 'ACTIVE' as any),
+							isNotNull(subscriptions.nextBillingDate),
+							lte(subscriptions.nextBillingDate as any, now)
+						)
+					)
+				)
+			);
+
+		await appendTrialJobLog('dueSubscriptions snapshot', dueSubscriptions);
+
+		for (const subscription of dueSubscriptions) {
+			const subscriptionId = subscription.id as string;
+			const orgId = subscription.orgId as string;
+			const [organization] = await db
+				.select()
+				.from(organizations)
+				.where(eq(organizations.id, orgId as any));
+			if (!organization) {
+				logger.warn('Subscription missing organization during billing run', {
+					subscriptionId,
+					orgId,
+				});
+				continue;
+			}
+			const tierCandidate = String(subscription.planCode ?? 'basic').toLowerCase();
+			const tierKey = (['basic', 'pro', 'enterprise'].includes(tierCandidate) ? tierCandidate : 'basic') as keyof typeof PRICING_TIERS;
+			const tierPricing = PRICING_TIERS[tierKey];
+			const currency = String(organization.currency ?? 'NGN').toUpperCase();
+			const autopayProvider = String(subscription.autopayProvider ?? subscription.provider ?? 'PAYSTACK').toUpperCase() as 'PAYSTACK' | 'FLW';
+			const autopayReference = subscription.autopayReference as string | null;
+			let email: string | undefined;
+			const subscriptionUserId = subscription.userId as string | null | undefined;
+			if (subscriptionUserId) {
+				const [userRecord] = await db
+					.select()
+					.from(users)
+					.where(eq(users.id, subscriptionUserId as any));
+				email = userRecord?.email as string | undefined;
+			}
+			const isTrial = String(subscription.status).toUpperCase() === 'TRIAL';
+			const billingDueAt = isTrial
+				? (subscription.trialEndDate ? new Date(subscription.trialEndDate as unknown as string) : now)
+				: (subscription.nextBillingDate ? new Date(subscription.nextBillingDate as unknown as string) : now);
+
+			const markPastDue = async (status: 'failed' | 'missing_method') => {
+				await db
+					.update(subscriptions)
+					.set({
+						status: 'PAST_DUE' as any,
+						autopayLastStatus: status,
+						updatedAt: new Date(),
+					} as any)
+					.where(eq(subscriptions.id, subscriptionId as any));
+				await db
+					.update(organizations)
+					.set({
+						isActive: false as any,
+						lockedUntil: new Date(),
+					} as any)
+					.where(eq(organizations.id, orgId as any));
+				logger.warn('Marked subscription past due', {
+					subscriptionId,
+					orgId,
+					reason: status,
+				});
+			};
+
+			if (!subscription.autopayEnabled || !autopayReference || !email) {
+				await markPastDue('missing_method');
+				continue;
+			}
+
+			await db
+				.update(subscriptions)
+				.set({
+					autopayLastStatus: 'pending_charge',
+					updatedAt: new Date(),
+				} as any)
+				.where(eq(subscriptions.id, subscriptionId as any));
+
+			let chargeSuccess = false;
+			let chargeReference: string | undefined;
+			let chargeRaw: any;
+			let chargeMessage: string | undefined;
+
+			try {
+				if (autopayProvider === 'PAYSTACK') {
+					const amountMinor = currency === 'NGN' ? tierPricing.ngn : tierPricing.usd;
+					const reference = service.generateReference('paystack');
+					const chargeResult = await service.chargePaystackAuthorization(
+						autopayReference,
+						email,
+						amountMinor,
+						currency,
+						reference,
+						{ subscriptionId, orgId }
+					);
+					chargeSuccess = chargeResult.success;
+					chargeReference = chargeResult.reference ?? reference;
+					chargeRaw = chargeResult.raw;
+					chargeMessage = chargeResult.message;
+				} else {
+					const amountMajor = currency === 'NGN' ? tierPricing.ngn / 100 : tierPricing.usd / 100;
+					const reference = service.generateReference('flutterwave');
+					const chargeResult = await service.chargeFlutterwaveToken(
+						autopayReference,
+						email,
+						amountMajor,
+						currency,
+						reference,
+						{ subscriptionId, orgId }
+					);
+					chargeSuccess = chargeResult.success;
+					chargeReference = chargeResult.reference ?? reference;
+					chargeRaw = chargeResult.raw;
+					chargeMessage = chargeResult.message;
+				}
+			} catch (error) {
+				chargeSuccess = false;
+				chargeMessage = error instanceof Error ? error.message : String(error);
+				logger.error('Autopay charge attempt threw', {
+					subscriptionId,
+					orgId,
+					error: chargeMessage,
+				});
+			}
+
+			const amountDecimal = currency === 'NGN'
+				? (tierPricing.ngn / 100).toFixed(2)
+				: (tierPricing.usd / 100).toFixed(2);
+
+			try {
+				await db.insert(subscriptionPayments).values({
+					orgId: orgId as any,
+					provider: autopayProvider as any,
+					planCode: subscription.planCode as any ?? tierKey,
+					externalSubId: subscription.externalSubId as any,
+					externalInvoiceId: chargeReference as any,
+					reference: chargeReference as any,
+					amount: amountDecimal as any,
+					currency,
+					status: (chargeSuccess ? 'completed' : 'failed') as any,
+					eventType: 'auto_renew' as any,
+					occurredAt: new Date() as any,
+					raw: chargeRaw ?? { message: chargeMessage } as any,
+				} as any);
+			} catch (error) {
+				logger.warn('Failed to record autopay charge', {
+					subscriptionId,
+					orgId,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+
+			if (chargeSuccess) {
+				const nextBillingDateBase = billingDueAt ?? now;
+				const nextBillingDate = new Date(nextBillingDateBase.getTime() + 30 * ONE_DAY_MS);
+				await db
+					.update(subscriptions)
+					.set({
+						status: 'ACTIVE' as any,
+						autopayLastStatus: 'charged',
+						nextBillingDate,
+						updatedAt: new Date(),
+					} as any)
+					.where(eq(subscriptions.id, subscriptionId as any));
+				await db
+					.update(organizations)
+					.set({
+						isActive: true as any,
+						lockedUntil: null,
+					} as any)
+					.where(eq(organizations.id, orgId as any));
+				logger.info('Subscription renewed automatically', {
+					subscriptionId,
+					orgId,
+					reference: chargeReference,
+				});
+			} else {
+				await markPastDue('failed');
+			}
+		}
+	} catch (error) {
+		await appendTrialJobLog('trial expiration billing error', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+		logger.error('Trial expiration billing run failed', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+export async function runTrialExpirationBillingNow(paymentService?: PaymentService): Promise<void> {
+	await runTrialExpirationBillingOnce(paymentService);
+}
+
+export function scheduleTrialExpirationBilling(): void {
+	const enabled = process.env.TRIAL_BILLING_SCHEDULE !== "false";
+	if (!enabled) {
+		logger.info("Trial expiration billing scheduler disabled via env");
+		return;
+	}
+	const hourUtc = Number(process.env.TRIAL_BILLING_HOUR_UTC ?? 6);
+	const scheduleNext = () => {
+		const delay = msUntilNextHourUtc(hourUtc);
+		logger.info("Scheduling trial expiration billing run", { runInMs: delay });
+		setTimeout(async () => {
+			await runTrialExpirationBillingOnce();
+			setInterval(runTrialExpirationBillingOnce, ONE_DAY_MS);
+		}, delay);
+	};
+	scheduleNext();
 }
 
 

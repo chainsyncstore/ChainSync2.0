@@ -14,6 +14,47 @@ export async function registerAnalyticsRoutes(app: Express) {
     if (process.env.NODE_ENV === 'test') return next();
     return (requireAuth as any)(req, res, next);
   };
+
+  type SalesAggregateExpressions = {
+    total: string;
+    discount: string;
+    tax: string;
+  };
+
+  let cachedSalesAggregates: SalesAggregateExpressions | null = null;
+
+  async function getSalesAggregateExpressions(): Promise<SalesAggregateExpressions> {
+    if (cachedSalesAggregates) return cachedSalesAggregates;
+
+    const columnResult = await db.execute(sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'sales'
+    `);
+
+    const columnNames = new Set(
+      ((columnResult as any).rows ?? []).map((row: any) => String(row.column_name).toLowerCase())
+    );
+
+    const buildAggregate = (candidates: string[]): string => {
+      for (const candidate of candidates) {
+        if (columnNames.has(candidate)) {
+          return `COALESCE(SUM("${candidate}"::numeric), 0)`;
+        }
+      }
+      return '0::numeric';
+    };
+
+    cachedSalesAggregates = {
+      total: buildAggregate(['total', 'total_amount', 'gross_total']),
+      discount: buildAggregate(['discount', 'discount_amount']),
+      tax: buildAggregate(['tax', 'tax_amount'])
+    };
+
+    return cachedSalesAggregates;
+  }
+
   // Helper: resolve org and allowed store ids for current user
   async function getScope(req: Request) {
     let userId = (req.session as any)?.userId as string | undefined;
@@ -125,10 +166,11 @@ export async function registerAnalyticsRoutes(app: Express) {
         }
       }
 
+      const salesAggregates = await getSalesAggregateExpressions();
       const total = await db.execute(sql`SELECT 
-        COALESCE(SUM(total::numeric),0) as total, 
-        COALESCE(SUM(discount::numeric),0) as discount, 
-        COALESCE(SUM(tax::numeric),0) as tax,
+        ${sql.raw(salesAggregates.total)} as total, 
+        ${sql.raw(salesAggregates.discount)} as discount, 
+        ${sql.raw(salesAggregates.tax)} as tax,
         COUNT(*) as transactions
         FROM sales ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}`);
 
@@ -175,9 +217,10 @@ export async function registerAnalyticsRoutes(app: Express) {
     if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
     if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
 
+    const salesAggregates = await getSalesAggregateExpressions();
     const rows = await db.execute(sql`SELECT 
       date_trunc(${sql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
-      COALESCE(SUM(total::numeric),0) as revenue,
+      ${sql.raw(salesAggregates.total)} as revenue,
       COUNT(*) as transactions
       FROM sales
       ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
@@ -310,11 +353,12 @@ export async function registerAnalyticsRoutes(app: Express) {
     if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
     if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
 
+    const salesAggregates = await getSalesAggregateExpressions();
     const rows = await db.execute(sql`SELECT 
       date_trunc(${sql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
-      COALESCE(SUM(total::numeric),0) as revenue,
-      COALESCE(SUM(discount::numeric),0) as discount,
-      COALESCE(SUM(tax::numeric),0) as tax,
+      ${sql.raw(salesAggregates.total)} as revenue,
+      ${sql.raw(salesAggregates.discount)} as discount,
+      ${sql.raw(salesAggregates.tax)} as tax,
       COUNT(*) as transactions
       FROM sales
       ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
@@ -368,11 +412,12 @@ export async function registerAnalyticsRoutes(app: Express) {
     if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
     if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
 
+    const salesAggregates = await getSalesAggregateExpressions();
     const rows = await db.execute(sql`SELECT 
       date_trunc(${sql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
-      COALESCE(SUM(total::numeric),0) as revenue,
-      COALESCE(SUM(discount::numeric),0) as discount,
-      COALESCE(SUM(tax::numeric),0) as tax,
+      ${sql.raw(salesAggregates.total)} as revenue,
+      ${sql.raw(salesAggregates.discount)} as discount,
+      ${sql.raw(salesAggregates.tax)} as tax,
       COUNT(*) as transactions
       FROM sales
       ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}

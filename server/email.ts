@@ -32,6 +32,93 @@ export function getEmailHealth() {
   };
 }
 
+export function generateTrialPaymentReminderEmail(
+  userEmail: string,
+  userName: string | null | undefined,
+  organizationName: string | null | undefined,
+  daysRemaining: number,
+  trialEndsAt: Date,
+  billingUrl?: string,
+  supportEmail?: string
+): EmailOptions {
+  const friendlyName = userName?.trim()?.length ? userName.trim() : 'there';
+  const formattedTrialEnd = trialEndsAt.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const frontendUrl = process.env.FRONTEND_URL || 'https://app.chainsync.com';
+  const helpEmail = supportEmail || process.env.SUPPORT_EMAIL || 'support@chainsync.com';
+  const ctaUrl = billingUrl || `${frontendUrl}/settings/billing`;
+  const orgLabel = organizationName?.trim()?.length ? ` for <strong>${organizationName.trim()}</strong>` : '';
+  const urgencyCopy = daysRemaining === 3
+    ? 'Only a few days remain in your free trial — set up automatic billing now to avoid any disruption.'
+    : 'You are halfway through your free trial — add a payment method today so your workspace stays active when the trial ends.';
+
+  const html = `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Inter', Arial, sans-serif; background-color: #f2f6fb; padding: 0; margin: 0;">
+      <tr>
+        <td align="center" style="padding: 40px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 12px 40px rgba(33, 150, 243, 0.12);">
+            <tr>
+              <td style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); padding: 32px 24px; text-align: center;">
+                <h1 style="color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; letter-spacing: 0.4px;">Keep your ChainSync workspace active</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 32px 40px;">
+                <p style="color: #0F172A; font-size: 18px; font-weight: 600; margin: 0 0 16px;">Hi ${friendlyName},</p>
+                <p style="color: #475569; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">
+                  ${urgencyCopy}
+                </p>
+                <div style="background: #E3F2FD; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                  <p style="color: #1E3A8A; font-size: 16px; font-weight: 600; margin: 0 0 8px;">Trial ends on ${formattedTrialEnd}</p>
+                  <p style="color: #0F172A; font-size: 14px; margin: 0;">Add a payment method now to automatically continue your plan${orgLabel}.</p>
+                </div>
+                <div style="text-align: center; margin: 28px 0;">
+                  <a href="${ctaUrl}"
+                     style="background: #2196F3; color: #ffffff; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-size: 15px; font-weight: 600; display: inline-block; box-shadow: 0 10px 24px rgba(33, 150, 243, 0.3);">
+                    Set up automatic billing
+                  </a>
+                </div>
+                <p style="color: #64748B; font-size: 14px; line-height: 1.6; margin: 0 0 12px;">
+                  When your trial ends, we’ll securely charge the saved payment method so you maintain uninterrupted access for your team.
+                </p>
+                <p style="color: #64748B; font-size: 14px; line-height: 1.6; margin: 0;">
+                  Need help? Reach us anytime at <a href="mailto:${helpEmail}" style="color: #2196F3; font-weight: 600; text-decoration: none;">${helpEmail}</a>.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background: #F1F5F9; padding: 20px 24px; text-align: center;">
+                <p style="color: #94A3B8; font-size: 12px; line-height: 1.6; margin: 0;">
+                  ChainSync · Smarter retail operations, unified.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const text = `Hi ${friendlyName},
+
+Your ChainSync trial ends on ${formattedTrialEnd}. Add a payment method now so we can continue your workspace automatically when the trial wraps up.
+
+Set up automatic billing: ${ctaUrl}
+Need help? Contact ${helpEmail}.
+
+The ChainSync Team`;
+
+  return {
+    to: userEmail,
+    subject: `Action needed: add a payment method before your trial ends`,
+    html,
+    text,
+  };
+}
+
 export interface StaffCredentialEmailPayload {
   staffEmail: string;
   staffName?: string | null;
@@ -172,6 +259,98 @@ If you didn’t create this account, you can ignore this message.`;
   return {
     to: userEmail,
     subject: 'Confirm your ChainSync email',
+    html,
+    text,
+  };
+}
+
+export function generateSignupOtpEmail(
+  userEmail: string,
+  userName: string,
+  otpCode: string,
+  expiresAt: Date,
+  supportEmail?: string
+): EmailOptions {
+  const friendlyName = userName?.trim().length ? userName.trim() : 'there';
+  const formattedExpiry = expiresAt.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const frontendUrl = process.env.FRONTEND_URL || 'https://app.chainsync.com';
+  const helpEmail = supportEmail || process.env.SUPPORT_EMAIL || 'support@chainsync.com';
+  const logoSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" fill="#2196F3"/><rect x="120" y="320" width="784" height="56" rx="28" fill="#FFFFFF"/><rect x="120" y="496" width="784" height="56" rx="28" fill="#FFFFFF"/><rect x="120" y="672" width="784" height="56" rx="28" fill="#FFFFFF"/></svg>';
+  const logoDataUri = `data:image/svg+xml;utf8,${logoSvg.replace(/#/g, '%23').replace(/\s+/g, ' ')}`;
+
+  const html = `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Inter', Arial, sans-serif; background-color: #f2f6fb; padding: 0; margin: 0;">
+      <tr>
+        <td align="center" style="padding: 40px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 12px 40px rgba(33, 150, 243, 0.12);">
+            <tr>
+              <td style="background: #2196F3; padding: 32px 24px; text-align: center;">
+                <img src="${logoDataUri}" alt="ChainSync" width="140" height="auto" style="display: block; margin: 0 auto 12px;" />
+                <h1 style="color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; letter-spacing: 0.4px;">Confirm Your ChainSync Signup</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 32px 40px;">
+                <p style="color: #0F172A; font-size: 18px; font-weight: 600; margin: 0 0 16px;">Hi ${friendlyName},</p>
+                <p style="color: #475569; font-size: 16px; line-height: 1.6; margin: 0 0 24px;">
+                  Welcome to <strong>ChainSync</strong>! Enter the one-time passcode below to finish setting up your workspace and unlock your 14-day free trial.
+                </p>
+                <div style="background: #E3F2FD; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 28px;">
+                  <span style="display: inline-block; font-size: 32px; letter-spacing: 12px; font-weight: 700; color: #0F172A;">${otpCode}</span>
+                  <p style="color: #1E3A8A; font-size: 14px; font-weight: 500; margin: 16px 0 0;">
+                    This passcode expires at ${formattedExpiry}.
+                  </p>
+                </div>
+                <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">
+                  You can enter this code directly in your browser or use the button below to resume your signup flow.
+                </p>
+                <div style="text-align: center; margin: 32px 0;">
+                  <a href="${frontendUrl}/signup/verify-otp" style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); color: #ffffff; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-size: 15px; font-weight: 600; display: inline-block; box-shadow: 0 12px 24px rgba(33, 150, 243, 0.28);">
+                    Continue Signup
+                  </a>
+                </div>
+                <p style="color: #64748B; font-size: 14px; line-height: 1.6; margin: 0 0 10px;">
+                  Didn’t request this code? Simply ignore this email—it will expire shortly.
+                </p>
+                <p style="color: #64748B; font-size: 14px; line-height: 1.6; margin: 0;">
+                  Need help? Reach us anytime at <a href="mailto:${helpEmail}" style="color: #2196F3; font-weight: 600; text-decoration: none;">${helpEmail}</a>.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background: #F1F5F9; padding: 20px 24px; text-align: center;">
+                <p style="color: #94A3B8; font-size: 12px; line-height: 1.6; margin: 0;">
+                  ChainSync · Smarter retail operations, unified.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const text = `Hi ${friendlyName},
+
+Welcome to ChainSync! Use the one-time passcode below to finish setting up your workspace:
+
+${otpCode}
+
+This code expires at ${formattedExpiry}. If you didn’t request this, you can ignore this email.
+
+Continue your signup: ${frontendUrl}/signup/verify-otp
+Need help? Contact us at ${helpEmail}.
+
+The ChainSync Team`;
+
+  return {
+    to: userEmail,
+    subject: 'Your ChainSync verification code',
     html,
     text,
   };

@@ -9,6 +9,7 @@ import { logger } from '../lib/logger';
 import { securityAuditService } from '../lib/security-audit';
 import { requireAuth } from '../middleware/authz';
 import { storage } from '../storage';
+import { SubscriptionService } from '../subscription/service';
 
 const ChangePasswordSchema = z.object({
   currentPassword: z.string(),
@@ -35,6 +36,17 @@ declare module 'express-session' {
   }
 }
 
+const subscriptionService = new SubscriptionService();
+
+function toIsoString(value: Date | string | null | undefined) {
+  if (!value) return null;
+  try {
+    return new Date(value).toISOString();
+  } catch {
+    return null;
+  }
+}
+
 export async function registerMeRoutes(app: Express) {
   app.get('/api/auth/me', async (req: Request, res: Response) => {
     const userId = req.session?.userId as string | undefined;
@@ -45,6 +57,28 @@ export async function registerMeRoutes(app: Express) {
     const role = ((user as any).role || (isAdmin ? 'ADMIN' : '')).toString().toUpperCase() || undefined;
     const storeId = (user as any).storeId ?? null;
     const twofaVerified = Boolean((user as any).twofaVerified);
+
+    let subscriptionSummary: Record<string, unknown> | null = null;
+    try {
+      const subscription = await subscriptionService.getSubscriptionByUserId(user.id);
+      if (subscription) {
+        subscriptionSummary = {
+          id: subscription.id,
+          status: (subscription.status as string | null | undefined)?.toString() ?? null,
+          tier: subscription.tier ?? null,
+          trialEndsAt: toIsoString(subscription.trialEndDate as any),
+          autopayEnabled: Boolean(subscription.autopayEnabled),
+          autopayProvider: subscription.autopayProvider ?? null,
+          autopayConfiguredAt: toIsoString(subscription.autopayConfiguredAt as any),
+          autopayLastStatus: subscription.autopayLastStatus ?? null,
+        };
+      }
+    } catch (subscriptionError) {
+      logger.warn('Failed to load user subscription', {
+        userId,
+        error: subscriptionError instanceof Error ? subscriptionError.message : String(subscriptionError),
+      });
+    }
 
     res.json({
       id: user.id,
@@ -57,6 +91,7 @@ export async function registerMeRoutes(app: Express) {
       phone: (user as any).phone ?? null,
       requiresPasswordChange: Boolean((user as any)?.requiresPasswordChange),
       twofaVerified,
+      subscription: subscriptionSummary,
     });
   });
 
@@ -138,8 +173,9 @@ export async function registerMeRoutes(app: Express) {
         location: user.location,
       };
       // Remove password from update
-      delete updates.password;
-      const updatedUser = await storage.updateUser(userId, updates);
+      delete (updates as Record<string, unknown>).password;
+      const sanitizedUpdates: Record<string, unknown> = { ...updates };
+      const updatedUser = await storage.updateUser(userId, sanitizedUpdates);
       // Audit log
       securityAuditService.logDataAccessEvent('data_write', {
         userId,

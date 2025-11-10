@@ -43,6 +43,13 @@
       "when": 1762042820000,
       "tag": "0005_restore_sales",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1762619580000,
+      "tag": "0009_add_audit_logs_and_sales_columns",
+      "breakpoints": false
     }
   ]
 }

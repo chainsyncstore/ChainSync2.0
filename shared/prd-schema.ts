@@ -216,6 +216,7 @@ export const stockAlerts = pgTable('stock_alerts', {
 export const subscriptions = pgTable('subscriptions', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   orgId: uuid('org_id').notNull(),
+  userId: uuid('user_id'),
   provider: subscriptionProviderEnum('provider').notNull(),
   planCode: varchar('plan_code', { length: 128 }).notNull(),
   status: subscriptionStatusEnum('status').notNull(),
@@ -224,9 +225,20 @@ export const subscriptions = pgTable('subscriptions', {
   startedAt: timestamp('started_at', { withTimezone: true }),
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
   lastEventRaw: jsonb('last_event_raw'),
+  autopayEnabled: boolean('autopay_enabled').notNull().default(false),
+  autopayProvider: subscriptionProviderEnum('autopay_provider'),
+  autopayReference: varchar('autopay_reference', { length: 255 }),
+  autopayConfiguredAt: timestamp('autopay_configured_at', { withTimezone: true }),
+  autopayLastStatus: varchar('autopay_last_status', { length: 32 }),
+  trialStartDate: timestamp('trial_start_date', { withTimezone: true }),
+  trialEndDate: timestamp('trial_end_date', { withTimezone: true }),
+  nextBillingDate: timestamp('next_billing_date', { withTimezone: true }),
+  trialReminder7SentAt: timestamp('trial_reminder_7_sent_at', { withTimezone: true }),
+  trialReminder3SentAt: timestamp('trial_reminder_3_sent_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 }, (t) => ({
   orgIdx: index('subscriptions_org_idx').on(t.orgId),
+  userIdx: index('subscriptions_user_idx').on(t.userId),
 }));
 
 export const subscriptionPayments = pgTable('subscription_payments', {

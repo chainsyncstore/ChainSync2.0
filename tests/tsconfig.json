@@ -1,9 +1,14 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "types": ["jest", "node"]
+    "types": ["jest", "node", "react", "react-dom"]
   },
-  "include": ["./**/*"],
+  "include": [
+    "./**/*",
+    "../client/src/types/global.d.ts",
+    "../client/src/vite-env.d.ts",
+    "../server/types/session.d.ts"
+  ],
   "exclude": [
     "../node_modules",
     "../build",

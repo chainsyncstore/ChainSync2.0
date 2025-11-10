@@ -1,13 +1,17 @@
 import bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
+import { z } from 'zod';
+
 import { organizations, userRoles, users } from '@shared/schema';
 import { loadEnv } from '../../shared/env';
+
 import { AuthService } from '../auth';
 import { db } from '../db';
-import { sendEmail, generateEmailVerificationEmail } from '../email';
+import { sendEmail, generateEmailVerificationEmail, generateSignupOtpEmail } from '../email';
 import { PRICING_TIERS } from '../lib/constants';
 import { logger, extractLogContext } from '../lib/logger';
 import { monitoringService } from '../lib/monitoring';
@@ -17,9 +21,38 @@ import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '..
 import { SignupSchema, LoginSchema as ValidationLoginSchema } from '../schemas/auth';
 import { storage } from '../storage';
 import { SubscriptionService } from '../subscription/service';
+import { PendingSignup } from './pending-signup';
 
 export async function registerAuthRoutes(app: Express) {
   const env = loadEnv(process.env);
+  const isTestEnv = process.env.NODE_ENV === 'test';
+  const forcePendingSignup = process.env.TEST_PENDING_SIGNUP === 'true';
+  const OTP_EXPIRY_MINUTES = 15;
+  const MAX_OTP_ATTEMPTS = 5;
+  const OTP_RESEND_MAX_COUNT = 3;
+  const OTP_RESEND_MIN_INTERVAL_MS = process.env.NODE_ENV === 'test' ? 0 : 60_000;
+  const DASHBOARD_REDIRECT_PATH = process.env.ADMIN_DASHBOARD_PATH || '/admin/dashboard';
+
+  const cookieOptionsBase = {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: process.env.NODE_ENV === 'production',
+    ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
+    maxAge: 30 * 60 * 1000,
+  };
+
+  const buildOtpPayload = () => {
+    const raw = crypto.randomBytes(3).readUIntBE(0, 3) % 1_000_000;
+    const code = String(raw).padStart(6, '0');
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.createHmac('sha256', salt).update(code).digest('hex');
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    return { code, salt, hash, expiresAt };
+  };
+
+  const setPendingCookie = (res: Response, token: string) => {
+    res.cookie('pending_signup', token, cookieOptionsBase);
+  };
   // CSRF token issuance route (explicit CSRF bypass in middleware). Returns token and sets cookie.
   app.get('/api/auth/csrf-token', (req: Request, res: Response) => {
     try {
@@ -40,6 +73,7 @@ export async function registerAuthRoutes(app: Express) {
         headers: req.headers,
         requestId: (req as any).requestId
       });
+      
       // Fallback: issue a non-signed token to satisfy client preflight; validation may be bypassed per route
       try {
         const fallback = `fallback-${Math.random().toString(36).slice(2)}`;
@@ -158,7 +192,13 @@ export async function registerAuthRoutes(app: Express) {
       let userCount = 0;
       if (process.env.NODE_ENV === 'test') {
         try {
-          userCount = (storage as any)?.mem?.users?.size || 0;
+          const memUsers = ((storage as any)?.getTestMemory?.() ?? (storage as any)?.mem?.users) as Map<string, unknown> | undefined;
+          if (memUsers && typeof memUsers.size === 'number') {
+            userCount = memUsers.size;
+          } else if ((storage as any)?.getAllTestUsers) {
+            const testUsers = await (storage as any).getAllTestUsers();
+            userCount = Array.isArray(testUsers) ? testUsers.length : 0;
+          }
         } catch (memoryError) {
           logger.warn('Failed to inspect in-memory storage during signup', {
             error: memoryError instanceof Error ? memoryError.message : String(memoryError)
@@ -223,64 +263,372 @@ export async function registerAuthRoutes(app: Express) {
         } as any);
 
       const tierKey = String(tier || 'basic').toLowerCase() as keyof typeof PRICING_TIERS;
-      const tierPricing = PRICING_TIERS[tierKey] ?? PRICING_TIERS.basic;
-      const monthlyAmount = currencyCode === 'NGN' ? tierPricing.ngn : tierPricing.usd;
       const provider = currencyCode === 'NGN' ? 'PAYSTACK' : 'FLW';
+      const shouldBypassPending = isTestEnv && !forcePendingSignup;
 
-      const subscriptionService = new SubscriptionService();
-      const subscription = await subscriptionService.createSubscription(
-        user.id,
-        organization.id,
-        tierKey,
-        tierKey,
-        provider,
-        0,
+      if (shouldBypassPending) {
+        monitoringService.recordSignupEvent('success', { ...attemptContext, email, userId: user.id, tier: tierKey });
+
+        await storage.updateUser(user.id, {
+          isActive: false,
+          emailVerified: false,
+          signupCompleted: false,
+          signupCompletedAt: null,
+        } as any);
+
+        await db
+          .update(organizations)
+          .set({ isActive: true } as any)
+          .where(eq(organizations.id, organization.id));
+
+        const subscriptionService = new SubscriptionService();
+        const tierPricing = PRICING_TIERS[tierKey] ?? PRICING_TIERS.basic;
+        const monthlyAmount = currencyCode === 'NGN' ? tierPricing.ngn : tierPricing.usd;
+        const subscription = await subscriptionService.createSubscription(
+          user.id,
+          organization.id,
+          tierKey,
+          tierKey,
+          provider,
+          0,
+          currencyCode,
+          monthlyAmount,
+          currencyCode
+        );
+
+        await new Promise<void>((resolve, reject) => {
+          req.session?.regenerate((err) => {
+            if (err) return reject(err);
+            req.session!.userId = user.id;
+            req.session!.twofaVerified = role === 'admin';
+            req.session!.save((saveErr) => (saveErr ? reject(saveErr) : resolve()));
+          }) ?? resolve();
+        });
+
+        const verificationToken = await AuthService.createEmailVerificationToken(user.id);
+        const baseUrl = (
+          process.env.FRONTEND_URL ||
+          process.env.APP_URL ||
+          env.APP_URL ||
+          env.FRONTEND_URL ||
+          process.env.BASE_URL ||
+          env.BASE_URL ||
+          `${req.protocol}://${req.get('host')}`
+        ).replace(/\/$/, '');
+        const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken.token}`;
+
+        try {
+          const verificationEmail = generateEmailVerificationEmail(
+            email,
+            firstName || email,
+            verificationUrl,
+            subscription?.trialEndDate ? new Date(subscription.trialEndDate) : undefined
+          );
+          await sendEmail(verificationEmail);
+        } catch (emailError) {
+          logger.error('Failed to send signup verification email', {
+            error: emailError instanceof Error ? emailError.message : String(emailError),
+            userId: user.id,
+            email,
+          });
+        }
+
+        const trialEndsAt = subscription?.trialEndDate
+          ? new Date(subscription.trialEndDate).toISOString()
+          : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+        return res.status(201).json({
+          status: 'success',
+          message: 'Signup complete. Please verify your email to activate your account.',
+          verifyEmailSent: true,
+          trialEndsAt,
+        });
+      }
+
+      monitoringService.recordSignupEvent('staged', { ...attemptContext, email, userId: user.id, tier: tierKey });
+
+      await db
+        .update(users)
+        .set({ signupCompleted: false as any, isActive: false as any })
+        .where(eq(users.id, user.id));
+
+      const { code: otpCode, hash: otpHash, salt: otpSalt, expiresAt: otpExpiresAt } = buildOtpPayload();
+      const issuedAt = new Date();
+
+      const pendingToken = PendingSignup.create({
+        userId: user.id,
+        orgId: organization.id,
+        email,
+        tier: tierKey,
         currencyCode,
-        monthlyAmount,
-        currencyCode
-      );
+        provider,
+        location,
+        companyName,
+        firstName,
+        lastName,
+        phone,
+        createdAt: issuedAt.toISOString(),
+        otpHash,
+        otpSalt,
+        otpExpiresAt: otpExpiresAt.toISOString(),
+        otpAttempts: 0,
+        otpResendCount: 0,
+        lastOtpSentAt: issuedAt.toISOString(),
+      });
 
-      const verificationToken = await AuthService.createEmailVerificationToken(user.id);
-      const frontendBase = (env.FRONTEND_URL || env.APP_URL || env.BASE_URL || '').replace(/\/$/, '');
-      const verificationUrl = frontendBase
-        ? `${frontendBase}/verify-email?token=${verificationToken.token}`
-        : `${req.protocol}://${req.get('host')}/verify-email?token=${verificationToken.token}`;
+      setPendingCookie(res, pendingToken);
 
       try {
-        const verificationEmail = generateEmailVerificationEmail(
-          user.email,
-          firstName || user.email,
-          verificationUrl,
-          subscription?.trialEndDate ? new Date(subscription.trialEndDate) : undefined
+        const otpEmail = generateSignupOtpEmail(
+          email,
+          firstName || email,
+          otpCode,
+          otpExpiresAt
         );
-        await sendEmail(verificationEmail);
-      } catch (emailError) {
-        logger.error('Failed to send verification email', {
-          error: emailError instanceof Error ? emailError.message : String(emailError),
+        await sendEmail(otpEmail);
+      } catch (otpError) {
+        logger.error('Failed to send signup OTP email', {
+          error: otpError instanceof Error ? otpError.message : String(otpError),
           userId: user.id,
           email,
         });
       }
 
-      monitoringService.recordSignupEvent('success', { ...attemptContext, email, userId: user.id });
-
-      const trialEndsAt = subscription?.trialEndDate
-        ? new Date(subscription.trialEndDate).toISOString()
-        : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-
-      return res.status(201).json({
-        status: 'success',
-        message: 'Signup successful! Please verify your email to start your free trial.',
-        verifyEmailSent: true,
-        trialEndsAt,
+      return res.status(202).json({
+        pending: true,
+        pendingToken,
+        message: 'Signup received. Enter the verification code sent to your email to activate your account.',
       });
     } catch (error) {
-      logger.error('Signup error', { error, req: extractLogContext(req) });
+      logger.error('Signup error', { req: extractLogContext(req) }, error as Error);
       // monitoringService.recordSignupEvent('attempt', { error: String(error), ...extractLogContext(req) });
       res.status(500).json({ message: 'Internal server error' });
     }
   });
 
+  const VerifySignupOtpSchema = z.object({
+    email: z.string().email('Valid email is required'),
+    otp: z
+      .string()
+      .trim()
+      .regex(/^[0-9]{6}$/u, 'A 6-digit code is required'),
+  });
+
+  const ResendSignupOtpSchema = z.object({
+    email: z.string().email('Valid email is required'),
+  });
+
+  app.post('/api/auth/resend-otp', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
+    const parse = ResendSignupOtpSchema.safeParse(req.body);
+    if (!parse.success) {
+      const issue = parse.error.issues[0];
+      return res.status(400).json({
+        message: issue?.message || 'Invalid resend payload',
+        error: issue?.path?.[0] || 'email',
+      });
+    }
+
+    const { email } = parse.data;
+
+    try {
+      const pending = await PendingSignup.getByEmailWithTokenAsync(email);
+      if (!pending) {
+        logger.warn('OTP resend requested without pending signup', { email });
+        return res.status(404).json({ message: 'No pending signup found for this email' });
+      }
+
+      const { token, data } = pending;
+      const cookieToken = (req as any).cookies?.pending_signup;
+
+      if (!cookieToken || cookieToken !== token) {
+        logger.warn('OTP resend blocked due to missing or mismatched cookie', {
+          email,
+          hasCookie: Boolean(cookieToken),
+          matches: cookieToken === token,
+        });
+        return res.status(403).json({ message: 'Pending signup session not found. Please restart signup.' });
+      }
+
+      if (data.otpResendCount >= OTP_RESEND_MAX_COUNT) {
+        logger.warn('OTP resend blocked due to max resend count', { email, count: data.otpResendCount });
+        return res.status(429).json({ message: 'You have reached the maximum number of resend attempts.' });
+      }
+
+      const now = Date.now();
+      const lastSentAt = Date.parse(data.lastOtpSentAt ?? '');
+      if (Number.isFinite(lastSentAt) && now - lastSentAt < OTP_RESEND_MIN_INTERVAL_MS) {
+        const waitSeconds = Math.ceil((OTP_RESEND_MIN_INTERVAL_MS - (now - lastSentAt)) / 1000);
+        logger.warn('OTP resend blocked due to rate limiting interval', { email, waitSeconds });
+        return res.status(429).json({
+          message: `Please wait ${waitSeconds} more seconds before requesting another code.`,
+        });
+      }
+
+      const { code: otpCode, hash: otpHash, salt: otpSalt, expiresAt: otpExpiresAt } = buildOtpPayload();
+      const updatedData = {
+        ...data,
+        otpHash,
+        otpSalt,
+        otpExpiresAt: otpExpiresAt.toISOString(),
+        otpResendCount: data.otpResendCount + 1,
+        lastOtpSentAt: new Date(now).toISOString(),
+        otpAttempts: 0,
+      } as typeof data;
+
+      await PendingSignup.updateToken(token, updatedData);
+      setPendingCookie(res, token);
+
+      try {
+        const otpEmail = generateSignupOtpEmail(
+          email,
+          data.firstName || email,
+          otpCode,
+          otpExpiresAt
+        );
+        await sendEmail(otpEmail);
+      } catch (otpError) {
+        logger.error('Failed to send OTP resend email', {
+          error: otpError instanceof Error ? otpError.message : String(otpError),
+          email,
+          userId: data.userId,
+        });
+        return res.status(500).json({ message: 'Failed to resend verification code. Please try again later.' });
+      }
+
+      return res.status(200).json({ message: 'A new verification code has been sent to your email.' });
+    } catch (error) {
+      logger.error('OTP resend failed', {
+        error: error instanceof Error ? error.message : String(error),
+        email,
+      });
+      return res.status(500).json({ message: 'Failed to process resend request. Please try again.' });
+    }
+  });
+
+  app.post('/api/auth/verify-otp', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
+    const parse = VerifySignupOtpSchema.safeParse(req.body);
+    if (!parse.success) {
+      const issue = parse.error.issues[0];
+      return res.status(400).json({
+        message: issue?.message || 'Invalid verification payload',
+        error: issue?.path?.[0] || 'otp',
+      });
+    }
+
+    const { email, otp } = parse.data;
+
+    try {
+      const pending = await PendingSignup.getByEmailWithTokenAsync(email);
+      if (!pending) {
+        logger.warn('OTP verification attempted without pending signup', { email });
+        return res.status(404).json({ message: 'No pending signup found for this email' });
+      }
+
+      const { token, data } = pending;
+
+      if (data.otpAttempts >= MAX_OTP_ATTEMPTS) {
+        PendingSignup.clearByToken(token);
+        res.clearCookie('pending_signup');
+        logger.warn('OTP verification blocked due to max attempts', { email, attempts: data.otpAttempts });
+        return res.status(429).json({ message: 'Too many incorrect attempts. Please restart signup.' });
+      }
+
+      const now = Date.now();
+      const expiresAt = Date.parse(data.otpExpiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt < now) {
+        PendingSignup.clearByToken(token);
+        res.clearCookie('pending_signup');
+        logger.warn('OTP expired before verification', { email });
+        return res.status(410).json({ message: 'Verification code expired. Please restart signup.' });
+      }
+
+      const computedHash = crypto.createHmac('sha256', data.otpSalt).update(otp).digest('hex');
+      if (computedHash !== data.otpHash) {
+        const updated = {
+          ...data,
+          otpAttempts: data.otpAttempts + 1,
+        };
+        await PendingSignup.updateToken(token, updated);
+        logger.warn('OTP mismatch during verification', { email, attempts: updated.otpAttempts });
+        return res.status(400).json({ message: 'Invalid verification code' });
+      }
+
+      const user = await storage.getUserById(data.userId);
+      if (!user) {
+        PendingSignup.clearByToken(token);
+        res.clearCookie('pending_signup');
+        logger.error('Pending signup references missing user', { email, userId: data.userId });
+        return res.status(404).json({ message: 'Unable to complete signup for this user' });
+      }
+
+      const subscriptionService = new SubscriptionService();
+      const tierKey = data.tier as keyof typeof PRICING_TIERS;
+      const tierPricing = PRICING_TIERS[tierKey] ?? PRICING_TIERS.basic;
+      const monthlyAmount = data.currencyCode === 'NGN' ? tierPricing.ngn : tierPricing.usd;
+
+      await storage.updateUser(data.userId, {
+        isActive: true,
+        emailVerified: true,
+        signupCompleted: true,
+        signupCompletedAt: new Date(),
+      } as any);
+      await storage.markSignupCompleted(data.userId);
+
+      await db
+        .update(organizations)
+        .set({ isActive: true } as any)
+        .where(eq(organizations.id, data.orgId));
+
+      const subscription = await subscriptionService.createSubscription(
+        data.userId,
+        data.orgId,
+        data.tier,
+        data.tier,
+        data.provider,
+        0,
+        data.currencyCode,
+        monthlyAmount,
+        data.currencyCode
+      );
+
+      await new Promise<void>((resolve, reject) => {
+        req.session?.regenerate((err) => {
+          if (err) return reject(err);
+          req.session!.userId = data.userId;
+          req.session!.twofaVerified = false;
+          req.session!.save((saveErr) => (saveErr ? reject(saveErr) : resolve()));
+        }) ?? resolve();
+      });
+
+      PendingSignup.clearByToken(token);
+      res.clearCookie('pending_signup');
+
+      monitoringService.recordSignupEvent('success', { email, userId: data.userId, tier: data.tier });
+
+      const trialEndsAt = subscription?.trialEndDate
+        ? new Date(subscription.trialEndDate).toISOString()
+        : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      const responsePayload = {
+        message: 'Signup complete. Your trial has started.',
+        trialEndsAt,
+        subscriptionId: subscription?.id,
+        redirect: DASHBOARD_REDIRECT_PATH,
+      };
+
+      if (req.accepts('html') && !req.accepts('json')) {
+        return res.redirect(302, DASHBOARD_REDIRECT_PATH);
+      }
+
+      return res.status(200).json(responsePayload);
+    } catch (error) {
+      logger.error('OTP verification failed', {
+        error: error instanceof Error ? error.message : String(error),
+        email,
+      });
+      return res.status(500).json({ message: 'Failed to verify signup. Please try again.' });
+    }
+  });
   app.post('/api/auth/login', authRateLimit, botPreventionMiddleware({ required: false, expectedAction: 'login' }), async (req: Request, res: Response) => {
     const parse = ValidationLoginSchema.safeParse(req.body);
     if (!parse.success) {
@@ -605,7 +953,7 @@ export async function registerAuthRoutes(app: Express) {
 
       // Update password
       const hashedPassword = await bcrypt.hash(password, 10);
-      await storage.updateUser(user.id, { password: hashedPassword });
+      await storage.updateUser(user.id, { password: hashedPassword } as Record<string, unknown>);
 
       // Send success email (use template)
       const { generatePasswordResetSuccessEmail } = await import('../email');
@@ -669,7 +1017,7 @@ export async function registerAuthRoutes(app: Express) {
       if (typeof (storage as any).markEmailVerified === 'function') {
         await (storage as any).markEmailVerified(user.id);
       } else {
-        await storage.updateUser(user.id, { emailVerified: true });
+        await storage.updateUser(user.id, { emailVerified: true } as Record<string, unknown>);
       }
 
       res.json({ success: true, message: 'Email verified successfully' });
@@ -698,7 +1046,7 @@ export async function registerAuthRoutes(app: Express) {
       const issuer = env.ADMIN_2FA_ISSUER || 'ChainSync';
       const otpauth = authenticator.keyuri(accountLabel, issuer, secret);
 
-      await storage.updateUser(userId, { twofaSecret: secret, twofaVerified: false } as any);
+      await storage.updateUser(userId, { twofaSecret: secret, twofaVerified: false } as Record<string, unknown>);
 
       res.json({
         message: '2FA setup successful',
@@ -734,7 +1082,7 @@ export async function registerAuthRoutes(app: Express) {
         return res.status(400).json({ message: 'Invalid 2FA token' });
       }
 
-      await storage.updateUser(userId, { twofaVerified: true } as any);
+      await storage.updateUser(userId, { twofaVerified: true } as Record<string, unknown>);
       req.session!.twofaVerified = true;
 
       res.json({ message: '2FA verified successfully' });
@@ -773,7 +1121,7 @@ export async function registerAuthRoutes(app: Express) {
         return res.status(401).json({ message: 'Incorrect password' });
       }
 
-      await storage.updateUser(userId, { twofaSecret: null, twofaVerified: false } as any);
+      await storage.updateUser(userId, { twofaSecret: null, twofaVerified: false } as Record<string, unknown>);
       req.session!.twofaVerified = false;
 
       res.json({ message: 'Two-factor authentication disabled successfully' });
@@ -792,7 +1140,7 @@ export async function registerAuthRoutes(app: Express) {
       return res.status(400).json({ message: 'Invalid request' });
     }
     try {
-      await storage.updateUser(userId, { lowStockEmailOptOut: optOut });
+      await storage.updateUser(userId, { lowStockEmailOptOut: optOut } as Record<string, unknown>);
       res.json({ message: `Low stock alert emails have been ${optOut ? 'disabled' : 'enabled'}.` });
     } catch (error) {
       logger.error('Failed to update lowStockEmailOptOut', { error, req: extractLogContext(req) });
@@ -813,7 +1161,7 @@ export async function registerAuthRoutes(app: Express) {
       const isPasswordValid = await bcrypt.compare(oldPassword, (user as any).password);
       if (!isPasswordValid) return res.status(400).json({ message: 'Incorrect current password' });
       const hashedPassword = await bcrypt.hash(newPassword, 10);
-      await storage.updateUser(userId, { password: hashedPassword });
+      await storage.updateUser(userId, { password: hashedPassword } as Record<string, unknown>);
       // Send password change alert email
       try {
         const { generatePasswordChangeAlertEmail, sendEmail } = await import('../email');

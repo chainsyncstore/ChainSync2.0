@@ -67,8 +67,8 @@ describe('Analytics Integration', () => {
       .expect(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body.length).toBeGreaterThan(0);
-    expect(res.body[0]).toHaveProperty('date');
-    expect(res.body[0]).toHaveProperty('revenue');
+    expect(res.body[0]?.date).toBeDefined();
+    expect(res.body[0]?.revenue).toBeDefined();
   });
 
   it('GET /api/analytics/export.csv returns CSV', async () => {

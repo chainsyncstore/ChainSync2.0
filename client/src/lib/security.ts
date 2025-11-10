@@ -174,8 +174,14 @@ export async function generateHcaptchaToken(): Promise<string> {
           'error-callback': () => reject(new Error('hCaptcha error'))
         });
         // Some hCaptcha implementations return a promise we should observe
-        if (execution && typeof (execution as Promise<unknown>).catch === 'function') {
-          (execution as Promise<unknown>).catch((err) => {
+        const maybePromise = execution as unknown;
+        if (
+          maybePromise !== null &&
+          (typeof maybePromise === 'object' || typeof maybePromise === 'function') &&
+          'catch' in (maybePromise as { catch?: unknown }) &&
+          typeof (maybePromise as Promise<unknown>).catch === 'function'
+        ) {
+          (maybePromise as Promise<unknown>).catch((err) => {
             console.warn('hCaptcha execution rejected', err);
             reject(err instanceof Error ? err : new Error('hCaptcha execution rejected'));
           });

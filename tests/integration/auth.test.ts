@@ -4,9 +4,9 @@ import session from 'express-session';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AuthService } from '@server/auth';
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';
-import { AuthService } from '@server/auth';
 
 describe('Authentication Integration Tests', () => {
   let app: Express;
@@ -211,7 +211,7 @@ describe('Authentication Integration Tests', () => {
         location: 'international',
         isActive: true,
         emailVerified: false
-      } as any);
+      } as Record<string, unknown>);
 
       const verificationToken = await AuthService.createEmailVerificationToken(user.id);
 
@@ -253,7 +253,7 @@ describe('Authentication Integration Tests', () => {
         location: 'international',
         isActive: true,
         emailVerified: true
-      });
+      } as Record<string, unknown>);
 
       const response = await request(app)
         .post('/api/auth/login')
@@ -264,9 +264,9 @@ describe('Authentication Integration Tests', () => {
         .expect(200);
 
       expect(response.body.message).toBe('Login successful');
-      expect(response.body.user).toHaveProperty('id', testUser.id);
-      expect(response.body.user).toHaveProperty('email', testUser.email);
-      expect(response.body.user).not.toHaveProperty('password');
+      expect(response.body.user?.id).toBe(testUser.id);
+      expect(response.body.user?.email).toBe(testUser.email);
+      expect(response.body.user?.password).toBeUndefined();
     });
 
     it('should reject invalid credentials', async () => {
@@ -283,7 +283,7 @@ describe('Authentication Integration Tests', () => {
         location: 'international',
         isActive: true,
         emailVerified: true
-      });
+      } as Record<string, unknown>);
       const response = await request(app)
         .post('/api/auth/login')
         .send({
@@ -342,7 +342,7 @@ describe('Authentication Integration Tests', () => {
         location: 'international',
         isActive: true,
         emailVerified: true
-      });
+      } as Record<string, unknown>);
 
       // Login to get session
       const loginResponse = await request(app)
@@ -358,8 +358,8 @@ describe('Authentication Integration Tests', () => {
         .set('Cookie', sessionCookie)
         .expect(200);
 
-      expect(response.body).toHaveProperty('id', testUser.id);
-      expect(response.body).toHaveProperty('email', testUser.email);
+      expect(response.body?.id).toBe(testUser.id);
+      expect(response.body?.email).toBe(testUser.email);
     });
 
     it('should return 401 when not authenticated in a test environment', async () => {
@@ -386,7 +386,7 @@ describe('Authentication Integration Tests', () => {
         location: 'international',
         isActive: true,
         emailVerified: true
-      });
+      } as Record<string, unknown>);
       const response = await request(app)
         .post('/api/auth/request-password-reset')
         .send({ email: 'testuser@example.com' })

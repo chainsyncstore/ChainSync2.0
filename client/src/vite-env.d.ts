@@ -1,4 +1,16 @@
 /// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_RECAPTCHA_SITE_KEY?: string;
+  readonly VITE_HCAPTCHA_SITE_KEY?: string;
+  readonly MODE?: string;
+  readonly DEV?: boolean;
+  readonly PROD?: boolean;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
 /// <reference types="react" />
 /// <reference types="react-dom" />
 

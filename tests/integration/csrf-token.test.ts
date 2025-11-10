@@ -24,7 +24,7 @@ describe('CSRF Token Endpoint', () => {
 
   it('returns a token and sets X-CSRF-Token header', async () => {
     const res = await request(server).get('/api/auth/csrf-token').expect(200);
-    expect(res.body).toHaveProperty('token');
+    expect(res.body.token).toBeDefined();
     expect(typeof res.body.token).toBe('string');
     expect(res.headers['x-csrf-token']).toBe(res.body.token);
   });

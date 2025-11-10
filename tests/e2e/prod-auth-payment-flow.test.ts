@@ -1,10 +1,94 @@
 import bcrypt from 'bcrypt';
 import cookieParser from 'cookie-parser';
+import * as nodeCrypto from 'crypto';
 import express, { type Express } from 'express';
 import session from 'express-session';
 import request from 'supertest';
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { organizations as organizationsTable, users as usersTable } from '@shared/schema';
+
+const pendingSignupHoist = vi.hoisted(() => ({
+  tokens: new Map<string, any>(),
+  references: new Map<string, string>(),
+  emails: new Map<string, string>()
+}));
+
+vi.mock('../../server/api/pending-signup', () => {
+  const { tokens, references, emails } = pendingSignupHoist;
+
+  const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+
+  const findTokenByReference = (reference: string): string | undefined => references.get(reference);
+
+  const findEmailByToken = (token: string): string | undefined => {
+    for (const [email, storedToken] of emails.entries()) {
+      if (storedToken === token) return email;
+    }
+    return undefined;
+  };
+
+  return {
+    PendingSignup: {
+      create(data: any) {
+        const token = `pending_${Math.random().toString(36).slice(2)}`;
+        tokens.set(token, clone(data));
+        emails.set(String(data.email).toLowerCase(), token);
+        return token;
+      },
+      associateReference(token: string, reference: string) {
+        if (!tokens.has(token)) return;
+        references.set(reference, token);
+      },
+      getByReference(reference: string) {
+        const token = findTokenByReference(reference);
+        return token ? tokens.get(token) : undefined;
+      },
+      async getByReferenceAsync(reference: string) {
+        const data = this.getByReference(reference);
+        return data ? clone(data) : undefined;
+      },
+      getByToken(token: string) {
+        return tokens.get(token);
+      },
+      async getByTokenAsync(token: string) {
+        const data = tokens.get(token);
+        return data ? clone(data) : undefined;
+      },
+      async getByEmailWithTokenAsync(email: string | undefined | null) {
+        if (!email) return undefined;
+        const token = emails.get(String(email).toLowerCase());
+        if (!token) return undefined;
+        const data = tokens.get(token);
+        if (!data) return undefined;
+        return { token, data: clone(data) };
+      },
+      async updateToken(token: string, data: any) {
+        if (!tokens.has(token)) return;
+        tokens.set(token, clone(data));
+        emails.set(String(data.email).toLowerCase(), token);
+      },
+      clearByReference(reference: string) {
+        const token = findTokenByReference(reference);
+        if (token) {
+          references.delete(reference);
+          this.clearByToken(token);
+        }
+      },
+      clearByToken(token: string) {
+        tokens.delete(token);
+        references.forEach((storedToken, ref) => {
+          if (storedToken === token) {
+            references.delete(ref);
+          }
+        });
+        const email = findEmailByToken(token);
+        if (email) emails.delete(email);
+      }
+    }
+  };
+});
 
 import { PendingSignup } from '../../server/api/pending-signup';
 
@@ -19,24 +103,128 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 // In-memory fakes for storage and tokens
 const users: any[] = [];
 const stores: any[] = [];
+const organizationsStore: any[] = [];
 const emailTokens = new Map<string, { userId: string }>();
+let lastCreatedUserId: string | undefined;
+let lastOrganizationId: string | undefined;
+
+const resolveConditionValue = (condition: any): any => {
+  if (!condition) return undefined;
+  if (typeof condition !== 'object') return condition;
+  if ('value' in condition && condition.value !== undefined) return condition.value;
+  if ('right' in condition) return resolveConditionValue(condition.right);
+  if ('operand' in condition) return resolveConditionValue(condition.operand);
+  return undefined;
+};
+
+const resolveConditionColumn = (condition: any): string | undefined => {
+  if (!condition) return undefined;
+  if (typeof condition !== 'object') return undefined;
+  if (condition.left?.column) return condition.left.column as string;
+  if (condition.left?.name) return condition.left.name as string;
+  if (condition.column) return condition.column as string;
+  if (condition.field) return condition.field as string;
+  return undefined;
+};
+
+const makeQueryResult = <T>(rowsFactory: () => T) => {
+  const rowsPromise = Promise.resolve().then(rowsFactory);
+  const result: any = {
+    then: (onFulfilled: any, onRejected?: any) => rowsPromise.then(onFulfilled, onRejected),
+    catch: (onRejected: any) => rowsPromise.catch(onRejected),
+    finally: (onFinally: any) => rowsPromise.finally(onFinally),
+    returning: () => rowsPromise,
+  };
+  result.where = (condition?: any) => {
+    const column = resolveConditionColumn(condition);
+    const value = resolveConditionValue(condition);
+    return makeQueryResult(() => {
+      const rows = (rowsFactory() as any[]).slice();
+      if (!column || value === undefined) {
+        return rows;
+      }
+      const columnKey = column.split('.').pop() || column;
+      return rows.filter((row) => String(row?.[columnKey]) === String(value));
+    });
+  };
+  result.innerJoin = () => result;
+  result.leftJoin = () => result;
+  result.orderBy = () => result;
+  result.limit = () => result;
+  return result;
+};
 
 // Mock DB: avoid real Postgres and always report healthy
-vi.mock('../../server/db', () => ({
-  db: {
-    select: vi.fn().mockReturnThis(),
-    insert: vi.fn().mockReturnThis(),
-    update: vi.fn().mockReturnThis(),
-    delete: vi.fn().mockReturnThis(),
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    set: vi.fn().mockReturnThis(),
-    values: vi.fn().mockReturnThis(),
-    returning: vi.fn().mockReturnThis(),
-    execute: vi.fn().mockResolvedValue([])
-  },
-  checkDatabaseHealth: vi.fn().mockResolvedValue(true)
-}));
+vi.mock('../../server/db', () => {
+  const select = vi.fn((selection?: any) => ({
+    from(table: any) {
+      return makeQueryResult(() => {
+        if (table === usersTable) {
+          if (selection && Object.prototype.hasOwnProperty.call(selection, 'count')) {
+            return [{ count: users.length }];
+          }
+          return users.map((user) => ({ ...user }));
+        }
+        if (table === organizationsTable) {
+          return organizationsStore.map((org) => ({ ...org }));
+        }
+        return [];
+      });
+    },
+  }));
+
+  const insert = vi.fn((table: any) => ({
+    values(values: any) {
+      if (table === organizationsTable) {
+        const row = {
+          id: values?.id ?? `org_${Math.random().toString(36).slice(2, 10)}`,
+          ...values,
+        };
+        organizationsStore.push(row);
+        lastOrganizationId = row.id;
+        return makeQueryResult(() => [row]);
+      }
+      return makeQueryResult(() => [{ ...values }]);
+    },
+  }));
+
+  const update = vi.fn((table: any) => ({
+    set(updateValues: any) {
+      return {
+        where(condition?: any) {
+          const value = resolveConditionValue(condition);
+          if (table === usersTable) {
+            const targetId = String(value ?? lastCreatedUserId ?? '');
+            const user = users.find((u) => String(u.id) === targetId);
+            if (user) {
+              Object.assign(user, updateValues);
+            }
+          } else if (table === organizationsTable) {
+            const targetId = String(value ?? lastOrganizationId ?? '');
+            const org = organizationsStore.find((o) => String(o.id) === targetId);
+            if (org) {
+              Object.assign(org, updateValues);
+            }
+          }
+          return makeQueryResult(() => []);
+        },
+      };
+    },
+  }));
+
+  const db = {
+    select,
+    insert,
+    update,
+    delete: vi.fn(() => ({ where: () => makeQueryResult(() => []) })),
+    execute: vi.fn().mockResolvedValue([]),
+  };
+
+  return {
+    db,
+    checkDatabaseHealth: vi.fn().mockResolvedValue(true),
+  };
+});
 
 // Mock storage to avoid DB
 vi.mock('../../server/storage', () => ({
@@ -44,7 +232,10 @@ vi.mock('../../server/storage', () => ({
     clear: vi.fn(async () => {
       users.length = 0;
       stores.length = 0;
+      organizationsStore.length = 0;
       emailTokens.clear();
+      lastCreatedUserId = undefined;
+      lastOrganizationId = undefined;
     }),
     async getUserByEmail(email: string) {
       return users.find(u => u.email === email);
@@ -78,6 +269,15 @@ vi.mock('../../server/storage', () => ({
         signupAttempts: 1
       };
       users.push(user);
+      lastCreatedUserId = user.id;
+      return user;
+    },
+    async updateUser(userId: string, updates: any) {
+      const user = users.find((u) => u.id === userId);
+      if (!user) {
+        return null;
+      }
+      Object.assign(user, updates);
       return user;
     },
     async createStore(data: any) {
@@ -97,7 +297,12 @@ vi.mock('../../server/storage', () => ({
       if (u) u.signupCompleted = true;
     },
     async authenticateUser(username: string, password: string) {
-      return users.find((u) => u.username === username && u.password === password) || null;
+      const user = users.find((u) => u.username === username);
+      if (!user) {
+        return null;
+      }
+      const matches = await bcrypt.compare(password, user.password);
+      return matches ? user : null;
     },
     async getAllStores() { return stores; },
   }
@@ -131,12 +336,18 @@ vi.mock('../../server/auth', () => ({
   }
 }));
 
-// Stub email sending using vi.hoisted to avoid hoisting issues
-const { sendEmailMock } = vi.hoisted(() => ({
-  sendEmailMock: vi.fn(async () => true)
+// Stub email sending/templates using vi.hoisted to avoid hoisting issues
+const emailMocks = vi.hoisted(() => ({
+  sendEmail: vi.fn(async () => true),
+  generateSignupOtpEmail: vi.fn(() => ({ to: 'test@example.com' })),
+  generateEmailVerificationEmail: vi.fn(() => ({ to: 'test@example.com' })),
+  generatePaymentConfirmationEmail: vi.fn(() => ({ to: 'test@example.com' }))
 }));
 vi.mock('../../server/email', () => ({
-  sendEmail: sendEmailMock,
+  sendEmail: emailMocks.sendEmail,
+  generateSignupOtpEmail: emailMocks.generateSignupOtpEmail,
+  generateEmailVerificationEmail: emailMocks.generateEmailVerificationEmail,
+  generatePaymentConfirmationEmail: emailMocks.generatePaymentConfirmationEmail,
   generatePasswordResetEmail: vi.fn(() => ({})),
   generatePasswordResetSuccessEmail: vi.fn(() => ({}))
 }));
@@ -154,6 +365,8 @@ import { PaymentService } from '../../server/payment/service';
 
 import { registerRoutes } from '../../server/routes';
 
+const previousTestPendingSignup = process.env.TEST_PENDING_SIGNUP;
+
 type Agent = ReturnType<typeof request.agent>;
 
 describe('Production-like auth/payment flows (CSRF, email verification, payment)', () => {
@@ -161,6 +374,18 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
   let agent: Agent;
 
   beforeAll(async () => {
+    process.env.TEST_PENDING_SIGNUP = 'true';
+    vi.spyOn(nodeCrypto, 'randomBytes').mockImplementation((size: number) => {
+      if (typeof size !== 'number' || size <= 0) {
+        return Buffer.alloc(0);
+      }
+      // Ensure Buffer instance to preserve readUIntBE API used by buildOtpPayload
+      const buffer = Buffer.allocUnsafe(size);
+      for (let i = 0; i < size; i += 1) {
+        buffer[i] = Math.floor(Math.random() * 256);
+      }
+      return buffer;
+    });
     app = express();
     app.use(cookieParser());
     app.use(express.json());
@@ -184,6 +409,11 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
 
   afterAll(() => {
     vi.restoreAllMocks();
+    if (previousTestPendingSignup === undefined) {
+      delete process.env.TEST_PENDING_SIGNUP;
+    } else {
+      process.env.TEST_PENDING_SIGNUP = previousTestPendingSignup;
+    }
   });
 
   beforeEach(async () => {
@@ -220,7 +450,11 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
     await agent
       .post('/api/payment/verify')
       .send({ reference, status: 'success' })
-      .expect(200);
+      .expect((res) => {
+        if (res.status !== 200) {
+          throw new Error(`expected 200 got ${res.status}`);
+        }
+      });
 
     const createdSignupUser = users.find(u => u.email === email);
     expect(createdSignupUser).toBeTruthy();
@@ -292,7 +526,11 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
     await agent
       .post('/api/payment/verify')
       .send({ reference, status: 'successful', tier: 'basic', location: 'international' })
-      .expect(200);
+      .expect((res) => {
+        if (res.status !== 200) {
+          throw new Error(`expected 200 got ${res.status}`);
+        }
+      });
 
     // Ensure signupCompleted is true server-side
     const created = users.find(u => u.email === email);

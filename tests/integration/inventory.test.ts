@@ -45,7 +45,7 @@ describe('Inventory Management Integration Tests', () => {
       location: 'international',
       isActive: true,
       emailVerified: true
-    });
+    } as Record<string, unknown>);
 
     // Create test store
     testStore = await storage.createStore({
@@ -195,10 +195,10 @@ describe('Inventory Management Integration Tests', () => {
         .expect(200);
 
       expect(response.body).toHaveLength(3);
-      expect(response.body[0]).toHaveProperty('productId');
-      expect(response.body[0]).toHaveProperty('quantity');
-      expect(response.body[0]).toHaveProperty('minStockLevel');
-      expect(response.body[0]).toHaveProperty('maxStockLevel');
+      expect(response.body[0]?.productId).toBeDefined();
+      expect(response.body[0]?.quantity).toBeDefined();
+      expect(response.body[0]?.minStockLevel).toBeDefined();
+      expect(response.body[0]?.maxStockLevel).toBeDefined();
     });
 
     it('should filter inventory by category', async () => {
@@ -287,10 +287,10 @@ describe('Inventory Management Integration Tests', () => {
         .set('Cookie', sessionCookie)
         .expect(200);
 
-      expect(response.body[0]).toHaveProperty('product');
-      expect(response.body[0].product).toHaveProperty('name');
-      expect(response.body[0].product).toHaveProperty('sku');
-      expect(response.body[0].product).toHaveProperty('price');
+      expect(response.body[0]?.product).toBeDefined();
+      expect(response.body[0]?.product?.name).toBeDefined();
+      expect(response.body[0]?.product?.sku).toBeDefined();
+      expect(response.body[0]?.product?.price).toBeDefined();
     });
   });
 
@@ -418,9 +418,9 @@ describe('Inventory Management Integration Tests', () => {
 
       expect(Array.isArray(response.body)).toBe(true);
       expect(response.body.length).toBeGreaterThan(0);
-      expect(response.body[0]).toHaveProperty('productId');
-      expect(response.body[0]).toHaveProperty('quantity');
-      expect(response.body[0]).toHaveProperty('timestamp');
+      expect(response.body[0]?.productId).toBeDefined();
+      expect(response.body[0]?.quantity).toBeDefined();
+      expect(response.body[0]?.timestamp).toBeDefined();
     });
 
     it('should filter stock movements by product', async () => {

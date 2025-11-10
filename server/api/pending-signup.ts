@@ -1,21 +1,30 @@
+import { getRedisClient } from '../lib/redis';
+
 export interface PendingSignupData {
+  userId: string;
+  orgId: string;
+  email: string;
+  tier: string;
+  currencyCode: string;
+  provider: 'PAYSTACK' | 'FLW';
+  location: string;
+  companyName: string;
   firstName: string;
   lastName: string;
-  email: string;
   phone: string;
-  companyName: string;
-  passwordHash: string;
-  tier: string;
-  location: string;
-  role: string;
   createdAt: string;
+  otpHash: string;
+  otpSalt: string;
+  otpExpiresAt: string;
+  otpAttempts: number;
+  otpResendCount: number;
+  lastOtpSentAt: string;
 }
 
 // In-memory stores for pending signups (fallback for dev/test or when Redis unavailable)
 const tokenToSignup = new Map<string, PendingSignupData>();
 const referenceToToken = new Map<string, string>();
-
-import { getRedisClient } from '../lib/redis';
+const emailToToken = new Map<string, string>();
 
 const TOKEN_TTL_SECONDS = 30 * 60; // 30 minutes
 const KEY_PREFIX = 'chainsync:pending-signup';
@@ -25,6 +34,9 @@ function tokenKey(token: string): string {
 }
 function referenceKey(reference: string): string {
   return `${KEY_PREFIX}:reference:${reference}`;
+}
+function emailKey(email: string): string {
+  return `${KEY_PREFIX}:email:${email.toLowerCase()}`;
 }
 
 function generateToken(): string {
@@ -41,13 +53,30 @@ export const PendingSignup = {
     const client = getRedisClient();
     if (client) {
       const key = tokenKey(token);
-      client.set(key, JSON.stringify(data), { EX: TOKEN_TTL_SECONDS }).catch(() => {});
+      client
+        .multi()
+        .set(key, JSON.stringify(data), { EX: TOKEN_TTL_SECONDS })
+        .set(emailKey(data.email), token, { EX: TOKEN_TTL_SECONDS })
+        .exec()
+        .catch(() => {});
     } else {
       tokenToSignup.set(token, data);
       // In-memory TTL best-effort
       setTimeout(() => tokenToSignup.delete(token), TOKEN_TTL_SECONDS * 1000).unref?.();
+      emailToToken.set(data.email.toLowerCase(), token);
+      setTimeout(() => {
+        if (emailToToken.get(data.email.toLowerCase()) === token) {
+          emailToToken.delete(data.email.toLowerCase());
+        }
+      }, TOKEN_TTL_SECONDS * 1000).unref?.();
     }
     return token;
+  },
+  getByEmail(email: string | undefined | null): PendingSignupData | undefined {
+    if (!email) return undefined;
+    const token = emailToToken.get(email.toLowerCase());
+    if (!token) return undefined;
+    return tokenToSignup.get(token);
   },
   getByToken(token: string | undefined | null): PendingSignupData | undefined {
     if (!token) return undefined;
@@ -73,6 +102,43 @@ export const PendingSignup = {
     } catch {
       return undefined;
     }
+  },
+  async getByEmailWithTokenAsync(email: string | undefined | null): Promise<{ token: string; data: PendingSignupData } | undefined> {
+    if (!email) return undefined;
+    const normalized = email.toLowerCase();
+    const client = getRedisClient();
+    if (client) {
+      try {
+        const token = await client.get(emailKey(normalized));
+        if (!token) return undefined;
+        const json = await client.get(tokenKey(token));
+        if (!json) return undefined;
+        return { token, data: JSON.parse(json) as PendingSignupData };
+      } catch {
+        return undefined;
+      }
+    }
+
+    const token = emailToToken.get(normalized);
+    if (!token) return undefined;
+    const data = tokenToSignup.get(token);
+    if (!data) return undefined;
+    return { token, data };
+  },
+  async updateToken(token: string, data: PendingSignupData): Promise<void> {
+    const client = getRedisClient();
+    if (client) {
+      await client
+        .multi()
+        .set(tokenKey(token), JSON.stringify(data), { EX: TOKEN_TTL_SECONDS })
+        .set(emailKey(data.email), token, { EX: TOKEN_TTL_SECONDS })
+        .exec()
+        .catch(() => {});
+      return;
+    }
+
+    tokenToSignup.set(token, data);
+    emailToToken.set(data.email.toLowerCase(), token);
   },
   associateReference(token: string, reference: string): void {
     const client = getRedisClient();
@@ -102,29 +168,67 @@ export const PendingSignup = {
   clearByReference(reference: string): void {
     const client = getRedisClient();
     if (client) {
-      client.get(referenceKey(reference)).then((token) => {
-        if (token) {
-          client.del(referenceKey(reference)).catch(() => {});
-          client.del(tokenKey(token)).catch(() => {});
-        }
-      }).catch(() => {});
+      client
+        .get(referenceKey(reference))
+        .then(async (token) => {
+          if (token) {
+            try {
+              const json = await client.get(tokenKey(token));
+              if (json) {
+                const data = JSON.parse(json) as PendingSignupData;
+                await client.del(emailKey(data.email)).catch(() => {});
+              }
+            } catch {
+              // swallow
+            }
+            client.del(referenceKey(reference)).catch(() => {});
+            client.del(tokenKey(token)).catch(() => {});
+          }
+        })
+        .catch(() => {});
     } else {
       const token = referenceToToken.get(reference);
       if (token) {
         referenceToToken.delete(reference);
         tokenToSignup.delete(token);
+        const pending = emailToToken.entries();
+        for (const [email, mappedToken] of pending) {
+          if (mappedToken === token) {
+            emailToToken.delete(email);
+            break;
+          }
+        }
       }
     }
   },
   clearByToken(token: string): void {
     const client = getRedisClient();
     if (client) {
-      client.del(tokenKey(token)).catch(() => {});
+      client
+        .get(tokenKey(token))
+        .then(async (json) => {
+          if (json) {
+            try {
+              const data = JSON.parse(json) as PendingSignupData;
+              await client.del(emailKey(data.email)).catch(() => {});
+            } catch {
+              // ignore
+            }
+          }
+          await client.del(tokenKey(token)).catch(() => {});
+        })
+        .catch(() => {});
       // Best-effort: we cannot scan for references without blocking; rely on TTL
     } else {
       tokenToSignup.delete(token);
       for (const [ref, t] of referenceToToken.entries()) {
         if (t === token) referenceToToken.delete(ref);
+      }
+      for (const [email, mappedToken] of emailToToken.entries()) {
+        if (mappedToken === token) {
+          emailToToken.delete(email);
+          break;
+        }
       }
     }
   },

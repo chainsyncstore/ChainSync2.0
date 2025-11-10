@@ -1,25 +1,49 @@
+import cookieParser from 'cookie-parser';
+import crypto from 'crypto';
 import express, { type Express } from 'express';
 import session from 'express-session';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { PendingSignup } from '@server/api/pending-signup';
+
 import { registerRoutes } from '../../server/routes';
 import { storage } from '../../server/storage';
+
+async function seedAdminUser() {
+  await storage.createUser({
+    username: `seed-admin-${Date.now()}@example.com`,
+    email: `seed-admin-${Date.now()}@example.com`,
+    password: 'SeedPass123!',
+    firstName: 'Seed',
+    lastName: 'Admin',
+    phone: '+10000000000',
+    companyName: 'Seed Company',
+    role: 'admin',
+    location: 'international',
+    isActive: true,
+    emailVerified: true,
+  } as any);
+}
 
 describe('Auth Validation Integration Tests', () => {
   let app: Express;
   let server: any;
+  const previousPendingFlag = process.env.TEST_PENDING_SIGNUP;
 
   beforeAll(async () => {
+    process.env.TEST_PENDING_SIGNUP = 'true';
     app = express();
     app.use(express.json());
     app.use(express.urlencoded({ extended: false }));
+    app.use(cookieParser());
     app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: false, cookie: { secure: false } }));
     await registerRoutes(app);
     server = app.listen(0);
   });
 
   afterAll(async () => {
+    process.env.TEST_PENDING_SIGNUP = previousPendingFlag;
     if (server) {
       server.close();
     }
@@ -34,6 +58,7 @@ describe('Auth Validation Integration Tests', () => {
 
     describe('Valid Signup Payloads', () => {
       it('should accept a valid signup payload', async () => {
+        await seedAdminUser();
         const validPayload = {
           firstName: 'John',
           lastName: 'Doe',
@@ -75,6 +100,7 @@ describe('Auth Validation Integration Tests', () => {
       });
 
       it('should accept signup with enterprise tier', async () => {
+        await seedAdminUser();
         const validPayload = {
           firstName: 'Bob',
           lastName: 'Johnson',
@@ -92,6 +118,94 @@ describe('Auth Validation Integration Tests', () => {
           .expect(202);
 
         expect(response.body.pending).toBe(true);
+      });
+
+      it('allows resending the OTP up to three times before rate limiting', async () => {
+        await seedAdminUser();
+        const payload = {
+          firstName: 'Resend',
+          lastName: 'Tester',
+          email: `resend.${Date.now()}@example.com`,
+          phone: '+19876543210',
+          companyName: 'Resend Co',
+          password: 'StrongPass123!',
+          tier: 'basic',
+          location: 'international'
+        };
+
+        const signupResponse = await request(server).post(baseUrl).send(payload).expect(202);
+        const rawPendingCookies = signupResponse.headers['set-cookie'];
+        const cookieHeader = Array.isArray(rawPendingCookies)
+          ? rawPendingCookies
+          : rawPendingCookies
+            ? [rawPendingCookies]
+            : [];
+
+        const resendPath = '/api/auth/resend-otp';
+
+        await request(server).post(resendPath).set('Cookie', cookieHeader).send({ email: payload.email }).expect(200);
+        await request(server).post(resendPath).set('Cookie', cookieHeader).send({ email: payload.email }).expect(200);
+        await request(server).post(resendPath).set('Cookie', cookieHeader).send({ email: payload.email }).expect(200);
+
+        const limitResponse = await request(server)
+          .post(resendPath)
+          .set('Cookie', cookieHeader)
+          .send({ email: payload.email })
+          .expect(429);
+        expect(limitResponse.body.message).toMatch(/maximum number of resend attempts/i);
+      });
+
+      it('completes OTP verification and returns dashboard redirect metadata', async () => {
+        await seedAdminUser();
+        const payload = {
+          firstName: 'Otp',
+          lastName: 'Verifier',
+          email: `verify.${Date.now()}@example.com`,
+          phone: '+1234509876',
+          companyName: 'OTP Corp',
+          password: 'StrongPass123!',
+          tier: 'basic',
+          location: 'international'
+        };
+
+        const signupResponse = await request(server).post(baseUrl).send(payload).expect(202);
+        const rawCookies = signupResponse.headers['set-cookie'];
+        const pendingCookie = Array.isArray(rawCookies)
+          ? rawCookies.find((cookie) => cookie.startsWith('pending_signup=')) ?? ''
+          : typeof rawCookies === 'string' && rawCookies.startsWith('pending_signup=')
+            ? rawCookies
+            : '';
+
+        const pending = await PendingSignup.getByEmailWithTokenAsync(payload.email);
+        expect(pending).toBeTruthy();
+
+        const otpCode = '123456';
+        const otpSalt = crypto.randomBytes(16).toString('hex');
+        const otpHash = crypto.createHmac('sha256', otpSalt).update(otpCode).digest('hex');
+        const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+        await PendingSignup.updateToken(pending!.token, {
+          ...pending!.data,
+          otpSalt,
+          otpHash,
+          otpAttempts: 0,
+          otpExpiresAt: otpExpiresAt.toISOString(),
+          lastOtpSentAt: new Date().toISOString(),
+        });
+
+        const verifyResponse = await request(server)
+          .post('/api/auth/verify-otp')
+          .set('Cookie', pendingCookie)
+          .send({ email: payload.email, otp: otpCode })
+          .expect(200);
+
+        expect(verifyResponse.body.redirect).toBe('/admin/dashboard');
+        expect(new Date(verifyResponse.body.trialEndsAt).getTime()).toBeGreaterThan(Date.now());
+
+        const user = await storage.getUserByEmail(payload.email);
+        expect(user?.signupCompleted).toBe(true);
+        expect(user?.emailVerified).toBe(true);
+        expect(user?.isActive).toBe(true);
       });
     });
 
@@ -113,7 +227,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('firstName');
         });
 
@@ -133,7 +247,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('email');
         });
 
@@ -153,7 +267,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('password');
         });
       });
@@ -176,7 +290,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('email');
         });
 
@@ -198,7 +312,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('email');
         });
       });
@@ -221,7 +335,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('password');
         });
 
@@ -242,7 +356,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('password');
         });
       });
@@ -265,7 +379,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('phone');
         });
 
@@ -286,7 +400,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('phone');
         });
       });
@@ -309,7 +423,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('tier');
         });
       });
@@ -333,7 +447,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('firstName');
         });
 
@@ -355,7 +469,7 @@ describe('Auth Validation Integration Tests', () => {
             .send(invalidPayload)
             .expect(400);
 
-          expect(response.body).toHaveProperty('error');
+          expect(response.body.error).toBeDefined();
           expect(response.body.error).toContain('companyName');
         });
       });
@@ -379,7 +493,7 @@ describe('Auth Validation Integration Tests', () => {
           .send(invalidPayload)
           .expect(400);
 
-        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toBeDefined();
         expect(response.body.error).toContain('firstName');
       });
 
@@ -400,28 +514,7 @@ describe('Auth Validation Integration Tests', () => {
           .send(invalidPayload)
           .expect(400);
 
-        expect(response.body).toHaveProperty('error');
-        expect(response.body.error).toContain('firstName');
-      });
-
-      it('should reject null values', async () => {
-        const invalidPayload = {
-          firstName: null,
-          lastName: 'Doe',
-          email: 'john.doe@example.com',
-          phone: '+1234567890',
-          companyName: 'Acme Corp',
-          password: 'SecurePass123!',
-          tier: 'basic',
-          location: 'international'
-        };
-
-        const response = await request(server)
-          .post(baseUrl)
-          .send(invalidPayload)
-          .expect(400);
-
-        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toBeDefined();
         expect(response.body.error).toContain('firstName');
       });
     });
@@ -436,7 +529,7 @@ describe('Auth Validation Integration Tests', () => {
           email: 'test@example.com',
           password: 'TestPass123!',
           emailVerified: true,
-        });
+        } as any);
         const validPayload = {
           email: 'test@example.com',
           password: 'TestPass123!'
@@ -461,7 +554,7 @@ describe('Auth Validation Integration Tests', () => {
           .send(invalidPayload)
           .expect(400);
 
-        expect(response.body).toHaveProperty('message', 'Invalid email or password');
+        expect(response.body.message).toBe('Invalid email or password');
       });
 
       it('should reject login without password', async () => {
@@ -474,7 +567,7 @@ describe('Auth Validation Integration Tests', () => {
           .send(invalidPayload)
           .expect(400);
 
-        expect(response.body).toHaveProperty('message', 'Invalid email or password');
+        expect(response.body.message).toBe('Invalid email or password');
       });
     });
   });

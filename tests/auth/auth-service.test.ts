@@ -2,6 +2,19 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock the entire auth-enhanced module
 vi.mock('../../server/auth-enhanced', () => {
+  const mockAuthConfig = {
+    saltRounds: 12,
+    sessionTimeout: 60 * 60 * 1000,
+    maxLoginAttempts: 5,
+    lockoutDuration: 30 * 60 * 1000,
+    emailVerificationExpiry: 24 * 60 * 60 * 1000,
+    phoneVerificationExpiry: 5 * 60 * 1000,
+    otpMaxAttempts: 3,
+    jwtSecret: 'test-secret',
+    jwtExpiry: 15 * 60 * 1000,
+    refreshTokenExpiry: 7 * 24 * 60 * 60 * 1000
+  };
+
   const mockAuthService = {
     hashPassword: vi.fn(),
     comparePassword: vi.fn(),
@@ -22,25 +35,14 @@ vi.mock('../../server/auth-enhanced', () => {
     validateRoleAccess: vi.fn(),
     sanitizeUserForSession: vi.fn(),
     checkVerificationLevel: vi.fn(),
-    cleanupExpiredData: vi.fn(),
-    authConfig: {
-      saltRounds: 12,
-      sessionTimeout: 60 * 60 * 1000,
-      maxLoginAttempts: 5,
-      lockoutDuration: 30 * 60 * 1000,
-      emailVerificationExpiry: 24 * 60 * 60 * 1000,
-      phoneVerificationExpiry: 5 * 60 * 1000,
-      otpMaxAttempts: 3,
-      jwtSecret: 'test-secret',
-      jwtExpiry: 15 * 60 * 1000,
-      refreshTokenExpiry: 7 * 24 * 60 * 60 * 1000
-    }
-  };
+    cleanupExpiredData: vi.fn()
+  } as Record<string, any>;
 
-  return { EnhancedAuthService: mockAuthService };
+  return { EnhancedAuthService: mockAuthService, authConfig: mockAuthConfig };
 });
 
-import { EnhancedAuthService } from '../../server/auth-enhanced';
+import type { EmailVerificationToken, User, UserSession } from '@shared/schema';
+import { EnhancedAuthService, authConfig } from '../../server/auth-enhanced';
 
 describe('EnhancedAuthService - Behavior Tests', () => {
   beforeEach(() => {
@@ -56,7 +58,7 @@ describe('EnhancedAuthService - Behavior Tests', () => {
         role: 'admin',
         emailVerified: true,
         phoneVerified: false
-      };
+      } as unknown as User;
 
       const mockResult = {
         success: true,
@@ -167,12 +169,14 @@ describe('EnhancedAuthService - Behavior Tests', () => {
 
   describe('Email Verification Behavior', () => {
     it('should create email verification token', async () => {
-      const mockToken = {
+      const mockToken: EmailVerificationToken = {
         id: 'token-123',
         userId: 'user-123',
         token: 'random-token-string',
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        used: false
+        isUsed: false,
+        createdAt: new Date(),
+        usedAt: null as unknown as Date
       };
 
       vi.mocked(EnhancedAuthService.createEmailVerificationToken).mockResolvedValue(mockToken);
@@ -183,7 +187,7 @@ describe('EnhancedAuthService - Behavior Tests', () => {
       expect(result.userId).toBe('user-123');
       expect(result.token).toBeDefined();
       expect(result.expiresAt).toBeInstanceOf(Date);
-      expect(result.used).toBe(false);
+      expect(result.isUsed).toBe(false);
       expect(EnhancedAuthService.createEmailVerificationToken).toHaveBeenCalledWith('user-123');
     });
 
@@ -311,13 +315,19 @@ describe('EnhancedAuthService - Behavior Tests', () => {
 
   describe('Session Management Behavior', () => {
     it('should create user session', async () => {
-      const mockSession = {
+      const now = new Date();
+      const mockSession: UserSession = {
         id: 'session-123',
         userId: 'user-123',
+        sessionToken: 'session-token-123',
+        refreshToken: 'refresh-token-456',
         ipAddress: '192.168.1.1',
         userAgent: 'test-agent',
-        createdAt: new Date(),
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+        expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+        refreshExpiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+        isActive: true,
+        createdAt: now,
+        lastUsedAt: now
       };
 
       vi.mocked(EnhancedAuthService.createUserSession).mockResolvedValue(mockSession);
@@ -369,21 +379,21 @@ describe('EnhancedAuthService - Behavior Tests', () => {
         email: 'test@example.com',
         password: 'hashed-password',
         role: 'admin'
-      };
+      } as unknown as User;
 
       const mockSanitizedUser = {
         id: 'user-123',
         username: 'testuser',
         email: 'test@example.com',
         role: 'admin'
-      };
+      } as Omit<User, 'password'>;
 
       vi.mocked(EnhancedAuthService.sanitizeUserForSession).mockReturnValue(mockSanitizedUser);
 
       const result = EnhancedAuthService.sanitizeUserForSession(mockUser);
 
       expect(result).toEqual(mockSanitizedUser);
-      expect(result.password).toBeUndefined();
+      expect((result as Record<string, unknown>).password).toBeUndefined();
       expect(EnhancedAuthService.sanitizeUserForSession).toHaveBeenCalledWith(mockUser);
     });
 
@@ -392,7 +402,7 @@ describe('EnhancedAuthService - Behavior Tests', () => {
         id: 'user-123',
         emailVerified: true,
         phoneVerified: false
-      };
+      } as unknown as User;
 
       vi.mocked(EnhancedAuthService.checkVerificationLevel).mockReturnValue(true);
 
@@ -405,13 +415,13 @@ describe('EnhancedAuthService - Behavior Tests', () => {
 
   describe('Configuration Behavior', () => {
     it('should have correct authentication configuration', () => {
-      expect(EnhancedAuthService.authConfig.maxLoginAttempts).toBe(5);
-      expect(EnhancedAuthService.authConfig.lockoutDuration).toBe(30 * 60 * 1000);
-      expect(EnhancedAuthService.authConfig.emailVerificationExpiry).toBe(24 * 60 * 60 * 1000);
-      expect(EnhancedAuthService.authConfig.phoneVerificationExpiry).toBe(5 * 60 * 1000);
-      expect(EnhancedAuthService.authConfig.otpMaxAttempts).toBe(3);
-      expect(EnhancedAuthService.authConfig.jwtExpiry).toBe(15 * 60 * 1000);
-      expect(EnhancedAuthService.authConfig.refreshTokenExpiry).toBe(7 * 24 * 60 * 60 * 1000);
+      expect(authConfig.maxLoginAttempts).toBe(5);
+      expect(authConfig.lockoutDuration).toBe(30 * 60 * 1000);
+      expect(authConfig.emailVerificationExpiry).toBe(24 * 60 * 60 * 1000);
+      expect(authConfig.phoneVerificationExpiry).toBe(5 * 60 * 1000);
+      expect(authConfig.otpMaxAttempts).toBe(3);
+      expect(authConfig.jwtExpiry).toBe(15 * 60 * 1000);
+      expect(authConfig.refreshTokenExpiry).toBe(7 * 24 * 60 * 60 * 1000);
     });
   });
 });

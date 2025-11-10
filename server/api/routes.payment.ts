@@ -1,8 +1,12 @@
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 import { PaymentService } from '@server/payment/service';
+
+import { AuthService } from '../auth';
+import { PRICING_TIERS } from '../lib/constants';
 import { logger } from '../lib/logger';
 import { storage } from '../storage';
+import { SubscriptionService } from '../subscription/service';
 import { PendingSignup } from './pending-signup';
 
 const InitializeSchema = z.object({
@@ -255,53 +259,79 @@ export async function registerPaymentRoutes(app: Express) {
           const directToken = reference.replace(/^PAYSTACK_/, '');
           pending = await (PendingSignup as any).getByTokenAsync?.(directToken) || PendingSignup.getByToken(directToken);
         }
-        let userEmail = '';
-        let userName = '';
-        let amount = req.body.amount || '';
-        let currency = req.body.currency || '';
-        let createdUserId: string | null = null;
+
+        const subscriptionService = new SubscriptionService();
+
         if (pending) {
-          userEmail = pending.email;
-          userName = pending.firstName || pending.email;
+          const tierKey = pending.tier as keyof typeof PRICING_TIERS;
+          const tierPricing = PRICING_TIERS[tierKey] ?? PRICING_TIERS.basic;
+          const monthlyAmount = pending.currencyCode === 'NGN' ? tierPricing.ngn : tierPricing.usd;
+          const upfrontAmount = pending.currencyCode === 'NGN' ? tierPricing.upfrontFee.ngn : tierPricing.upfrontFee.usd;
 
-          const insertedUser = await storage.createUser({
-            firstName: pending.firstName,
-            lastName: pending.lastName,
-            email: pending.email,
-            phone: pending.phone,
-            companyName: pending.companyName,
-            password: pending.passwordHash,
-            tier: pending.tier,
-            location: pending.location,
-            role: pending.role,
-            emailVerified: true,
-            isActive: true,
-          } as any);
+          const user = await storage.getUserById(pending.userId);
+          if (user) {
+            await storage.updateUser(pending.userId, {
+              signupCompleted: true,
+              signupCompletedAt: new Date(),
+              isActive: true,
+              emailVerified: user.emailVerified || false,
+            });
 
-          createdUserId = insertedUser.id;
-          await storage.markSignupCompleted(insertedUser.id);
+            await storage.markSignupCompleted(pending.userId);
+
+            const subscription = await subscriptionService.createSubscription(
+              pending.userId,
+              pending.orgId,
+              pending.tier,
+              pending.tier,
+              pending.provider,
+              upfrontAmount,
+              pending.currencyCode,
+              monthlyAmount,
+              pending.currencyCode
+            );
+
+            const verificationToken = await AuthService.createEmailVerificationToken(pending.userId);
+            const frontendBase = (process.env.FRONTEND_URL || process.env.APP_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+            const verificationUrl = frontendBase
+              ? `${frontendBase}/verify-email?token=${verificationToken.token}`
+              : `${req.protocol}://${req.get('host')}/verify-email?token=${verificationToken.token}`;
+
+            const { generateEmailVerificationEmail, sendEmail } = await import('../email');
+            const verificationEmail = generateEmailVerificationEmail(
+              pending.email,
+              pending.firstName || pending.email,
+              verificationUrl,
+              subscription?.trialEndDate ? new Date(subscription.trialEndDate) : undefined
+            );
+            await sendEmail(verificationEmail);
+
+            const amount = req.body.amount || (pending.currencyCode === 'NGN' ? upfrontAmount : upfrontAmount);
+            const currency = req.body.currency || pending.currencyCode;
+            const { generatePaymentConfirmationEmail, sendEmail: sendPaymentEmail } = await import('../email');
+            const paymentEmail = generatePaymentConfirmationEmail(
+              pending.email,
+              pending.firstName || pending.email,
+              amount,
+              currency,
+              reference
+            );
+            await sendPaymentEmail(paymentEmail);
+          }
         } else if (userId) {
-          // Try to fetch user by id
           const user = await storage.getUserById(userId);
           if (user) {
-            userEmail = user.email;
-            userName = user.firstName || user.email;
-            createdUserId = user.id;
+            await storage.updateUser(user.id, {
+              signupCompleted: true,
+              signupCompletedAt: new Date(),
+              isActive: true,
+            });
+            await storage.markSignupCompleted(user.id);
           }
         }
-        // Try to get amount/currency from request or metadata
-        if (!amount && req.body.metadata && req.body.metadata.amount) amount = req.body.metadata.amount;
-        if (!currency && req.body.metadata && req.body.metadata.currency) currency = req.body.metadata.currency;
-        // Send payment confirmation email if we have enough info
-        if (userEmail && amount && currency) {
-          const { generatePaymentConfirmationEmail, sendEmail } = await import('../email');
-          const emailObj = generatePaymentConfirmationEmail(userEmail, userName, amount, currency, reference);
-          await sendEmail(emailObj);
-        }
-        if (createdUserId) {
-          await storage.markSignupCompleted(createdUserId);
-        }
+
         PendingSignup.clearByReference(reference);
+        res.clearCookie('pending_signup');
         return res.json({ status: 'success', data: { success: true }, message: 'Payment verified successfully' });
       }
       return res.status(400).json({ status: 'error', message: 'Payment verification failed' });

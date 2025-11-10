@@ -1,10 +1,13 @@
 import { useMemo, useState, useEffect, Suspense, lazy } from "react";
 import { useLocation } from "wouter";
+
+import TrialAutopayBanner from "@/components/billing/TrialAutopayBanner";
+import { useAuth } from "@/hooks/use-auth";
+import { LayoutContext } from "@/hooks/use-layout";
+
 const Sidebar = lazy(() => import("./sidebar"));
 const TopBar = lazy(() => import("./topbar"));
 const FloatingChat = lazy(() => import("../ai/floating-chat"));
-import { useAuth } from "@/hooks/use-auth";
-import { LayoutContext } from "@/hooks/use-layout";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -19,6 +22,14 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
   const [stores, setStores] = useState<Array<{ id: string; name: string }>>([]);
   const [alertCount, setAlertCount] = useState(0);
   const [sidebarFooter, setSidebarFooter] = useState<React.ReactNode | null>(null);
+
+  const subscription = (user as any)?.subscription;
+  const showTrialBanner = useMemo(() => {
+    if (!subscription) return false;
+    const status = typeof subscription.status === 'string' ? subscription.status.toUpperCase() : '';
+    const autopayEnabled = Boolean(subscription.autopayEnabled);
+    return status === 'TRIAL' && !autopayEnabled && userRole === 'admin';
+  }, [subscription, userRole]);
 
   // Update current time
   useEffect(() => {
@@ -212,6 +223,11 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
           
           {/* Page Content */}
           <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
+            {showTrialBanner ? (
+              <div className="mb-4">
+                <TrialAutopayBanner subscription={subscription} />
+              </div>
+            ) : null}
             {children}
           </main>
         </div>

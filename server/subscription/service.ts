@@ -1,10 +1,21 @@
 import { eq, and, lte } from 'drizzle-orm';
+import type { QueryResult } from 'pg';
 
-import { subscriptions, subscriptionPayments, users, type InsertSubscription, type InsertSubscriptionPayment } from '../../shared/schema';
+import { subscriptions as prdSubscriptions } from '@shared/prd-schema';
+import { subscriptions, subscriptionPayments, users } from '../../shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 
 export class SubscriptionService {
+  private extractFirstRow<T>(result: T[] | QueryResult<any>): T {
+    const row = Array.isArray(result) ? result[0] : (result.rows?.[0] as T | undefined);
+    if (!row) {
+      throw new Error('No rows returned from database operation');
+    }
+
+    return row;
+  }
+
   /**
    * Create a new subscription for a user after successful upfront fee payment
    */
@@ -23,7 +34,7 @@ export class SubscriptionService {
     const trialEndDate = new Date();
     trialEndDate.setDate(trialEndDate.getDate() + 14); // 2-week trial
 
-    const subscriptionData: InsertSubscription = {
+    const subscriptionData = {
       userId,
       orgId,
       tier,
@@ -37,7 +48,7 @@ export class SubscriptionService {
       trialStartDate,
       trialEndDate,
       upfrontFeeCredited: false,
-    };
+    } as typeof subscriptions.$inferInsert;
 
     logger.info('createSubscription:start', { userId, tier, upfrontFeeAmount, monthlyAmount });
 
@@ -53,10 +64,11 @@ export class SubscriptionService {
       [subscription] = existingSubscription;
       logger.info('createSubscription:reuse', { userId, subscriptionId: subscription.id });
     } else {
-      [subscription] = await db
+      const insertResult = await db
         .insert(subscriptions)
-        .values(subscriptionData as unknown as typeof subscriptions.$inferInsert)
+        .values(subscriptionData)
         .returning();
+      subscription = this.extractFirstRow<typeof subscriptions.$inferSelect>(insertResult);
       logger.info('createSubscription:insert', { userId, subscriptionId: subscription.id });
     }
 
@@ -68,6 +80,91 @@ export class SubscriptionService {
     logger.info('createSubscription:complete', { userId, subscriptionId: subscription.id });
 
     return subscription;
+  }
+
+  async markTrialReminderSent(
+    subscriptionId: string,
+    type: '7_day' | '3_day'
+  ) {
+    const column = type === '7_day' ? 'trialReminder7SentAt' : 'trialReminder3SentAt';
+    const updateResult = await db
+      .update(subscriptions)
+      .set({ [column]: new Date(), updatedAt: new Date() } as any)
+      .where(eq(subscriptions.id, subscriptionId))
+      .returning();
+
+    return this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
+  }
+
+  async configureAutopay(
+    subscriptionId: string,
+    provider: 'PAYSTACK' | 'FLW',
+    reference: string
+  ) {
+    const now = new Date();
+
+    const updateResult = await db
+      .update(subscriptions)
+      .set({
+        autopayEnabled: true,
+        autopayProvider: provider,
+        autopayReference: reference,
+        autopayConfiguredAt: now,
+        autopayLastStatus: 'configured',
+        updatedAt: now,
+      } as any)
+      .where(eq(subscriptions.id, subscriptionId))
+      .returning();
+
+    await db
+      .update(prdSubscriptions)
+      .set({
+        autopayEnabled: true,
+        autopayProvider: provider,
+        autopayReference: reference,
+        autopayConfiguredAt: now,
+        autopayLastStatus: 'configured',
+        updatedAt: now,
+      } as any)
+      .where(eq(prdSubscriptions.id, subscriptionId));
+
+    return this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
+  }
+
+  async updateAutopayStatus(
+    subscriptionId: string,
+    status: 'configured' | 'pending_charge' | 'charged' | 'failed' | 'disabled'
+  ) {
+    const now = new Date();
+    const disabledPatch = status === 'disabled'
+      ? {
+          autopayEnabled: false,
+          autopayProvider: null,
+          autopayReference: null,
+          autopayConfiguredAt: null,
+        }
+      : {};
+
+    const updateResult = await db
+      .update(subscriptions)
+      .set({
+        autopayLastStatus: status,
+        updatedAt: now,
+        ...disabledPatch,
+      } as any)
+      .where(eq(subscriptions.id, subscriptionId))
+      .returning();
+
+    await db
+      .update(prdSubscriptions)
+      .set({
+        autopayLastStatus: status,
+        updatedAt: now,
+        ...disabledPatch,
+      } as any)
+      .where(eq(prdSubscriptions.id, subscriptionId));
+
+    return this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
   }
 
   /**
@@ -83,19 +180,19 @@ export class SubscriptionService {
     provider: 'paystack' | 'flutterwave',
     metadata?: any
   ) {
-    const paymentData: InsertSubscriptionPayment = {
+    const paymentData = {
       subscriptionId,
       paymentReference,
       amount: (amount / 100).toFixed(2),
       currency,
       paymentType,
-      status: status.toUpperCase() as any,
+      status: status.toUpperCase() as typeof subscriptionPayments.$inferInsert['status'],
       provider,
-      metadata,
-    };
+      ...(metadata !== undefined ? { metadata: metadata ?? null } : {}),
+    } as typeof subscriptionPayments.$inferInsert;
 
-    const [payment] = await db.insert(subscriptionPayments).values(paymentData as unknown as typeof subscriptionPayments.$inferInsert).returning();
-    return payment;
+    const paymentResult = await db.insert(subscriptionPayments).values(paymentData).returning();
+    return this.extractFirstRow<typeof subscriptionPayments.$inferSelect>(paymentResult);
   }
 
   /**
@@ -129,7 +226,7 @@ export class SubscriptionService {
    */
   async updateSubscriptionStatus(subscriptionId: string, status: 'trial' | 'active' | 'past_due' | 'cancelled' | 'suspended') {
     const normalizedStatus = status.toUpperCase();
-    const [subscription] = await db
+    const updateResult = await db
       .update(subscriptions)
       .set({ 
         status: normalizedStatus as any,
@@ -138,14 +235,14 @@ export class SubscriptionService {
       .where(eq(subscriptions.id, subscriptionId))
       .returning();
 
-    return subscription;
+    return this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
   }
 
   /**
    * Mark upfront fee as credited (when first monthly billing occurs)
    */
   async markUpfrontFeeCredited(subscriptionId: string) {
-    const [subscription] = await db
+    const updateResult = await db
       .update(subscriptions)
       .set({ 
         upfrontFeeCredited: true as any,
@@ -154,7 +251,7 @@ export class SubscriptionService {
       .where(eq(subscriptions.id, subscriptionId))
       .returning();
 
-    return subscription;
+    return this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
   }
 
   /**
@@ -244,10 +341,11 @@ export class SubscriptionService {
     const [oldSub] = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)).limit(1);
     if (!oldSub) throw new Error('Subscription not found');
     if (oldSub.tier === newTier) return { changed: false, oldTier: oldSub.tier, newTier };
-    const [updated] = await db.update(subscriptions)
+    const updateResult = await db.update(subscriptions)
       .set({ tier: newTier, updatedAt: new Date() } as any)
       .where(eq(subscriptions.id, subscriptionId))
       .returning();
+    const updated = this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
     return { changed: true, oldTier: oldSub.tier, newTier: updated.tier, subscription: updated };
   }
 }

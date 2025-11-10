@@ -201,19 +201,43 @@ vi.mock('@shared/schema', () => ({
 // Mock drizzle-orm/pg-core with proper method chaining
 vi.mock('drizzle-orm/pg-core', () => {
   const createMockColumn = (name: string, type: string) => {
-    const mockColumn = {
+    const column: any = {
       name,
       type,
-      primaryKey: () => ({ ...mockColumn, isPrimaryKey: true }),
-      default: (_value: any) => ({ ...mockColumn, defaultValue: _value }),
-      notNull: () => ({ ...mockColumn, isNotNull: true }),
-      unique: () => ({ ...mockColumn, isUnique: true }),
-      length: (_len: number) => ({ ...mockColumn, length: _len }),
-      precision: (_prec: number) => ({ ...mockColumn, precision: _prec }),
-      scale: (_scale: number) => ({ ...mockColumn, scale: _scale }),
-      on: (_table: any) => ({ ...mockColumn, onTable: _table })
+      primaryKey() {
+        column.isPrimaryKey = true;
+        return column;
+      },
+      default(_value: any) {
+        column.defaultValue = _value;
+        return column;
+      },
+      notNull() {
+        column.isNotNull = true;
+        return column;
+      },
+      unique() {
+        column.isUnique = true;
+        return column;
+      },
+      length(_len: number) {
+        column.length = _len;
+        return column;
+      },
+      precision(_prec: number) {
+        column.precision = _prec;
+        return column;
+      },
+      scale(_scale: number) {
+        column.scale = _scale;
+        return column;
+      },
+      on(_table: any) {
+        column.onTable = _table;
+        return column;
+      },
     };
-    return mockColumn;
+    return column;
   };
 
   const createMockEnum = (name: string, values: string[]) => {
@@ -237,11 +261,26 @@ vi.mock('drizzle-orm/pg-core', () => {
       void options;
       return createMockColumn(name, 'decimal');
     }),
+    numeric: vi.fn((name, options) => {
+      void options;
+      return createMockColumn(name, 'numeric');
+    }),
     integer: vi.fn((name) => createMockColumn(name, 'integer')),
-    timestamp: vi.fn((name) => ({
-      ...createMockColumn(name, 'timestamp'),
-      defaultNow: () => ({ ...createMockColumn(name, 'timestamp'), hasDefaultNow: true })
-    })),
+    jsonb: vi.fn((name) => createMockColumn(name, 'jsonb')),
+    timestamp: vi.fn((name) => {
+      const column = createMockColumn(name, 'timestamp');
+      column.defaultNow = () => {
+        column.hasDefaultNow = true;
+        return column;
+      };
+      // Ensure notNull chaining retains defaultNow
+      const originalNotNull = column.notNull.bind(column);
+      column.notNull = () => {
+        originalNotNull();
+        return column;
+      };
+      return column;
+    }),
     boolean: vi.fn((name) => createMockColumn(name, 'boolean')),
     uuid: vi.fn((name) => createMockColumn(name, 'uuid')),
     pgEnum: createMockEnum,

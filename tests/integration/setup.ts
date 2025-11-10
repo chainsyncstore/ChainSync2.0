@@ -12,12 +12,17 @@ import {
   sales as T_SALES,
   saleItems as T_SALE_ITEMS,
   auditLogs as T_AUDIT,
+  users as T_PRD_USERS,
+  subscriptions as T_PRD_SUBSCRIPTIONS,
+  subscriptionPayments as T_PRD_SUBSCRIPTION_PAYMENTS,
+  organizations as T_PRD_ORGANIZATIONS,
 } from '../../shared/prd-schema';
 import {
   users as T_USERS,
   userRoles as T_USER_ROLES,
   subscriptions as T_SUBSCRIPTIONS,
   subscriptionPayments as T_SUBSCRIPTION_PAYMENTS,
+  organizations as T_SHARED_ORGANIZATIONS,
 } from '../../shared/schema';
 import { cryptoModuleMock } from '../utils/crypto-mocks';
 
@@ -46,11 +51,15 @@ if (process.env.LOYALTY_REALDB !== '1') {
       sales: [],
       sale_items: [],
       audit_logs: [],
+      organizations: [],
     };
 
     function tableName(t: any): keyof typeof store {
       if (t === T_USERS) return 'users';
+      if (t === T_PRD_USERS) return 'users';
       if (t === T_USER_ROLES) return 'user_roles';
+      if (t === T_PRD_ORGANIZATIONS) return 'organizations';
+      if (t === T_SHARED_ORGANIZATIONS) return 'organizations';
       if (t === T_STORES) return 'stores';
       if (t === T_PRODUCTS) return 'products';
       if (t === T_INVENTORY) return 'inventory';
@@ -60,7 +69,9 @@ if (process.env.LOYALTY_REALDB !== '1') {
       if (t === T_SALES) return 'sales';
       if (t === T_SALE_ITEMS) return 'sale_items';
       if (t === T_AUDIT) return 'audit_logs';
+      if (t === T_PRD_SUBSCRIPTIONS) return 'subscriptions';
       if (t === T_SUBSCRIPTIONS) return 'subscriptions';
+      if (t === T_PRD_SUBSCRIPTION_PAYMENTS) return 'subscription_payments';
       if (t === T_SUBSCRIPTION_PAYMENTS) return 'subscription_payments';
       return 'audit_logs';
     }
@@ -88,20 +99,42 @@ if (process.env.LOYALTY_REALDB !== '1') {
           orderBy: () => this,
           groupBy: () => this,
           where: (expr?: any) => {
-            if (expr && expr.right && expr.left) {
+            if (expr) {
               const candidates = new Set<string>();
-              const rawName = expr.left.name || expr.left.column;
-              if (typeof rawName === 'string') {
-                candidates.add(rawName);
-                const parts = rawName.split('.');
-                candidates.add(parts[parts.length - 1]);
-              }
-              if (expr.left.column) candidates.add(expr.left.column);
-              if (expr.left.key) candidates.add(expr.left.key);
-              const camelCandidates = Array.from(candidates).map(name => toCamel(name));
-              const value = expr.right;
-              const filtered = result.filter(row => {
-                return camelCandidates.some(col => row[col] === value || row[col] === String(value));
+              const gather = (source: any) => {
+                if (!source) return;
+                if (typeof source === 'string') {
+                  candidates.add(source);
+                  const parts = source.split('.');
+                  candidates.add(parts[parts.length - 1]);
+                }
+                if (source.name) gather(source.name);
+                if (source.column) gather(source.column);
+                if (source.key) gather(source.key);
+                if (source.field) gather(source.field);
+                if (source.columnName) gather(source.columnName);
+              };
+              gather(expr.left);
+              gather(expr.column);
+              gather(expr.field);
+
+              const valueCandidate = expr.right?.value ?? expr.right ?? expr.value ?? null;
+              const camelCandidates = Array.from(candidates)
+                .filter(Boolean)
+                .map((name) => toCamel(String(name)));
+
+              const filtered = result.filter((row) => {
+                if (!camelCandidates.length) {
+                  return true;
+                }
+                return camelCandidates.some((col) => {
+                  if (!(col in row)) return false;
+                  const rowValue = row[col];
+                  if (Array.isArray(rowValue)) {
+                    return rowValue.includes(valueCandidate);
+                  }
+                  return rowValue === valueCandidate || rowValue === String(valueCandidate ?? '');
+                });
               });
               return thenable(filtered);
             }
@@ -114,26 +147,127 @@ if (process.env.LOYALTY_REALDB !== '1') {
     }));
 
     const insert = vi.fn((tbl?: any) => ({
-      values: (obj: any) => ({
-        returning: async () => {
-          const key = tableName(tbl);
-          const row = { id: obj.id || genId(key), ...obj } as Row;
+      values: (obj: any) => {
+        const key = tableName(tbl);
+
+        const ensureId = () => (obj.id ? obj.id : genId(key));
+
+        const insertRow = () => {
+          const row = { id: ensureId(), ...obj } as Row;
           store[key].push(row);
-          return [row];
-        },
-      }),
+          return row;
+        };
+
+        const upsert = (set?: Record<string, unknown>, targetColumn?: string) => {
+          const column = targetColumn?.split('.').pop();
+          const value = column ? (obj as Record<string, unknown>)[column] : undefined;
+          if (column && value !== undefined) {
+            const existing = store[key].find((r) => r[column] === value || r[column] === String(value));
+            if (existing) {
+              Object.assign(existing, set ?? {});
+              return existing;
+            }
+          }
+          return insertRow();
+        };
+
+        const inserted = insertRow();
+
+        return {
+          returning: async () => [inserted],
+          onConflictDoNothing: () => Promise.resolve(),
+          onConflictDoUpdate: (options: { target?: any[]; set?: Record<string, unknown> }) => {
+            const targetCol = Array.isArray(options.target) && options.target.length > 0
+              ? options.target[0]?.name || options.target[0]?.column || undefined
+              : undefined;
+            upsert(options.set, targetCol);
+            return Promise.resolve();
+          },
+        };
+      },
     }));
 
     const update = vi.fn((tbl?: any) => ({
-      set: (partial: any) => ({
-        where: () => ({
-          returning: async () => {
-            const key = tableName(tbl);
-            const target = store[key][store[key].length - 1];
-            Object.assign(target || {}, partial);
-            return [target];
-          },
-        }),
+      set: (partial: Record<string, unknown>) => ({
+        where: (expr?: any) => {
+          const key = tableName(tbl);
+          const rows = store[key] || [];
+
+          const gatherNames = (source: any, bucket: Set<string>) => {
+            if (!source) return;
+            const candidates: string[] = [];
+            if (typeof source === 'string') candidates.push(source);
+            if (source.name) candidates.push(source.name);
+            if (source.column) candidates.push(source.column);
+            if (source.key) candidates.push(source.key);
+            if (source.columnName) candidates.push(source.columnName);
+            if (source.table?.name) candidates.push(source.table.name);
+            for (const name of candidates) {
+              if (typeof name === 'string' && name.length > 0) {
+                bucket.add(name);
+              }
+            }
+          };
+
+          const matches = (row: Row, condition: any): boolean => {
+            if (!condition) return true;
+            if (Array.isArray(condition.conditions)) {
+              if (condition.operator === 'and') {
+                return condition.conditions.every((c: any) => matches(row, c));
+              }
+              if (condition.operator === 'or') {
+                return condition.conditions.some((c: any) => matches(row, c));
+              }
+            }
+
+            const names = new Set<string>();
+            gatherNames(condition.left, names);
+            gatherNames(condition.column, names);
+            gatherNames(condition.field, names);
+
+            const valueCandidate = condition.right?.value ?? condition.right ?? condition.value ?? null;
+
+            const camelNames = Array.from(names).flatMap((name) => {
+              const parts = name.split('.');
+              const base = parts[parts.length - 1];
+              return [name, base]
+                .filter(Boolean)
+                .map((part) => toCamel(String(part)));
+            });
+
+            const idCandidate = valueCandidate ?? condition?.right?.value ?? condition?.value;
+            if (idCandidate !== undefined) {
+              const stringId = String(idCandidate);
+              if (String((row as Row).id ?? '') === stringId) {
+                return true;
+              }
+              if ('orgId' in row && String((row as Row).orgId ?? '') === stringId) {
+                return true;
+              }
+            }
+
+            if (!camelNames.length) {
+              return true;
+            }
+
+            return camelNames.some((prop) => {
+              if (!(prop in row)) return false;
+              const rowValue = (row as Record<string, unknown>)[prop];
+              if (Array.isArray(rowValue)) {
+                return rowValue.includes(valueCandidate);
+              }
+              return rowValue === valueCandidate || rowValue === String(valueCandidate ?? '');
+            });
+          };
+
+          const matched = expr ? rows.filter((row) => matches(row, expr)) : rows.slice();
+
+          matched.forEach((row) => Object.assign(row, partial));
+
+          return {
+            returning: async () => matched,
+          };
+        },
       }),
     }));
 
@@ -148,6 +282,12 @@ if (process.env.LOYALTY_REALDB !== '1') {
       }),
     };
 
+    const pool = {
+      connect: vi.fn(async () => ({ release: vi.fn() })),
+      on: vi.fn(),
+      end: vi.fn(async () => undefined),
+    };
+
     function seed(fixtures: Partial<Record<keyof typeof store, Row[]>>) {
       for (const k of Object.keys(store) as (keyof typeof store)[]) {
         store[k] = fixtures[k]?.slice() || [];
@@ -160,6 +300,7 @@ if (process.env.LOYALTY_REALDB !== '1') {
 
     return {
       db: _db,
+      pool,
       checkDatabaseHealth: vi.fn().mockResolvedValue(true),
       __seed: seed,
       __reset: reset,
@@ -305,6 +446,7 @@ beforeEach(async () => {
       const seed = dbmod.__seed as typeof dbmod.__seed;
       seed({
         users: [{ id: 'u-test', orgId: 'org-test', email: 'user@test', isAdmin: true }],
+        organizations: [{ id: 'org-test', name: 'Test Org', currency: 'NGN', isActive: true }],
         stores: [{ id: '00000000-0000-0000-0000-000000000001', orgId: 'org-test', name: 'Test Store' }],
         products: [{ id: '00000000-0000-0000-0000-000000000010', orgId: 'org-test', sku: 'SKU', name: 'P', costPrice: '0', salePrice: '100', vatRate: '0' }],
         inventory: [{ id: 'inv-1', storeId: '00000000-0000-0000-0000-000000000001', productId: '00000000-0000-0000-0000-000000000010', quantity: 999 }],

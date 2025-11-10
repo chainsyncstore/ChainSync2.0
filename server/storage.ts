@@ -1,49 +1,51 @@
 import crypto from "crypto";
 import { eq, and, desc, asc, sql, lt, lte, gte, isNotNull, or } from "drizzle-orm";
+import { users as prdUsers } from "@shared/prd-schema";
 import {
-  users,
-  subscriptions,
-  stores,
-  products,
-  inventory,
-  transactions,
-  transactionItems,
-  lowStockAlerts,
-  userStorePermissions,
-  loyaltyTiers,
   customers,
-  loyaltyTransactions,
-  userRoles,
-  ipWhitelists,
+  inventory,
   ipWhitelistLogs,
+  ipWhitelists,
+  loyaltyTiers,
+  loyaltyTransactions,
+  lowStockAlerts,
   passwordResetTokens,
-  type User,
-  type Store,
-  type Product,
-  type Inventory,
-  type Transaction,
-  type TransactionItem,
-  type LowStockAlert,
-  type UserStorePermission,
-  type InsertUser,
-  type InsertStore,
-  type InsertProduct,
-  type InsertInventory,
-  type InsertTransaction,
-  type InsertTransactionItem,
-  type InsertLowStockAlert,
-  type LoyaltyTier,
-  type InsertLoyaltyTier,
+  products,
+  stores,
+  subscriptions,
+  transactionItems,
+  transactions,
   type Customer,
   type InsertCustomer,
-  type LoyaltyTransaction,
+  type InsertInventory,
+  type InsertLowStockAlert,
+  type InsertLoyaltyTier,
   type InsertLoyaltyTransaction,
+  type InsertProduct,
+  type InsertStore,
+  type InsertTransaction,
+  type InsertTransactionItem,
+  type InsertUser,
+  type Inventory,
   type IpWhitelist,
   type IpWhitelistLog,
+  type LowStockAlert,
+  type LoyaltyTier,
+  type LoyaltyTransaction,
   type PasswordResetToken,
+  type Product,
+  type Store,
+  type Transaction,
+  type TransactionItem,
+  type User,
+  type UserStorePermission,
+  userRoles,
+  userStorePermissions,
+  users
 } from "@shared/schema";
 import { AuthService } from "./auth";
 import { db } from "./db";
+import { logger } from "./lib/logger";
 
 // Simple in-memory cache for frequently accessed data
 class Cache {
@@ -87,7 +89,7 @@ const normalizeRole = (role?: string): 'ADMIN' | 'MANAGER' | 'CASHIER' => {
   return 'CASHIER';
 };
 
-const mapDbUser = (row: any): any => {
+const mapDbUser = (row: any): User | undefined => {
   if (!row) return undefined;
 
   const passwordHash = row.passwordHash ?? row.password_hash ?? row.password ?? null;
@@ -110,11 +112,11 @@ const mapDbUser = (row: any): any => {
     twofaSecret: totpSecret,
     requires2fa,
     twofaVerified: requires2fa,
-  };
+  } as unknown as User;
 };
 
-const normalizeUserUpdate = (userData: Partial<InsertUser> | Record<string, any>): Record<string, any> => {
-  const update: Record<string, any> = { ...userData };
+const normalizeUserUpdate = (userData: Record<string, unknown>): Record<string, unknown> => {
+  const update: Record<string, unknown> = { ...userData };
 
   if ('passwordHash' in update && update.passwordHash !== undefined) {
     update.password_hash = update.passwordHash;
@@ -152,7 +154,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null>;
-  createUser(user: InsertUser): Promise<User>;
+  createUser(user: Record<string, unknown>): Promise<User>;
   getUsersByStore(storeId: string): Promise<User[]>;
   
   // Password reset operations
@@ -165,7 +167,7 @@ export interface IStorage {
   getAllStores(): Promise<Store[]>;
   getStore(id: string): Promise<Store | undefined>;
   createStore(store: InsertStore): Promise<Store>;
-  updateStore(id: string, store: Partial<InsertStore>): Promise<Store>;
+  updateUser(id: string, userData: Record<string, unknown>): Promise<User>;
 
   // Product operations
   getAllProducts(): Promise<Product[]>;
@@ -271,12 +273,76 @@ export class DatabaseStorage implements IStorage {
     transactionItems: new Map<string, any[]>(),
     lowStockAlerts: new Map<string, any>(),
   } : null as any;
+
+  /**
+   * Test-only helper to expose the in-memory storage maps for diagnostics.
+   */
+  public getTestMemory(): typeof this.mem | undefined {
+    if (!this.isTestEnv) return undefined;
+    return this.mem;
+  }
+
+  /**
+   * Test-only helper that returns all in-memory users.
+   */
+  public async getAllTestUsers(): Promise<User[]> {
+    if (!this.isTestEnv) return [];
+    return Array.from(this.mem.users.values());
+  }
   private generateId(): string {
     try {
       const { randomUUID } = require('crypto');
       return randomUUID();
     } catch {
       return 'id_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
+  }
+
+  private async insertPrdTestUser(user: {
+    id: string;
+    email: string;
+    passwordHash: string;
+    orgId: string | null;
+    settings: Record<string, unknown>;
+    isAdmin: boolean;
+    requires2fa: boolean;
+    totpSecret: string | null;
+    createdAt: Date;
+    lastLoginAt: Date | null;
+    emailVerified: boolean;
+    requiresPasswordChange: boolean;
+  }): Promise<void> {
+    try {
+      await db.insert(prdUsers)
+        .values({
+          id: user.id,
+          email: user.email,
+          passwordHash: user.passwordHash,
+          orgId: user.orgId,
+          settings: user.settings as any,
+          isAdmin: user.isAdmin,
+          requires2fa: user.requires2fa,
+          totpSecret: user.totpSecret,
+          createdAt: user.createdAt,
+          lastLoginAt: user.lastLoginAt,
+          emailVerified: user.emailVerified,
+          requiresPasswordChange: user.requiresPasswordChange,
+        } as typeof prdUsers.$inferInsert)
+        .onConflictDoUpdate({
+          target: prdUsers.email,
+          set: {
+            passwordHash: user.passwordHash,
+            orgId: user.orgId,
+            isAdmin: user.isAdmin,
+            requires2fa: user.requires2fa,
+            emailVerified: user.emailVerified,
+            requiresPasswordChange: user.requiresPasswordChange,
+            lastLoginAt: user.lastLoginAt,
+            settings: user.settings as any,
+          } as Partial<typeof prdUsers.$inferInsert>,
+        });
+    } catch (error) {
+      console.warn('Test createUser PRD insert failed', error);
     }
   }
   // User operations
@@ -425,7 +491,7 @@ export class DatabaseStorage implements IStorage {
         eq(users.signupCompleted, false)
       )
     );
-    return user || undefined;
+    return mapDbUser(user);
   }
 
   async updateUserSignupAttempts(userId: string): Promise<void> {
@@ -626,10 +692,11 @@ export class DatabaseStorage implements IStorage {
     return permission;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
+  async createUser(insertUser: Record<string, unknown>): Promise<User> {
+    const userInput = insertUser as InsertUser;
     // CRITICAL: Always hash passwords before storage for security
-    if ((insertUser as any).password) {
-      const passwordValue = String((insertUser as any).password);
+    if ((userInput as any).password) {
+      const passwordValue = String((userInput as any).password);
       const looksHashed = passwordValue.startsWith('$2');
       if (!looksHashed) {
         // In test environment, align with integration tests which allow passwords
@@ -641,11 +708,13 @@ export class DatabaseStorage implements IStorage {
           }
         }
         const hashedPassword = await AuthService.hashPassword(passwordValue);
-        (insertUser as any).password = hashedPassword;
+        (userInput as any).password = hashedPassword;
+      } else {
+        (userInput as any).password = passwordValue;
       }
     }
     const userData: any = {
-      ...insertUser,
+      ...userInput,
       signupStartedAt: new Date(),
       signupCompleted: false,
       signupAttempts: 1
@@ -661,10 +730,13 @@ export class DatabaseStorage implements IStorage {
       const hashed = userData.password;
       userData.passwordHash = hashed;
       userData.password_hash = hashed;
-      delete userData.password;
+      if (!this.isTestEnv) {
+        delete userData.password;
+      }
     }
     if (this.isTestEnv) {
-      const id = this.generateId();
+      const id = (userData.id as string) || this.generateId();
+      const now = new Date();
       const user = {
         id,
         role: (userData.role || 'admin'),
@@ -674,16 +746,46 @@ export class DatabaseStorage implements IStorage {
         failedLoginAttempts: 0,
         requiresPasswordChange: userData.requiresPasswordChange ?? false,
         ...userData,
+        signupStartedAt: userData.signupStartedAt ?? now,
       } as User as any;
+
+      const hashedForDb = typeof user.passwordHash === 'string'
+        ? user.passwordHash
+        : (typeof (user as any).password === 'string' ? (user as any).password : '');
+
+      if (!hashedForDb) {
+        throw new Error('Test createUser requires hashed password');
+      }
+
+      await this.insertPrdTestUser({
+        id,
+        orgId: user.orgId ?? null,
+        email: user.email,
+        passwordHash: hashedForDb,
+        settings: (user.settings ?? {}) as any,
+        isAdmin: user.isAdmin ?? false,
+        requires2fa: user.requires2fa ?? false,
+        totpSecret: user.totpSecret ?? null,
+        createdAt: user.createdAt ?? now,
+        lastLoginAt: user.lastLoginAt ?? null,
+        emailVerified: user.emailVerified ?? false,
+        requiresPasswordChange: user.requiresPasswordChange ?? false,
+      });
+
       this.mem.users.set(id, user);
       return user;
     }
-    const [user] = await db.insert(users).values(userData as unknown as typeof users.$inferInsert).returning();
-    return user;
+    const [user] = (await db
+      .insert(users)
+      .values(userData as unknown as typeof users.$inferInsert)
+      .returning()) as typeof users.$inferSelect[];
+    return mapDbUser(user)!;
   }
 
   async getUsersByStore(storeId: string): Promise<User[]> {
-    return await db.select().from(users).where(eq(users.storeId, storeId));
+    const rows = await db.select().from(users).where(eq(users.storeId, storeId));
+    logger.debug('getUsersByStore', rows);
+    return rows.map((row) => mapDbUser(row)!).filter(Boolean);
   }
 
   // Password reset operations
@@ -742,7 +844,7 @@ export class DatabaseStorage implements IStorage {
       .set({ password: hashedPassword, updatedAt: new Date(), requiresPasswordChange: false } as any)
       .where(eq(users.id, userId))
       .returning();
-    return user;
+    return mapDbUser(user)!;
   }
 
   // Store operations
@@ -1295,10 +1397,11 @@ export class DatabaseStorage implements IStorage {
 
   // Enhanced User Management Methods
   async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users).orderBy(asc(users.firstName));
+    const rows = await db.select().from(users).orderBy(asc(users.firstName));
+    return rows.map((row) => mapDbUser(row)!).filter(Boolean);
   }
 
-  async updateUser(id: string, userData: Partial<InsertUser>): Promise<User> {
+  async updateUser(id: string, userData: Record<string, unknown>): Promise<User> {
     const data = userData as Partial<User>;
     if (data.email) {
       const existing = await this.getUserByEmail(data.email);
@@ -1313,11 +1416,11 @@ export class DatabaseStorage implements IStorage {
       this.mem.users.set(id, updated);
       return updated;
     }
-    const [user] = await db
+    const [user] = (await db
       .update(users)
       .set(normalizeUserUpdate(userData))
       .where(eq(users.id, id))
-      .returning();
+      .returning()) as typeof users.$inferSelect[];
     return mapDbUser(user);
   }
 

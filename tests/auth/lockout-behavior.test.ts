@@ -2,21 +2,23 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock the entire auth-enhanced module
 vi.mock('../../server/auth-enhanced', () => {
+  const mockAuthConfig = {
+    maxLoginAttempts: 5,
+    lockoutDuration: 30 * 60 * 1000
+  };
+
   const mockAuthService = {
     isAccountLocked: vi.fn(),
     recordFailedLogin: vi.fn(),
     resetFailedLoginAttempts: vi.fn(),
-    authenticateUser: vi.fn(),
-    authConfig: {
-      maxLoginAttempts: 5,
-      lockoutDuration: 30 * 60 * 1000
-    }
-  };
+    authenticateUser: vi.fn()
+  } as Record<string, unknown>;
 
-  return { EnhancedAuthService: mockAuthService };
+  return { EnhancedAuthService: mockAuthService, authConfig: mockAuthConfig };
 });
 
-import { EnhancedAuthService } from '../../server/auth-enhanced';
+import type { User } from '@shared/schema';
+import { EnhancedAuthService, authConfig } from '../../server/auth-enhanced';
 
 describe('Account Lockout - Behavior Tests', () => {
   beforeEach(() => {
@@ -170,12 +172,12 @@ describe('Account Lockout - Behavior Tests', () => {
         role: 'admin',
         emailVerified: true,
         phoneVerified: false
-      };
+      } as unknown as User;
 
       const mockResult = {
         success: true,
         user: mockUser
-      };
+      } as any;
 
       vi.mocked(EnhancedAuthService.authenticateUser).mockResolvedValue(mockResult);
 
@@ -188,13 +190,13 @@ describe('Account Lockout - Behavior Tests', () => {
   });
 
   describe('Lockout Configuration', () => {
-    it('should use correct lockout configuration', () => {
-      expect(EnhancedAuthService.authConfig.maxLoginAttempts).toBe(5);
-      expect(EnhancedAuthService.authConfig.lockoutDuration).toBe(30 * 60 * 1000); // 30 minutes
+    it('should have correct lockout configuration', () => {
+      expect(authConfig.maxLoginAttempts).toBe(5);
+      expect(authConfig.lockoutDuration).toBe(30 * 60 * 1000); // 30 minutes
     });
 
     it('should have reasonable lockout duration', () => {
-      const lockoutDuration = EnhancedAuthService.authConfig.lockoutDuration;
+      const lockoutDuration = authConfig.lockoutDuration;
       const thirtyMinutes = 30 * 60 * 1000;
       
       expect(lockoutDuration).toBe(thirtyMinutes);
@@ -203,7 +205,7 @@ describe('Account Lockout - Behavior Tests', () => {
     });
 
     it('should have reasonable max login attempts', () => {
-      const maxAttempts = EnhancedAuthService.authConfig.maxLoginAttempts;
+      const maxAttempts = authConfig.maxLoginAttempts;
       
       expect(maxAttempts).toBe(5);
       expect(maxAttempts).toBeGreaterThan(0);

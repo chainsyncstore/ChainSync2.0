@@ -91,9 +91,9 @@ describe('Payment Integration Tests', () => {
         .send(paymentData)
         .expect(200);
 
-      expect(response.body).toHaveProperty('authorization_url');
-      expect(response.body).toHaveProperty('reference');
-      expect(response.body).toHaveProperty('access_code');
+      expect(response.body.authorization_url).toBeDefined();
+      expect(response.body.reference).toBeDefined();
+      expect(response.body.access_code).toBeDefined();
       expect(response.body.reference).toContain('PAYSTACK');
     });
 
@@ -113,7 +113,7 @@ describe('Payment Integration Tests', () => {
 
       const response = await request(app).post('/api/payment/initialize').send(paymentData).expect(200);
 
-      expect(response.body).toHaveProperty('link');
+      expect(response.body.link).toBeDefined();
     });
 
     it('should reject missing required parameters', async () => {
@@ -161,7 +161,7 @@ describe('Payment Integration Tests', () => {
         },
       };
       const response = await request(app).post('/api/payment/initialize').send(paymentData).expect(200);
-      expect(response.body).toHaveProperty('reference');
+      expect(response.body.reference).toBeDefined();
     });
   });
 

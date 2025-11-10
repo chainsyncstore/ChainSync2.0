@@ -45,7 +45,7 @@ describe('POS Transaction Integration Tests', () => {
       location: 'international',
       isActive: true,
       emailVerified: true
-    });
+    } as Record<string, unknown>);
 
     // Create test store
     testStore = await storage.createStore({
@@ -112,11 +112,11 @@ describe('POS Transaction Integration Tests', () => {
         .send(transactionData)
         .expect(201);
 
-      expect(response.body).toHaveProperty('id');
+      expect(response.body.id).toBeDefined();
       expect(response.body.storeId).toBe(testStore.id);
       expect(response.body.status).toBe('pending');
       expect(response.body.totalAmount).toBe(11.92);
-      expect(response.body).toHaveProperty('receiptNumber');
+      expect(response.body.receiptNumber).toBeDefined();
     });
 
     it('should reject invalid transaction data', async () => {
@@ -185,7 +185,7 @@ describe('POS Transaction Integration Tests', () => {
         .send(itemData)
         .expect(201);
 
-      expect(response.body).toHaveProperty('id');
+      expect(response.body.id).toBeDefined();
       expect(response.body.productId).toBe(testProduct.id);
       expect(response.body.quantity).toBe(2);
       expect(response.body.totalPrice).toBe(21.98);
@@ -267,7 +267,7 @@ describe('POS Transaction Integration Tests', () => {
         .expect(200);
 
       expect(response.body.status).toBe('completed');
-      expect(response.body).toHaveProperty('completedAt');
+      expect(response.body.completedAt).toBeDefined();
     });
 
     it('should reject completing non-existent transaction', async () => {
@@ -349,9 +349,10 @@ describe('POS Transaction Integration Tests', () => {
         .expect(200);
 
       expect(response.body.data).toHaveLength(2);
-      expect(response.body.pagination).toHaveProperty('page', 1);
-      expect(response.body.pagination).toHaveProperty('limit', 2);
-      expect(response.body.pagination).toHaveProperty('total');
+      expect(response.body.pagination?.page).toBe(1);
+      expect(response.body.pagination?.limit).toBe(2);
+      expect(response.body.pagination?.total).toBeDefined();
+
       expect(response.body.pagination.total).toBeGreaterThanOrEqual(3);
     });
 
@@ -398,8 +399,8 @@ describe('POS Transaction Integration Tests', () => {
         .set('Cookie', sessionCookie)
         .expect(200);
 
-      expect(response.body).toHaveProperty('id', testTransaction.id);
-      expect(response.body).toHaveProperty('items');
+      expect(response.body.id).toBe(testTransaction.id);
+      expect(Array.isArray(response.body.items)).toBe(true);
       expect(response.body.items).toHaveLength(1);
       expect(response.body.items[0].productId).toBe(testProduct.id);
     });

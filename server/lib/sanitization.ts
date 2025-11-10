@@ -146,24 +146,24 @@ export function sanitizeUserInput(input: string, allowHtml: boolean = false): st
  * @param allowHtml - Whether to allow HTML in string properties
  * @returns Sanitized object
  */
-export function sanitizeObject<T extends Record<string, any>>(obj: T, allowHtml: boolean = false): T {
-  if (!obj || typeof obj !== 'object') {
+export function sanitizeObject<T>(obj: T, allowHtml: boolean = false): T {
+  if (obj === null || typeof obj !== 'object') {
     return obj;
   }
-  
+
   const sanitized: any = Array.isArray(obj) ? [] : {};
-  
-  for (const [key, value] of Object.entries(obj)) {
+
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     if (typeof value === 'string') {
       sanitized[key] = sanitizeUserInput(value, allowHtml);
-    } else if (typeof value === 'object' && value !== null) {
+    } else if (value !== null && typeof value === 'object') {
       sanitized[key] = sanitizeObject(value, allowHtml);
     } else {
       sanitized[key] = value;
     }
   }
-  
-  return sanitized;
+
+  return sanitized as T;
 }
 
 /**

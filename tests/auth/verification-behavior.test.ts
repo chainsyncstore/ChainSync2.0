@@ -2,24 +2,26 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock the entire auth-enhanced module
 vi.mock('../../server/auth-enhanced', () => {
+  const mockAuthConfig = {
+    emailVerificationExpiry: 24 * 60 * 60 * 1000,
+    phoneVerificationExpiry: 5 * 60 * 1000,
+    otpMaxAttempts: 3
+  };
+
   const mockAuthService = {
     createEmailVerificationToken: vi.fn(),
     verifyEmailToken: vi.fn(),
     createPhoneVerificationOTP: vi.fn(),
     verifyPhoneOTP: vi.fn(),
     checkVerificationLevel: vi.fn(),
-    cleanupExpiredData: vi.fn(),
-    authConfig: {
-      emailVerificationExpiry: 24 * 60 * 60 * 1000,
-      phoneVerificationExpiry: 5 * 60 * 1000,
-      otpMaxAttempts: 3
-    }
-  };
+    cleanupExpiredData: vi.fn()
+  } as Record<string, unknown>;
 
-  return { EnhancedAuthService: mockAuthService };
+  return { EnhancedAuthService: mockAuthService, authConfig: mockAuthConfig };
 });
 
-import { EnhancedAuthService } from '../../server/auth-enhanced';
+import type { EmailVerificationToken, User } from '@shared/schema';
+import { EnhancedAuthService, authConfig } from '../../server/auth-enhanced';
 
 describe('Verification - Behavior Tests', () => {
   beforeEach(() => {
@@ -28,12 +30,14 @@ describe('Verification - Behavior Tests', () => {
 
   describe('Email Verification Behavior', () => {
     it('should create email verification token successfully', async () => {
-      const mockToken = {
+      const mockToken: EmailVerificationToken = {
         id: 'token-123',
         userId: 'user-123',
         token: 'random-token-string',
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        used: false
+        isUsed: false,
+        createdAt: new Date(),
+        usedAt: null as unknown as Date
       };
 
       vi.mocked(EnhancedAuthService.createEmailVerificationToken).mockResolvedValue(mockToken);
@@ -44,7 +48,7 @@ describe('Verification - Behavior Tests', () => {
       expect(result.userId).toBe('user-123');
       expect(result.token).toBeDefined();
       expect(result.expiresAt).toBeInstanceOf(Date);
-      expect(result.used).toBe(false);
+      expect(result.isUsed).toBe(false);
       expect(EnhancedAuthService.createEmailVerificationToken).toHaveBeenCalledWith('user-123');
     });
 
@@ -173,7 +177,7 @@ describe('Verification - Behavior Tests', () => {
         id: 'user-123',
         emailVerified: true,
         phoneVerified: false
-      };
+      } as unknown as User;
 
       vi.mocked(EnhancedAuthService.checkVerificationLevel).mockReturnValue(true);
 
@@ -188,7 +192,7 @@ describe('Verification - Behavior Tests', () => {
         id: 'user-123',
         emailVerified: true,
         phoneVerified: true
-      };
+      } as unknown as User;
 
       vi.mocked(EnhancedAuthService.checkVerificationLevel).mockReturnValue(true);
 
@@ -203,7 +207,7 @@ describe('Verification - Behavior Tests', () => {
         id: 'user-123',
         emailVerified: false,
         phoneVerified: false
-      };
+      } as unknown as User;
 
       vi.mocked(EnhancedAuthService.checkVerificationLevel).mockReturnValue(false);
 
@@ -226,7 +230,7 @@ describe('Verification - Behavior Tests', () => {
 
   describe('Verification Configuration', () => {
     it('should have correct email verification expiry', () => {
-      const emailExpiry = EnhancedAuthService.authConfig.emailVerificationExpiry;
+      const emailExpiry = authConfig.emailVerificationExpiry;
       const twentyFourHours = 24 * 60 * 60 * 1000;
       
       expect(emailExpiry).toBe(twentyFourHours);
@@ -234,7 +238,7 @@ describe('Verification - Behavior Tests', () => {
     });
 
     it('should have correct phone verification expiry', () => {
-      const phoneExpiry = EnhancedAuthService.authConfig.phoneVerificationExpiry;
+      const phoneExpiry = authConfig.phoneVerificationExpiry;
       const fiveMinutes = 5 * 60 * 1000;
       
       expect(phoneExpiry).toBe(fiveMinutes);
@@ -242,7 +246,7 @@ describe('Verification - Behavior Tests', () => {
     });
 
     it('should have correct OTP max attempts', () => {
-      const maxAttempts = EnhancedAuthService.authConfig.otpMaxAttempts;
+      const maxAttempts = authConfig.otpMaxAttempts;
       
       expect(maxAttempts).toBe(3);
       expect(maxAttempts).toBeGreaterThan(0);
@@ -250,8 +254,8 @@ describe('Verification - Behavior Tests', () => {
     });
 
     it('should have reasonable expiry time relationships', () => {
-      const emailExpiry = EnhancedAuthService.authConfig.emailVerificationExpiry;
-      const phoneExpiry = EnhancedAuthService.authConfig.phoneVerificationExpiry;
+      const emailExpiry = authConfig.emailVerificationExpiry;
+      const phoneExpiry = authConfig.phoneVerificationExpiry;
       
       // Email verification should last longer than phone verification
       expect(emailExpiry).toBeGreaterThan(phoneExpiry);
