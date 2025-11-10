@@ -105,29 +105,74 @@ export class SubscriptionService {
         logger.info('createSubscription:insert', { userId, subscriptionId: subscription.id });
       }
     } else {
-      const insertResult = await db
-        .insert(subscriptions)
-        .values(subscriptionData)
-        .returning({ id: subscriptions.id });
+      const insertResult = await db.execute(
+        sql`INSERT INTO subscriptions (
+              org_id,
+              tier,
+              plan_code,
+              provider,
+              status,
+              upfront_fee_paid,
+              upfront_fee_currency,
+              monthly_amount,
+              monthly_currency,
+              trial_start_date,
+              trial_end_date,
+              upfront_fee_credited,
+              created_at,
+              updated_at
+            ) VALUES (
+              ${orgId},
+              ${tier},
+              ${planCode},
+              ${provider},
+              ${'TRIAL'},
+              ${subscriptionData.upfrontFeePaid},
+              ${upfrontFeeCurrency},
+              ${subscriptionData.monthlyAmount},
+              ${monthlyCurrency},
+              ${trialStartDate},
+              ${trialEndDate},
+              ${subscriptionData.upfrontFeeCredited},
+              ${trialStartDate},
+              ${trialStartDate}
+            )
+            RETURNING id,
+              org_id,
+              tier,
+              plan_code,
+              provider,
+              status,
+              upfront_fee_paid,
+              upfront_fee_currency,
+              monthly_amount,
+              monthly_currency,
+              trial_start_date,
+              trial_end_date,
+              upfront_fee_credited,
+              created_at,
+              updated_at`
+      );
+
       const inserted = this.extractFirstRow(insertResult);
 
       subscription = {
         id: inserted.id,
-        orgId,
+        orgId: inserted.org_id,
         userId: null,
-        tier,
-        planCode,
-        provider,
-        status: 'TRIAL',
-        upfrontFeePaid: subscriptionData.upfrontFeePaid,
-        upfrontFeeCurrency,
-        monthlyAmount: subscriptionData.monthlyAmount,
-        monthlyCurrency,
-        trialStartDate,
-        trialEndDate,
-        upfrontFeeCredited: subscriptionData.upfrontFeeCredited,
-        createdAt: trialStartDate,
-        updatedAt: trialStartDate,
+        tier: inserted.tier,
+        planCode: inserted.plan_code,
+        provider: inserted.provider,
+        status: inserted.status,
+        upfrontFeePaid: inserted.upfront_fee_paid,
+        upfrontFeeCurrency: inserted.upfront_fee_currency,
+        monthlyAmount: inserted.monthly_amount,
+        monthlyCurrency: inserted.monthly_currency,
+        trialStartDate: inserted.trial_start_date,
+        trialEndDate: inserted.trial_end_date,
+        upfrontFeeCredited: inserted.upfront_fee_credited,
+        createdAt: inserted.created_at,
+        updatedAt: inserted.updated_at,
       } as typeof subscriptions.$inferSelect;
 
       logger.info('createSubscription:insert:compat', { userId, subscriptionId: subscription.id });
