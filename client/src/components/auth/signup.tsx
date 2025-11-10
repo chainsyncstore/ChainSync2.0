@@ -196,12 +196,22 @@ function SignupForm() {
         recaptchaToken
       };
       
-      await apiClient.post('/auth/signup', signupData);
+      const response = await apiClient.post<any>('/auth/signup', signupData);
       clearErrors();
       setGeneralError('');
-      setTimeout(() => {
+
+      if (response?.pending) {
+        setLocation(`/signup/verify-otp?email=${encodeURIComponent(data.email)}`);
+        return;
+      }
+
+      if (response?.status === 'success' || response?.verifyEmailSent) {
         setLocation(`/verify-email?sent=1&email=${encodeURIComponent(data.email)}`);
-      }, 500);
+        return;
+      }
+
+      // Fallback: if API returned unexpected shape but was successful, send user to login
+      setLocation('/login');
     } catch (error: any) {
       // Handle specific error cases
       if (error.message?.includes('reCAPTCHA site key not configured')) {

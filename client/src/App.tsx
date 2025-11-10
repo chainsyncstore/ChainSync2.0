@@ -14,6 +14,7 @@ import { queryClient } from "./lib/queryClient";
 
 const Login = lazy(() => import("@/components/auth/login"));
 const Signup = lazy(() => import("@/components/auth/signup"));
+const SignupVerifyOtp = lazy(() => import("@/components/auth/signup-verify-otp"));
 const ForgotPassword = lazy(() => import("@/components/auth/forgot-password"));
 const ResetPassword = lazy(() => import("@/components/auth/reset-password"));
 const ForcePasswordReset = lazy(() => import("./components/auth/force-password-reset"));
@@ -183,6 +184,7 @@ function App() {
                       />
                     )}</Route>
                     <Route path="/signup" component={Signup} />
+                    <Route path="/signup/verify-otp" component={SignupVerifyOtp} />
                     <Route path="/forgot-password">{() => (
                       <ForgotPassword onBackToLogin={() => setLocation('/login')} />
                     )}</Route>

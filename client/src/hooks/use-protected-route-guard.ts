@@ -5,6 +5,7 @@ export const PUBLIC_ROUTES = new Set<string>([
   "/",
   "/login",
   "/signup",
+  "/signup/verify-otp",
   "/forgot-password",
   "/reset-password",
   "/payment-callback",
