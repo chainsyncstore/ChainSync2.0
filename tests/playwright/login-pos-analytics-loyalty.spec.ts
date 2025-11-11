@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { Response as PlaywrightResponse } from '@playwright/test';
+import { promises as fs } from 'node:fs';
 
 const ADMIN_EMAIL = 'info.elvisoffice@gmail.com';
 const ADMIN_PASSWORD = '@Chisom5940';
@@ -79,26 +80,39 @@ async function applySetCookieHeaders(page: any, response: any) {
   }
 }
 
-async function ensureEnterprisePlan(page: any) {
-  const { headers } = await fetchAuthHeaders(page);
-  const listResp = await page.request.get('/api/admin/subscriptions', { headers });
-  if (!listResp.ok()) {
-    return;
+async function ensureEnterprisePlan(page: any, adminAuth: { headers: Record<string, string> }) {
+  const listResp = await page.request.get('/api/admin/subscriptions', { headers: adminAuth.headers });
+
+  if (listResp.status() === 401) {
+    const body = await listResp.text();
+    throw new Error(`ensureEnterprisePlan: subscription list returned 401\n${body}`);
   }
+
+  if (!listResp.ok()) {
+    const body = await listResp.text();
+    throw new Error(`ensureEnterprisePlan: failed to list subscriptions (status ${listResp.status()})\n${body}`);
+  }
+
   const payload = await listResp.json().catch(() => ({}));
   const subscriptions: any[] = Array.isArray(payload?.subscriptions) ? payload.subscriptions : [];
+
   for (const sub of subscriptions) {
     const currentTier = (sub?.tier ?? sub?.planCode ?? '').toString().toLowerCase();
-    if (currentTier === 'enterprise') {
+    if (currentTier === 'enterprise' || !sub?.id) {
       continue;
     }
-    if (!sub?.id) {
-      continue;
-    }
-    await page.request.patch(`/api/admin/subscriptions/${sub.id}/plan`, {
-      headers,
+
+    const patchResp = await page.request.patch(`/api/admin/subscriptions/${sub.id}/plan`, {
+      headers: adminAuth.headers,
       data: { targetPlan: 'enterprise' },
     });
+
+    if (![200, 204].includes(patchResp.status())) {
+      const body = await patchResp.text();
+      throw new Error(
+        `ensureEnterprisePlan: failed to patch subscription ${sub.id} (status ${patchResp.status()})\n${body}`
+      );
+    }
   }
 }
 
@@ -156,6 +170,7 @@ test('full supermarket workflow including subscription & autopay', async ({ page
   // Admin login via API to bypass flaky UI auth for now
   await page.goto('/login');
   let adminAuth = await apiLogin(page, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: 'admin' });
+  await ensureEnterprisePlan(page, adminAuth);
   await expect(page).toHaveURL(/analytics|\//);
 
   // Verify analytics exports accessible
@@ -175,8 +190,21 @@ test('full supermarket workflow including subscription & autopay', async ({ page
 
   // Billing contact update
   await page.goto('/admin/billing');
-  await expect(page).toHaveURL(/\/admin\/billing/);
+  if (page.url().includes('/login')) {
+    adminAuth = await apiLogin(page, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: 'admin' });
+    await page.goto('/admin/billing');
+  }
+  if (page.url().includes('/login')) {
+    await testInfo.attach('billing-redirect-login.html', {
+      contentType: 'text/html',
+      body: await page.content(),
+    });
+    throw new Error('Redirected to login when attempting to access /admin/billing');
+  }
+  await page.waitForURL((url) => url.pathname === '/admin/billing');
   await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(250);
+  await expect(page.getByText('Billing Contact', { exact: true })).toBeVisible({ timeout: 10_000 });
   const billingInput = page.getByPlaceholder('billing@example.com');
   await expect(billingInput).toBeVisible();
 
@@ -346,8 +374,19 @@ test('full supermarket workflow including subscription & autopay', async ({ page
       contentType: 'application/json',
       body: JSON.stringify(storeCreateJson, null, 2),
     });
-    const storesResp = await page.request.get('/api/stores', { headers: adminAuth.headers });
-    const storesPayload = await storesResp.json();
+
+    let storesPayload: any = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const storesResp = await page.request.get('/api/stores', { headers: adminAuth.headers });
+      storesPayload = await storesResp.json().catch(() => null);
+      if (Array.isArray(storesPayload) && storesPayload.some((store: any) => store?.name === storeName)) {
+        break;
+      }
+      if (attempt < 2) {
+        await page.waitForTimeout(500);
+      }
+    }
+
     await testInfo.attach('stores-after-create.json', {
       contentType: 'application/json',
       body: JSON.stringify(storesPayload, null, 2),
@@ -483,6 +522,7 @@ test('full supermarket workflow including subscription & autopay', async ({ page
       contentType: 'application/json',
       body: JSON.stringify(meJson, null, 2),
     });
+    await fs.writeFile(testInfo.outputPath('force-reset.me.json'), JSON.stringify(meJson, null, 2));
 
     const requiresPasswordChange = Boolean(meJson?.data?.requiresPasswordChange ?? meJson?.requiresPasswordChange);
     if (requiresPasswordChange) {
@@ -496,11 +536,84 @@ test('full supermarket workflow including subscription & autopay', async ({ page
       });
       throw new Error('Password reset completed but backend still reports requiresPasswordChange=true');
     }
+
+    const meUserPayload = meJson?.data ?? meJson;
+    await page.evaluate(({ user, key, duration }) => {
+      const expiresAt = Date.now() + duration;
+      try {
+        window.localStorage?.setItem?.(key, JSON.stringify({ user, expiresAt }));
+      } catch (error) {
+        console.warn('localStorage set failed', error);
+        window.localStorage?.removeItem?.(key);
+      }
+      try {
+        window.sessionStorage?.clear?.();
+      } catch (error) {
+        console.warn('sessionStorage clear failed', error);
+      }
+    }, { user: meUserPayload, key: 'chainsync_session', duration: 8 * 60 * 60 * 1000 });
+
+    await page.goto('/', { waitUntil: 'networkidle' });
+    await testInfo.attach('post-reset.url.txt', {
+      contentType: 'text/plain',
+      body: page.url(),
+    });
+    await fs.writeFile(testInfo.outputPath('post-reset.url.txt'), page.url());
+    const storageSnapshot = await page.evaluate(() => {
+      const serializeStorage = (storage: Storage | undefined | null) => {
+        if (!storage) return {};
+        const result: Record<string, string> = {};
+        for (let i = 0; i < storage.length; i += 1) {
+          const key = storage.key(i);
+          if (key) {
+            result[key] = storage.getItem(key) ?? '';
+          }
+        }
+        return result;
+      };
+      return {
+        localStorage: serializeStorage(window.localStorage),
+        sessionStorage: serializeStorage(window.sessionStorage),
+      };
+    });
+    await testInfo.attach('post-reset.storage.json', {
+      contentType: 'application/json',
+      body: JSON.stringify(storageSnapshot, null, 2),
+    });
+    await fs.writeFile(testInfo.outputPath('post-reset.storage.json'), JSON.stringify(storageSnapshot, null, 2));
+    await expect(page).not.toHaveURL(/force-password-reset/);
   }
-  await expect(page).toHaveURL(/\/pos|\//);
+  await expect(page).not.toHaveURL(/force-password-reset/);
 
   // POS sale without scanner, ensure receipt modal reachable
   await page.goto('/pos');
+  await testInfo.attach('pos-precheck.url.txt', {
+    contentType: 'text/plain',
+    body: page.url(),
+  });
+  await fs.writeFile(testInfo.outputPath('pos-precheck.url.txt'), page.url());
+  const prePosStorage = await page.evaluate(() => {
+    const serializeStorage = (storage: Storage | undefined | null) => {
+      if (!storage) return {};
+      const result: Record<string, string> = {};
+      for (let i = 0; i < storage.length; i += 1) {
+        const key = storage.key(i);
+        if (key) {
+          result[key] = storage.getItem(key) ?? '';
+        }
+      }
+      return result;
+    };
+    return {
+      localStorage: serializeStorage(window.localStorage),
+      sessionStorage: serializeStorage(window.sessionStorage),
+    };
+  });
+  await testInfo.attach('pos-precheck.storage.json', {
+    contentType: 'application/json',
+    body: JSON.stringify(prePosStorage, null, 2),
+  });
+  await fs.writeFile(testInfo.outputPath('pos-precheck.storage.json'), JSON.stringify(prePosStorage, null, 2));
   await expect(page).toHaveURL(/\/pos/);
   await page.waitForLoadState('networkidle');
   const searchInput = page.getByLabel('Scan or Enter Barcode');

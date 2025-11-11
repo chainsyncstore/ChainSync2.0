@@ -299,6 +299,40 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  private async syncPrdUser(userId: string, data: Partial<typeof prdUsers.$inferInsert>) {
+    if (this.isTestEnv) return;
+
+    const updatePayload: Record<string, unknown> = {};
+    if (Object.prototype.hasOwnProperty.call(data, 'requiresPasswordChange') && data.requiresPasswordChange !== undefined) {
+      updatePayload.requiresPasswordChange = data.requiresPasswordChange;
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'passwordHash') && data.passwordHash !== undefined) {
+      updatePayload.passwordHash = data.passwordHash;
+    }
+    if (!Object.keys(updatePayload).length) return;
+
+    try {
+      const updated = await db
+        .update(prdUsers)
+        .set(updatePayload as any)
+        .where(eq(prdUsers.id, userId))
+        .returning({ id: prdUsers.id });
+
+      if (!updated.length) {
+        logger.warn('syncPrdUser: user not found in PRD mirror', {
+          userId,
+          updatePayload,
+        });
+      }
+    } catch (error) {
+      logger.warn('syncPrdUser: failed to update PRD mirror', {
+        userId,
+        updatePayload,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async insertPrdTestUser(user: {
     id: string;
     email: string;
@@ -1566,7 +1600,21 @@ export class DatabaseStorage implements IStorage {
       .set(normalizeUserUpdate(userData))
       .where(eq(users.id, id))
       .returning()) as typeof users.$inferSelect[];
-    return mapDbUser(user);
+    const mapped = mapDbUser(user);
+
+    const prdUpdate: Partial<typeof prdUsers.$inferInsert> = {};
+    if (Object.prototype.hasOwnProperty.call(userData, 'requiresPasswordChange')) {
+      prdUpdate.requiresPasswordChange = Boolean((userData as any).requiresPasswordChange);
+    }
+    const passwordUpdate = (userData as any).passwordHash ?? (userData as any).password ?? undefined;
+    if (passwordUpdate) {
+      prdUpdate.passwordHash = passwordUpdate;
+    }
+    if (Object.keys(prdUpdate).length) {
+      await this.syncPrdUser(id, prdUpdate);
+    }
+
+    return mapped;
   }
 
   async deleteUser(id: string): Promise<void> {
