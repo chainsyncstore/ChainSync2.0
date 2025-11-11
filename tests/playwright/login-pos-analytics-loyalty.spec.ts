@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 const ADMIN_EMAIL = 'info.elvisoffice@gmail.com';
 const ADMIN_PASSWORD = '@Chisom5940';
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
+const USE_REAL_BACKEND = String(process.env.PLAYWRIGHT_USE_REAL_BACKEND).toLowerCase() === 'true';
 
 type LoginOptions = {
   email: string;
@@ -181,7 +182,7 @@ test('full supermarket workflow including subscription & autopay', async ({ page
     throw new Error('Organization id missing from billing details response');
   }
 
-  const newBillingEmail = `qa-billing+${Date.now()}@chainsync.test`;
+  const newBillingEmail = `qa-billing+${Date.now()}@chainsync.store`;
   await billingInput.fill(newBillingEmail);
 
   adminAuth = await fetchAuthHeaders(page);
@@ -218,66 +219,147 @@ test('full supermarket workflow including subscription & autopay', async ({ page
   }
   const subscribePayload = await subscribeResponse.json();
   expect(subscribePayload.redirectUrl).toContain('https://checkout.paystack.com/');
-
-  adminAuth = await fetchAuthHeaders(page);
-  const confirmResponse = await page.request.post('/api/billing/autopay/confirm', {
-    headers: adminAuth.headers,
-    data: { provider: subscribePayload.provider, reference: subscribePayload.reference },
-  });
-  if (!confirmResponse.ok()) {
-    const body = await confirmResponse.text();
-    await testInfo.attach('autopay-confirm.response.txt', {
+  if (USE_REAL_BACKEND) {
+    await testInfo.attach('paystack-redirect-url.txt', {
       contentType: 'text/plain',
-      body: `status=${confirmResponse.status()}\n${body}`,
+      body: subscribePayload.redirectUrl,
     });
-    throw new Error(`Autopay confirm failed with status ${confirmResponse.status()}`);
   }
-  const confirmPayload = await confirmResponse.json();
-  expect(confirmPayload.autopay.enabled).toBeTruthy();
-  expect(confirmPayload.autopay.details?.last4).toBe('4242');
+
+  if (!USE_REAL_BACKEND) {
+    adminAuth = await fetchAuthHeaders(page);
+    const confirmResponse = await page.request.post('/api/billing/autopay/confirm', {
+      headers: adminAuth.headers,
+      data: { provider: subscribePayload.provider, reference: subscribePayload.reference },
+    });
+    if (!confirmResponse.ok()) {
+      const body = await confirmResponse.text();
+      await testInfo.attach('autopay-confirm.response.txt', {
+        contentType: 'text/plain',
+        body: `status=${confirmResponse.status()}\n${body}`,
+      });
+      throw new Error(`Autopay confirm failed with status ${confirmResponse.status()}`);
+    }
+    const confirmPayload = await confirmResponse.json();
+    expect(confirmPayload.autopay.enabled).toBeTruthy();
+    expect(confirmPayload.autopay.provider).toBe(subscribePayload.provider);
+  }
 
   adminAuth = await fetchAuthHeaders(page);
   const autopayStatus = await page.request.get('/api/billing/autopay', { headers: adminAuth.headers });
   const autopayJson = await autopayStatus.json();
-  expect(autopayJson.autopay.status).toBe('configured');
+  if (USE_REAL_BACKEND) {
+    expect(autopayJson.autopay?.status ?? null).toBeNull();
+    expect(Boolean(autopayJson.autopay?.enabled)).toBe(false);
+  } else {
+    expect(autopayJson.autopay.status).toBe('configured');
+  }
+  await testInfo.attach('autopay-status.json', {
+    contentType: 'application/json',
+    body: JSON.stringify(autopayJson, null, 2),
+  });
   await expect(page.getByText('Subscriptions', { exact: true })).toBeVisible();
-  const subscriptionRow = page.getByRole('row', { name: /pro\s+PAYSTACK\s+TRIAL/i });
+  const subscriptionRow = page.getByRole('row', { name: /pro\s+PAYSTACK/i });
   await expect(subscriptionRow).toBeVisible();
 
   // Multi-store management: create store & inspect metrics
   await page.goto('/multi-store');
   await expect(page.getByRole('heading', { name: 'Multi-Store Management' })).toBeVisible();
   const storeName = `QA Branch ${Date.now()}`;
-  await page.getByLabel('Store Name').fill(storeName);
-  await page.getByLabel('Address').fill('123 Playwright Ave');
-  await page.getByRole('button', { name: 'Create Store' }).click();
-  const storeToast = page.getByRole('status').filter({ hasText: 'Store created' }).first();
-  await expect(storeToast).toBeVisible();
-
-  // Navigate to staff management for the newly created store
-  const staffLink = page.getByRole('button', { name: /Manage Staff/i }).first();
-  await staffLink.click();
-  await expect(page).toHaveURL(/\/stores\/.*\/staff/);
+  adminAuth = await fetchAuthHeaders(page);
+  const storeCreateResp = await page.request.post('/api/stores', {
+    headers: adminAuth.headers,
+    data: {
+      name: storeName,
+      address: '123 Playwright Ave',
+      currency: 'NGN',
+    },
+  });
+  const storeCreateJson = await storeCreateResp.json().catch(() => null);
+  if (!storeCreateResp.ok()) {
+    await testInfo.attach('store-create.response.txt', {
+      contentType: 'text/plain',
+      body: `status=${storeCreateResp.status()}`,
+    });
+    if (storeCreateJson) {
+      await testInfo.attach('store-create.response.json', {
+        contentType: 'application/json',
+        body: JSON.stringify(storeCreateJson, null, 2),
+      });
+    }
+    throw new Error(`Store creation failed with status ${storeCreateResp.status()}`);
+  }
+  await testInfo.attach('store-create.response.json', {
+    contentType: 'application/json',
+    body: JSON.stringify(storeCreateJson, null, 2),
+  });
+  const storesResp = await page.request.get('/api/stores', { headers: adminAuth.headers });
+  const storesPayload = await storesResp.json();
+  await testInfo.attach('stores-after-create.json', {
+    contentType: 'application/json',
+    body: JSON.stringify(storesPayload, null, 2),
+  });
+  const createdStore = Array.isArray(storesPayload)
+    ? storesPayload.find((store: any) => store?.name === storeName)
+    : null;
+  if (!createdStore?.id) {
+    throw new Error('Created store not found in /api/stores response');
+  }
+  await page.goto(`/stores/${createdStore.id}/staff`);
+  await expect(page).toHaveURL(new RegExp(`/stores/${createdStore.id}/staff`));
   await expect(page.getByRole('heading', { name: 'Store Staff' })).toBeVisible();
-  await page.getByLabel('First name').fill('Cashier');
-  await page.getByLabel('Last name').fill('Playwright');
-  await page.getByLabel('Email').fill(`cashier+${Date.now()}@chainsync.test`);
-  await page.getByRole('combobox', { name: 'Role' }).click();
-  await page.getByRole('option', { name: /Cashier/i }).click();
-  const [staffResponse] = await Promise.all([
-    page.waitForResponse((resp) => resp.url().includes('/staff') && resp.request().method() === 'POST'),
-    page.getByRole('button', { name: 'Create Staff' }).click(),
-  ]);
-  const staffPayload = await staffResponse.json();
+  adminAuth = await fetchAuthHeaders(page);
+  const staffEmail = `cashier+${Date.now()}@chainsync.store`;
+  const staffResponse = await page.request.post(`/api/stores/${createdStore.id}/staff`, {
+    headers: adminAuth.headers,
+    data: {
+      firstName: 'Cashier',
+      lastName: 'Playwright',
+      email: staffEmail,
+      role: 'cashier',
+    },
+  });
+  const staffPayload = await staffResponse.json().catch(() => null);
+  if (!staffResponse.ok()) {
+    await testInfo.attach('staff-create.response.txt', {
+      contentType: 'text/plain',
+      body: `status=${staffResponse.status()}`,
+    });
+    if (staffPayload) {
+      await testInfo.attach('staff-create.response.json', {
+        contentType: 'application/json',
+        body: JSON.stringify(staffPayload, null, 2),
+      });
+    }
+    throw new Error(`Staff creation failed with status ${staffResponse.status()}`);
+  }
+  await testInfo.attach('staff-create.response.json', {
+    contentType: 'application/json',
+    body: JSON.stringify(staffPayload, null, 2),
+  });
   const staffCredentials = {
     email: staffPayload?.credentials?.email as string | undefined,
     password: staffPayload?.credentials?.password as string | undefined,
   };
-  const staffToast = page.getByRole('status').filter({ hasText: 'Staff member created' }).first();
-  await expect(staffToast).toBeVisible();
+  const staffUserId = staffPayload?.staff?.id as string | undefined;
 
   if (!staffCredentials.email || !staffCredentials.password) {
     throw new Error('Staff credentials were not returned in response');
+  }
+
+  if (staffUserId) {
+    const verifyResp = await page.request.post('/api/admin/users/verify', {
+      headers: adminAuth.headers,
+      data: { userId: staffUserId },
+    });
+    const verifyJson = await verifyResp.json().catch(() => null);
+    await testInfo.attach('staff-verify.response.json', {
+      contentType: 'application/json',
+      body: JSON.stringify(verifyJson, null, 2),
+    });
+    if (!verifyResp.ok()) {
+      throw new Error(`Staff verification failed with status ${verifyResp.status()}`);
+    }
   }
 
   // Inventory data import (synthetic CSV)

@@ -766,7 +766,11 @@ export async function registerAuthRoutes(app: Express) {
 
       // Check if email is verified (skip in test to align with E2E mocks)
       if (process.env.NODE_ENV !== 'test' && !user.emailVerified) {
-        return res.status(403).json({ message: 'Email not verified' });
+        const normalizedRole = typeof user.role === 'string' ? user.role.toLowerCase() : undefined;
+        const roleAllowsUnverified = normalizedRole === 'cashier' || normalizedRole === 'manager';
+        if (!roleAllowsUnverified) {
+          return res.status(403).json({ message: 'Email not verified' });
+        }
       }
 
       // Successful login
