@@ -478,8 +478,10 @@ export async function registerAdminRoutes(app: Express) {
     const { targetPlan } = req.body;
     if (!targetPlan) return res.status(400).json({ error: 'Missing targetPlan' });
 
+    let subscriptionServiceModule: typeof import('../subscription/service');
     try {
-      const { SubscriptionService, InvalidPlanChangeError } = await import('../subscription/service');
+      subscriptionServiceModule = await import('../subscription/service');
+      const { SubscriptionService } = subscriptionServiceModule;
       const subService = new SubscriptionService();
 
       const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)).limit(1);
@@ -494,7 +496,12 @@ export async function registerAdminRoutes(app: Express) {
       });
 
       if (!result.changed) {
-        return res.json({ changed: false, message: 'Plan unchanged', plan: result.plan });
+        return res.json({
+          changed: false,
+          message: 'Plan unchanged',
+          plan: result.plan,
+          billingImpact: result.billingImpact,
+        });
       }
 
       // Notify primary org user
@@ -504,19 +511,30 @@ export async function registerAdminRoutes(app: Express) {
       }
       if (user && user.email) {
         const { generateSubscriptionTierChangeEmail, sendEmail } = await import('../email');
+        const previousTier =
+          typeof subscription.planCode === 'string'
+            ? subscription.planCode
+            : typeof (result.subscription as any)?.tier === 'string'
+              ? (result.subscription as any).tier
+              : 'unknown';
         const emailObj = generateSubscriptionTierChangeEmail(
           user.email,
-          user.email,
-          subscription.tier ?? subscription.planCode ?? 'unknown',
+          user?.firstName ?? user.email,
+          previousTier,
           result.plan.code
         );
         await sendEmail(emailObj);
       }
 
-      res.json({ changed: true, plan: result.plan, subscription: result.subscription });
+      res.json({
+        changed: true,
+        plan: result.plan,
+        subscription: result.subscription,
+        billingImpact: result.billingImpact,
+      });
     } catch (error) {
-      if (error instanceof (await import('../subscription/service')).InvalidPlanChangeError) {
-        const err = error as InstanceType<typeof InvalidPlanChangeError>;
+      if (subscriptionServiceModule && error instanceof subscriptionServiceModule.InvalidPlanChangeError) {
+        const err = error as InstanceType<typeof subscriptionServiceModule.InvalidPlanChangeError>;
         return res.status(err.status).json({ error: err.message, code: err.code });
       }
       logger.error('Admin plan change failure', { subscriptionId, error: error instanceof Error ? error.message : String(error) });

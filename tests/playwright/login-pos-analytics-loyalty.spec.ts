@@ -79,6 +79,29 @@ async function applySetCookieHeaders(page: any, response: any) {
   }
 }
 
+async function ensureEnterprisePlan(page: any) {
+  const { headers } = await fetchAuthHeaders(page);
+  const listResp = await page.request.get('/api/admin/subscriptions', { headers });
+  if (!listResp.ok()) {
+    return;
+  }
+  const payload = await listResp.json().catch(() => ({}));
+  const subscriptions: any[] = Array.isArray(payload?.subscriptions) ? payload.subscriptions : [];
+  for (const sub of subscriptions) {
+    const currentTier = (sub?.tier ?? sub?.planCode ?? '').toString().toLowerCase();
+    if (currentTier === 'enterprise') {
+      continue;
+    }
+    if (!sub?.id) {
+      continue;
+    }
+    await page.request.patch(`/api/admin/subscriptions/${sub.id}/plan`, {
+      headers,
+      data: { targetPlan: 'enterprise' },
+    });
+  }
+}
+
 async function buildAuthHeaders(page: any, csrfToken?: string) {
   const cookies = await page.context().cookies();
   const cookieHeader = cookies.map((cookie: { name: string; value: string }) => `${cookie.name}=${cookie.value}`).join('; ');

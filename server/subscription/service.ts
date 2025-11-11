@@ -1,11 +1,11 @@
 import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import type { QueryResult } from 'pg';
 
-import { subscriptions as prdSubscriptions } from '@shared/prd-schema';
+import { subscriptions as prdSubscriptions, stores as prdStores } from '@shared/prd-schema';
 import { subscriptions, subscriptionPayments, stores, users } from '../../shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
-import { getPlan } from '../lib/plans';
+import { getPlan, type Plan } from '../lib/plans';
 import { VALID_TIERS, type ValidTier } from '../lib/constants';
 
 export class SubscriptionService {
@@ -51,10 +51,19 @@ export class SubscriptionService {
   private async countStoresForOrg(orgId: string): Promise<number> {
     const [{ count }] = await db
       .select({ count: sql<number>`COUNT(*)` })
-      .from(stores)
-      .where(eq(stores.orgId, orgId));
+      .from(prdStores)
+      .where(eq(prdStores.orgId, orgId));
 
-    return Number(count ?? 0);
+    if (Number.isFinite(count)) {
+      return Number(count);
+    }
+
+    const [{ count: fallbackCount }] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(stores)
+      .where(eq(stores.ownerId, orgId as any));
+
+    return Number(fallbackCount ?? 0);
   }
 
   private async syncPrdSubscription(subscriptionId: string, payload: Record<string, unknown>) {
@@ -69,6 +78,54 @@ export class SubscriptionService {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private buildBillingImpact(
+    current: typeof subscriptions.$inferSelect,
+    targetPlan: Plan
+  ) {
+    const status = (current.status ?? '').toString().toUpperCase();
+    const now = Date.now();
+    const nextBilling = current.nextBillingDate
+      ? new Date(current.nextBillingDate).getTime()
+      : null;
+    const trialEnd = current.trialEndDate
+      ? new Date(current.trialEndDate).getTime()
+      : null;
+
+    if (status === 'TRIAL') {
+      return {
+        type: 'TRIAL' as const,
+        requiresAcknowledgement: false,
+        message: `Your plan change to ${targetPlan.name} will apply immediately and remain in effect for the rest of your trial${
+          trialEnd ? `, which ends on ${new Date(trialEnd).toISOString()}` : ''
+        }. Billing will continue at the ${targetPlan.name} rate once the trial ends.`,
+        ...(trialEnd ? { trialEndsAt: new Date(trialEnd).toISOString() } : {}),
+      };
+    }
+
+    if (status === 'ACTIVE') {
+      if (nextBilling && nextBilling > now) {
+        return {
+          type: 'FORFEIT_REMAINING' as const,
+          requiresAcknowledgement: true,
+          message: `Changing plan now will forfeit the remaining time on your current billing cycle, which ends on ${new Date(nextBilling).toISOString()}. You will be charged immediately for the ${targetPlan.name} plan.`,
+          currentPeriodEndsAt: new Date(nextBilling).toISOString(),
+        };
+      }
+
+      return {
+        type: 'IMMEDIATE_CHARGE' as const,
+        requiresAcknowledgement: true,
+        message: `Changing plan now will charge you immediately for the ${targetPlan.name} plan. Any remaining time on your previous plan will be forfeited.`,
+      };
+    }
+
+    return {
+      type: 'NONE' as const,
+      requiresAcknowledgement: false,
+      message: `Your subscription will be moved to the ${targetPlan.name} plan.`,
+    };
   }
 
   async changePlan(options: {
@@ -101,10 +158,12 @@ export class SubscriptionService {
 
     const existingPlanCode = (current.planCode ?? current.tier ?? '').toString().toLowerCase();
     if (existingPlanCode === normalizedTarget) {
+      const billingImpact = this.buildBillingImpact(current, plan);
       return {
         subscription: current,
         plan,
         changed: false,
+        billingImpact,
       } as const;
     }
 
@@ -141,10 +200,13 @@ export class SubscriptionService {
       updatedAt: now,
     });
 
+    const billingImpact = this.buildBillingImpact(updated, plan);
+
     return {
       subscription: updated,
       plan,
       changed: true,
+      billingImpact,
     };
   }
 
@@ -285,7 +347,7 @@ export class SubscriptionService {
       }
     } else {
       const insertColumns: string[] = [];
-      const insertValues: Array<typeof sql> = [];
+      const insertValues: ReturnType<typeof sql>[] = [];
 
       const pushColumn = (column: string, value: unknown) => {
         if (subscriptionColumns.has(column)) {
