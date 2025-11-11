@@ -303,11 +303,14 @@ export class DatabaseStorage implements IStorage {
     if (this.isTestEnv) return;
 
     const updatePayload: Record<string, unknown> = {};
-    if (Object.prototype.hasOwnProperty.call(data, 'requiresPasswordChange') && data.requiresPasswordChange !== undefined) {
-      updatePayload.requiresPasswordChange = data.requiresPasswordChange;
+    const requiresPasswordChange = (data as { requiresPasswordChange?: unknown }).requiresPasswordChange;
+    if (typeof requiresPasswordChange !== 'undefined') {
+      (updatePayload as Record<string, unknown>).requiresPasswordChange = Boolean(requiresPasswordChange);
     }
-    if (Object.prototype.hasOwnProperty.call(data, 'passwordHash') && data.passwordHash !== undefined) {
-      updatePayload.passwordHash = data.passwordHash;
+    const passwordHashUpdate = (data as { passwordHash?: unknown; password?: unknown }).passwordHash
+      ?? (data as { password?: unknown }).password;
+    if (typeof passwordHashUpdate !== 'undefined') {
+      (updatePayload as Record<string, unknown>).passwordHash = String(passwordHashUpdate);
     }
     if (!Object.keys(updatePayload).length) return;
 
@@ -1602,16 +1605,19 @@ export class DatabaseStorage implements IStorage {
       .returning()) as typeof users.$inferSelect[];
     const mapped = mapDbUser(user);
 
-    const prdUpdate: Partial<typeof prdUsers.$inferInsert> = {};
-    if (Object.prototype.hasOwnProperty.call(userData, 'requiresPasswordChange')) {
-      prdUpdate.requiresPasswordChange = Boolean((userData as any).requiresPasswordChange);
+    const prdUpdate: Record<string, unknown> = {};
+    const requiresPasswordChangeUpdate = (userData as { requiresPasswordChange?: unknown }).requiresPasswordChange;
+    if (typeof requiresPasswordChangeUpdate !== 'undefined') {
+      prdUpdate.requiresPasswordChange = Boolean(requiresPasswordChangeUpdate);
     }
-    const passwordUpdate = (userData as any).passwordHash ?? (userData as any).password ?? undefined;
-    if (passwordUpdate) {
-      prdUpdate.passwordHash = passwordUpdate;
+    const passwordUpdate = (userData as { passwordHash?: unknown; password?: unknown }).passwordHash
+      ?? (userData as { password?: unknown }).password
+      ?? undefined;
+    if (typeof passwordUpdate !== 'undefined') {
+      prdUpdate.passwordHash = String(passwordUpdate);
     }
     if (Object.keys(prdUpdate).length) {
-      await this.syncPrdUser(id, prdUpdate);
+      await this.syncPrdUser(id, prdUpdate as Partial<typeof prdUsers.$inferInsert>);
     }
 
     return mapped;

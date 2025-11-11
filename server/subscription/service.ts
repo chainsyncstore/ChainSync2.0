@@ -387,23 +387,80 @@ export class SubscriptionService {
 
       const inserted = this.extractFirstRow(insertResult) as Record<string, unknown>;
 
+      const providerValue = subscriptionColumns.has('provider')
+        ? ((inserted.provider as typeof subscriptionData.provider | null) ?? provider)
+        : provider;
+      const statusInserted = subscriptionColumns.has('status')
+        ? ((inserted.status as typeof subscriptionData.status | null) ?? (statusValue as typeof subscriptionData.status))
+        : (statusValue as typeof subscriptionData.status);
+      const upfrontFeeCreditedValue = subscriptionColumns.has('upfront_fee_credited')
+        ? Boolean(inserted.upfront_fee_credited)
+        : subscriptionData.upfrontFeeCredited;
+      const monthlyAmountValue = subscriptionColumns.has('monthly_amount')
+        ? ((inserted.monthly_amount as typeof subscriptionData.monthlyAmount | null) ?? subscriptionData.monthlyAmount)
+        : subscriptionData.monthlyAmount;
+      const trialStartValue = subscriptionColumns.has('trial_start_date')
+        ? ((inserted.trial_start_date as Date | null) ?? trialStartDate)
+        : trialStartDate;
+      const trialEndValue = subscriptionColumns.has('trial_end_date')
+        ? ((inserted.trial_end_date as Date | null) ?? trialEndDate)
+        : trialEndDate;
+      const nextBillingValue = subscriptionColumns.has('next_billing_date')
+        ? ((inserted.next_billing_date as Date | null) ?? null)
+        : null;
+      const createdAtValue = subscriptionColumns.has('created_at')
+        ? ((inserted.created_at as Date | null) ?? trialStartValue)
+        : trialStartValue;
+      const updatedAtValue = subscriptionColumns.has('updated_at')
+        ? ((inserted.updated_at as Date | null) ?? trialStartValue)
+        : trialStartValue;
+      const autopayEnabledValue = subscriptionColumns.has('autopay_enabled')
+        ? Boolean(inserted.autopay_enabled)
+        : false;
+      const autopayProviderValue = subscriptionColumns.has('autopay_provider')
+        ? ((inserted.autopay_provider as string | null) ?? null)
+        : null;
+      const autopayReferenceValue = subscriptionColumns.has('autopay_reference')
+        ? ((inserted.autopay_reference as string | null) ?? null)
+        : null;
+      const autopayConfiguredAtValue = subscriptionColumns.has('autopay_configured_at')
+        ? ((inserted.autopay_configured_at as Date | null) ?? null)
+        : null;
+      const autopayLastStatusValue = subscriptionColumns.has('autopay_last_status')
+        ? ((inserted.autopay_last_status as string | null) ?? null)
+        : null;
+      const trialReminder7Value = subscriptionColumns.has('trial_reminder_7_sent_at')
+        ? ((inserted.trial_reminder_7_sent_at as Date | null) ?? null)
+        : null;
+      const trialReminder3Value = subscriptionColumns.has('trial_reminder_3_sent_at')
+        ? ((inserted.trial_reminder_3_sent_at as Date | null) ?? null)
+        : null;
+
       subscription = {
         id: inserted.id as string,
         orgId: (inserted.org_id as string) ?? orgId,
-        userId: null,
+        userId: subscriptionColumns.has('user_id') ? ((inserted.user_id as string | null) ?? null) : null,
         tier: (inserted.tier as string) ?? tier,
         planCode: (inserted.plan_code as string) ?? planCode,
-        provider: (inserted.provider as typeof subscriptionData.provider) ?? provider,
-        status: (inserted.status as typeof subscriptionData.status) ?? (statusValue as typeof subscriptionData.status),
+        provider: providerValue,
+        status: statusInserted,
         upfrontFeePaid: (inserted.upfront_fee_paid as typeof subscriptionData.upfrontFeePaid) ?? subscriptionData.upfrontFeePaid,
         upfrontFeeCurrency: (inserted.upfront_fee_currency as string) ?? upfrontFeeCurrency,
-        monthlyAmount: (inserted.monthly_amount as typeof subscriptionData.monthlyAmount) ?? subscriptionData.monthlyAmount,
+        monthlyAmount: monthlyAmountValue,
         monthlyCurrency: (inserted.monthly_currency as string) ?? monthlyCurrency,
-        trialStartDate: (inserted.trial_start_date as Date | null) ?? trialStartDate,
-        trialEndDate: (inserted.trial_end_date as Date | null) ?? trialEndDate,
-        upfrontFeeCredited: (inserted.upfront_fee_credited as boolean | null) ?? subscriptionData.upfrontFeeCredited,
-        createdAt: (inserted.created_at as Date | null) ?? trialStartDate,
-        updatedAt: (inserted.updated_at as Date | null) ?? trialStartDate,
+        trialStartDate: trialStartValue,
+        trialEndDate: trialEndValue,
+        nextBillingDate: nextBillingValue,
+        upfrontFeeCredited: upfrontFeeCreditedValue,
+        autopayEnabled: autopayEnabledValue,
+        autopayProvider: autopayProviderValue,
+        autopayReference: autopayReferenceValue,
+        autopayConfiguredAt: autopayConfiguredAtValue,
+        autopayLastStatus: autopayLastStatusValue,
+        trialReminder7SentAt: trialReminder7Value,
+        trialReminder3SentAt: trialReminder3Value,
+        createdAt: createdAtValue,
+        updatedAt: updatedAtValue,
       } as typeof subscriptions.$inferSelect;
 
       logger.info('createSubscription:insert:compat', { userId, subscriptionId: subscription.id });

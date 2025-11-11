@@ -1155,23 +1155,55 @@ export async function registerAuthRoutes(app: Express) {
   // Password change (not reset)
   app.post('/api/auth/change-password', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
     const { userId } = req.session!;
-    const { oldPassword, newPassword } = req.body;
-    if (!userId || !oldPassword || !newPassword) {
+    const { oldPassword, newPassword } = req.body ?? {};
+    if (!userId || typeof oldPassword !== 'string' || typeof newPassword !== 'string') {
       return res.status(400).json({ message: 'Invalid request' });
     }
     try {
       const user = await storage.getUserById(userId);
-      if (!user) return res.status(404).json({ message: 'User not found' });
-      const isPasswordValid = await bcrypt.compare(oldPassword, (user as any).password);
-      if (!isPasswordValid) return res.status(400).json({ message: 'Incorrect current password' });
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      const storedHash = (user as any).passwordHash ?? (user as any).password_hash ?? (user as any).password ?? null;
+      if (!storedHash) {
+        return res.status(400).json({ message: 'Password not set for user' });
+      }
+
+      const isPasswordValid = await bcrypt.compare(oldPassword, String(storedHash));
+      if (!isPasswordValid) {
+        return res.status(400).json({ message: 'Incorrect current password' });
+      }
+
       const hashedPassword = await bcrypt.hash(newPassword, 10);
-      await storage.updateUser(userId, { password: hashedPassword } as Record<string, unknown>);
-      // Send password change alert email
+      await storage.updateUser(userId, {
+        passwordHash: hashedPassword,
+        password: hashedPassword,
+        requiresPasswordChange: false,
+      } as Record<string, unknown>);
+
+      if (req.session) {
+        (req.session as any).requiresPasswordChange = false;
+        req.session.save(() => undefined);
+      }
+
+      const updatedUser = await storage.getUser(userId);
+
       try {
         const { generatePasswordChangeAlertEmail, sendEmail } = await import('../email');
         await sendEmail(generatePasswordChangeAlertEmail(user.email, (user as any).firstName || user.email));
-      } catch (e) { logger.error('Failed to send password change alert email', e); }
-      res.json({ message: 'Password changed successfully' });
+      } catch (e) {
+        logger.error('Failed to send password change alert email', e);
+      }
+
+      res.json({
+        message: 'Password changed successfully',
+        user: updatedUser ? {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          requiresPasswordChange: Boolean((updatedUser as any)?.requiresPasswordChange),
+        } : null,
+      });
     } catch (error) {
       logger.error('Password change error', { error, req: extractLogContext(req) });
       res.status(500).json({ message: 'Internal server error' });

@@ -1,7 +1,7 @@
 {
   "localStorage": {
     "ai-chat-messages": "[]",
-    "chainsync_session": "{\"user\":{\"id\":\"39609b84-a71f-4bb2-a6b9-06ae83271ce0\",\"email\":\"cashier+1762896625423@chainsync.store\",\"isAdmin\":false,\"role\":\"cashier\",\"storeId\":\"a3dcd494-d659-4936-bc99-f8dae421ae3c\",\"firstName\":\"Cashier\",\"lastName\":\"Playwright\",\"phone\":null,\"requiresPasswordChange\":true,\"twofaVerified\":false,\"subscription\":null},\"expiresAt\":1762925438394}"
+    "chainsync_session": "{\"user\":{\"id\":\"d04fefac-faa9-4fd1-acab-d40321c5a1f0\",\"email\":\"cashier+1762897053353@chainsync.store\",\"isAdmin\":false,\"role\":\"cashier\",\"storeId\":\"3bcba90b-c523-4692-967e-bcea8c955a0f\",\"firstName\":\"Cashier\",\"lastName\":\"Playwright\",\"phone\":null,\"requiresPasswordChange\":true,\"twofaVerified\":false,\"subscription\":null},\"expiresAt\":1762925864981}"
   },
   "sessionStorage": {}
 }
