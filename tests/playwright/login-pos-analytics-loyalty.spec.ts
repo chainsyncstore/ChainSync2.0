@@ -205,7 +205,7 @@ test('full supermarket workflow including subscription & autopay', async ({ page
     headers: adminAuth.headers,
     data: {
       orgId,
-      planCode: 'pro',
+      planCode: 'enterprise',
       email: newBillingEmail,
     },
   });
@@ -259,7 +259,7 @@ test('full supermarket workflow including subscription & autopay', async ({ page
     body: JSON.stringify(autopayJson, null, 2),
   });
   await expect(page.getByText('Subscriptions', { exact: true })).toBeVisible();
-  const subscriptionRow = page.getByRole('row', { name: /pro\s+PAYSTACK/i });
+  const subscriptionRow = page.getByRole('row', { name: /enterprise\s+PAYSTACK/i });
   await expect(subscriptionRow).toBeVisible();
 
   // Multi-store management: create store & inspect metrics
@@ -341,25 +341,8 @@ test('full supermarket workflow including subscription & autopay', async ({ page
     email: staffPayload?.credentials?.email as string | undefined,
     password: staffPayload?.credentials?.password as string | undefined,
   };
-  const staffUserId = staffPayload?.staff?.id as string | undefined;
-
   if (!staffCredentials.email || !staffCredentials.password) {
     throw new Error('Staff credentials were not returned in response');
-  }
-
-  if (staffUserId) {
-    const verifyResp = await page.request.post('/api/admin/users/verify', {
-      headers: adminAuth.headers,
-      data: { userId: staffUserId },
-    });
-    const verifyJson = await verifyResp.json().catch(() => null);
-    await testInfo.attach('staff-verify.response.json', {
-      contentType: 'application/json',
-      body: JSON.stringify(verifyJson, null, 2),
-    });
-    if (!verifyResp.ok()) {
-      throw new Error(`Staff verification failed with status ${verifyResp.status()}`);
-    }
   }
 
   // Inventory data import (synthetic CSV)

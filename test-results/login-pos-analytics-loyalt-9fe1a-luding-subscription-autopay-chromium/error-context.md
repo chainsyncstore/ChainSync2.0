@@ -56,32 +56,60 @@
   - option "QA Branch 1762849211888"
   - option "QA Branch 1762850366903"
   - option "QA Branch 1762851119002"
+  - option "QA Branch 1762851478040"
 - banner:
   - heading "ChainSync" [level=2]
   - paragraph: POS & Analytics System
-  - text: Live Sync Nov 11, 2025, 09:52 AM
+  - text: Live Sync Nov 11, 2025, 01:04 PM
   - button "Logout":
     - img
     - text: Logout
 - main:
-  - button "Back to Multi-Store":
-    - img
-    - text: Back to Multi-Store
-  - heading "Store Staff" [level=1]
-  - paragraph: Manage team members assigned to QA Branch 1762851119002. Admins can create managers or cashiers, while managers can only create cashiers.
-  - text: Add Staff Member Invite a new team member. Credentials will be generated automatically. First name
-  - textbox "First name"
-  - text: Last name
-  - textbox "Last name"
-  - text: Email
-  - textbox "Email"
-  - text: Role
-  - combobox "Role": Cashier
-  - button "Create Staff":
-    - img
-    - text: Create Staff
-  - paragraph: Passwords are randomly generated. Share credentials securely with the new staff member.
-  - text: Team Members Staff linked to this store with their roles and creators. No staff members yet. Invite your first team member using the form above.
+  - text: Billing Contact
+  - textbox "billing@example.com": qa-billing+1762862665808@chainsync.store
+  - button "Save"
+  - text: Subscriptions
+  - textbox "status (ACTIVE, PAST_DUE, CANCELLED)"
+  - textbox "provider (PAYSTACK, FLW)"
+  - button "Refresh"
+  - table:
+    - rowgroup:
+      - row "Plan Provider Status Current Period End":
+        - cell "Plan"
+        - cell "Provider"
+        - cell "Status"
+        - cell "Current Period End"
+    - rowgroup:
+      - row "pro PAYSTACK ACTIVE -":
+        - cell "pro"
+        - cell "PAYSTACK"
+        - cell "ACTIVE"
+        - cell "-"
+  - text: Actions
+  - button "Retry dunning now (pro)"
+  - button "Update payment method"
+  - text: Payments
+  - textbox "from (YYYY-MM-DD)"
+  - textbox "to (YYYY-MM-DD)"
+  - button "Refresh"
+  - table:
+    - rowgroup:
+      - row "Date Provider Amount Status Reference":
+        - cell "Date"
+        - cell "Provider"
+        - cell "Amount"
+        - cell "Status"
+        - cell "Reference"
+    - rowgroup
+  - text: Dunning History
+  - table:
+    - rowgroup:
+      - row "Sent At Subscription Attempt Status":
+        - cell "Sent At"
+        - cell "Subscription"
+        - cell "Attempt"
+        - cell "Status"
+    - rowgroup
 - button:
   - img
 ```

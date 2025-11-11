@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, TrendingUp, Users, Package, DollarSign } from "lucide-react";
+import { Building2, TrendingUp, Users, Package, DollarSign, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -10,14 +10,26 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfToken } from "@/lib/csrf";
 import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, LowStockAlert } from "@shared/schema";
+
+type StorePerformance = Store & {
+  dailyRevenue: number;
+  dailyTransactions: number;
+  monthlyRevenue: number;
+  staff: number;
+  lowStockItems: number;
+  profitMargin: number;
+  status: string;
+};
 
 export default function MultiStore() {
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [newStoreName, setNewStoreName] = useState("");
   const [newStoreAddress, setNewStoreAddress] = useState("");
   const [newStoreCurrency, setNewStoreCurrency] = useState<'NGN' | 'USD'>("NGN");
+  const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
@@ -28,7 +40,15 @@ export default function MultiStore() {
 
   // Auto-select first store when stores are loaded
   useEffect(() => {
-    if (stores.length > 0 && !selectedStore) {
+    if (stores.length === 0) {
+      if (selectedStore) {
+        setSelectedStore("");
+      }
+      return;
+    }
+
+    const stillExists = stores.some((store) => store.id === selectedStore);
+    if (!selectedStore || !stillExists) {
       setSelectedStore(stores[0].id);
     }
   }, [stores, selectedStore]);
@@ -61,6 +81,47 @@ export default function MultiStore() {
     }
   }, [newStoreAddress, newStoreCurrency, newStoreName, queryClient, toast]);
 
+  const deleteStore = useCallback(async (store: Store) => {
+    if (store.id.startsWith("placeholder-")) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete ${store.name}? This cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingStoreId(store.id);
+    try {
+      const csrfToken = await getCsrfToken();
+      const response = await fetch(`/api/stores/${store.id}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          "X-CSRF-Token": csrfToken,
+        },
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const message = payload?.error || payload?.message || "Failed to delete store";
+        toast({ title: "Failed to delete store", description: message, variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Store deleted", description: `${store.name} has been removed.` });
+      if (selectedStore === store.id) {
+        setSelectedStore("");
+      }
+      await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+    } catch (error) {
+      console.error("Failed to delete store", error);
+      toast({ title: "Failed to delete store", description: "Network error. Please try again.", variant: "destructive" });
+    } finally {
+      setDeletingStoreId(null);
+    }
+  }, [queryClient, selectedStore, toast]);
+
   const mockMetrics = useMemo(() => ([
     {
       dailyRevenue: 2847,
@@ -88,22 +149,34 @@ export default function MultiStore() {
     },
   ]), []);
 
-  const storePerformance = useMemo(() => {
+  const storePerformance = useMemo<StorePerformance[]>(() => {
     if (stores.length === 0) {
+      const now = new Date();
       return mockMetrics.map((metrics, index) => ({
         id: `placeholder-${index}`,
         name: index === 0 ? "Main Street Store" : index === 1 ? "Downtown Branch" : "Mall Location",
+        ownerId: "",
+        address: "",
+        phone: "",
+        email: "",
+        currency: "USD",
+        taxRate: "0.00",
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
         status: "active",
         ...metrics,
       }));
     }
 
-    return stores.map((store, index) => ({
-      id: store.id,
-      name: store.name,
-      status: "active",
-      ...mockMetrics[index % mockMetrics.length],
-    }));
+    return stores.map((store, index) => {
+      const metrics = mockMetrics[index % mockMetrics.length];
+      return {
+        ...store,
+        status: store.isActive ? "active" : "inactive",
+        ...metrics,
+      } as StorePerformance;
+    });
   }, [stores, mockMetrics]);
 
   const totalMetrics = storePerformance.reduce(
@@ -281,17 +354,26 @@ export default function MultiStore() {
                       </div>
                     </div>
 
-                    <Button
-                      className="w-full mt-4"
-                      variant="outline"
-                      disabled={store.id.startsWith('placeholder-')}
-                      onClick={() => {
-                        if (store.id.startsWith('placeholder-')) return;
-                        navigate(`/stores/${store.id}/staff`);
-                      }}
-                    >
-                      Manage Staffs
-                    </Button>
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <Button
+                        variant="outline"
+                        disabled={store.id.startsWith('placeholder-')}
+                        onClick={() => {
+                          if (store.id.startsWith('placeholder-')) return;
+                          navigate(`/stores/${store.id}/staff`);
+                        }}
+                      >
+                        Manage Staffs
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        disabled={store.id.startsWith('placeholder-') || deletingStoreId === store.id}
+                        onClick={() => deleteStore(store)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {deletingStoreId === store.id ? 'Deleting…' : 'Delete Store'}
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}

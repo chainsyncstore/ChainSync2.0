@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 import { stores, users, subscriptions } from '@shared/prd-schema';
@@ -57,6 +57,69 @@ export async function registerStoreRoutes(app: Express) {
     } as any).returning();
 
     return res.status(201).json(created);
+  });
+
+  app.delete('/api/stores/:id', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const storeId = req.params.id;
+    const currentUserId = (req.session as any)?.userId as string | undefined;
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const me = (await db.select().from(users).where(eq(users.id, currentUserId)))[0] as any;
+    if (!me?.orgId) {
+      return res.status(400).json({ error: 'Missing org' });
+    }
+
+    const [store] = await db
+      .select()
+      .from(stores)
+      .where(and(eq(stores.id, storeId), eq(stores.orgId, me.orgId)))
+      .limit(1);
+
+    if (!store) {
+      return res.status(404).json({ error: 'Store not found' });
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`DELETE FROM sale_items WHERE sale_id IN (SELECT id FROM sales WHERE store_id = ${storeId})`
+      );
+      await tx.execute(
+        sql`DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE store_id = ${storeId})`
+      );
+
+      const tablesWithStoreId = [
+        'inventory',
+        'low_stock_alerts',
+        'notifications',
+        'websocket_connections',
+        'sync_queue',
+        'user_store_permissions',
+        'loyalty_tiers',
+        'customers',
+        'forecast_models',
+        'external_factors',
+        'ai_insights',
+        'seasonal_patterns',
+        'demand_forecasts',
+        'ip_whitelists',
+        'price_changes',
+        'sales',
+        'transactions',
+      ] as const;
+
+      for (const tableName of tablesWithStoreId) {
+        await tx.execute(sql`DELETE FROM ${sql.raw(tableName)} WHERE store_id = ${storeId}`);
+      }
+
+      await tx.execute(sql`DELETE FROM user_roles WHERE store_id = ${storeId}`);
+      await tx.execute(sql`UPDATE users SET store_id = NULL WHERE store_id = ${storeId}`);
+
+      await tx.delete(stores).where(and(eq(stores.id, storeId), eq(stores.orgId, me.orgId)));
+    });
+
+    res.status(204).send();
   });
 
   // Update a store
