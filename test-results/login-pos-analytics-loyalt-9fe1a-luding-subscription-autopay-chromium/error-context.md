@@ -1,0 +1,87 @@
+# Page snapshot
+
+```yaml
+- region "Notifications (F8)":
+  - list
+- img
+- heading "ChainSync" [level=1]
+- paragraph: POS & Analytics
+- text: CO
+- paragraph: Chisom Ogbuanu
+- paragraph: admin
+- navigation:
+  - link "Inventory":
+    - /url: /inventory
+    - img
+    - text: Inventory
+  - link "Analytics":
+    - /url: /analytics
+    - img
+    - text: Analytics
+  - link "Loyalty":
+    - /url: /loyalty
+    - img
+    - text: Loyalty
+  - link "Alerts":
+    - /url: /alerts
+    - img
+    - text: Alerts
+  - link "Data Import":
+    - /url: /data-import
+    - img
+    - text: Data Import
+  - link "Multi-Store":
+    - /url: /multi-store
+    - img
+    - text: Multi-Store
+  - link "Audit":
+    - /url: /admin/audit
+    - img
+    - text: Audit
+  - link "Billing":
+    - /url: /admin/billing
+    - img
+    - text: Billing
+  - link "Settings":
+    - /url: /settings
+    - img
+    - text: Settings
+- combobox:
+  - option "QA Branch 1762822009331" [selected]
+  - option "QA Branch 1762823309830"
+  - option "QA Branch 1762845273383"
+  - option "QA Branch 1762845523925"
+  - option "QA Branch 1762846604957"
+  - option "QA Branch 1762847363682"
+  - option "QA Branch 1762849211888"
+  - option "QA Branch 1762850366903"
+  - option "QA Branch 1762851119002"
+- banner:
+  - heading "ChainSync" [level=2]
+  - paragraph: POS & Analytics System
+  - text: Live Sync Nov 11, 2025, 09:52 AM
+  - button "Logout":
+    - img
+    - text: Logout
+- main:
+  - button "Back to Multi-Store":
+    - img
+    - text: Back to Multi-Store
+  - heading "Store Staff" [level=1]
+  - paragraph: Manage team members assigned to QA Branch 1762851119002. Admins can create managers or cashiers, while managers can only create cashiers.
+  - text: Add Staff Member Invite a new team member. Credentials will be generated automatically. First name
+  - textbox "First name"
+  - text: Last name
+  - textbox "Last name"
+  - text: Email
+  - textbox "Email"
+  - text: Role
+  - combobox "Role": Cashier
+  - button "Create Staff":
+    - img
+    - text: Create Staff
+  - paragraph: Passwords are randomly generated. Share credentials securely with the new staff member.
+  - text: Team Members Staff linked to this store with their roles and creators. No staff members yet. Invite your first team member using the form above.
+- button:
+  - img
+```
