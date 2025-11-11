@@ -1,10 +1,12 @@
-import { eq, and, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import type { QueryResult } from 'pg';
 
 import { subscriptions as prdSubscriptions } from '@shared/prd-schema';
-import { subscriptions, subscriptionPayments, users } from '../../shared/schema';
+import { subscriptions, subscriptionPayments, stores, users } from '../../shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
+import { getPlan } from '../lib/plans';
+import { VALID_TIERS, type ValidTier } from '../lib/constants';
 
 export class SubscriptionService {
   private subscriptionsHasUserIdColumn: boolean | null = null;
@@ -15,7 +17,6 @@ export class SubscriptionService {
     if (this.subscriptionColumns) {
       return this.subscriptionColumns;
     }
-
     try {
       const result = await db.execute<{ column_name: string }>(
         sql`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'subscriptions'`
@@ -34,6 +35,117 @@ export class SubscriptionService {
     }
 
     return this.subscriptionColumns;
+  }
+
+  private resolvePlanCode(tier: string): string {
+    const plan = getPlan(tier.toLowerCase());
+    return plan?.code ?? tier.toLowerCase();
+  }
+
+  private validateTier(tier: string): asserts tier is ValidTier {
+    if (!VALID_TIERS.includes(tier.toLowerCase() as ValidTier)) {
+      throw new InvalidPlanChangeError('Unsupported tier selected', 'UNSUPPORTED_TIER');
+    }
+  }
+
+  private async countStoresForOrg(orgId: string): Promise<number> {
+    const [{ count }] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(stores)
+      .where(eq(stores.orgId, orgId));
+
+    return Number(count ?? 0);
+  }
+
+  private async syncPrdSubscription(subscriptionId: string, payload: Record<string, unknown>) {
+    try {
+      await db
+        .update(prdSubscriptions)
+        .set({ ...payload } as any)
+        .where(eq(prdSubscriptions.id, subscriptionId));
+    } catch (error) {
+      logger.warn('Failed to sync PRD subscription mirror', {
+        subscriptionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async changePlan(options: {
+    subscriptionId: string;
+    orgId: string;
+    targetPlan: string;
+  }) {
+    const { subscriptionId, orgId, targetPlan } = options;
+
+    this.validateTier(targetPlan);
+    const normalizedTarget = targetPlan.toLowerCase();
+    const plan = getPlan(normalizedTarget);
+    if (!plan) {
+      throw new InvalidPlanChangeError('Unknown plan code requested', 'INVALID_PLAN');
+    }
+
+    const [current] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.id, subscriptionId))
+      .limit(1);
+
+    if (!current) {
+      throw new InvalidPlanChangeError('Subscription not found', 'SUBSCRIPTION_NOT_FOUND', 404);
+    }
+
+    if (current.orgId !== orgId) {
+      throw new InvalidPlanChangeError('Subscription does not belong to organization', 'SUBSCRIPTION_MISMATCH', 403);
+    }
+
+    const existingPlanCode = (current.planCode ?? current.tier ?? '').toString().toLowerCase();
+    if (existingPlanCode === normalizedTarget) {
+      return {
+        subscription: current,
+        plan,
+        changed: false,
+      } as const;
+    }
+
+    const currentPlan = getPlan((current.planCode ?? current.tier ?? 'basic').toLowerCase());
+    const isDowngrade = currentPlan && currentPlan.maxStores > plan.maxStores;
+
+    if (isDowngrade && Number.isFinite(plan.maxStores)) {
+      const storeCount = await this.countStoresForOrg(orgId);
+      if (storeCount > plan.maxStores) {
+        throw new InvalidPlanChangeError(
+          `Downgrade blocked: your org currently has ${storeCount} store(s) but the ${plan.name} plan allows up to ${plan.maxStores}. Remove stores before downgrading.`,
+          'STORE_LIMIT_EXCEEDED',
+          409
+        );
+      }
+    }
+
+    const now = new Date();
+    const planCode = this.resolvePlanCode(normalizedTarget);
+
+    const [updated] = await db
+      .update(subscriptions)
+      .set({
+        planCode,
+        tier: normalizedTarget,
+        updatedAt: now,
+      } as any)
+      .where(eq(subscriptions.id, subscriptionId))
+      .returning();
+
+    await this.syncPrdSubscription(subscriptionId, {
+      planCode,
+      tier: normalizedTarget,
+      updatedAt: now,
+    });
+
+    return {
+      subscription: updated,
+      plan,
+      changed: true,
+    };
   }
 
   private async getSubscriptionStatusValues(): Promise<string[]> {
@@ -535,5 +647,16 @@ export class SubscriptionService {
       .returning();
     const updated = this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
     return { changed: true, oldTier: oldSub.tier, newTier: updated.tier, subscription: updated };
+  }
+}
+
+export class InvalidPlanChangeError extends Error {
+  constructor(
+    message: string,
+    public code: 'STORE_LIMIT_EXCEEDED' | 'INVALID_PLAN' | 'UNSUPPORTED_TIER' | 'SUBSCRIPTION_NOT_FOUND' | 'SUBSCRIPTION_MISMATCH',
+    public status: number = 400
+  ) {
+    super(message);
+    this.name = 'InvalidPlanChangeError';
   }
 }

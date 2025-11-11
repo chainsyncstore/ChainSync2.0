@@ -124,11 +124,28 @@ export async function registerMeRoutes(app: Express) {
       }
 
       const newPasswordHash = await bcrypt.hash(newPassword, 10);
-      await db.update(users)
-        .set({ passwordHash: newPasswordHash, requiresPasswordChange: false } as any)
-        .where(eq(users.id, userId));
 
-      res.status(200).json({ message: 'Password updated successfully' });
+      await storage.updateUser(userId, {
+        passwordHash: newPasswordHash,
+        password: newPasswordHash,
+        requiresPasswordChange: false,
+      } as any);
+
+      if (req.session) {
+        (req.session as any).requiresPasswordChange = false;
+        req.session.save(() => undefined);
+      }
+
+      const updatedUser = await storage.getUser(userId);
+
+      res.status(200).json({
+        message: 'Password updated successfully',
+        user: updatedUser ? {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          requiresPasswordChange: Boolean((updatedUser as any)?.requiresPasswordChange),
+        } : null,
+      });
     } catch (error) {
       logger.error('Password change error', {
         userId,

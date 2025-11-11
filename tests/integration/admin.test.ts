@@ -2,7 +2,7 @@ import express from 'express';
 import session from 'express-session';
 import request from 'supertest';
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi, beforeEach } from 'vitest';
 
 // Bypass IP checks and auth for tests via NODE_ENV=test inside middlewares
 vi.mock('../../server/middleware/authz', async () => {
@@ -32,6 +32,52 @@ describe('Admin routes', () => {
 
   afterAll(async () => {
     server?.close();
+  });
+
+  describe('subscription plan management', () => {
+    let orgId: string;
+    let subscriptionId: string;
+
+    beforeEach(async () => {
+      const result = await import('../../server/db');
+      const { db } = result;
+      const [{ id }] = await db.insert((await import('../../shared/schema')).organizations).values({ name: `Org ${Date.now()}`, isActive: true }).returning({ id: (await import('../../shared/schema')).organizations.id });
+      orgId = id;
+      const [{ id: subId }] = await db.insert((await import('../../shared/schema')).subscriptions).values({
+        orgId,
+        planCode: 'enterprise',
+        tier: 'enterprise',
+        provider: 'PAYSTACK',
+        status: 'ACTIVE',
+        monthlyAmount: '0.00',
+        monthlyCurrency: 'NGN'
+      } as any).returning({ id: (await import('../../shared/schema')).subscriptions.id });
+      subscriptionId = subId;
+    });
+
+    it('downgrades when store count within limit', async () => {
+      const response = await request(server)
+        .patch(`/api/admin/subscriptions/${subscriptionId}/plan`)
+        .send({ targetPlan: 'pro' })
+        .expect(200);
+
+      expect(response.body.changed).toBe(true);
+      expect(response.body.plan.code).toBe('pro');
+    });
+
+    it('blocks downgrade when store count exceeds plan limit', async () => {
+      const { db } = await import('../../server/db');
+      const { stores } = await import('../../shared/schema');
+      await db.insert(stores).values({ orgId, name: 'First Store' } as any);
+      await db.insert(stores).values({ orgId, name: 'Second Store' } as any);
+
+      const response = await request(server)
+        .patch(`/api/admin/subscriptions/${subscriptionId}/plan`)
+        .send({ targetPlan: 'basic' })
+        .expect(409);
+
+      expect(response.body.code).toBe('STORE_LIMIT_EXCEEDED');
+    });
   });
 
   it('can list users and create/delete a user', async () => {

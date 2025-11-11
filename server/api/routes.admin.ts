@@ -472,37 +472,55 @@ export async function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Update subscription tier (admin)
-  app.patch('/api/admin/subscriptions/:id/tier', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+  // Update subscription plan (admin)
+  app.patch('/api/admin/subscriptions/:id/plan', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const subscriptionId = req.params.id;
-    const { newTier } = req.body;
-    if (!newTier) return res.status(400).json({ error: 'Missing newTier' });
+    const { targetPlan } = req.body;
+    if (!targetPlan) return res.status(400).json({ error: 'Missing targetPlan' });
+
     try {
-      const { SubscriptionService } = await import('../subscription/service');
+      const { SubscriptionService, InvalidPlanChangeError } = await import('../subscription/service');
       const subService = new SubscriptionService();
-      const result = await subService.updateSubscriptionTier(subscriptionId, newTier);
-      if (!result.changed) return res.json({ changed: false, message: 'Tier unchanged' });
-      // Fetch user for email
-      const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)).limit(1);
-      // subscriptions table does not have userId, so get user by orgId
+
+      const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)).limit(1);
+      if (!subscription) {
+        return res.status(404).json({ error: 'Subscription not found' });
+      }
+
+      const result = await subService.changePlan({
+        subscriptionId,
+        orgId: subscription.orgId,
+        targetPlan,
+      });
+
+      if (!result.changed) {
+        return res.json({ changed: false, message: 'Plan unchanged', plan: result.plan });
+      }
+
+      // Notify primary org user
       let user: any = null;
-      if (sub && sub.orgId) {
-        // Get first user in org (or use a better logic if available)
-        [user] = await db.select().from(users).where(eq(users.orgId, sub.orgId)).limit(1);
+      if (subscription.orgId) {
+        [user] = await db.select().from(users).where(eq(users.orgId, subscription.orgId)).limit(1);
       }
       if (user && user.email) {
         const { generateSubscriptionTierChangeEmail, sendEmail } = await import('../email');
         const emailObj = generateSubscriptionTierChangeEmail(
           user.email,
-          user.email, // fallback to email as name
-          result.oldTier,
-          result.newTier
+          user.email,
+          subscription.tier ?? subscription.planCode ?? 'unknown',
+          result.plan.code
         );
         await sendEmail(emailObj);
       }
-      res.json({ changed: true, oldTier: result.oldTier, newTier: result.newTier });
-    } catch (e) {
-      res.status(500).json({ error: 'Failed to update subscription tier', details: String(e) });
+
+      res.json({ changed: true, plan: result.plan, subscription: result.subscription });
+    } catch (error) {
+      if (error instanceof (await import('../subscription/service')).InvalidPlanChangeError) {
+        const err = error as InstanceType<typeof InvalidPlanChangeError>;
+        return res.status(err.status).json({ error: err.message, code: err.code });
+      }
+      logger.error('Admin plan change failure', { subscriptionId, error: error instanceof Error ? error.message : String(error) });
+      res.status(500).json({ error: 'Failed to update subscription plan' });
     }
   });
 }

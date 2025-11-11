@@ -4,112 +4,15 @@
 - region "Notifications (F8)":
   - list
 - img
-- heading "ChainSync" [level=1]
-- paragraph: POS & Analytics
-- text: CO
-- paragraph: Chisom Ogbuanu
-- paragraph: admin
-- navigation:
-  - link "Inventory":
-    - /url: /inventory
-    - img
-    - text: Inventory
-  - link "Analytics":
-    - /url: /analytics
-    - img
-    - text: Analytics
-  - link "Loyalty":
-    - /url: /loyalty
-    - img
-    - text: Loyalty
-  - link "Alerts":
-    - /url: /alerts
-    - img
-    - text: Alerts
-  - link "Data Import":
-    - /url: /data-import
-    - img
-    - text: Data Import
-  - link "Multi-Store":
-    - /url: /multi-store
-    - img
-    - text: Multi-Store
-  - link "Audit":
-    - /url: /admin/audit
-    - img
-    - text: Audit
-  - link "Billing":
-    - /url: /admin/billing
-    - img
-    - text: Billing
-  - link "Settings":
-    - /url: /settings
-    - img
-    - text: Settings
-- combobox:
-  - option "QA Branch 1762822009331" [selected]
-  - option "QA Branch 1762823309830"
-  - option "QA Branch 1762845273383"
-  - option "QA Branch 1762845523925"
-  - option "QA Branch 1762846604957"
-  - option "QA Branch 1762847363682"
-  - option "QA Branch 1762849211888"
-  - option "QA Branch 1762850366903"
-  - option "QA Branch 1762851119002"
-  - option "QA Branch 1762851478040"
-- banner:
-  - heading "ChainSync" [level=2]
-  - paragraph: POS & Analytics System
-  - text: Live Sync Nov 11, 2025, 01:04 PM
-  - button "Logout":
-    - img
-    - text: Logout
-- main:
-  - text: Billing Contact
-  - textbox "billing@example.com": qa-billing+1762862665808@chainsync.store
-  - button "Save"
-  - text: Subscriptions
-  - textbox "status (ACTIVE, PAST_DUE, CANCELLED)"
-  - textbox "provider (PAYSTACK, FLW)"
-  - button "Refresh"
-  - table:
-    - rowgroup:
-      - row "Plan Provider Status Current Period End":
-        - cell "Plan"
-        - cell "Provider"
-        - cell "Status"
-        - cell "Current Period End"
-    - rowgroup:
-      - row "pro PAYSTACK ACTIVE -":
-        - cell "pro"
-        - cell "PAYSTACK"
-        - cell "ACTIVE"
-        - cell "-"
-  - text: Actions
-  - button "Retry dunning now (pro)"
-  - button "Update payment method"
-  - text: Payments
-  - textbox "from (YYYY-MM-DD)"
-  - textbox "to (YYYY-MM-DD)"
-  - button "Refresh"
-  - table:
-    - rowgroup:
-      - row "Date Provider Amount Status Reference":
-        - cell "Date"
-        - cell "Provider"
-        - cell "Amount"
-        - cell "Status"
-        - cell "Reference"
-    - rowgroup
-  - text: Dunning History
-  - table:
-    - rowgroup:
-      - row "Sent At Subscription Attempt Status":
-        - cell "Sent At"
-        - cell "Subscription"
-        - cell "Attempt"
-        - cell "Status"
-    - rowgroup
-- button:
-  - img
+- text: Secure Your Account Your administrator has provided a temporary password. Please create a new password to continue. Current (temporary) password
+- textbox "Current (temporary) password"
+- text: New password
+- textbox "New password"
+- text: Confirm new password
+- textbox "Confirm new password"
+- button "Update password"
+- paragraph:
+  - text: Need help? Contact your administrator or
+  - button "sign out"
+  - text: .
 ```
