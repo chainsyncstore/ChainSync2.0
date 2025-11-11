@@ -64,9 +64,13 @@ export default function MultiStore() {
       return;
     }
     try {
+      const csrfToken = await getCsrfToken();
       const res = await fetch('/api/stores', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         credentials: 'include',
         body: JSON.stringify({ name: newStoreName.trim(), address: newStoreAddress.trim() || undefined, currency: newStoreCurrency }),
       });

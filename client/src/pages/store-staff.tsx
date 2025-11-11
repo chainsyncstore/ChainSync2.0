@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfToken } from "@/lib/csrf";
 import { cn } from "@/lib/utils";
 
 interface StaffMember {
@@ -133,9 +134,13 @@ export default function StoreStaff() {
     setIsSubmitting(true);
     setCredentials(null);
     try {
+      const csrfToken = await getCsrfToken();
       const response = await fetch(`/api/stores/${storeId}/staff`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
         credentials: "include",
         body: JSON.stringify(form),
       });
@@ -173,9 +178,13 @@ export default function StoreStaff() {
     if (!confirmation) return;
 
     try {
+      const csrfToken = await getCsrfToken();
       const response = await fetch(`/api/stores/${storeId}/staff/${member.id}`, {
         method: "DELETE",
         credentials: "include",
+        headers: {
+          "X-CSRF-Token": csrfToken,
+        },
       });
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
