@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import ToastSystem from "@/components/notifications/toast-system";
 import BarcodeScanner from "@/components/pos/barcode-scanner";
 import CheckoutPanel from "@/components/pos/checkout-panel";
@@ -26,20 +26,19 @@ export default function POS() {
 
   const {
     items,
-    summary,
-    payment,
     addItem,
-    updateQuantity,
     removeItem,
     clearCart,
+    summary,
+    payment,
     updatePayment,
-    calculateChange,
     setTaxRate,
-    redeemValue,
     setRedeemValue,
+    redeemValue,
     redeemPoints,
     setRedeemPoints,
-    taxRate,
+    updateQuantity,
+    calculateChange,
   } = useCart();
 
   const { notifications, addNotification, removeNotification } = useNotifications();
@@ -90,6 +89,7 @@ export default function POS() {
 
   const currentStore = stores.find((s) => s.id === selectedStore) as any;
   const currency: 'USD' | 'NGN' = (currentStore?.currency === 'NGN' ? 'NGN' : 'USD');
+  const storeTaxRate = currentStore?.taxRate;
 
   useEffect(() => {
     if (loyaltySettings) {
@@ -98,7 +98,7 @@ export default function POS() {
   }, [loyaltySettings, setRedeemValue]);
 
   useEffect(() => {
-    const rawRate = currentStore?.taxRate;
+    const rawRate = storeTaxRate;
     if (rawRate === undefined || rawRate === null) {
       return;
     }
@@ -106,7 +106,7 @@ export default function POS() {
     if (Number.isFinite(decimalRate)) {
       setTaxRate(Math.max(0, decimalRate));
     }
-  }, [currentStore?.taxRate, setTaxRate]);
+  }, [storeTaxRate, setTaxRate]);
 
   useEffect(() => {
     setRedeemPoints(0);
@@ -122,16 +122,16 @@ export default function POS() {
     }
   }, [loyaltyBalance, redeemPoints, setRedeemPoints]);
 
-  const maxRedeemablePoints = useMemo(() => {
+  const maxRedeemablePoints = (() => {
     const balanceLimit = loyaltyBalance ?? Infinity;
     if (redeemValue <= 0) return balanceLimit === Infinity ? 0 : balanceLimit;
     const subtotalLimit = Math.floor(summary.subtotal / redeemValue);
     const effectiveBalance = Number.isFinite(balanceLimit) ? balanceLimit : subtotalLimit;
     if (!Number.isFinite(subtotalLimit)) return effectiveBalance;
     return Math.max(0, Math.min(balanceLimit, subtotalLimit));
-  }, [loyaltyBalance, redeemValue, summary.subtotal]);
+  })();
 
-  const handleRedeemPointsChange = useCallback((points: number) => {
+  const handleRedeemPointsChange = (points: number) => {
     if (!Number.isFinite(points) || points < 0) {
       setRedeemPoints(0);
       return;
@@ -144,7 +144,7 @@ export default function POS() {
       next = Math.min(next, Math.floor(summary.subtotal / redeemValue));
     }
     setRedeemPoints(Math.max(0, next));
-  }, [loyaltyBalance, redeemValue, summary.subtotal, setRedeemPoints]);
+  };
 
   const handleClearLoyalty = useCallback(() => {
     setCustomerPhone("");
@@ -199,7 +199,7 @@ export default function POS() {
     } finally {
       setLoyaltyLoading(false);
     }
-  }, [customerPhone, selectedStore, setRedeemPoints, toast]);
+  }, [customerPhone, redeemPoints, selectedStore, setRedeemPoints, toast]);
 
   useEffect(() => {
     setSidebarFooter(

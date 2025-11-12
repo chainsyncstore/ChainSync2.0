@@ -1,12 +1,12 @@
 import { parse as csvParse } from 'csv-parse';
 import { eq, and, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
-import type { QueryResult } from 'pg';
 import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
+import type { QueryResult } from 'pg';
 import { z } from 'zod';
-import { products, stores, users, inventory } from '@shared/prd-schema';
+import { products, stores, users } from '@shared/prd-schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist } from '../middleware/authz';

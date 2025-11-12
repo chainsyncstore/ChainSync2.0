@@ -1,12 +1,12 @@
-import { and, asc, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, lte, sql } from 'drizzle-orm';
 import type { QueryResult } from 'pg';
 
 import { subscriptions as prdSubscriptions, stores as prdStores } from '@shared/prd-schema';
 import { subscriptions, subscriptionPayments, stores, users } from '../../shared/schema';
 import { db } from '../db';
+import { VALID_TIERS, type ValidTier } from '../lib/constants';
 import { logger } from '../lib/logger';
 import { getPlan, type Plan } from '../lib/plans';
-import { VALID_TIERS, type ValidTier } from '../lib/constants';
 
 export class SubscriptionService {
   private subscriptionsHasUserIdColumn: boolean | null = null;
@@ -770,12 +770,17 @@ export class SubscriptionService {
 }
 
 export class InvalidPlanChangeError extends Error {
+  public code: 'STORE_LIMIT_EXCEEDED' | 'INVALID_PLAN' | 'UNSUPPORTED_TIER' | 'SUBSCRIPTION_NOT_FOUND' | 'SUBSCRIPTION_MISMATCH';
+  public status: number;
+
   constructor(
     message: string,
-    public code: 'STORE_LIMIT_EXCEEDED' | 'INVALID_PLAN' | 'UNSUPPORTED_TIER' | 'SUBSCRIPTION_NOT_FOUND' | 'SUBSCRIPTION_MISMATCH',
-    public status: number = 400
+    code: 'STORE_LIMIT_EXCEEDED' | 'INVALID_PLAN' | 'UNSUPPORTED_TIER' | 'SUBSCRIPTION_NOT_FOUND' | 'SUBSCRIPTION_MISMATCH',
+    status: number = 400
   ) {
     super(message);
     this.name = 'InvalidPlanChangeError';
+    this.code = code;
+    this.status = status;
   }
 }

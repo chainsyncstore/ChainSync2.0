@@ -1,16 +1,5 @@
-import {
-  Users,
-  Crown,
-  Plus,
-  Search,
-  Edit,
-  Trash2,
-  Award,
-  TrendingUp,
-  UserPlus,
-  Coins,
-} from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Users, Crown, Search, Edit, Award, TrendingUp, UserPlus } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
 
@@ -77,7 +65,6 @@ export default function Loyalty() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [showAddCustomer, setShowAddCustomer] = useState(false);
-  const [showAddTier, setShowAddTier] = useState(false);
   const [showEditSettings, setShowEditSettings] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -91,14 +78,6 @@ export default function Loyalty() {
   });
 
   const [customerErrors, setCustomerErrors] = useState<Partial<typeof newCustomer>>({});
-
-  const [newTier, setNewTier] = useState({
-    name: "",
-    description: "",
-    pointsRequired: 0,
-    discountPercentage: 0,
-    color: "#6B7280",
-  });
 
   const [settingsForm, setSettingsForm] = useState({
     earnRate: 1,
@@ -384,32 +363,6 @@ export default function Loyalty() {
     }
   };
 
-  const handleAddTier = async () => {
-    try {
-      // In a real app, this would be an API call
-      const newTierData: LoyaltyTier = {
-        id: Date.now().toString(),
-        ...newTier,
-        isActive: true,
-      };
-
-      setTiers([...tiers, newTierData]);
-      setNewTier({ name: "", description: "", pointsRequired: 0, discountPercentage: 0, color: "#6B7280" });
-      setShowAddTier(false);
-      toast({
-        title: "Success",
-        description: "Tier added successfully",
-      });
-    } catch (error) {
-      console.error("Failed to add loyalty tier", error);
-      toast({
-        title: "Error",
-        description: "Failed to add tier",
-        variant: "destructive",
-      });
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -670,39 +623,33 @@ export default function Loyalty() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card className="border-primary/20 bg-primary/5">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-primary flex items-center gap-2">
-                      <Coins className="h-4 w-4" /> Earn Rate
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-semibold">
-                      {settingsLoading ? "…" : `${settingsForm.earnRate.toFixed(4)} pts / currency unit`}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Points awarded per unit of net spend (after discounts and redemptions)
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card className="border-emerald-200 bg-emerald-50">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-emerald-700 flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-emerald-200 text-emerald-900">Redeem</Badge>
-                      Redemption Value
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-semibold text-emerald-800">
-                      {settingsLoading ? "…" : `${settingsForm.redeemValue.toFixed(4)} currency / point`}
-                    </p>
-                    <p className="text-sm text-emerald-700 mt-1">
-                      Multiplying points by this value determines the discount applied at checkout
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Discount %</TableHead>
+                    <TableHead>Points Required</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tiers.map((tier) => (
+                    <TableRow key={tier.id}>
+                      <TableCell>
+                        <div className="font-medium">{tier.name}</div>
+                        <div className="text-sm text-muted-foreground">{tier.description}</div>
+                      </TableCell>
+                      <TableCell>{tier.discountPercentage}%</TableCell>
+                      <TableCell>{tier.pointsRequired.toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Badge variant={tier.isActive ? "default" : "secondary"}>
+                          {tier.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
 

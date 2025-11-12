@@ -96,7 +96,7 @@ export default function MultiStore() {
       console.error("Failed to create store", error);
       toast({ title: "Failed to create store", variant: "destructive" });
     }
-  }, [newStoreAddress, newStoreCurrency, newStoreName, queryClient, toast]);
+  }, [newStoreAddress, newStoreCurrency, newStoreName, newStoreTaxRate, queryClient, toast]);
 
   const deleteStore = useCallback(async (store: Store) => {
     if (store.id.startsWith("placeholder-")) {

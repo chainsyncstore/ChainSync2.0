@@ -4,14 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import CSVUploader from "@/components/data-import/csv-uploader";
 import ProductInput from "@/components/data-import/product-input";
 import TemplateDownloader from "@/components/data-import/template-downloader";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatDateTime } from "@/lib/pos-utils";
-import { cn } from "@/lib/utils";
 import type { Store, LowStockAlert } from "@shared/schema";
 
 interface ImportJob {

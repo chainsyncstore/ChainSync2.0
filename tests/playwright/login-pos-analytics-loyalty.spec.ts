@@ -7,8 +7,6 @@ const ADMIN_PASSWORD = '@Chisom5940';
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
 const USE_REAL_BACKEND = String(process.env.PLAYWRIGHT_USE_REAL_BACKEND).toLowerCase() === 'true';
 
-const MANAGER_EMAIL = process.env.PLAYWRIGHT_MANAGER_EMAIL ?? 'info.chisomarinze@gmail.com';
-const MANAGER_PASSWORD = process.env.PLAYWRIGHT_MANAGER_PASSWORD ?? '@Chisom5940';
 const CASHIER_EMAIL = process.env.PLAYWRIGHT_CASHIER_EMAIL ?? 'info.elvisarinze@gmail.com';
 const CASHIER_PASSWORD = process.env.PLAYWRIGHT_CASHIER_PASSWORD ?? '@Chisom5940';
 const USE_PRECONFIGURED_ACCOUNTS =
@@ -705,7 +703,7 @@ test('full supermarket workflow including subscription & autopay', async ({ page
   cashierAuth = await fetchAuthHeaders(page);
   await page.request.post('/api/auth/logout', { headers: cashierAuth.headers });
   await page.goto('/login');
-  const adminReturnAuth = await apiLogin(page, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: 'admin' });
+  await apiLogin(page, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: 'admin' });
   await expect(page).toHaveURL(/analytics|\//);
 
   // Analytics & AI insights sanity
