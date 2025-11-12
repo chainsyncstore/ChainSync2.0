@@ -50,6 +50,28 @@ export async function registerInventoryRoutes(app: Express) {
     res.json(rows);
   });
 
+  app.get('/api/products/barcode/:barcode', requireAuth, async (req: Request, res: Response) => {
+    const barcode = String(req.params?.barcode ?? '').trim();
+    if (!barcode) {
+      return res.status(400).json({ error: 'barcode is required' });
+    }
+
+    const product = await storage.getProductByBarcode(barcode);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const price = (product as any).price ?? (product as any).salePrice ?? (product as any).costPrice ?? '0';
+
+    return res.json({
+      id: product.id,
+      name: product.name,
+      barcode: product.barcode ?? barcode,
+      sku: (product as any).sku ?? null,
+      price,
+    });
+  });
+
   app.get('/api/products/categories', requireAuth, async (_req: Request, res: Response) => {
     const columns = await getProductColumns();
     if (!columns.has('category')) {
