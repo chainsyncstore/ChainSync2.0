@@ -1,0 +1,5 @@
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS loyalty_earn_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000;
+
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS loyalty_redeem_value NUMERIC(10,4) NOT NULL DEFAULT 0.0100;

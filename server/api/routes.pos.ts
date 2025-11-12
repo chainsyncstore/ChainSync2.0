@@ -1,11 +1,29 @@
+import { parse as csvParse } from 'csv-parse';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
-import { sales, saleItems, returns, stores, users, customers as tblCustomers, loyaltyAccounts, loyaltyTransactions } from '@shared/prd-schema';
+import {
+  sales,
+  saleItems,
+  returns,
+  stores,
+  users,
+  organizations,
+  customers as tblCustomers,
+  loyaltyAccounts,
+  loyaltyTransactions,
+  products,
+} from '@shared/prd-schema';
+import {
+  transactions as prdTransactions,
+  transactionItems as prdTransactionItems,
+} from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { incrementTodayRollups } from '../lib/redis';
 import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/authz';
+import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { storage } from '../storage';
 
 const SaleSchema = z.object({
@@ -101,6 +119,242 @@ export async function registerPosRoutes(app: Express) {
     return res.json({ ...tx, items });
   });
 
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+  const uploadSingle: any = upload.single('file');
+
+  const TransactionImportRowSchema = z.object({
+    transaction_date: z.string().optional().transform((val) => (val ? String(val).trim() : '')),
+    sku: z.string().min(1),
+    product_name: z.string().optional(),
+    quantity: z.string().regex(/^\d+$/, 'quantity must be a whole number'),
+    unit_price: z.string().regex(/^\d+(\.\d{1,2})?$/),
+    total_price: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+    payment_method: z.string().optional(),
+    cashier_id: z.string().uuid().optional(),
+    store_id: z.string().uuid().optional(),
+    store_code: z.string().optional(),
+    receipt_number: z.string().optional(),
+  });
+
+  app.post(
+    '/api/transactions/import',
+    requireAuth,
+    enforceIpWhitelist,
+    requireRole('MANAGER'),
+    sensitiveEndpointRateLimit,
+    uploadSingle,
+    async (req: Request, res: Response) => {
+      const uploaded = (req as any).file as { buffer: Buffer } | undefined;
+      if (!uploaded) {
+        return res.status(400).json({ error: 'file is required' });
+      }
+
+      const userId = req.session?.userId as string | undefined;
+      if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+      const [currentUser] = await db.select().from(users).where(eq(users.id, userId));
+      const orgId = currentUser?.orgId as string | undefined;
+      if (!orgId) return res.status(400).json({ error: 'Organization could not be resolved' });
+
+      const text = uploaded.buffer.toString('utf-8');
+      const records: any[] = [];
+      try {
+        await new Promise<void>((resolve, reject) => {
+          csvParse(text, { columns: true, trim: true }, (err: any, out: any[]) => {
+            if (err) return reject(err);
+            records.push(...out);
+            resolve();
+          });
+        });
+      } catch (error) {
+        logger.error('Failed to parse transaction CSV', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return res.status(400).json({ error: 'Invalid CSV file' });
+      }
+
+      const invalidRows: Array<{ row: any; error: string }> = [];
+      let created = 0;
+      let updated = 0; // reserved for future, kept for parity with other import responses
+
+      const storeCache = new Map<string, string>();
+      const productCache = new Map<string, string>();
+
+      const allowedPaymentMethods = new Set(['cash', 'card', 'digital']);
+
+      const client = (db as any).client;
+      const pg = await client.connect();
+      try {
+        await pg.query('BEGIN');
+
+        for (const raw of records) {
+          const parsed = TransactionImportRowSchema.safeParse({
+            transaction_date: raw.transaction_date ?? raw.transactionDate,
+            sku: raw.sku ?? raw.SKU,
+            product_name: raw.product_name ?? raw.productName,
+            quantity: raw.quantity,
+            unit_price: raw.unit_price ?? raw.unitPrice,
+            total_price: raw.total_price ?? raw.totalPrice,
+            payment_method: raw.payment_method ?? raw.paymentMethod,
+            cashier_id: raw.cashier_id ?? raw.cashierId,
+            store_id: raw.store_id ?? raw.storeId ?? (req.query.storeId as string | undefined),
+            store_code: raw.store_code ?? raw.storeCode,
+            receipt_number: raw.receipt_number ?? raw.receiptNumber,
+          });
+
+          if (!parsed.success) {
+            invalidRows.push({ row: raw, error: parsed.error.errors.map((e) => e.message).join('; ') });
+            continue;
+          }
+
+          const row = parsed.data;
+          const quantity = Number(row.quantity);
+          const unitPrice = row.unit_price;
+          const totalPrice = row.total_price ?? (quantity * parseFloat(unitPrice)).toFixed(2);
+
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            invalidRows.push({ row: raw, error: 'quantity must be greater than 0' });
+            continue;
+          }
+
+          let storeId = row.store_id || '';
+          if (!storeId && row.store_code) {
+            const cacheKey = `code:${row.store_code}`;
+            if (storeCache.has(cacheKey)) {
+              storeId = storeCache.get(cacheKey)!;
+            } else {
+              const storeRows = await db
+                .select()
+                .from(stores)
+                .where(and(eq(stores.orgId, orgId), eq(stores.name, row.store_code)))
+                .limit(1);
+              if (storeRows[0]) {
+                storeId = storeRows[0].id;
+                storeCache.set(cacheKey, storeId);
+              }
+            }
+          }
+
+          if (!storeId) {
+            invalidRows.push({ row: raw, error: 'store_id or valid store_code required' });
+            continue;
+          }
+
+          const cacheKeySku = `${orgId}:${row.sku}`;
+          let productId = productCache.get(cacheKeySku);
+          if (!productId) {
+            const existingProduct = await db
+              .select()
+              .from(products)
+              .where(and(eq(products.orgId, orgId), eq(products.sku, row.sku)))
+              .limit(1);
+            if (existingProduct[0]) {
+              productId = existingProduct[0].id;
+            } else {
+              const name = (row.product_name ?? 'Imported Item').toString();
+              const insertedProduct = await db
+                .insert(products)
+                .values({
+                  orgId,
+                  sku: row.sku,
+                  name,
+                  costPrice: unitPrice,
+                  salePrice: unitPrice,
+                  vatRate: '0',
+                } as any)
+                .returning();
+              productId = insertedProduct[0].id;
+            }
+            productCache.set(cacheKeySku, productId);
+          }
+
+          let cashierId = row.cashier_id || userId;
+          if (row.cashier_id) {
+            const cacheKey = `cashier:${row.cashier_id}`;
+            if (!storeCache.has(cacheKey)) {
+              const cashierRows = await db.select().from(users).where(eq(users.id, row.cashier_id)).limit(1);
+              if (!cashierRows[0]) {
+                cashierId = userId;
+              }
+              storeCache.set(cacheKey, cashierId);
+            } else {
+              cashierId = storeCache.get(cacheKey)!;
+            }
+          }
+
+          const normalizedPayment = (() => {
+            const rawMethod = (row.payment_method || '').toString().toLowerCase();
+            if (allowedPaymentMethods.has(rawMethod)) return rawMethod;
+            if (rawMethod === 'transfer' || rawMethod === 'bank_transfer') return 'digital';
+            return 'cash';
+          })();
+
+          try {
+            const [tx] = await db
+              .insert(prdTransactions)
+              .values({
+                storeId,
+                cashierId,
+                status: 'completed',
+                subtotal: totalPrice,
+                taxAmount: '0',
+                total: totalPrice,
+                paymentMethod: normalizedPayment,
+                receiptNumber: row.receipt_number || `IMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                amountReceived: totalPrice,
+                changeDue: '0',
+              } as any)
+              .returning();
+
+            await db
+              .insert(prdTransactionItems)
+              .values({
+                transactionId: tx.id,
+                productId,
+                quantity,
+                unitPrice,
+                totalPrice,
+              } as any)
+              .returning();
+
+            const transactionDate = row.transaction_date ? new Date(row.transaction_date) : null;
+            if (transactionDate && !Number.isNaN(transactionDate.getTime())) {
+              await db.execute(
+                sql`UPDATE ${prdTransactions} SET created_at = ${transactionDate}, completed_at = ${transactionDate} WHERE id = ${tx.id}`
+              );
+            }
+
+            created += 1;
+          } catch (error) {
+            invalidRows.push({
+              row: raw,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        await pg.query('COMMIT');
+      } catch (error) {
+        try {
+          await pg.query('ROLLBACK');
+        } catch (rollbackError) {
+          logger.warn('Transaction import rollback failed', {
+            error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+          });
+        }
+        logger.error('Failed to import transactions', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return res.status(500).json({ error: 'Failed to import transactions' });
+      } finally {
+        pg.release();
+      }
+
+      return res.status(200).json({ imported: created, updated, invalid: invalidRows.length, invalidRows });
+    }
+  );
+
   // Back-compat POS sales endpoint for idempotency test
   app.post('/api/pos/sales', async (req: Request, res: Response) => {
     const key = req.headers['idempotency-key'] as string | undefined;
@@ -141,6 +395,7 @@ export async function registerPosRoutes(app: Express) {
     // Resolve user/org/cashier from session (fallback in tests)
     const userId = req.session?.userId as string | undefined;
     let me: any = null;
+    let orgSettings: { earnRate: number; redeemValue: number } = { earnRate: 1, redeemValue: 0.01 };
     if (!userId) {
       if (process.env.NODE_ENV === 'test') {
         me = { id: '00000000-0000-0000-0000-0000000000aa', orgId: '00000000-0000-0000-0000-0000000000bb' };
@@ -151,6 +406,11 @@ export async function registerPosRoutes(app: Express) {
       const rows = await db.select().from(users).where(eq(users.id, userId));
       me = rows[0];
       if (!me?.orgId) return res.status(400).json({ error: 'Missing org' });
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, me.orgId));
+      orgSettings = {
+        earnRate: Number(org?.loyaltyEarnRate ?? 1),
+        redeemValue: Number(org?.loyaltyRedeemValue ?? 0.01),
+      };
     }
 
     // Loyalty: attach customer by phone (optional), compute redeem discount and earn points
@@ -186,7 +446,7 @@ export async function registerPosRoutes(app: Express) {
       }
 
       // Apply redeem discount if requested and account available
-      const redeemDiscount = customerPhone && account && redeemPoints > 0 ? (redeemPoints / 100) : 0;
+      const redeemDiscount = customerPhone && account && redeemPoints > 0 ? (redeemPoints * orgSettings.redeemValue) : 0;
       if (redeemDiscount > 0) {
         if (account.points < redeemPoints) {
           if (hasTx && pg) await pg.query('ROLLBACK');
@@ -240,7 +500,7 @@ export async function registerPosRoutes(app: Express) {
         }
         // Earn: 1 point per 1.00 currency unit of (subtotal - discounts)
         const spendBase = Math.max(0, subtotalNum - effectiveDiscount);
-        const pointsEarned = Math.floor(spendBase);
+        const pointsEarned = Math.floor(spendBase * Math.max(orgSettings.earnRate, 0));
         if (pointsEarned > 0) {
           const upd = await db
             .update(loyaltyAccounts)

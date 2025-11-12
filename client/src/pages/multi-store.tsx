@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, TrendingUp, Users, Package, DollarSign, Trash2 } from "lucide-react";
+import { Building2, TrendingUp, Users, Package, DollarSign, Trash2, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,9 @@ export default function MultiStore() {
   const [newStoreAddress, setNewStoreAddress] = useState("");
   const [newStoreCurrency, setNewStoreCurrency] = useState<'NGN' | 'USD'>("NGN");
   const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
+  const [newStoreTaxRate, setNewStoreTaxRate] = useState("8.5");
+  const [taxRateEdits, setTaxRateEdits] = useState<Record<string, string>>({});
+  const [savingTaxRateId, setSavingTaxRateId] = useState<string | null>(null);
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
@@ -37,6 +40,10 @@ export default function MultiStore() {
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
   });
+
+  useEffect(() => {
+    setTaxRateEdits({});
+  }, [stores]);
 
   // Auto-select first store when stores are loaded
   useEffect(() => {
@@ -72,11 +79,17 @@ export default function MultiStore() {
           'X-CSRF-Token': csrfToken,
         },
         credentials: 'include',
-        body: JSON.stringify({ name: newStoreName.trim(), address: newStoreAddress.trim() || undefined, currency: newStoreCurrency }),
+        body: JSON.stringify({
+          name: newStoreName.trim(),
+          address: newStoreAddress.trim() || undefined,
+          currency: newStoreCurrency,
+          taxRate: Math.max(0, Number.parseFloat(newStoreTaxRate) / 100 || 0),
+        }),
       });
       if (!res.ok) throw new Error(String(res.status));
       setNewStoreName("");
       setNewStoreAddress("");
+      setNewStoreTaxRate("8.5");
       toast({ title: "Store created", description: `Currency: ${newStoreCurrency}` });
       await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
     } catch (error) {
@@ -164,7 +177,7 @@ export default function MultiStore() {
         phone: "",
         email: "",
         currency: "USD",
-        taxRate: "0.00",
+        taxRate: "0.0850",
         isActive: true,
         createdAt: now,
         updatedAt: now,
@@ -182,6 +195,45 @@ export default function MultiStore() {
       } as StorePerformance;
     });
   }, [stores, mockMetrics]);
+
+  const handleSaveTaxRate = useCallback(async (store: Store, nextValue: string) => {
+    const parsedPercent = Number.parseFloat(nextValue);
+    if (!Number.isFinite(parsedPercent) || parsedPercent < 0) {
+      toast({ title: "Invalid tax rate", description: "Enter a valid percentage", variant: "destructive" });
+      return;
+    }
+    setSavingTaxRateId(store.id);
+    try {
+      const csrfToken = await getCsrfToken();
+      const res = await fetch(`/api/stores/${store.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        credentials: "include",
+        body: JSON.stringify({ taxRate: parsedPercent / 100 }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        const message = payload?.error || payload?.message || "Failed to update tax rate";
+        toast({ title: "Failed to update", description: message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Tax rate updated", description: `${store.name} now at ${parsedPercent.toFixed(2)}%` });
+      setTaxRateEdits((prev) => {
+        const next = { ...prev };
+        delete next[store.id];
+        return next;
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+    } catch (error) {
+      console.error("Failed to update tax rate", error);
+      toast({ title: "Failed to update", description: "Network error", variant: "destructive" });
+    } finally {
+      setSavingTaxRateId(null);
+    }
+  }, [queryClient, toast]);
 
   const totalMetrics = storePerformance.reduce(
     (acc, store) => ({
@@ -214,7 +266,7 @@ export default function MultiStore() {
             </div>
           )}
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <div>
             <Label htmlFor="new-store-name">Store Name</Label>
             <Input id="new-store-name" value={newStoreName} onChange={(e) => setNewStoreName(e.target.value)} />
@@ -234,6 +286,19 @@ export default function MultiStore() {
                 <SelectItem value="USD">USD ($)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <Label htmlFor="new-store-tax-rate">Tax Rate (%)</Label>
+            <Input
+              id="new-store-tax-rate"
+              type="number"
+              step="0.01"
+              min="0"
+              value={newStoreTaxRate}
+              onChange={(e) => setNewStoreTaxRate(e.target.value)}
+              placeholder="e.g. 8.50"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Displayed as a percentage — stored as a decimal.</p>
           </div>
           <div className="flex items-end">
             <Button onClick={createStore} className="w-full">Create Store</Button>
@@ -310,13 +375,20 @@ export default function MultiStore() {
           <TabsContent value="performance" className="space-y-6">
             {/* Store Performance Cards */}
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {storePerformance.map((store) => (
-                <Card key={store.id} className="relative">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{store.name}</CardTitle>
-                      <Badge variant="default" className="bg-green-100 text-green-700">
-                        {store.status}
+              {storePerformance.map((store) => {
+                const baseStore = stores.find((s) => s.id === store.id);
+                const isPlaceholder = store.id.startsWith('placeholder-');
+                const effectiveTaxRate = Number(baseStore?.taxRate ?? store.taxRate ?? 0);
+                const defaultPercent = Number.isFinite(effectiveTaxRate) ? (effectiveTaxRate * 100).toFixed(2) : "0.00";
+                const taxInputValue = taxRateEdits[store.id] ?? defaultPercent;
+
+                return (
+                  <Card key={store.id} className="relative">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{store.name}</CardTitle>
+                        <Badge variant="default" className="bg-green-100 text-green-700">
+                          {store.status}
                       </Badge>
                     </div>
                   </CardHeader>
@@ -358,6 +430,33 @@ export default function MultiStore() {
                       </div>
                     </div>
 
+                    <div className="mt-4">
+                      <Label htmlFor={`store-tax-${store.id}`}>Tax Rate (%)</Label>
+                      <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
+                        <Input
+                          id={`store-tax-${store.id}`}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={taxInputValue}
+                          onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [store.id]: e.target.value }))}
+                          disabled={isPlaceholder || savingTaxRateId === store.id}
+                          className="sm:max-w-[160px]"
+                        />
+                        <Button
+                          onClick={() => baseStore && handleSaveTaxRate(baseStore, taxInputValue)}
+                          disabled={isPlaceholder || savingTaxRateId === store.id || !baseStore}
+                        >
+                          {savingTaxRateId === store.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            'Save Tax Rate'
+                          )}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">Currently {defaultPercent}% ({Number(effectiveTaxRate).toFixed(4)} as decimal).</p>
+                    </div>
+
                     <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <Button
                         variant="outline"
@@ -380,7 +479,8 @@ export default function MultiStore() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
             </div>
           </TabsContent>
 

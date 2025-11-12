@@ -11,8 +11,10 @@ export interface CartItem {
 export interface CartSummary {
   itemCount: number;
   subtotal: number;
+  redeemDiscount: number;
   tax: number;
   total: number;
+  taxRate: number;
 }
 
 export interface PaymentData {

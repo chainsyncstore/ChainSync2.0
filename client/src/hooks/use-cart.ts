@@ -5,6 +5,9 @@ import type { CartItem, CartSummary, PaymentData } from "@/types/pos";
 export function useCart() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [payment, setPayment] = useState<PaymentData>({ method: "cash" });
+  const [taxRate, setTaxRate] = useState(0.085);
+  const [redeemValue, setRedeemValue] = useState(0.01);
+  const [redeemPoints, setRedeemPoints] = useState(0);
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -16,14 +19,23 @@ export function useCart() {
       if (savedCart.payment) {
         setPayment(savedCart.payment);
       }
+      if (typeof savedCart.taxRate === "number") {
+        setTaxRate(Math.max(0, Math.min(1, savedCart.taxRate)));
+      }
+      if (typeof savedCart.redeemValue === "number") {
+        setRedeemValue(Math.max(0, savedCart.redeemValue));
+      }
+      if (typeof savedCart.redeemPoints === "number") {
+        setRedeemPoints(Math.max(0, Math.floor(savedCart.redeemPoints)));
+      }
     }
   }, []);
 
   // Save cart to localStorage whenever items or payment changes
   useEffect(() => {
-    const cartData = { items, payment };
+    const cartData = { items, payment, taxRate, redeemValue, redeemPoints };
     saveCart(cartData);
-  }, [items, payment]);
+  }, [items, payment, taxRate, redeemValue, redeemPoints]);
 
   const removeItem = useCallback((itemId: string) => {
     setItems(currentItems => currentItems.filter(item => item.id !== itemId));
@@ -71,14 +83,21 @@ export function useCart() {
   const clearCart = useCallback(() => {
     setItems([]);
     setPayment({ method: "cash" });
+    setRedeemPoints(0);
     clearCartStorage();
   }, []);
 
+  const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+  const appliedRedeemDiscount = Math.min(subtotal, Math.max(0, redeemPoints) * Math.max(0, redeemValue));
+  const taxableSubtotal = Math.max(0, subtotal - appliedRedeemDiscount);
+  const computedTax = taxableSubtotal * Math.max(0, taxRate);
   const summary: CartSummary = {
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
-    subtotal: items.reduce((sum, item) => sum + item.total, 0),
-    tax: items.reduce((sum, item) => sum + item.total, 0) * 0.085, // 8.5% tax rate
-    total: items.reduce((sum, item) => sum + item.total, 0) * 1.085,
+    subtotal,
+    redeemDiscount: appliedRedeemDiscount,
+    tax: computedTax,
+    total: taxableSubtotal + computedTax,
+    taxRate,
   };
 
   const updatePayment = useCallback((paymentData: Partial<PaymentData>) => {
@@ -91,6 +110,18 @@ export function useCart() {
     return changeDue;
   }, [summary.total]);
 
+  const updateTaxRateValue = useCallback((value: number) => {
+    setTaxRate(Math.max(0, Math.min(1, value)));
+  }, []);
+
+  const updateRedeemValue = useCallback((value: number) => {
+    setRedeemValue(Math.max(0, value));
+  }, []);
+
+  const updateRedeemPoints = useCallback((points: number) => {
+    setRedeemPoints(Math.max(0, Math.floor(points)));
+  }, []);
+
   return {
     items,
     summary,
@@ -101,5 +132,11 @@ export function useCart() {
     clearCart,
     updatePayment,
     calculateChange,
+    taxRate,
+    setTaxRate: updateTaxRateValue,
+    redeemValue,
+    setRedeemValue: updateRedeemValue,
+    redeemPoints,
+    setRedeemPoints: updateRedeemPoints,
   };
 }

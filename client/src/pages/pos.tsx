@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import ToastSystem from "@/components/notifications/toast-system";
 import BarcodeScanner from "@/components/pos/barcode-scanner";
 import CheckoutPanel from "@/components/pos/checkout-panel";
@@ -34,6 +34,12 @@ export default function POS() {
     clearCart,
     updatePayment,
     calculateChange,
+    setTaxRate,
+    redeemValue,
+    setRedeemValue,
+    redeemPoints,
+    setRedeemPoints,
+    taxRate,
   } = useCart();
 
   const { notifications, addNotification, removeNotification } = useNotifications();
@@ -53,6 +59,16 @@ export default function POS() {
   const { data: stores = [] } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
   });
+
+  const { data: loyaltySettings } = useQuery<{ earnRate: number; redeemValue: number }>({
+    queryKey: ["/api/loyalty/settings"],
+  });
+
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState<{ id: string; name?: string | null } | null>(null);
+  const [loyaltyBalance, setLoyaltyBalance] = useState<number | null>(null);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [loyaltyError, setLoyaltyError] = useState<string | null>(null);
 
   // Auto-select first store when stores are loaded
   useEffect(() => {
@@ -74,6 +90,116 @@ export default function POS() {
 
   const currentStore = stores.find((s) => s.id === selectedStore) as any;
   const currency: 'USD' | 'NGN' = (currentStore?.currency === 'NGN' ? 'NGN' : 'USD');
+
+  useEffect(() => {
+    if (loyaltySettings) {
+      setRedeemValue(Math.max(0, loyaltySettings.redeemValue));
+    }
+  }, [loyaltySettings, setRedeemValue]);
+
+  useEffect(() => {
+    const rawRate = currentStore?.taxRate;
+    if (rawRate === undefined || rawRate === null) {
+      return;
+    }
+    const decimalRate = typeof rawRate === 'string' ? Number.parseFloat(rawRate) : Number(rawRate);
+    if (Number.isFinite(decimalRate)) {
+      setTaxRate(Math.max(0, decimalRate));
+    }
+  }, [currentStore?.taxRate, setTaxRate]);
+
+  useEffect(() => {
+    setRedeemPoints(0);
+    setCustomerPhone("");
+    setLoyaltyCustomer(null);
+    setLoyaltyBalance(null);
+    setLoyaltyError(null);
+  }, [selectedStore, setRedeemPoints]);
+
+  useEffect(() => {
+    if (loyaltyBalance !== null && redeemPoints > loyaltyBalance) {
+      setRedeemPoints(loyaltyBalance);
+    }
+  }, [loyaltyBalance, redeemPoints, setRedeemPoints]);
+
+  const maxRedeemablePoints = useMemo(() => {
+    const balanceLimit = loyaltyBalance ?? Infinity;
+    if (redeemValue <= 0) return balanceLimit === Infinity ? 0 : balanceLimit;
+    const subtotalLimit = Math.floor(summary.subtotal / redeemValue);
+    const effectiveBalance = Number.isFinite(balanceLimit) ? balanceLimit : subtotalLimit;
+    if (!Number.isFinite(subtotalLimit)) return effectiveBalance;
+    return Math.max(0, Math.min(balanceLimit, subtotalLimit));
+  }, [loyaltyBalance, redeemValue, summary.subtotal]);
+
+  const handleRedeemPointsChange = useCallback((points: number) => {
+    if (!Number.isFinite(points) || points < 0) {
+      setRedeemPoints(0);
+      return;
+    }
+    let next = Math.floor(points);
+    if (loyaltyBalance !== null) {
+      next = Math.min(next, loyaltyBalance);
+    }
+    if (redeemValue > 0) {
+      next = Math.min(next, Math.floor(summary.subtotal / redeemValue));
+    }
+    setRedeemPoints(Math.max(0, next));
+  }, [loyaltyBalance, redeemValue, summary.subtotal, setRedeemPoints]);
+
+  const handleClearLoyalty = useCallback(() => {
+    setCustomerPhone("");
+    setLoyaltyCustomer(null);
+    setLoyaltyBalance(null);
+    setLoyaltyError(null);
+    setRedeemPoints(0);
+  }, [setRedeemPoints]);
+
+  const handleLookupCustomer = useCallback(async () => {
+    const phone = customerPhone.trim();
+    if (!phone) {
+      toast({ title: "Enter customer phone", variant: "destructive" });
+      return;
+    }
+    if (!selectedStore) {
+      toast({ title: "Select a store first", variant: "destructive" });
+      return;
+    }
+    setLoyaltyLoading(true);
+    setLoyaltyError(null);
+    try {
+      const res = await fetch(`/api/customers?phone=${encodeURIComponent(phone)}&storeId=${selectedStore}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error(String(res.status));
+      }
+      const customer = await res.json();
+      if (!customer?.id) {
+        setLoyaltyCustomer(null);
+        setLoyaltyBalance(0);
+        setRedeemPoints(0);
+        toast({ title: "Customer not found", description: "No matching customer for loyalty", variant: "destructive" });
+        return;
+      }
+      setLoyaltyCustomer({ id: customer.id, name: customer.name });
+      const loyaltyRes = await fetch(`/api/loyalty/${customer.id}`, { credentials: "include" });
+      if (loyaltyRes.ok) {
+        const loyaltyData = await loyaltyRes.json();
+        const points = Number(loyaltyData?.points ?? 0);
+        const normalizedPoints = Number.isFinite(points) ? points : 0;
+        setLoyaltyBalance(normalizedPoints);
+        const next = Math.max(0, Math.min(redeemPoints, normalizedPoints));
+        setRedeemPoints(next);
+      } else {
+        setLoyaltyBalance(0);
+      }
+    } catch (error) {
+      console.error("Failed to lookup customer", error);
+      setLoyaltyError("Unable to load loyalty details. Try again.");
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  }, [customerPhone, selectedStore, setRedeemPoints, toast]);
 
   useEffect(() => {
     setSidebarFooter(
@@ -166,10 +292,12 @@ export default function POS() {
       const payload = {
         storeId: selectedStore,
         subtotal: String(Number(summary.subtotal.toFixed(2))),
-        discount: String(0),
+        discount: String(Number(summary.redeemDiscount.toFixed(2))),
         tax: String(Number(summary.tax.toFixed(2))),
         total: String(Number(summary.total.toFixed(2))),
         paymentMethod: payment.method,
+        customerPhone: customerPhone.trim() || undefined,
+        redeemPoints,
         items: items.map((it) => ({
           productId: it.productId,
           quantity: it.quantity,
@@ -202,8 +330,8 @@ export default function POS() {
         setQueuedCount(await getOfflineQueueCount());
         addNotification({
           type: 'info',
-          title: 'Saved Offline',
-          message: 'Sale saved locally and will sync when online.',
+          title: 'Sale queued offline',
+          message: 'Transaction stored locally and will sync later.',
         });
         // Return a fake object to satisfy UI, with local id
         return { id: `local_${Date.now()}`, idempotencyKey, total: payload.total } as any;
@@ -213,9 +341,10 @@ export default function POS() {
       addNotification({
         type: "success",
         title: "Sale Completed",
-        message: `Transaction completed successfully. Total: $${summary.total.toFixed(2)}`,
+        message: `Transaction completed successfully.`,
       });
       clearCart();
+      handleClearLoyalty();
       await queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"] });
       // Try to process queue immediately (harmless if none)
       const { processQueueNow, getOfflineQueueCount } = await import('@/lib/offline-queue');
@@ -326,6 +455,7 @@ export default function POS() {
       message: "Transaction has been saved for later.",
     });
     clearCart();
+    handleClearLoyalty();
   };
 
   const handleVoidTransaction = () => {
@@ -335,6 +465,7 @@ export default function POS() {
       title: "Transaction Voided",
       message: "Transaction has been cancelled.",
     });
+    handleClearLoyalty();
   };
 
   return (
@@ -402,6 +533,19 @@ export default function POS() {
             onVoidTransaction={handleVoidTransaction}
             isProcessing={createTransactionMutation.isPending}
             currency={currency}
+            loyalty={{
+              customerPhone,
+              onCustomerPhoneChange: setCustomerPhone,
+              onLookupCustomer: () => void handleLookupCustomer(),
+              onClear: handleClearLoyalty,
+              isLoading: loyaltyLoading,
+              error: loyaltyError,
+              loyaltyBalance,
+              customerName: loyaltyCustomer?.name ?? null,
+              redeemPoints,
+              maxRedeemablePoints,
+              onRedeemPointsChange: handleRedeemPointsChange,
+            }}
           />
         </div>
       </div>

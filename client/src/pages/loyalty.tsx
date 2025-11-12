@@ -8,7 +8,9 @@ import {
   Award,
   TrendingUp,
   UserPlus,
+  Coins,
 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfToken } from "@/lib/csrf";
 
 interface Customer {
   id: string;
@@ -75,7 +78,9 @@ export default function Loyalty() {
   const [isLoading, setIsLoading] = useState(true);
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [showAddTier, setShowAddTier] = useState(false);
+  const [showEditSettings, setShowEditSettings] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Form states
   const [newCustomer, setNewCustomer] = useState({
@@ -94,6 +99,74 @@ export default function Loyalty() {
     discountPercentage: 0,
     color: "#6B7280",
   });
+
+  const [settingsForm, setSettingsForm] = useState({
+    earnRate: 1,
+    redeemValue: 0.01,
+  });
+
+  type LoyaltySettings = { earnRate: number; redeemValue: number };
+
+  const { data: loyaltySettings, isLoading: settingsLoading, error: loyaltySettingsError } = useQuery<LoyaltySettings>({
+    queryKey: ["/api/loyalty/settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/loyalty/settings", { credentials: "include" });
+      if (!res.ok) {
+        throw new Error("Failed to load loyalty settings");
+      }
+      return res.json() as Promise<LoyaltySettings>;
+    },
+  });
+
+  useEffect(() => {
+    if (loyaltySettings) {
+      const resolved = loyaltySettings as LoyaltySettings;
+      setSettingsForm({
+        earnRate: Number(resolved.earnRate.toFixed(4)),
+        redeemValue: Number(resolved.redeemValue.toFixed(4)),
+      });
+    }
+  }, [loyaltySettings]);
+
+  useEffect(() => {
+    if (loyaltySettingsError) {
+      toast({ title: "Error", description: loyaltySettingsError.message || "Unable to load loyalty settings", variant: "destructive" });
+    }
+  }, [loyaltySettingsError, toast]);
+
+  const updateSettingsMutation = useMutation<LoyaltySettings, Error, LoyaltySettings>({
+    mutationFn: async (payload) => {
+      const csrfToken = await getCsrfToken();
+      const res = await fetch("/api/loyalty/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to update loyalty settings");
+      }
+      return res.json() as Promise<LoyaltySettings>;
+    },
+    onSuccess: async (data) => {
+      toast({ title: "Settings updated", description: "Loyalty earn and redeem values saved." });
+      setShowEditSettings(false);
+      setSettingsForm({
+        earnRate: Number(data.earnRate.toFixed(4)),
+        redeemValue: Number(data.redeemValue.toFixed(4)),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/loyalty/settings"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Update failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const isSavingSettings = updateSettingsMutation.isPending;
 
   const fetchLoyaltyData = useCallback(async () => {
     try {
@@ -421,7 +494,7 @@ export default function Loyalty() {
       <Tabs defaultValue="customers" className="space-y-6">
         <TabsList>
           <TabsTrigger value="customers">Customers</TabsTrigger>
-          <TabsTrigger value="tiers">Tiers</TabsTrigger>
+          <TabsTrigger value="tiers">Point Rules</TabsTrigger>
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
         </TabsList>
 
@@ -579,131 +652,108 @@ export default function Loyalty() {
           </Card>
         </TabsContent>
 
-        {/* Tiers Tab */}
+        {/* Point Rules Tab */}
         <TabsContent value="tiers" className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Loyalty Tiers</CardTitle>
+                  <CardTitle>Loyalty Point Rules</CardTitle>
                   <CardDescription>
-                    Manage customer tiers and their benefits
+                    Configure how points are earned and redeemed across the organization
                   </CardDescription>
                 </div>
-                <Dialog open={showAddTier} onOpenChange={setShowAddTier}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Tier
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Add New Tier</DialogTitle>
-                      <DialogDescription>
-                        Create a new loyalty tier with specific benefits
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="tierName">Tier Name</Label>
-                        <Input
-                          id="tierName"
-                          value={newTier.name}
-                          onChange={(e) => setNewTier({ ...newTier, name: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="description">Description</Label>
-                        <Textarea
-                          id="description"
-                          value={newTier.description}
-                          onChange={(e) => setNewTier({ ...newTier, description: e.target.value })}
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="pointsRequired">Points Required</Label>
-                          <Input
-                            id="pointsRequired"
-                            type="number"
-                            value={newTier.pointsRequired}
-                            onChange={(e) => setNewTier({ ...newTier, pointsRequired: parseInt(e.target.value) || 0 })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="discountPercentage">Discount %</Label>
-                          <Input
-                            id="discountPercentage"
-                            type="number"
-                            step="0.01"
-                            value={newTier.discountPercentage}
-                            onChange={(e) => setNewTier({ ...newTier, discountPercentage: parseFloat(e.target.value) || 0 })}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="color">Color</Label>
-                        <Input
-                          id="color"
-                          type="color"
-                          value={newTier.color}
-                          onChange={(e) => setNewTier({ ...newTier, color: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setShowAddTier(false)}>
-                        Cancel
-                      </Button>
-                      <Button onClick={handleAddTier}>Add Tier</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                <Button onClick={() => setShowEditSettings(true)} disabled={settingsLoading || !loyaltySettings}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4">
-                {tiers
-                  .sort((a, b) => a.pointsRequired - b.pointsRequired)
-                  .map((tier) => (
-                    <div
-                      key={tier.id}
-                      className="flex items-center justify-between p-4 border rounded-lg"
-                    >
-                      <div className="flex items-center space-x-4">
-                        <div
-                          className="w-4 h-4 rounded-full"
-                          style={{ backgroundColor: tier.color }}
-                        />
-                        <div>
-                          <div className="font-medium">{tier.name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {tier.description}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        <div className="text-right">
-                          <div className="font-medium">{tier.pointsRequired.toLocaleString()} points</div>
-                          <div className="text-sm text-muted-foreground">
-                            {tier.discountPercentage}% discount
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Button variant="outline" size="sm">
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="outline" size="sm">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card className="border-primary/20 bg-primary/5">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-primary flex items-center gap-2">
+                      <Coins className="h-4 w-4" /> Earn Rate
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-semibold">
+                      {settingsLoading ? "…" : `${settingsForm.earnRate.toFixed(4)} pts / currency unit`}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Points awarded per unit of net spend (after discounts and redemptions)
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-emerald-200 bg-emerald-50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-emerald-700 flex items-center gap-2">
+                      <Badge variant="secondary" className="bg-emerald-200 text-emerald-900">Redeem</Badge>
+                      Redemption Value
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-semibold text-emerald-800">
+                      {settingsLoading ? "…" : `${settingsForm.redeemValue.toFixed(4)} currency / point`}
+                    </p>
+                    <p className="text-sm text-emerald-700 mt-1">
+                      Multiplying points by this value determines the discount applied at checkout
+                    </p>
+                  </CardContent>
+                </Card>
               </div>
             </CardContent>
           </Card>
+
+          <Dialog open={showEditSettings} onOpenChange={setShowEditSettings}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Loyalty Point Rules</DialogTitle>
+                <DialogDescription>
+                  Update how many points customers earn per currency unit and the redemption value per point.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="earnRate">Earn Rate (points per currency unit)</Label>
+                  <Input
+                    id="earnRate"
+                    type="number"
+                    step="0.0001"
+                    min="0.0001"
+                    value={settingsForm.earnRate}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, earnRate: Number(e.target.value) || 0 })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="redeemValue">Redeem Value (currency per point)</Label>
+                  <Input
+                    id="redeemValue"
+                    type="number"
+                    step="0.0001"
+                    min="0.0001"
+                    value={settingsForm.redeemValue}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, redeemValue: Number(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowEditSettings(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => updateSettingsMutation.mutate({
+                    earnRate: settingsForm.earnRate,
+                    redeemValue: settingsForm.redeemValue,
+                  })}
+                  disabled={isSavingSettings}
+                >
+                  {isSavingSettings ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* Transactions Tab */}

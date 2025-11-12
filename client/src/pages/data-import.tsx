@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Upload, Database, CheckCircle, AlertTriangle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CSVUploader from "@/components/data-import/csv-uploader";
 import ProductInput from "@/components/data-import/product-input";
 import TemplateDownloader from "@/components/data-import/template-downloader";
@@ -8,7 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatDateTime } from "@/lib/pos-utils";
+import { cn } from "@/lib/utils";
 import type { Store, LowStockAlert } from "@shared/schema";
 
 interface ImportJob {
@@ -44,91 +47,96 @@ export default function DataImport() {
   const lowStockCount = alerts.length;
 
   // Mock import jobs data - in real app this would come from backend
-  const [importJobs, setImportJobs] = useState<ImportJob[]>([
-    {
-      id: "1",
-      type: "products",
-      status: "completed",
-      fileName: "products_export.csv",
-      totalRows: 150,
-      processedRows: 150,
-      errorCount: 0,
-      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      completedAt: new Date(Date.now() - 2 * 60 * 60 * 1000 + 5 * 60 * 1000).toISOString(),
-    },
-    {
-      id: "2",
-      type: "inventory",
-      status: "processing",
-      fileName: "inventory_update.csv",
-      totalRows: 75,
-      processedRows: 45,
-      errorCount: 2,
-      createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    },
-    {
-      id: "3",
-      type: "loyalty",
-      status: "completed",
-      fileName: "loyalty_customers.csv",
-      totalRows: 25,
-      processedRows: 25,
-      errorCount: 0,
-      createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-      completedAt: new Date(Date.now() - 1 * 60 * 60 * 1000 + 2 * 60 * 1000).toISOString(),
-    },
-  ]);
+  const [importJobs, setImportJobs] = useState<ImportJob[]>([]);
+  const [importErrors, setImportErrors] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [successSummary, setSuccessSummary] = useState<string | null>(null);
 
+  const fileEndpoints = useMemo(() => ({
+    inventory: "/api/inventory/import",
+    transactions: "/api/transactions/import",
+    loyalty: "/api/customers/import", // loyalty tab reuses customer import (placeholder until dedicated route)
+    products: "/api/products", // handled via ProductInput component, not CSV uploader
+  }), []);
 
+  const handleFileUpload = async (file: File, type: "inventory" | "transactions" | "loyalty") => {
+    const endpoint = fileEndpoints[type];
+    if (!endpoint) {
+      setImportErrors([{ error: `No endpoint configured for ${type} import.` }]);
+      return;
+    }
 
-  const handleFileUpload = (file: File, type: string) => {
+    if (!selectedStore && type !== "loyalty") {
+      setImportErrors([{ error: "Please select a store before uploading." }]);
+      return;
+    }
+
+    setIsUploading(true);
+    setImportErrors([]);
+    setSuccessSummary(null);
+
+    const jobId = Date.now().toString();
     const newJob: ImportJob = {
-      id: Date.now().toString(),
-      type: type as "products" | "inventory" | "transactions" | "loyalty",
-      status: "pending",
+      id: jobId,
+      type,
+      status: "processing",
       fileName: file.name,
       totalRows: 0,
       processedRows: 0,
       errorCount: 0,
       createdAt: new Date().toISOString(),
     };
+    setImportJobs((prev) => [newJob, ...prev]);
 
-    setImportJobs(prev => [newJob, ...prev]);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (type !== "loyalty" && selectedStore) {
+        formData.append("storeId", selectedStore);
+      }
 
-    // Simulate processing
-    setTimeout(() => {
-      setImportJobs(prev => prev.map(job => 
-        job.id === newJob.id 
-          ? { ...job, status: "processing", totalRows: 100 }
-          : job
+      const response = await fetch(endpoint, {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setImportJobs((prev) => prev.map((job) => job.id === jobId ? { ...job, status: "failed", errorCount: 1 } : job));
+        setImportErrors([{ error: result?.error || "Import failed unexpectedly." }]);
+        return;
+      }
+
+      const { imported = 0, updated = 0, invalid = 0, invalidRows = [] } = result || {};
+      setImportJobs((prev) => prev.map((job) => job.id === jobId
+        ? {
+            ...job,
+            status: invalid > 0 ? "completed" : "completed",
+            processedRows: imported + updated,
+            totalRows: imported + updated + invalid,
+            errorCount: invalid,
+            completedAt: new Date().toISOString(),
+          }
+        : job
       ));
 
-      // Simulate progress updates
-      let progress = 0;
-      const progressInterval = setInterval(() => {
-        progress += Math.random() * 20;
-        if (progress >= 100) {
-          progress = 100;
-          clearInterval(progressInterval);
-          setImportJobs(prev => prev.map(job => 
-            job.id === newJob.id 
-              ? { 
-                  ...job, 
-                  status: "completed", 
-                  processedRows: 100,
-                  completedAt: new Date().toISOString()
-                }
-              : job
-          ));
-        } else {
-          setImportJobs(prev => prev.map(job => 
-            job.id === newJob.id 
-              ? { ...job, processedRows: Math.floor(progress) }
-              : job
-          ));
-        }
-      }, 1000);
-    }, 2000);
+      if (invalidRows.length > 0) {
+        setImportErrors(invalidRows.map((row: any) => ({
+          error: row.error || "Row failed validation",
+          row: row.row,
+        })));
+      } else {
+        setImportErrors([]);
+      }
+
+      setSuccessSummary(`Imported ${imported} record${imported === 1 ? "" : "s"}${updated ? `, updated ${updated}` : ""}${invalid ? `, ${invalid} invalid` : ""}.`);
+    } catch (error) {
+      setImportJobs((prev) => prev.map((job) => job.id === jobId ? { ...job, status: "failed", errorCount: 1 } : job));
+      setImportErrors([{ error: error instanceof Error ? error.message : String(error) }]);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
 
@@ -262,7 +270,7 @@ export default function DataImport() {
                       </div>
                       <TemplateDownloader type="inventory" />
                     </div>
-                    <CSVUploader onFileUpload={(file) => handleFileUpload(file, "inventory")} />
+                    <CSVUploader onFileUpload={(file) => handleFileUpload(file, "inventory")} disabled={isUploading} />
                   </TabsContent>
                   
                   <TabsContent value="transactions" className="space-y-4">
@@ -275,7 +283,7 @@ export default function DataImport() {
                       </div>
                       <TemplateDownloader type="transactions" />
                     </div>
-                    <CSVUploader onFileUpload={(file) => handleFileUpload(file, "transactions")} />
+                    <CSVUploader onFileUpload={(file) => handleFileUpload(file, "transactions")} disabled={isUploading} />
                   </TabsContent>
                   
                   <TabsContent value="loyalty" className="space-y-4">
@@ -288,11 +296,59 @@ export default function DataImport() {
                       </div>
                       <TemplateDownloader type="loyalty" />
                     </div>
-                    <CSVUploader onFileUpload={(file) => handleFileUpload(file, "loyalty")} />
+                    <CSVUploader onFileUpload={(file) => handleFileUpload(file, "loyalty")} disabled={isUploading} />
                   </TabsContent>
                 </Tabs>
               </CardContent>
             </Card>
+
+            {(successSummary || importErrors.length > 0) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Import Results</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {successSummary && (
+                    <Alert variant="default" className="bg-green-50 border-green-200 text-green-900">
+                      <AlertTitle>Success</AlertTitle>
+                      <AlertDescription>{successSummary}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  {importErrors.length > 0 && (
+                    <div className="space-y-2">
+                      <Alert variant="destructive">
+                        <AlertTitle>Some rows failed to import</AlertTitle>
+                        <AlertDescription>
+                          Review the errors below, correct your CSV, and retry. The valid rows were imported successfully.
+                        </AlertDescription>
+                      </Alert>
+                      <div className="max-h-64 overflow-y-auto border rounded-md divide-y">
+                        {importErrors.map((rowError, index) => (
+                          <div key={`${rowError.error}-${index}`} className="p-3 text-sm space-y-1">
+                            <div className="font-medium text-red-600">{rowError.error}</div>
+                            {rowError.row && (
+                              <pre className="bg-muted/50 rounded p-2 text-xs overflow-x-auto whitespace-pre-wrap">{JSON.stringify(rowError.row, null, 2)}</pre>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(successSummary || importErrors.length > 0) && (
+                    <div className="flex justify-end">
+                      <Button variant="outline" onClick={() => {
+                        setSuccessSummary(null);
+                        setImportErrors([]);
+                      }}>
+                        Clear Results
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Import History */}
             <Card>

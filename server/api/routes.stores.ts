@@ -6,10 +6,13 @@ import { db } from '../db';
 import { getPlan } from '../lib/plans';
 import { requireAuth, requireRole, enforceIpWhitelist } from '../middleware/authz';
 
+const taxRateSchema = z.number().min(0).max(1);
+
 const CreateStoreSchema = z.object({
   name: z.string().min(1),
   address: z.string().optional(),
   currency: z.enum(['NGN', 'USD']).optional().default('NGN'),
+  taxRate: taxRateSchema.optional(),
 });
 
 const UpdateStoreSchema = z.object({
@@ -17,6 +20,7 @@ const UpdateStoreSchema = z.object({
   address: z.string().optional(),
   phone: z.string().optional(),
   email: z.string().email().optional(),
+  taxRate: taxRateSchema.optional(),
 });
 
 export async function registerStoreRoutes(app: Express) {
@@ -49,11 +53,14 @@ export async function registerStoreRoutes(app: Express) {
       return res.status(403).json({ error: 'Store limit reached. Upgrade to add more stores.' });
     }
 
+    const taxRate = parsed.data.taxRate ?? 0.085;
+
     const [created] = await db.insert(stores).values({
       orgId: me.orgId,
       name: parsed.data.name,
       address: parsed.data.address || null,
       currency: parsed.data.currency,
+      taxRate: Number.isFinite(taxRate) ? taxRate.toFixed(4) : '0.0850',
     } as any).returning();
 
     return res.status(201).json(created);
@@ -141,8 +148,13 @@ export async function registerStoreRoutes(app: Express) {
       return res.status(404).json({ error: 'Store not found or access denied' });
     }
 
+    const updateData: Record<string, unknown> = { ...parsed.data };
+    if (typeof parsed.data.taxRate === 'number') {
+      updateData.taxRate = parsed.data.taxRate.toFixed(4);
+    }
+
     const [updatedStore] = await db.update(stores)
-      .set(parsed.data)
+      .set(updateData)
       .where(eq(stores.id, storeId))
       .returning();
 

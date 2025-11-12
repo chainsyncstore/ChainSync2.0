@@ -29,6 +29,8 @@ export const organizations = pgTable('organizations', {
   isActive: boolean('is_active').notNull().default(false),
   lockedUntil: timestamp('locked_until', { withTimezone: true }),
   billingEmail: varchar('billing_email', { length: 255 }),
+  loyaltyEarnRate: numeric('loyalty_earn_rate', { precision: 10, scale: 4 }).notNull().default('1.0000'),
+  loyaltyRedeemValue: numeric('loyalty_redeem_value', { precision: 10, scale: 4 }).notNull().default('0.0100'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
@@ -38,6 +40,7 @@ export const stores = pgTable('stores', {
   name: varchar('name', { length: 255 }).notNull(),
   address: text('address'),
   currency: varchar('currency', { length: 3 }).default('NGN'),
+  taxRate: numeric('tax_rate', { precision: 5, scale: 4 }).notNull().default('0.0850'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (t) => ({
   orgIdx: index('stores_org_idx').on(t.orgId),

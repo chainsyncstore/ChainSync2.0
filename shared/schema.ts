@@ -33,6 +33,8 @@ export const organizations = pgTable("organizations", {
   isActive: boolean("is_active").notNull().default(false),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   billingEmail: varchar("billing_email", { length: 255 }),
+  loyaltyEarnRate: decimal("loyalty_earn_rate", { precision: 10, scale: 4 }).notNull().default("1.0000"),
+  loyaltyRedeemValue: decimal("loyalty_redeem_value", { precision: 10, scale: 4 }).notNull().default("0.0100"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -610,6 +612,8 @@ export const insertProductSchema = createInsertSchema(products);
 
 export const insertInventorySchema = createInsertSchema(inventory);
 
+export const insertOrganizationSchema = createInsertSchema(organizations);
+
 export const insertTransactionSchema = createInsertSchema(transactions);
 
 export const insertTransactionItemSchema = createInsertSchema(transactionItems);
@@ -629,6 +633,9 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export type Store = typeof stores.$inferSelect;
 export type InsertStore = z.infer<typeof insertStoreSchema>;
+
+export type Organization = typeof organizations.$inferSelect;
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
 
 export type Product = typeof products.$inferSelect;
 export type InsertProduct = z.infer<typeof insertProductSchema>;

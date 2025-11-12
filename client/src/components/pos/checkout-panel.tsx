@@ -1,4 +1,4 @@
-import { CheckCircle, Pause, X, CreditCard, Banknote } from "lucide-react";
+import { CheckCircle, Pause, X, CreditCard, Banknote, Users, Search } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,19 @@ interface CheckoutPanelProps {
   onVoidTransaction(): void;
   isProcessing?: boolean;
   currency?: 'USD' | 'NGN';
+  loyalty: {
+    customerPhone: string;
+    onCustomerPhoneChange(phone: string): void;
+    onLookupCustomer(): void;
+    onClear(): void;
+    isLoading: boolean;
+    error: string | null;
+    loyaltyBalance: number | null;
+    customerName?: string | null;
+    redeemPoints: number;
+    maxRedeemablePoints: number;
+    onRedeemPointsChange(points: number): void;
+  };
 }
 /* eslint-enable no-unused-vars */
 
@@ -30,6 +43,7 @@ export default function CheckoutPanel({
   onVoidTransaction,
   isProcessing,
   currency = 'USD',
+  loyalty,
 }: CheckoutPanelProps) {
   const [amountReceived, setAmountReceived] = useState("");
   const [amountError, setAmountError] = useState("");
@@ -122,14 +136,88 @@ export default function CheckoutPanel({
             <span>Subtotal</span>
             <span className="font-medium">{formatCurrency(summary.subtotal, currency)}</span>
           </div>
+          {summary.redeemDiscount > 0 && (
+            <div className="flex justify-between text-emerald-600">
+              <span>Loyalty Discount</span>
+              <span className="font-medium">-{formatCurrency(summary.redeemDiscount, currency)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-slate-600">
-            <span>Tax (8.5%)</span>
+            <span>
+              Tax ({(summary.taxRate * 100).toFixed(2)}%)
+            </span>
             <span className="font-medium">{formatCurrency(summary.tax, currency)}</span>
           </div>
         </div>
         <div className="border-t border-slate-200 pt-3 flex items-center justify-between">
           <span className="text-lg font-semibold text-slate-800">Total Due</span>
           <span className="text-xl sm:text-2xl font-bold text-primary">{formatCurrency(summary.total, currency)}</span>
+        </div>
+      </div>
+
+      {/* Loyalty redemption */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+            <Users className="w-5 h-5" /> Customer Loyalty
+          </h3>
+          {loyalty.loyaltyBalance !== null && (
+            <span className="text-sm text-slate-500">
+              Balance: {loyalty.loyaltyBalance} pts
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+          <Input
+            value={loyalty.customerPhone}
+            onChange={(e) => loyalty.onCustomerPhoneChange(e.target.value)}
+            placeholder="Customer phone number"
+            disabled={loyalty.isLoading}
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={loyalty.onLookupCustomer}
+              disabled={loyalty.isLoading || !loyalty.customerPhone.trim()}
+            >
+              {loyalty.isLoading ? (
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <><Search className="w-4 h-4 mr-2" /> Lookup</>
+              )}
+            </Button>
+            <Button variant="ghost" onClick={loyalty.onClear} disabled={loyalty.isLoading && !loyalty.customerPhone}>
+              Clear
+            </Button>
+          </div>
+        </div>
+
+        {loyalty.error && <p className="text-sm text-red-600">{loyalty.error}</p>}
+        {loyalty.customerName && (
+          <p className="text-sm text-slate-600">
+            Serving <span className="font-medium">{loyalty.customerName}</span>
+          </p>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="redeem-points">Redeem Points</Label>
+          <div className="flex items-center gap-3">
+            <Input
+              id="redeem-points"
+              type="number"
+              min={0}
+              max={loyalty.maxRedeemablePoints}
+              step={1}
+              value={loyalty.redeemPoints}
+              onChange={(e) => loyalty.onRedeemPointsChange(Number.parseInt(e.target.value, 10) || 0)}
+              disabled={loyalty.loyaltyBalance === null || loyalty.loyaltyBalance === 0 || loyalty.isLoading}
+              className="sm:max-w-[140px]"
+            />
+            <div className="text-xs text-slate-500">
+              Max {loyalty.maxRedeemablePoints} pts available this sale
+            </div>
+          </div>
         </div>
       </div>
 

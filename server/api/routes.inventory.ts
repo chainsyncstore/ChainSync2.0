@@ -6,7 +6,7 @@ import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
 import { z } from 'zod';
-import { products, stores, users } from '@shared/prd-schema';
+import { products, stores, users, inventory } from '@shared/prd-schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
@@ -70,6 +70,121 @@ export async function registerInventoryRoutes(app: Express) {
       sku: (product as any).sku ?? null,
       price,
     });
+  });
+
+  const ManualProductSchema = z.object({
+    name: z.string().min(1),
+    sku: z.string().trim().min(1).optional(),
+    barcode: z.string().trim().min(1).optional(),
+    description: z.string().trim().max(1000).optional().nullable(),
+    price: z.number().min(0),
+    cost: z.number().min(0).optional(),
+    category: z.string().trim().max(255).optional(),
+    brand: z.string().trim().max(255).optional(),
+  });
+
+  app.post('/api/products', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const parsed = ManualProductSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    }
+
+    const data = parsed.data;
+    const priceString = data.price.toFixed(2);
+    const costString = typeof data.cost === 'number' ? data.cost.toFixed(2) : undefined;
+
+    const normalizeNullable = (value?: string | null) => {
+      if (value == null) return undefined;
+      const trimmed = value.trim();
+      return trimmed.length ? trimmed : undefined;
+    };
+
+    const normalizedPayload: Record<string, any> = {
+      name: data.name.trim(),
+      sku: normalizeNullable(data.sku),
+      barcode: normalizeNullable(data.barcode),
+      description: normalizeNullable(data.description ?? undefined),
+      price: priceString,
+      cost: costString,
+      category: normalizeNullable(data.category),
+      brand: normalizeNullable(data.brand),
+      isActive: true,
+    } as Partial<typeof products.$inferInsert>;
+
+    try {
+      let existing = undefined;
+      if (normalizedPayload.sku) {
+        existing = await storage.getProductBySku(normalizedPayload.sku);
+      }
+      if (!existing && normalizedPayload.barcode) {
+        existing = await storage.getProductByBarcode(normalizedPayload.barcode);
+      }
+
+      let product;
+      if (existing) {
+        product = await storage.updateProduct(existing.id, normalizedPayload as any);
+      } else {
+        product = await storage.createProduct(normalizedPayload as any);
+      }
+
+      return res.status(201).json(product);
+    } catch (error) {
+      logger.error('Failed to create or update product', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to save product' });
+    }
+  });
+
+  const ManualInventorySchema = z.object({
+    productId: z.string().uuid(),
+    storeId: z.string().uuid(),
+    quantity: z.number().int().min(0),
+    minStockLevel: z.number().int().min(0).default(0),
+    maxStockLevel: z.number().int().min(0).optional(),
+  });
+
+  app.post('/api/inventory', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const parsed = ManualInventorySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    }
+
+    const { productId, storeId, quantity, minStockLevel, maxStockLevel } = parsed.data;
+
+    try {
+      const existing = await storage.getInventoryItem(productId, storeId);
+      let inventoryRecord;
+
+      const payload: Record<string, any> = {
+        quantity,
+        minStockLevel,
+      };
+      if (typeof maxStockLevel === 'number') {
+        payload.maxStockLevel = maxStockLevel;
+      }
+
+      if (existing) {
+        inventoryRecord = await storage.updateInventory(productId, storeId, payload as any);
+      } else {
+        inventoryRecord = await storage.createInventory({
+          productId,
+          storeId,
+          quantity,
+          minStockLevel,
+          maxStockLevel: typeof maxStockLevel === 'number' ? maxStockLevel : undefined,
+        } as any);
+      }
+
+      return res.status(existing ? 200 : 201).json({ status: 'success', data: inventoryRecord });
+    } catch (error) {
+      logger.error('Failed to upsert inventory', {
+        productId,
+        storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to save inventory' });
+    }
   });
 
   app.get('/api/products/categories', requireAuth, async (_req: Request, res: Response) => {

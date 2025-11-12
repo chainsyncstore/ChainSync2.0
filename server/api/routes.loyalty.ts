@@ -1,7 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { loyaltyAccounts, loyaltyTransactions, users } from '@shared/prd-schema';
+import { loyaltyAccounts, loyaltyTransactions, organizations, users } from '@shared/prd-schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/authz';
@@ -16,7 +16,83 @@ const RedeemSchema = z.object({
   reason: z.string().max(255).default('redeem'),
 });
 
+const LoyaltySettingsSchema = z.object({
+  earnRate: z.number().positive().max(1000),
+  redeemValue: z.number().positive().max(1000),
+});
+
 export async function registerLoyaltyRoutes(app: Express) {
+  app.get('/api/loyalty/settings', requireAuth, enforceIpWhitelist, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId as string | undefined;
+      if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+      const [me] = await db.select().from(users).where(eq(users.id, userId));
+      if (!me?.orgId) return res.status(400).json({ error: 'Missing org' });
+
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, me.orgId));
+      if (!org) {
+        return res.status(404).json({ error: 'Organization not found' });
+      }
+
+      return res.json({
+        earnRate: Number(org.loyaltyEarnRate ?? 1),
+        redeemValue: Number(org.loyaltyRedeemValue ?? 0.01),
+      });
+    } catch (error) {
+      logger.error('Failed to load loyalty settings', {
+        userId: req.session?.userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to load loyalty settings' });
+    }
+  });
+
+  app.put(
+    '/api/loyalty/settings',
+    requireAuth,
+    enforceIpWhitelist,
+    requireRole('MANAGER'),
+    async (req: Request, res: Response) => {
+      const parsed = LoyaltySettingsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+      }
+
+      try {
+        const userId = req.session?.userId as string | undefined;
+        if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+        const [me] = await db.select().from(users).where(eq(users.id, userId));
+        if (!me?.orgId) return res.status(400).json({ error: 'Missing org' });
+
+        const [updated] = await db
+          .update(organizations)
+          .set({
+            loyaltyEarnRate: parsed.data.earnRate,
+            loyaltyRedeemValue: parsed.data.redeemValue,
+          } as any)
+          .where(eq(organizations.id, me.orgId))
+          .returning();
+
+        if (!updated) {
+          return res.status(404).json({ error: 'Organization not found' });
+        }
+
+        return res.json({
+          earnRate: Number(updated.loyaltyEarnRate ?? parsed.data.earnRate),
+          redeemValue: Number(updated.loyaltyRedeemValue ?? parsed.data.redeemValue),
+        });
+      } catch (error) {
+        logger.error('Failed to update loyalty settings', {
+          userId: req.session?.userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return res.status(500).json({ error: 'Failed to update loyalty settings' });
+      }
+    }
+  );
+
   // GET /loyalty/:customerId
   app.get('/api/loyalty/:customerId', requireAuth, enforceIpWhitelist, async (req: Request, res: Response) => {
     try {
