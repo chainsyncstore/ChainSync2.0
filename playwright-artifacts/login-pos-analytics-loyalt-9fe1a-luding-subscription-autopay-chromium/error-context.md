@@ -3,16 +3,53 @@
 ```yaml
 - region "Notifications (F8)":
   - list
-- img
-- text: Secure Your Account Your administrator has provided a temporary password. Please create a new password to continue. Current (temporary) password
-- textbox "Current (temporary) password"
-- text: New password
-- textbox "New password"
-- text: Confirm new password
-- textbox "Confirm new password"
-- button "Update password"
-- paragraph:
-  - text: Need help? Contact your administrator or
-  - button "sign out"
-  - text: .
+- banner:
+  - button:
+    - img
+  - heading "ChainSync" [level=2]
+  - paragraph: POS & Analytics System
+  - text: Live Sync Nov 12, 2025, 01:43 AM
+  - button "Logout":
+    - img
+    - text: Logout
+- main:
+  - heading "Shopping Cart" [level=3]
+  - img
+  - paragraph: Cart is empty
+  - paragraph: Scan a product to get started
+  - heading "Product Scanner" [level=3]
+  - text: Scan or Enter Barcode
+  - textbox "Scan or Enter Barcode"
+  - img
+  - button "Add Item" [disabled]:
+    - img
+    - text: Add Item
+  - button "Search":
+    - img
+    - text: Search
+  - button "Activate Scanner":
+    - img
+    - text: Activate Scanner
+  - text: Online
+  - heading "Order Summary" [level=3]
+  - text: 0 items Subtotal ₦0.00 Tax (8.5%) ₦0.00 Total Due ₦0.00
+  - heading "Payment Method" [level=3]
+  - button "Cash":
+    - img
+    - text: Cash
+  - button "Card":
+    - img
+    - text: Card
+  - text: Amount Received
+  - spinbutton "Amount Received": "50"
+  - text: Change Due ₦50.00
+  - button "Complete Sale" [disabled]:
+    - img
+    - text: Complete Sale
+  - button "Hold Transaction" [disabled]:
+    - img
+    - text: Hold Transaction
+  - button "Void Sale" [disabled]:
+    - img
+    - text: Void Sale
 ```

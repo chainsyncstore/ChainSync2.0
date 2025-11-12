@@ -1,7 +1,6 @@
 {
   "localStorage": {
-    "ai-chat-messages": "[]",
-    "chainsync_session": "{\"user\":{\"id\":\"42ba6792-6f0e-4490-804e-9ce49a6c8603\",\"email\":\"cashier+1762904151952@chainsync.store\",\"isAdmin\":false,\"role\":\"cashier\",\"storeId\":\"a94f64b4-801e-463f-a746-4337572d1f99\",\"firstName\":\"Cashier\",\"lastName\":\"Playwright\",\"phone\":null,\"requiresPasswordChange\":true,\"twofaVerified\":false,\"subscription\":null},\"expiresAt\":1762932963487}"
+    "ai-chat-messages": "[]"
   },
   "sessionStorage": {}
 }

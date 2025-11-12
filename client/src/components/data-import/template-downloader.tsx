@@ -14,7 +14,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
     switch (type) {
       case "inventory":
         headers = [
-          "product_id",
+          "sku",
           "product_name", 
           "barcode",
           "description",
@@ -27,7 +27,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "brand"
         ];
         sampleData = [
-          "550e8400-e29b-41d4-a716-446655440000",
+          "SKU123",
           "Sample Product",
           "1234567890123",
           "This is a sample product description",
@@ -65,7 +65,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
       case "transactions":
         headers = [
           "transaction_date",
-          "product_id",
+          "sku",
           "product_name",
           "quantity",
           "unit_price",
@@ -75,7 +75,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
         ];
         sampleData = [
           "2024-01-15T10:30:00Z",
-          "550e8400-e29b-41d4-a716-446655440000",
+          "SKU123",
           "Sample Product",
           "2",
           "29.99",
@@ -125,7 +125,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
       additionalRows = Array(2).fill(null).map((_, i) => {
         if (type === "inventory") {
           return [
-            `550e8400-e29b-41d4-a716-44665544000${i + 1}`,
+            `SKU${(i + 2).toString().padStart(3, "0")}`,
             `Sample Product ${i + 2}`,
             `123456789012${i + 4}`,
             `Sample description ${i + 2}`,
@@ -136,6 +136,21 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
             `${Math.floor(Math.random() * 200) + 50}`,
             ["electronics", "clothing", "food"][i % 3],
             `Brand ${i + 2}`
+          ].join(",");
+        } else if (type === "transactions") {
+          const quantity = Math.floor(Math.random() * 5) + 1;
+          const unitPrice = (Math.random() * 50 + 10).toFixed(2);
+          const totalPrice = (Number(unitPrice) * quantity).toFixed(2);
+          const paymentMethods = ["cash", "card", "transfer"];
+          return [
+            new Date(Date.now() - (i + 1) * 86_400_000).toISOString(),
+            `SKU${(i + 2).toString().padStart(3, "0")}`,
+            `Sample Product ${i + 2}`,
+            `${quantity}`,
+            unitPrice,
+            totalPrice,
+            paymentMethods[i % paymentMethods.length],
+            `cashier-${i + 2}`
           ].join(",");
         } else {
           return sampleData.map((_, j) => {

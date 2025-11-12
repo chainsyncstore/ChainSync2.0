@@ -7,6 +7,15 @@ const ADMIN_PASSWORD = '@Chisom5940';
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
 const USE_REAL_BACKEND = String(process.env.PLAYWRIGHT_USE_REAL_BACKEND).toLowerCase() === 'true';
 
+const MANAGER_EMAIL = process.env.PLAYWRIGHT_MANAGER_EMAIL ?? 'info.chisomarinze@gmail.com';
+const MANAGER_PASSWORD = process.env.PLAYWRIGHT_MANAGER_PASSWORD ?? '@Chisom5940';
+const CASHIER_EMAIL = process.env.PLAYWRIGHT_CASHIER_EMAIL ?? 'info.elvisarinze@gmail.com';
+const CASHIER_PASSWORD = process.env.PLAYWRIGHT_CASHIER_PASSWORD ?? '@Chisom5940';
+const USE_PRECONFIGURED_ACCOUNTS =
+  (process.env.PLAYWRIGHT_USE_PRECONFIGURED_ACCOUNTS ?? 'true').toLowerCase() === 'true';
+const PRECONFIGURED_STORE_ID = process.env.PLAYWRIGHT_PRECONFIGURED_STORE_ID;
+const PRECONFIGURED_STORE_NAME = process.env.PLAYWRIGHT_PRECONFIGURED_STORE_NAME;
+
 type LoginOptions = {
   email: string;
   password: string;
@@ -316,132 +325,189 @@ test('full supermarket workflow including subscription & autopay', async ({ page
   await page.goto('/multi-store');
   await expect(page.getByRole('heading', { name: 'Multi-Store Management' })).toBeVisible();
   const storeName = `QA Branch ${Date.now()}`;
-  adminAuth = await fetchAuthHeaders(page);
-  const storeCreateResp = await page.request.post('/api/stores', {
-    headers: adminAuth.headers,
-    data: {
-      name: storeName,
-      address: '123 Playwright Ave',
-      currency: 'NGN',
-    },
-  });
-  const storeCreateJson = await storeCreateResp.json().catch(() => null);
   let targetStore: any = null;
 
-  if (!storeCreateResp.ok()) {
-    await testInfo.attach('store-create.response.txt', {
-      contentType: 'text/plain',
-      body: `status=${storeCreateResp.status()}`,
+  if (!USE_PRECONFIGURED_ACCOUNTS) {
+    adminAuth = await fetchAuthHeaders(page);
+    const storeCreateResp = await page.request.post('/api/stores', {
+      headers: adminAuth.headers,
+      data: {
+        name: storeName,
+        address: '123 Playwright Ave',
+        currency: 'NGN',
+      },
     });
-    if (storeCreateJson) {
+    const storeCreateJson = await storeCreateResp.json().catch(() => null);
+
+    if (!storeCreateResp.ok()) {
+      await testInfo.attach('store-create.response.txt', {
+        contentType: 'text/plain',
+        body: `status=${storeCreateResp.status()}`,
+      });
+      if (storeCreateJson) {
+        await testInfo.attach('store-create.response.json', {
+          contentType: 'application/json',
+          body: JSON.stringify(storeCreateJson, null, 2),
+        });
+      }
+
+      if (storeCreateResp.status() !== 403) {
+        throw new Error(`Store creation failed with status ${storeCreateResp.status()}`);
+      }
+
+      const storesResp = await page.request.get('/api/stores', { headers: adminAuth.headers });
+      if (!storesResp.ok()) {
+        const storesBody = await storesResp.text();
+        await testInfo.attach('stores-fallback.response.txt', {
+          contentType: 'text/plain',
+          body: `status=${storesResp.status()}\n${storesBody}`,
+        });
+        throw new Error('Store limit reached and failed to list existing stores');
+      }
+
+      const storesPayload = await storesResp.json().catch(() => []);
+      await testInfo.attach('stores-fallback.list.json', {
+        contentType: 'application/json',
+        body: JSON.stringify(storesPayload, null, 2),
+      });
+
+      if (!Array.isArray(storesPayload) || storesPayload.length === 0) {
+        throw new Error('Store limit reached but no existing stores available to reuse');
+      }
+
+      targetStore = storesPayload[0];
+      await testInfo.attach('store-fallback.selected.json', {
+        contentType: 'application/json',
+        body: JSON.stringify(targetStore, null, 2),
+      });
+    } else {
       await testInfo.attach('store-create.response.json', {
         contentType: 'application/json',
         body: JSON.stringify(storeCreateJson, null, 2),
       });
-    }
 
-    if (storeCreateResp.status() !== 403) {
-      throw new Error(`Store creation failed with status ${storeCreateResp.status()}`);
-    }
+      let storesPayload: any = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const storesResp = await page.request.get('/api/stores', { headers: adminAuth.headers });
+        storesPayload = await storesResp.json().catch(() => null);
+        if (Array.isArray(storesPayload) && storesPayload.some((store: any) => store?.name === storeName)) {
+          break;
+        }
+        if (attempt < 2) {
+          await page.waitForTimeout(500);
+        }
+      }
 
+      await testInfo.attach('stores-after-create.json', {
+        contentType: 'application/json',
+        body: JSON.stringify(storesPayload, null, 2),
+      });
+      targetStore = Array.isArray(storesPayload)
+        ? storesPayload.find((store: any) => store?.name === storeName)
+        : null;
+      if (!targetStore?.id) {
+        throw new Error('Created store not found in /api/stores response');
+      }
+    }
+  } else {
+    adminAuth = await fetchAuthHeaders(page);
     const storesResp = await page.request.get('/api/stores', { headers: adminAuth.headers });
     if (!storesResp.ok()) {
       const storesBody = await storesResp.text();
-      await testInfo.attach('stores-fallback.response.txt', {
+      await testInfo.attach('stores-preconfigured.response.txt', {
         contentType: 'text/plain',
         body: `status=${storesResp.status()}\n${storesBody}`,
       });
-      throw new Error('Store limit reached and failed to list existing stores');
+      throw new Error(`Failed to fetch stores for preconfigured accounts (status ${storesResp.status()})`);
     }
 
     const storesPayload = await storesResp.json().catch(() => []);
-    await testInfo.attach('stores-fallback.list.json', {
+    await testInfo.attach('stores-preconfigured.list.json', {
       contentType: 'application/json',
       body: JSON.stringify(storesPayload, null, 2),
     });
 
     if (!Array.isArray(storesPayload) || storesPayload.length === 0) {
-      throw new Error('Store limit reached but no existing stores available to reuse');
+      throw new Error('No stores available for preconfigured accounts');
     }
 
-    targetStore = storesPayload[0];
-    await testInfo.attach('store-fallback.selected.json', {
+    if (PRECONFIGURED_STORE_ID) {
+      targetStore = storesPayload.find((store: any) => store?.id === PRECONFIGURED_STORE_ID) ?? null;
+    }
+
+    if (!targetStore && PRECONFIGURED_STORE_NAME) {
+      targetStore = storesPayload.find((store: any) => (store?.name ?? '').toLowerCase() === PRECONFIGURED_STORE_NAME.toLowerCase()) ?? null;
+    }
+
+    if (!targetStore) {
+      targetStore = storesPayload[0];
+    }
+
+    await testInfo.attach('store-preconfigured.selected.json', {
       contentType: 'application/json',
       body: JSON.stringify(targetStore, null, 2),
     });
-  } else {
-    await testInfo.attach('store-create.response.json', {
-      contentType: 'application/json',
-      body: JSON.stringify(storeCreateJson, null, 2),
-    });
-
-    let storesPayload: any = null;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const storesResp = await page.request.get('/api/stores', { headers: adminAuth.headers });
-      storesPayload = await storesResp.json().catch(() => null);
-      if (Array.isArray(storesPayload) && storesPayload.some((store: any) => store?.name === storeName)) {
-        break;
-      }
-      if (attempt < 2) {
-        await page.waitForTimeout(500);
-      }
-    }
-
-    await testInfo.attach('stores-after-create.json', {
-      contentType: 'application/json',
-      body: JSON.stringify(storesPayload, null, 2),
-    });
-    targetStore = Array.isArray(storesPayload)
-      ? storesPayload.find((store: any) => store?.name === storeName)
-      : null;
-    if (!targetStore?.id) {
-      throw new Error('Created store not found in /api/stores response');
-    }
   }
 
   if (!targetStore?.id) {
     throw new Error('Unable to determine a store to use for staff onboarding');
   }
 
-  await page.goto(`/stores/${targetStore.id}/staff`);
-  await expect(page).toHaveURL(new RegExp(`/stores/${targetStore.id}/staff`));
-  await expect(page.getByRole('heading', { name: 'Store Staff' })).toBeVisible();
-  adminAuth = await fetchAuthHeaders(page);
-  const staffEmail = `cashier+${Date.now()}@chainsync.store`;
-  const staffResponse = await page.request.post(`/api/stores/${targetStore.id}/staff`, {
-    headers: adminAuth.headers,
-    data: {
-      firstName: 'Cashier',
-      lastName: 'Playwright',
-      email: staffEmail,
-      role: 'cashier',
-    },
-  });
-  const staffPayload = await staffResponse.json().catch(() => null);
-  if (!staffResponse.ok()) {
-    await testInfo.attach('staff-create.response.txt', {
-      contentType: 'text/plain',
-      body: `status=${staffResponse.status()}`,
+  let generatedStaffCredentials: { email: string; password: string } | null = null;
+
+  if (!USE_PRECONFIGURED_ACCOUNTS) {
+    await page.goto(`/stores/${targetStore.id}/staff`);
+    await expect(page).toHaveURL(new RegExp(`/stores/${targetStore.id}/staff`));
+    await expect(page.getByRole('heading', { name: 'Store Staff' })).toBeVisible();
+    adminAuth = await fetchAuthHeaders(page);
+    const staffEmail = `cashier+${Date.now()}@chainsync.store`;
+    const staffResponse = await page.request.post(`/api/stores/${targetStore.id}/staff`, {
+      headers: adminAuth.headers,
+      data: {
+        firstName: 'Cashier',
+        lastName: 'Playwright',
+        email: staffEmail,
+        role: 'cashier',
+      },
     });
-    if (staffPayload) {
-      await testInfo.attach('staff-create.response.json', {
-        contentType: 'application/json',
-        body: JSON.stringify(staffPayload, null, 2),
+    const staffPayload = await staffResponse.json().catch(() => null);
+    if (!staffResponse.ok()) {
+      await testInfo.attach('staff-create.response.txt', {
+        contentType: 'text/plain',
+        body: `status=${staffResponse.status()}`,
       });
+      if (staffPayload) {
+        await testInfo.attach('staff-create.response.json', {
+          contentType: 'application/json',
+          body: JSON.stringify(staffPayload, null, 2),
+        });
+      }
+      throw new Error(`Staff creation failed with status ${staffResponse.status()}`);
     }
-    throw new Error(`Staff creation failed with status ${staffResponse.status()}`);
+    await testInfo.attach('staff-create.response.json', {
+      contentType: 'application/json',
+      body: JSON.stringify(staffPayload, null, 2),
+    });
+    generatedStaffCredentials = {
+      email: staffPayload?.credentials?.email as string | undefined,
+      password: staffPayload?.credentials?.password as string | undefined,
+    };
+  } else {
+    generatedStaffCredentials = {
+      email: CASHIER_EMAIL,
+      password: CASHIER_PASSWORD,
+    };
+    await testInfo.attach('staff-preconfigured.credentials.json', {
+      contentType: 'application/json',
+      body: JSON.stringify({ email: generatedStaffCredentials.email }, null, 2),
+    });
   }
-  await testInfo.attach('staff-create.response.json', {
-    contentType: 'application/json',
-    body: JSON.stringify(staffPayload, null, 2),
-  });
-  const staffCredentials = {
-    email: staffPayload?.credentials?.email as string | undefined,
-    password: staffPayload?.credentials?.password as string | undefined,
-  };
-  if (!staffCredentials.email || !staffCredentials.password) {
-    throw new Error('Staff credentials were not returned in response');
+
+  if (!generatedStaffCredentials?.email || !generatedStaffCredentials?.password) {
+    throw new Error('Staff credentials were not available for cashier login');
   }
+
+  const staffCredentials = generatedStaffCredentials;
 
   // Inventory data import (synthetic CSV)
   const importPage = await page.context().newPage();
