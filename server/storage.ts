@@ -1222,15 +1222,44 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inventory operations
-  async getInventoryByStore(storeId: string): Promise<Inventory[]> {
+  async getInventoryByStore(storeId: string): Promise<Array<Inventory & {
+    product: Product | null;
+    formattedPrice: number;
+    storeCurrency: string;
+  }>> {
     if (this.isTestEnv) {
-      const result: any[] = [];
+      const result: Array<any> = [];
       for (const [key, inv] of this.mem.inventory.entries()) {
-        if (key.startsWith(storeId + ':')) result.push(inv);
+        if (!key.startsWith(storeId + ':')) continue;
+        const product = this.mem.products.get(inv.productId);
+        const store = this.mem.stores.get(storeId);
+        result.push({
+          ...inv,
+          product: product ?? null,
+          formattedPrice: Number(product?.price ?? 0),
+          storeCurrency: store?.currency ?? 'USD',
+        });
       }
       return result as any;
     }
-    return await db.select().from(inventory).where(eq(inventory.storeId, storeId));
+
+    const rows = await db
+      .select({
+        inventoryRow: inventory,
+        productRow: products,
+        storeCurrency: stores.currency,
+      })
+      .from(inventory)
+      .innerJoin(products, eq(inventory.productId, products.id))
+      .innerJoin(stores, eq(inventory.storeId, stores.id))
+      .where(eq(inventory.storeId, storeId));
+
+    return rows.map(({ inventoryRow, productRow, storeCurrency }) => ({
+      ...inventoryRow,
+      product: productRow ?? null,
+      formattedPrice: parseFloat(String(productRow?.price ?? '0')),
+      storeCurrency: storeCurrency ?? 'USD',
+    }));
   }
 
   async getInventoryItem(productId: string, storeId: string): Promise<Inventory | undefined> {
@@ -1299,6 +1328,17 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)))
       .returning();
     return item;
+  }
+
+  async deleteInventory(productId: string, storeId: string): Promise<void> {
+    if (this.isTestEnv) {
+      const key = `${storeId}:${productId}`;
+      this.mem.inventory.delete(key);
+      return;
+    }
+    await db
+      .delete(inventory)
+      .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)));
   }
 
   async getLowStockItems(storeId: string): Promise<Inventory[]> {

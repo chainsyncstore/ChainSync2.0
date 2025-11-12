@@ -8,11 +8,12 @@ import type { QueryResult } from 'pg';
 import { z } from 'zod';
 import { products, stores, users } from '@shared/prd-schema';
 import { db } from '../db';
-import { logger } from '../lib/logger';
+import { logger, extractLogContext } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
 import { requireRole } from '../middleware/authz';
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { storage } from '../storage';
+import { securityAuditService } from '../lib/security-audit';
 
 let productColumnsCache: Set<string> | null = null;
 
@@ -144,6 +145,11 @@ export async function registerInventoryRoutes(app: Express) {
     maxStockLevel: z.number().int().min(0).optional(),
   });
 
+  const DeleteInventorySchema = z.object({
+    storeId: z.string().uuid(),
+    reason: z.string().trim().min(3).max(500),
+  });
+
   app.post('/api/inventory', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const parsed = ManualInventorySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -151,12 +157,32 @@ export async function registerInventoryRoutes(app: Express) {
     }
 
     const { productId, storeId, quantity, minStockLevel, maxStockLevel } = parsed.data;
+    const userId = (req.session as any)?.userId as string | undefined;
 
     try {
-      const existing = await storage.getInventoryItem(productId, storeId);
-      let inventoryRecord;
+      if (!userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
 
-      const payload: Record<string, any> = {
+      const actor = await storage.getUser(userId);
+      if (!actor) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      const actorIsAdmin = Boolean((actor as any)?.isAdmin);
+      const actorStoreId = (actor as any)?.storeId as string | undefined;
+
+      if (!actorIsAdmin) {
+        if (!actorStoreId) {
+          return res.status(403).json({ error: 'Store assignment required for manager account' });
+        }
+        if (actorStoreId !== storeId) {
+          return res.status(403).json({ error: 'You can only manage inventory for your assigned store' });
+        }
+      }
+
+      const existing = await storage.getInventoryItem(productId, storeId);
+      const payload: Record<string, number> = {
         quantity,
         minStockLevel,
       };
@@ -164,17 +190,40 @@ export async function registerInventoryRoutes(app: Express) {
         payload.maxStockLevel = maxStockLevel;
       }
 
-      if (existing) {
-        inventoryRecord = await storage.updateInventory(productId, storeId, payload as any);
-      } else {
-        inventoryRecord = await storage.createInventory({
-          productId,
-          storeId,
-          quantity,
-          minStockLevel,
-          maxStockLevel: typeof maxStockLevel === 'number' ? maxStockLevel : undefined,
-        } as any);
-      }
+      const inventoryRecord = existing
+        ? await storage.updateInventory(productId, storeId, payload as any)
+        : await storage.createInventory({
+            productId,
+            storeId,
+            quantity,
+            minStockLevel,
+            maxStockLevel: typeof maxStockLevel === 'number' ? maxStockLevel : undefined,
+          } as any);
+
+      const action = existing ? 'update' : 'create';
+      const baseContext = extractLogContext(req, {
+        userId,
+        storeId: actorStoreId ?? storeId,
+      });
+
+      securityAuditService.logDataAccessEvent('data_write', baseContext, 'inventory_record', {
+        action,
+        productId,
+        storeId,
+        quantityBefore: existing?.quantity ?? null,
+        quantityAfter: inventoryRecord.quantity,
+        minStockBefore: existing?.minStockLevel ?? null,
+        minStockAfter: inventoryRecord.minStockLevel,
+        maxStockBefore: existing?.maxStockLevel ?? null,
+        maxStockAfter: inventoryRecord.maxStockLevel ?? null,
+      });
+
+      logger.info('Inventory record saved', {
+        ...baseContext,
+        action,
+        productId,
+        storeId,
+      });
 
       return res.status(existing ? 200 : 201).json({ status: 'success', data: inventoryRecord });
     } catch (error) {
@@ -184,6 +233,82 @@ export async function registerInventoryRoutes(app: Express) {
         error: error instanceof Error ? error.message : String(error),
       });
       return res.status(500).json({ error: 'Failed to save inventory' });
+    }
+  });
+
+  app.delete('/api/inventory/:productId', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const productId = String(req.params?.productId ?? '').trim();
+    if (!productId) {
+      return res.status(400).json({ error: 'productId is required' });
+    }
+
+    const parsed = DeleteInventorySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    }
+
+    const { storeId, reason } = parsed.data;
+    const userId = (req.session as any)?.userId as string | undefined;
+
+    try {
+      if (!userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const actor = await storage.getUser(userId);
+      if (!actor) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      const actorIsAdmin = Boolean((actor as any)?.isAdmin);
+      const actorStoreId = (actor as any)?.storeId as string | undefined;
+
+      if (!actorIsAdmin) {
+        if (!actorStoreId) {
+          return res.status(403).json({ error: 'Store assignment required for manager account' });
+        }
+        if (actorStoreId !== storeId) {
+          return res.status(403).json({ error: 'You can only manage inventory for your assigned store' });
+        }
+      }
+
+      const existing = await storage.getInventoryItem(productId, storeId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Inventory record not found' });
+      }
+
+      await storage.deleteInventory(productId, storeId);
+
+      const baseContext = extractLogContext(req, {
+        userId,
+        storeId: actorStoreId ?? storeId,
+      });
+
+      securityAuditService.logDataAccessEvent('data_delete', baseContext, 'inventory_record', {
+        action: 'delete',
+        productId,
+        storeId,
+        quantityBefore: existing.quantity,
+        minStockBefore: existing.minStockLevel,
+        maxStockBefore: existing.maxStockLevel,
+        reason,
+      });
+
+      logger.warn('Inventory record deleted', {
+        ...baseContext,
+        productId,
+        storeId,
+        reason,
+      });
+
+      return res.json({ status: 'success' });
+    } catch (error) {
+      logger.error('Failed to delete inventory', {
+        productId,
+        storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to delete inventory' });
     }
   });
 
@@ -226,17 +351,28 @@ export async function registerInventoryRoutes(app: Express) {
     const { storeId } = req.params as any;
     const category = String((req.query as any)?.category || '').trim();
     const lowStock = String((req.query as any)?.lowStock || '').trim();
+
     let items = await storage.getInventoryByStore(storeId);
-    // attach product details from in-memory store for tests
-    const attachProduct = async (item: any) => ({ ...item, product: await storage.getProduct(item.productId) });
+
     if (lowStock === 'true') {
-      items = items.filter(i => (i.quantity || 0) <= (i.minStockLevel || 0));
+      items = items.filter((i) => (i.quantity || 0) <= (i.minStockLevel || 0));
     }
+
     if (category) {
-      const withProd = await Promise.all(items.map(attachProduct));
-      return res.json(withProd.filter(i => i.product?.category === category));
+      items = items.filter((i) => i.product?.category === category);
     }
-    return res.json(items);
+
+    // Attach currency-aware totals for convenience
+    const storeCurrency = items[0]?.storeCurrency ?? 'USD';
+    const totalValue = items.reduce((sum, item) => sum + item.quantity * item.formattedPrice, 0);
+    const response = {
+      currency: storeCurrency,
+      totalValue,
+      totalProducts: items.length,
+      items,
+    };
+
+    return res.json(response);
   });
 
   app.get('/api/stores/:storeId/alerts', requireAuth, async (req: Request, res: Response) => {
