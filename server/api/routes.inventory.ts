@@ -9,11 +9,11 @@ import { z } from 'zod';
 import { products, stores, users } from '@shared/prd-schema';
 import { db } from '../db';
 import { logger, extractLogContext } from '../lib/logger';
+import { securityAuditService } from '../lib/security-audit';
 import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
 import { requireRole } from '../middleware/authz';
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { storage } from '../storage';
-import { securityAuditService } from '../lib/security-audit';
 
 let productColumnsCache: Set<string> | null = null;
 

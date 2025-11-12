@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui/use-toast";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatCurrency } from "@/lib/pos-utils";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, Inventory as InventoryEntry, Product, LowStockAlert } from "@shared/schema";
 
 type InventoryWithProduct = InventoryEntry & {
@@ -78,7 +78,6 @@ export default function Inventory() {
   }, [isManager, managerStoreId, selectedStore]);
 
   const storeId = selectedStore?.trim() || "";
-  const userStoreId = user?.storeId ?? "";
 
   const { data: inventoryData } = useQuery<InventoryApiResponse>({
     queryKey: ["/api/stores", storeId, "inventory"],
@@ -643,13 +642,13 @@ export default function Inventory() {
                           )}
                         </tbody>
                       </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </CardContent>
-          </Card>
-          ) : null}
-        </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
       </div>
 
       <Dialog open={Boolean(editingItem)} onOpenChange={(open) => {
