@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfToken } from "@/lib/csrf";
 
 export default function ForcePasswordReset() {
   const { refreshUser, logout } = useAuth();
@@ -33,9 +34,13 @@ export default function ForcePasswordReset() {
 
     setIsSubmitting(true);
     try {
+      const csrfToken = await getCsrfToken();
       const response = await fetch("/api/auth/me/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
         credentials: "include",
         body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
       });
