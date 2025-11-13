@@ -5,29 +5,21 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import Sidebar from "./layout/sidebar";
 
-/* eslint-disable no-unused-vars -- prop parameter names document external API */
 interface MobileMenuProps {
   userRole: string;
   userName: string;
   userInitials: string;
-  selectedStore: string;
-  stores: Array<{ id: string; name: string }>;
-  onStoreChange: (storeId: string) => void;
   alertCount: number;
-  hideStoreSelector?: boolean;
+  managerStoreId?: string;
   alwaysVisible?: boolean;
 }
-/* eslint-enable no-unused-vars */
 
 export default function MobileMenu({
   userRole,
   userName,
   userInitials,
-  selectedStore,
-  stores,
-  onStoreChange,
   alertCount,
-  hideStoreSelector = false,
+  managerStoreId,
   alwaysVisible = false,
 }: MobileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -53,15 +45,9 @@ export default function MobileMenu({
               userRole={userRole}
               userName={userName}
               userInitials={userInitials}
-              selectedStore={selectedStore}
-              stores={stores}
-              onStoreChange={(storeId) => {
-                onStoreChange(storeId);
-                setIsOpen(false); // Close menu after selection
-              }}
               alertCount={alertCount}
               isMobile={true} // Enable mobile mode for full labels
-              hideStoreSelector={hideStoreSelector}
+              managerStoreId={managerStoreId}
             />
           </div>
         </SheetContent>

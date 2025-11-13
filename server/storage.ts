@@ -48,6 +48,43 @@ import { AuthService } from "./auth";
 import { db } from "./db";
 import { logger } from "./lib/logger";
 
+type InventoryAlertBreakdown = {
+  LOW_STOCK: number;
+  OUT_OF_STOCK: number;
+  OVERSTOCKED: number;
+};
+
+type OrganizationInventoryCurrencyTotal = {
+  currency: string;
+  totalValue: number;
+};
+
+export type OrganizationStoreInventorySummary = {
+  storeId: string;
+  storeName: string;
+  currency: string;
+  totalProducts: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  overstockCount: number;
+  totalValue: number;
+  alertCount: number;
+  alertBreakdown: InventoryAlertBreakdown;
+};
+
+export type OrganizationInventorySummary = {
+  totals: {
+    totalProducts: number;
+    lowStockCount: number;
+    outOfStockCount: number;
+    overstockCount: number;
+    alertCount: number;
+    alertBreakdown: InventoryAlertBreakdown;
+    currencyTotals: OrganizationInventoryCurrencyTotal[];
+  };
+  stores: OrganizationStoreInventorySummary[];
+};
+
 // Simple in-memory cache for frequently accessed data
 class Cache {
   private cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
@@ -184,6 +221,7 @@ export interface IStorage {
   // Inventory operations
   getInventoryByStore(storeId: string): Promise<Inventory[]>;
   getInventoryItem(productId: string, storeId: string): Promise<Inventory | undefined>;
+  getOrganizationInventorySummary(orgId: string): Promise<OrganizationInventorySummary>;
   // Added for integration tests compatibility
   createInventory(insertInventory: InsertInventory): Promise<Inventory>;
   getInventory(productId: string, storeId: string): Promise<Inventory>;
@@ -1260,6 +1298,106 @@ export class DatabaseStorage implements IStorage {
       formattedPrice: parseFloat(String(productRow?.price ?? '0')),
       storeCurrency: storeCurrency ?? 'USD',
     }));
+  }
+
+  private createEmptyAlertBreakdown(): InventoryAlertBreakdown {
+    return {
+      LOW_STOCK: 0,
+      OUT_OF_STOCK: 0,
+      OVERSTOCKED: 0,
+    };
+  }
+
+  private async getOrganizationStoreRecords(orgId: string): Promise<Store[]> {
+    const storesForOrg = await (async () => {
+      if (this.isTestEnv) {
+        return Array.from(this.mem.stores.values()) as Store[];
+      }
+      return await this.getAllStores();
+    })();
+
+    return storesForOrg.filter((store) => {
+      const candidate = (store as any).orgId ?? (store as any).ownerId ?? null;
+      return typeof candidate === 'string' && candidate === orgId;
+    });
+  }
+
+  private aggregateStoreInventorySummary(
+    store: Store,
+    items: Array<Inventory & { formattedPrice: number; storeCurrency: string }>,
+  ): OrganizationStoreInventorySummary {
+    const lowStockCount = items.filter((item) => (item.quantity || 0) <= (item.minStockLevel ?? 0)).length;
+    const outOfStockCount = items.filter((item) => (item.quantity || 0) === 0).length;
+    const overstockCount = items.filter((item) => item.maxStockLevel != null && (item.quantity || 0) > item.maxStockLevel).length;
+    const totalValue = items.reduce((sum, item) => sum + (item.quantity || 0) * (item.formattedPrice || 0), 0);
+    const storeCurrency = items[0]?.storeCurrency ?? (store as any).currency ?? 'USD';
+
+    const alertBreakdown = this.createEmptyAlertBreakdown();
+    alertBreakdown.LOW_STOCK = lowStockCount;
+    alertBreakdown.OUT_OF_STOCK = outOfStockCount;
+    alertBreakdown.OVERSTOCKED = overstockCount;
+
+    return {
+      storeId: store.id,
+      storeName: store.name,
+      currency: storeCurrency,
+      totalProducts: items.length,
+      lowStockCount,
+      outOfStockCount,
+      overstockCount,
+      totalValue,
+      alertCount: lowStockCount + outOfStockCount + overstockCount,
+      alertBreakdown,
+    };
+  }
+
+  async getOrganizationInventorySummary(orgId: string): Promise<OrganizationInventorySummary> {
+    const storesForOrg = await this.getOrganizationStoreRecords(orgId);
+
+    const totals: OrganizationInventorySummary['totals'] = {
+      totalProducts: 0,
+      lowStockCount: 0,
+      outOfStockCount: 0,
+      overstockCount: 0,
+      alertCount: 0,
+      alertBreakdown: this.createEmptyAlertBreakdown(),
+      currencyTotals: [],
+    };
+
+    if (storesForOrg.length === 0) {
+      return {
+        totals,
+        stores: [],
+      };
+    }
+
+    const currencyTotals = new Map<string, number>();
+    const storeSummaries: OrganizationStoreInventorySummary[] = [];
+
+    for (const store of storesForOrg) {
+      const inventoryItems = await this.getInventoryByStore(store.id);
+      const summary = this.aggregateStoreInventorySummary(store, inventoryItems as any);
+
+      storeSummaries.push(summary);
+
+      totals.totalProducts += summary.totalProducts;
+      totals.lowStockCount += summary.lowStockCount;
+      totals.outOfStockCount += summary.outOfStockCount;
+      totals.overstockCount += summary.overstockCount;
+      totals.alertCount += summary.alertCount;
+      totals.alertBreakdown.LOW_STOCK += summary.alertBreakdown.LOW_STOCK;
+      totals.alertBreakdown.OUT_OF_STOCK += summary.alertBreakdown.OUT_OF_STOCK;
+      totals.alertBreakdown.OVERSTOCKED += summary.alertBreakdown.OVERSTOCKED;
+
+      currencyTotals.set(summary.currency, (currencyTotals.get(summary.currency) ?? 0) + summary.totalValue);
+    }
+
+    totals.currencyTotals = Array.from(currencyTotals.entries()).map(([currency, totalValue]) => ({ currency, totalValue }));
+
+    return {
+      totals,
+      stores: storeSummaries,
+    };
   }
 
   async getInventoryItem(productId: string, storeId: string): Promise<Inventory | undefined> {

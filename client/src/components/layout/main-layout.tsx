@@ -18,8 +18,7 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
-  const [selectedStore, setSelectedStore] = useState("");
-  const [stores, setStores] = useState<Array<{ id: string; name: string }>>([]);
+  const [managerStoreId, setManagerStoreId] = useState<string | null>(null);
   const [alertCount, setAlertCount] = useState(0);
   const [sidebarFooter, setSidebarFooter] = useState<React.ReactNode | null>(null);
 
@@ -31,7 +30,6 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     return status === 'TRIAL' && !autopayEnabled && userRole === 'admin';
   }, [subscription, userRole]);
 
-  // Update current time
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentDateTime(new Date());
@@ -39,68 +37,21 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     return () => clearInterval(timer);
   }, []);
 
-  // Load stores from API
   useEffect(() => {
-    let cancelled = false;
-    const loadStores = async () => {
-      if (userRole === "cashier") {
-        const assignedStoreId = user?.storeId || "";
-        setStores(assignedStoreId ? [{ id: assignedStoreId, name: "Assigned Store" }] : []);
-        setSelectedStore(assignedStoreId);
-        return;
-      }
+    if (userRole === "manager") {
+      setManagerStoreId(user?.storeId ?? null);
+    } else {
+      setManagerStoreId(null);
+    }
+  }, [userRole, user?.storeId]);
 
-      try {
-        const res = await fetch('/api/stores', { credentials: 'include' });
-        if (!res.ok) throw new Error('Failed to load stores');
-        const data = await res.json();
-        if (!cancelled) {
-          const normalized = Array.isArray(data) ? data : (data?.data || []);
-          let scopedStores = normalized;
-
-          if (userRole === "manager") {
-            const assignedStoreId = user?.storeId;
-            scopedStores = assignedStoreId
-              ? normalized.filter((store) => store.id === assignedStoreId)
-              : [];
-            if (scopedStores.length === 0 && assignedStoreId) {
-              scopedStores = [{ id: assignedStoreId, name: "Assigned Store" }];
-            }
-          }
-
-          setStores(scopedStores);
-
-          if (scopedStores.length > 0) {
-            const effectiveStoreId = userRole === "manager"
-              ? (user?.storeId || scopedStores[0].id)
-              : scopedStores[0].id;
-            setSelectedStore(effectiveStoreId);
-          } else {
-            setSelectedStore(userRole === "manager" ? (user?.storeId || "") : "");
-          }
-        }
-      } catch (error) {
-        console.error('Error loading stores:', error);
-        if (!cancelled) {
-          const fallbackStoreId = userRole === "manager" ? (user?.storeId || "") : "";
-          setStores(fallbackStoreId ? [{ id: fallbackStoreId, name: "Assigned Store" }] : []);
-          setSelectedStore(fallbackStoreId);
-        }
-      }
-    };
-
-    void loadStores();
-
-    return () => { cancelled = true; };
-  }, [userRole, user?.storeId, user?.orgId]);
-
-  // Load alert count for selected store
+  // Load alert count for manager store (admins handled per-page)
   useEffect(() => {
     let cancelled = false;
     const loadAlerts = async () => {
-      if (!selectedStore) { setAlertCount(0); return; }
+      if (userRole !== "manager" || !managerStoreId) { setAlertCount(0); return; }
       try {
-        const res = await fetch(`/api/stores/${selectedStore}/alerts`, { credentials: 'include' });
+        const res = await fetch(`/api/stores/${managerStoreId}/alerts`, { credentials: 'include' });
         if (!res.ok) throw new Error('Failed to load alerts');
         const data = await res.json();
         if (!cancelled) {
@@ -115,7 +66,7 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     void loadAlerts();
 
     return () => { cancelled = true; };
-  }, [selectedStore]);
+  }, [managerStoreId, userRole]);
 
   // Get page title and subtitle based on current route
   const getPageInfo = () => {
@@ -173,22 +124,12 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     ? `${user.firstName[0]}${user.lastName[0]}`
     : user?.username?.substring(0, 2).toUpperCase() || "U";
 
-  const hideStoreSelector = useMemo(() => userRole !== "admin", [userRole]);
-
-  const handleStoreChange = (storeId: string) => {
-    if (userRole === "manager") return;
-    setSelectedStore(storeId);
-  };
-
   const sidebarProps = userRole === "cashier" ? null : {
     userRole,
     userName,
     userInitials,
-    selectedStore,
-    stores,
-    onStoreChange: handleStoreChange,
     alertCount,
-    hideStoreSelector,
+    managerStoreId: managerStoreId ?? undefined,
   } as const;
 
   return (
@@ -213,11 +154,8 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
               userRole={userRole}
               userName={userName}
               userInitials={userInitials}
-              selectedStore={selectedStore}
-              stores={stores}
-              onStoreChange={handleStoreChange}
               alertCount={alertCount}
-              hideStoreSelector={hideStoreSelector}
+              managerStoreId={managerStoreId ?? undefined}
             />
           </Suspense>
           
@@ -235,7 +173,7 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
         {/* Floating AI Chat (lazy) */}
         {userRole !== "cashier" ? (
           <Suspense fallback={null}>
-            <FloatingChat storeId={selectedStore} />
+            <FloatingChat storeId={managerStoreId ?? undefined} />
           </Suspense>
         ) : null}
       </div>

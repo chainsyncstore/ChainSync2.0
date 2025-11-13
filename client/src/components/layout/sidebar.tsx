@@ -17,19 +17,14 @@ import { Badge } from "@/components/ui/badge";
 import { useLayout } from "@/hooks/use-layout";
 import { cn } from "@/lib/utils";
 
-/* eslint-disable no-unused-vars -- prop parameter names document external contract */
 interface SidebarProps {
 	userRole: string;
 	userName: string;
 	userInitials: string;
-	selectedStore: string;
-	stores: Array<{ id: string; name: string }>;
-	onStoreChange: (storeId: string) => void;
 	alertCount: number;
 	isMobile?: boolean; // Add prop to indicate if it's in mobile menu
-	hideStoreSelector?: boolean;
+	managerStoreId?: string;
 }
-/* eslint-enable no-unused-vars */
 
 type NavigationItem = {
 	path: string;
@@ -41,7 +36,7 @@ type NavigationItem = {
 
 const getNavigationItems = (
 	userRole: string,
-	options: { selectedStore?: string } = {}
+	options: { managerStoreId?: string } = {}
 ): NavigationItem[] => {
 	if (userRole === "cashier") {
 		return [
@@ -60,14 +55,14 @@ const getNavigationItems = (
 	];
 
 	if (userRole === "manager") {
-		const manageStaffPath = options.selectedStore
-			? `/stores/${options.selectedStore}/staff`
+		const manageStaffPath = options.managerStoreId
+			? `/stores/${options.managerStoreId}/staff`
 			: "";
 		items.splice(1, 0, {
 			path: manageStaffPath,
 			icon: Users,
 			label: "Manage Staff",
-			disabled: !options.selectedStore,
+			disabled: !options.managerStoreId,
 		});
 	}
 
@@ -84,12 +79,9 @@ export default function Sidebar({
 	userRole,
 	userName,
 	userInitials,
-	selectedStore,
-	stores,
-	onStoreChange,
 	alertCount,
 	isMobile = false,
-	hideStoreSelector = false,
+	managerStoreId,
 }: SidebarProps) {
 	const [location] = useLocation();
 	const { sidebarFooter } = useLayout();
@@ -127,7 +119,7 @@ export default function Sidebar({
 
 			{/* Navigation */}
 			<nav className="flex-1 px-2 md:px-4 py-4 sm:py-6 space-y-1 sm:space-y-2">
-				{getNavigationItems(userRole, { selectedStore }).map((item) => {
+				{getNavigationItems(userRole, { managerStoreId }).map((item) => {
 					const Icon = item.icon;
 					const isActive = location === item.path;
 					const showAlert = (item as any).hasAlert && alertCount > 0;
@@ -162,23 +154,6 @@ export default function Sidebar({
 					);
 				})}
 			</nav>
-
-			{/* Store Selector */}
-			{!hideStoreSelector && (
-				<div className="p-2 md:p-4 border-t border-slate-200">
-					<select
-						value={selectedStore}
-						onChange={(e) => onStoreChange(e.target.value)}
-						className="w-full px-2 md:px-3 py-2.5 sm:py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent min-h-[40px]"
-					>
-						{stores.map((store) => (
-							<option key={store.id} value={store.id}>
-								{store.name}
-							</option>
-						))}
-					</select>
-				</div>
-			)}
 
 			{sidebarFooter ? (
 				<div className="p-3 md:p-4 border-t border-slate-200 space-y-3">

@@ -28,12 +28,63 @@ type InventoryApiResponse = {
   items: InventoryWithProduct[];
 };
 
+type AlertType = "LOW_STOCK" | "OUT_OF_STOCK" | "OVERSTOCKED";
+
+type AlertBreakdown = Record<AlertType, number>;
+
+type OrganizationInventorySummary = {
+  totals: {
+    totalProducts: number;
+    lowStockCount: number;
+    outOfStockCount: number;
+    overstockCount: number;
+    alertCount: number;
+    alertBreakdown: AlertBreakdown;
+    currencyTotals: Array<{ currency: string; totalValue: number }>;
+  };
+  stores: Array<{
+    storeId: string;
+    storeName: string;
+    currency: string;
+    totalProducts: number;
+    lowStockCount: number;
+    outOfStockCount: number;
+    overstockCount: number;
+    totalValue: number;
+    alertCount: number;
+    alertBreakdown: AlertBreakdown;
+  }>;
+};
+
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
 type StockStatus = {
   status: "out" | "low" | "over" | "good";
   color: BadgeVariant;
   text: string;
 };
+
+const ALERT_TYPES: AlertType[] = ["LOW_STOCK", "OUT_OF_STOCK", "OVERSTOCKED"];
+
+const ALERT_LABELS: Record<AlertType, string> = {
+  LOW_STOCK: "Low stock",
+  OUT_OF_STOCK: "Out of stock",
+  OVERSTOCKED: "Overstocked",
+};
+
+const ALERT_BADGE_VARIANTS: Record<AlertType, BadgeVariant> = {
+  LOW_STOCK: "secondary",
+  OUT_OF_STOCK: "destructive",
+  OVERSTOCKED: "outline",
+};
+
+const createEmptyAlertBreakdown = (): AlertBreakdown => ({
+  LOW_STOCK: 0,
+  OUT_OF_STOCK: 0,
+  OVERSTOCKED: 0,
+});
+
+const ALL_STORES_ID = "ALL";
+const ALL_STORES_OPTION = { id: ALL_STORES_ID, name: "All stores" } as const;
 
 export default function Inventory() {
   const { user } = useAuth();
@@ -63,12 +114,12 @@ export default function Inventory() {
     enabled: isAdmin,
   });
 
-  // Auto-select store for admins when list loads
+  // Auto-select scope for admins when page loads
   useEffect(() => {
-    if (isAdmin && stores.length > 0 && !selectedStore) {
-      setSelectedStore(stores[0].id);
+    if (isAdmin && !selectedStore) {
+      setSelectedStore(ALL_STORES_ID);
     }
-  }, [isAdmin, stores, selectedStore]);
+  }, [isAdmin, selectedStore]);
 
   // Force manager to assigned store
   useEffect(() => {
@@ -77,7 +128,14 @@ export default function Inventory() {
     }
   }, [isManager, managerStoreId, selectedStore]);
 
-  const storeId = selectedStore?.trim() || "";
+  const isAllStoresView = isAdmin && selectedStore === ALL_STORES_ID;
+  const storeId = isAllStoresView ? "" : selectedStore?.trim() || "";
+  const orgId = (user as any)?.orgId ? String((user as any).orgId) : "";
+
+  const adminStoreOptions = useMemo(() => {
+    if (!isAdmin) return stores;
+    return [ALL_STORES_OPTION, ...stores];
+  }, [isAdmin, stores]);
 
   const { data: inventoryData } = useQuery<InventoryApiResponse>({
     queryKey: ["/api/stores", storeId, "inventory"],
@@ -89,6 +147,26 @@ export default function Inventory() {
     enabled: Boolean(storeId),
   });
 
+  const { data: orgInventorySummary } = useQuery<OrganizationInventorySummary | undefined>({
+    queryKey: ["/api/orgs", orgId || null, "inventory"],
+    enabled: isAllStoresView && Boolean(orgId),
+    queryFn: async () => {
+      try {
+        const response = await fetch(`/api/orgs/${orgId}/inventory`);
+        if (!response.ok) {
+          if (response.status === 404) {
+            return undefined;
+          }
+          throw new Error("Failed to load organization inventory");
+        }
+        return (await response.json()) as OrganizationInventorySummary;
+      } catch (error) {
+        console.error("Failed to fetch organization inventory summary", error);
+        return undefined;
+      }
+    },
+  });
+
   const { data: categories = [] } = useQuery<string[]>({
     queryKey: ["/api/products/categories"],
   });
@@ -98,16 +176,22 @@ export default function Inventory() {
   });
 
   const inventoryItems = useMemo<InventoryWithProduct[]>(
-    () => inventoryData?.items ?? [],
-    [inventoryData]
+    () => (isAllStoresView ? [] : inventoryData?.items ?? []),
+    [inventoryData, isAllStoresView]
   );
 
   const currency = useMemo(
-    () => inventoryData?.currency ?? inventoryItems[0]?.storeCurrency ?? "USD",
-    [inventoryData, inventoryItems]
+    () => {
+      if (isAllStoresView) {
+        return orgInventorySummary?.totals.currencyTotals?.[0]?.currency ?? "USD";
+      }
+      return inventoryData?.currency ?? inventoryItems[0]?.storeCurrency ?? "USD";
+    },
+    [inventoryData, inventoryItems, isAllStoresView, orgInventorySummary]
   );
 
   const filteredInventory = useMemo<InventoryWithProduct[]>(() => {
+    if (isAllStoresView) return [];
     return inventoryItems.filter((item) => {
       const name = item.product?.name?.toLowerCase() ?? "";
       const barcode = item.product?.barcode?.toLowerCase() ?? "";
@@ -133,21 +217,21 @@ export default function Inventory() {
 
       return matchesSearch && matchesCategory && matchesBrand && matchesStock;
     });
-  }, [inventoryItems, searchQuery, selectedCategory, selectedBrand, stockFilter]);
+  }, [inventoryItems, isAllStoresView, searchQuery, selectedCategory, selectedBrand, stockFilter]);
 
   const lowStockItems = useMemo(
-    () => filteredInventory.filter((item) => item.quantity <= (item.minStockLevel ?? 0)),
-    [filteredInventory],
+    () => (isAllStoresView ? [] : filteredInventory.filter((item) => item.quantity <= (item.minStockLevel ?? 0))),
+    [filteredInventory, isAllStoresView],
   );
 
   const outOfStockItems = useMemo(
-    () => filteredInventory.filter((item) => item.quantity === 0),
-    [filteredInventory],
+    () => (isAllStoresView ? [] : filteredInventory.filter((item) => item.quantity === 0)),
+    [filteredInventory, isAllStoresView],
   );
 
   const overstockedItems = useMemo(
-    () => filteredInventory.filter((item) => item.quantity > (item.maxStockLevel ?? Number.MAX_SAFE_INTEGER)),
-    [filteredInventory],
+    () => (isAllStoresView ? [] : filteredInventory.filter((item) => item.quantity > (item.maxStockLevel ?? Number.MAX_SAFE_INTEGER))),
+    [filteredInventory, isAllStoresView],
   );
 
   const totalStockValue = useMemo(
@@ -157,6 +241,54 @@ export default function Inventory() {
     }, 0),
     [filteredInventory],
   );
+
+  const aggregatedTotals = useMemo<OrganizationInventorySummary["totals"] | null>(() => {
+    if (!isAllStoresView) return null;
+    if (orgInventorySummary?.totals) {
+      return orgInventorySummary.totals;
+    }
+    return {
+      totalProducts: 0,
+      lowStockCount: 0,
+      outOfStockCount: 0,
+      overstockCount: 0,
+      alertCount: 0,
+      alertBreakdown: createEmptyAlertBreakdown(),
+      currencyTotals: [],
+    } satisfies OrganizationInventorySummary["totals"];
+  }, [isAllStoresView, orgInventorySummary]);
+
+  const aggregatedAlertCount = useMemo(
+    () => (isAllStoresView ? aggregatedTotals?.alertCount ?? 0 : alerts.length),
+    [aggregatedTotals, alerts.length, isAllStoresView],
+  );
+
+  const aggregatedAlertBreakdown = useMemo(() => {
+    if (isAllStoresView) {
+      return aggregatedTotals?.alertBreakdown ?? createEmptyAlertBreakdown();
+    }
+    return {
+      LOW_STOCK: lowStockItems.length,
+      OUT_OF_STOCK: outOfStockItems.length,
+      OVERSTOCKED: overstockedItems.length,
+    } satisfies AlertBreakdown;
+  }, [aggregatedTotals, isAllStoresView, lowStockItems.length, outOfStockItems.length, overstockedItems.length]);
+
+  const aggregatedCurrencyDisplay = useMemo(() => {
+    if (isAllStoresView) {
+      const totals = aggregatedTotals?.currencyTotals ?? [];
+      if (!totals.length) {
+        return formatCurrency(0, "USD");
+      }
+      return totals
+        .map(({ currency: code, totalValue }) => {
+          const safeCode = code === "NGN" ? "NGN" : "USD";
+          return formatCurrency(totalValue, safeCode as "USD" | "NGN");
+        })
+        .join(" · ");
+    }
+    return formatCurrency(totalStockValue, currency as "USD" | "NGN");
+  }, [aggregatedTotals, currency, isAllStoresView, totalStockValue]);
 
   const canEditInventory = useMemo(
     () => (isAdmin && Boolean(storeId)) || (isManager && storeId === managerStoreId && Boolean(storeId)),
@@ -354,13 +486,13 @@ export default function Inventory() {
               <Select
                 value={selectedStore || undefined}
                 onValueChange={setSelectedStore}
-                disabled={stores.length === 0}
+                disabled={adminStoreOptions.length === 0}
               >
                 <SelectTrigger className="h-10">
                   <SelectValue placeholder="Select a store" />
                 </SelectTrigger>
                 <SelectContent>
-                  {stores.map((store) => (
+                  {adminStoreOptions.map((store) => (
                     <SelectItem key={store.id} value={store.id}>
                       {store.name}
                     </SelectItem>
@@ -371,7 +503,7 @@ export default function Inventory() {
           ) : null}
         </div>
 
-        {shouldShowStoreSelector && !hasSelectedStore ? (
+        {shouldShowStoreSelector && !hasSelectedStore && !isAllStoresView ? (
           <Card>
             <CardContent className="py-8 text-center text-slate-600">
               Select a store to view inventory details.
@@ -379,7 +511,49 @@ export default function Inventory() {
           </Card>
         ) : null}
 
-        {hasSelectedStore ? (
+        {isAllStoresView ? (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader className="flex flex-col gap-2">
+                <CardTitle>All stores summary</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Aggregated snapshot across every store. Pick a specific store to inspect and manage items.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                  <SummaryMetricCard title="Total Products" value={aggregatedTotals?.totalProducts ?? 0} />
+                  <SummaryMetricCard title="Low Stock Items" value={aggregatedTotals?.lowStockCount ?? 0} valueClassName="text-yellow-600" />
+                  <SummaryMetricCard title="Out of Stock" value={aggregatedTotals?.outOfStockCount ?? 0} valueClassName="text-red-600" />
+                  <SummaryMetricCard title="Overstocked" value={aggregatedTotals?.overstockCount ?? 0} valueClassName="text-blue-600" />
+                  <SummaryMetricCard title="Total Stock Value" value={aggregatedCurrencyDisplay} />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Alerts by type</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-3">
+                  {ALERT_TYPES.map((type) => (
+                    <Badge key={type} variant={ALERT_BADGE_VARIANTS[type]} className="flex items-center gap-2">
+                      <span>{ALERT_LABELS[type]}</span>
+                      <span className="font-semibold">{aggregatedAlertBreakdown[type] ?? 0}</span>
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="py-8 text-center text-slate-600">
+                Choose an individual store to review detailed stock levels and perform updates.
+              </CardContent>
+            </Card>
+          </div>
+        ) : hasSelectedStore ? (
           <div>
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -441,7 +615,7 @@ export default function Inventory() {
                   <AlertTriangle className="h-4 w-4 text-amber-600" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-amber-600">{alerts.length}</div>
+                  <div className="text-2xl font-bold text-amber-600">{aggregatedAlertCount}</div>
                 </CardContent>
               </Card>
             </div>
@@ -754,5 +928,24 @@ export default function Inventory() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+interface SummaryMetricCardProps {
+  title: string;
+  value: number | string;
+  valueClassName?: string;
+}
+function SummaryMetricCard({ title, value, valueClassName }: SummaryMetricCardProps) {
+  const display = typeof value === "number" ? value.toLocaleString() : value;
+  const className = ["text-2xl font-bold", valueClassName].filter(Boolean).join(" ");
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className={className}>{display}</div>
+      </CardContent>
+    </Card>
   );
 }

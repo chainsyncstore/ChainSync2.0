@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { formatDateTime } from "@/lib/pos-utils";
 
-/* eslint-disable no-unused-vars -- prop names document external API */
 interface TopBarProps {
   title: string;
   subtitle: string;
@@ -15,13 +14,9 @@ interface TopBarProps {
   userRole?: string;
   userName?: string;
   userInitials?: string;
-  selectedStore?: string;
-  stores?: Array<{ id: string; name: string }>;
-  onStoreChange?: (storeId: string) => void;
+  managerStoreId?: string;
   alertCount?: number;
-  hideStoreSelector?: boolean;
 }
-/* eslint-enable no-unused-vars */
 
 export default function TopBar({ 
   title, 
@@ -31,11 +26,8 @@ export default function TopBar({
   userRole,
   userName,
   userInitials,
-  selectedStore,
-  stores,
-  onStoreChange,
+  managerStoreId,
   alertCount,
-  hideStoreSelector,
 }: TopBarProps) {
   const { isScannerActive, isScanning, inputBuffer } = useScannerContext();
   const alwaysShowMenu = userRole === "cashier";
@@ -45,16 +37,13 @@ export default function TopBar({
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           {/* Mobile menu */}
-          {userRole && userName && userInitials && stores && onStoreChange && (
+          {userRole && userName && userInitials && (
             <MobileMenu
               userRole={userRole}
               userName={userName}
               userInitials={userInitials}
-              selectedStore={selectedStore}
-              stores={stores}
-              onStoreChange={onStoreChange}
               alertCount={alertCount || 0}
-              hideStoreSelector={hideStoreSelector}
+              managerStoreId={managerStoreId}
               alwaysVisible={alwaysShowMenu}
             />
           )}

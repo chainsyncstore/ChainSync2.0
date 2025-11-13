@@ -15,6 +15,22 @@ import { requireRole } from '../middleware/authz';
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { storage } from '../storage';
 
+const toNumber = (value: unknown, fallback = 0): number => {
+  if (value == null) return fallback;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const toIsoString = (value: unknown): string | null => {
+  if (!value) return null;
+  try {
+    const date = value instanceof Date ? value : new Date(value as any);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  } catch {
+    return null;
+  }
+};
+
 let productColumnsCache: Set<string> | null = null;
 
 const getProductColumns = async (): Promise<Set<string>> => {
@@ -348,9 +364,34 @@ export async function registerInventoryRoutes(app: Express) {
   });
 
   app.get('/api/stores/:storeId/inventory', requireAuth, async (req: Request, res: Response) => {
-    const { storeId } = req.params as any;
+    const storeId = String((req.params as any)?.storeId ?? '').trim();
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
     const category = String((req.query as any)?.category || '').trim();
     const lowStock = String((req.query as any)?.lowStock || '').trim();
+
+    const userId = (req.session as any)?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const actor = await storage.getUser(userId);
+    if (!actor) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
+    if (!actorIsAdmin) {
+      const actorStoreId = (actor as any)?.storeId as string | undefined;
+      if (!actorStoreId) {
+        return res.status(403).json({ error: 'Store assignment required for manager account' });
+      }
+      if (actorStoreId !== storeId) {
+        return res.status(403).json({ error: 'You can only view inventory for your assigned store' });
+      }
+    }
 
     let items = await storage.getInventoryByStore(storeId);
 
@@ -362,17 +403,117 @@ export async function registerInventoryRoutes(app: Express) {
       items = items.filter((i) => i.product?.category === category);
     }
 
-    // Attach currency-aware totals for convenience
-    const storeCurrency = items[0]?.storeCurrency ?? 'USD';
-    const totalValue = items.reduce((sum, item) => sum + item.quantity * item.formattedPrice, 0);
-    const response = {
+    const normalizedItems = items.map((item) => {
+      const product = item.product
+        ? {
+            id: item.product.id,
+            name: item.product.name,
+            sku: item.product.sku ?? null,
+            barcode: item.product.barcode ?? null,
+            category: item.product.category ?? null,
+            brand: item.product.brand ?? null,
+            price: toNumber(item.product.price),
+            cost: toNumber((item.product as any)?.cost),
+            description: item.product.description ?? null,
+            createdAt: toIsoString((item.product as any)?.createdAt),
+            updatedAt: toIsoString((item.product as any)?.updatedAt),
+          }
+        : null;
+
+      const formattedPrice = toNumber(item.formattedPrice);
+      const quantity = toNumber(item.quantity);
+
+      return {
+        id: item.id,
+        productId: item.productId,
+        storeId: item.storeId,
+        quantity,
+        minStockLevel: toNumber(item.minStockLevel),
+        maxStockLevel: item.maxStockLevel == null ? null : toNumber(item.maxStockLevel),
+        lastRestocked: toIsoString(item.lastRestocked),
+        updatedAt: toIsoString(item.updatedAt),
+        formattedPrice,
+        storeCurrency: item.storeCurrency ?? 'USD',
+        stockValue: quantity * formattedPrice,
+        product,
+      };
+    });
+
+    const storeCurrency = normalizedItems[0]?.storeCurrency ?? 'USD';
+    const totalValue = normalizedItems.reduce((sum, item) => sum + item.stockValue, 0);
+
+    return res.json({
+      storeId,
       currency: storeCurrency,
       totalValue,
-      totalProducts: items.length,
-      items,
+      totalProducts: normalizedItems.length,
+      items: normalizedItems,
+    });
+  });
+
+  app.get('/api/orgs/:orgId/inventory', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+    const orgId = String((req.params as any)?.orgId ?? '').trim();
+    if (!orgId) {
+      return res.status(400).json({ error: 'orgId is required' });
+    }
+
+    const userId = (req.session as any)?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const actor = await storage.getUser(userId);
+    if (!actor) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const actorOrgId = (actor as any)?.orgId as string | undefined;
+    if (!actorOrgId || actorOrgId !== orgId) {
+      return res.status(403).json({ error: 'You can only view inventory for your organization' });
+    }
+
+    const summary = await storage.getOrganizationInventorySummary(orgId);
+
+    if (!summary.stores.length) {
+      return res.status(404).json({ error: 'No stores found for organization' });
+    }
+
+    const normalizedSummary = {
+      totals: {
+        totalProducts: toNumber(summary.totals.totalProducts),
+        lowStockCount: toNumber(summary.totals.lowStockCount),
+        outOfStockCount: toNumber(summary.totals.outOfStockCount),
+        overstockCount: toNumber(summary.totals.overstockCount),
+        alertCount: toNumber(summary.totals.alertCount),
+        alertBreakdown: {
+          LOW_STOCK: toNumber(summary.totals.alertBreakdown.LOW_STOCK),
+          OUT_OF_STOCK: toNumber(summary.totals.alertBreakdown.OUT_OF_STOCK),
+          OVERSTOCKED: toNumber(summary.totals.alertBreakdown.OVERSTOCKED),
+        },
+        currencyTotals: summary.totals.currencyTotals.map(({ currency, totalValue }) => ({
+          currency,
+          totalValue: toNumber(totalValue),
+        })),
+      },
+      stores: summary.stores.map((storeSummary) => ({
+        storeId: storeSummary.storeId,
+        storeName: storeSummary.storeName,
+        currency: storeSummary.currency,
+        totalProducts: toNumber(storeSummary.totalProducts),
+        lowStockCount: toNumber(storeSummary.lowStockCount),
+        outOfStockCount: toNumber(storeSummary.outOfStockCount),
+        overstockCount: toNumber(storeSummary.overstockCount),
+        totalValue: toNumber(storeSummary.totalValue),
+        alertCount: toNumber(storeSummary.alertCount),
+        alertBreakdown: {
+          LOW_STOCK: toNumber(storeSummary.alertBreakdown.LOW_STOCK),
+          OUT_OF_STOCK: toNumber(storeSummary.alertBreakdown.OUT_OF_STOCK),
+          OVERSTOCKED: toNumber(storeSummary.alertBreakdown.OVERSTOCKED),
+        },
+      })),
     };
 
-    return res.json(response);
+    return res.json(normalizedSummary);
   });
 
   app.get('/api/stores/:storeId/alerts', requireAuth, async (req: Request, res: Response) => {
