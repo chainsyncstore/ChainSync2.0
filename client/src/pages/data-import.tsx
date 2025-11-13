@@ -167,8 +167,8 @@ export default function DataImport() {
   };
 
   return (
-    <div className="space-y-6">
-          <div className="space-y-6">
+    <div className="flex flex-col min-h-0 h-full">
+          <div className="space-y-6 overflow-y-auto flex-1 p-1">
             {/* Quick Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <Card>
