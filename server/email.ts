@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import nodemailer from 'nodemailer';
 
 // Email configuration - in production, use environment variables
@@ -18,6 +20,23 @@ const emailConfig = {
 
 // Create transporter
 const transporter = nodemailer.createTransport(emailConfig);
+
+// Logo loading utilities
+const brandingDir = path.join(process.cwd(), 'assets', 'branding');
+
+const loadLogoDataUri = (fileName: string, fallback: string): string => {
+  try {
+    const fileBuffer = readFileSync(path.join(brandingDir, fileName));
+    return `data:image/svg+xml;base64,${Buffer.from(fileBuffer).toString('base64')}`;
+  } catch (error) {
+    console.warn(`ChainSync logo asset missing (${fileName}). Using fallback.`, error);
+    return fallback;
+  }
+};
+
+const inlineFallbackLogo = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'><rect width='120' height='60' rx='8' fill='%232196F3'/><rect x='15' y='12' width='90' height='8' rx='4' fill='white'/><rect x='15' y='26' width='90' height='8' rx='4' fill='white'/><rect x='15' y='40' width='90' height='8' rx='4' fill='white'/></svg>`;
+
+const LOGO_OUTLINE = loadLogoDataUri('chainsync-logo-outline.svg', inlineFallbackLogo.replace('%232196F3', 'white').replace('white', '%232196F3'));
 
 // Lightweight, non-sensitive health state for SMTP transporter
 let emailTransporterStatus = {
@@ -62,7 +81,8 @@ export function generateTrialPaymentReminderEmail(
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 12px 40px rgba(33, 150, 243, 0.12);">
             <tr>
               <td style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); padding: 32px 24px; text-align: center;">
-                <h1 style="color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; letter-spacing: 0.4px;">Keep your ChainSync workspace active</h1>
+                <img src="${LOGO_OUTLINE}" alt="ChainSync" width="100" height="100" style="display: block; margin: 0 auto 16px;" />
+                <h1 style="color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; letter-spacing: 0.4px;">Keep your workspace active</h1>
               </td>
             </tr>
             <tr>
@@ -148,7 +168,8 @@ export function generateStaffCredentialsEmail(payload: StaffCredentialEmailPaylo
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%); padding: 20px; text-align: center;">
-        <h1 style="color: white; margin: 0; font-size: 24px;">ChainSync Staff Access</h1>
+        <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
+        <h1 style="color: white; margin: 0; font-size: 24px;">Staff Access</h1>
       </div>
       <div style="padding: 24px; background: #f9fafb;">
         <p style="color: #111827; font-size: 16px;">Hello ${friendlyName},</p>
@@ -215,7 +236,8 @@ export function generateEmailVerificationEmail(
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%); padding: 20px; text-align: center;">
-        <h1 style="color: white; margin: 0; font-size: 24px;">Verify your ChainSync account</h1>
+        <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
+        <h1 style="color: white; margin: 0; font-size: 24px;">Verify your account</h1>
       </div>
       <div style="padding: 28px; background: #f9fafb;">
         <p style="color: #374151; font-size: 16px;">Hello ${friendlyName},</p>
@@ -280,8 +302,7 @@ export function generateSignupOtpEmail(
 
   const frontendUrl = process.env.FRONTEND_URL || 'https://app.chainsync.com';
   const helpEmail = supportEmail || process.env.SUPPORT_EMAIL || 'support@chainsync.com';
-  const logoSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" fill="#2196F3"/><rect x="120" y="320" width="784" height="56" rx="28" fill="#FFFFFF"/><rect x="120" y="496" width="784" height="56" rx="28" fill="#FFFFFF"/><rect x="120" y="672" width="784" height="56" rx="28" fill="#FFFFFF"/></svg>';
-  const logoDataUri = `data:image/svg+xml;utf8,${logoSvg.replace(/#/g, '%23').replace(/\s+/g, ' ')}`;
+  // Logo is now loaded from assets
 
   const html = `
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Inter', Arial, sans-serif; background-color: #f2f6fb; padding: 0; margin: 0;">
@@ -290,8 +311,8 @@ export function generateSignupOtpEmail(
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 12px 40px rgba(33, 150, 243, 0.12);">
             <tr>
               <td style="background: #2196F3; padding: 32px 24px; text-align: center;">
-                <img src="${logoDataUri}" alt="ChainSync" width="140" height="auto" style="display: block; margin: 0 auto 12px;" />
-                <h1 style="color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; letter-spacing: 0.4px;">Confirm Your ChainSync Signup</h1>
+                <img src="${LOGO_OUTLINE}" alt="ChainSync" width="100" height="100" style="display: block; margin: 0 auto 12px;" />
+                <h1 style="color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; letter-spacing: 0.4px;">Confirm Your Signup</h1>
               </td>
             </tr>
             <tr>
@@ -361,6 +382,11 @@ export interface EmailOptions {
   subject: string;
   html: string;
   text?: string;
+  attachments?: {
+    filename: string;
+    content: Buffer | string;
+    contentType?: string;
+  }[];
 }
 
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
@@ -374,6 +400,7 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
       subject: options.subject,
       html: options.html,
       text: options.text,
+      attachments: options.attachments,
     };
 
     await transporter.sendMail(mailOptions);
@@ -404,7 +431,7 @@ export function generateWelcomeEmail(userEmail: string, userName: string, tier: 
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         
         <div style="padding: 30px; background: #f9f9f9;">
@@ -496,7 +523,7 @@ export function generatePasswordResetEmail(userEmail: string, resetToken: string
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         
         <div style="padding: 30px; background: #f9f9f9;">
@@ -569,7 +596,7 @@ export function generatePasswordResetSuccessEmail(userEmail: string, userName: s
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         
         <div style="padding: 30px; background: #f9f9f9;">
@@ -635,7 +662,7 @@ export function generateProfileUpdateEmail(userEmail: string, oldProfile: any, n
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         <div style="padding: 30px; background: #f9f9f9;">
           <h2 style="color: #333; margin-bottom: 20px;">Profile Updated</h2>
@@ -666,7 +693,7 @@ export function generateSubscriptionTierChangeEmail(userEmail: string, userName:
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         <div style="padding: 30px; background: #f9f9f9;">
           <h2 style="color: #333; margin-bottom: 20px;">Subscription Tier Changed</h2>
@@ -694,7 +721,7 @@ export function generatePaymentConfirmationEmail(userEmail: string, userName: st
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         <div style="padding: 30px; background: #f9f9f9;">
           <h2 style="color: #333; margin-bottom: 20px;">Payment Confirmation</h2>
@@ -722,7 +749,7 @@ export function generateLowStockAlertEmail(userEmail: string, userName: string, 
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         <div style="padding: 30px; background: #f9f9f9;">
           <h2 style="color: #333; margin-bottom: 20px;">Low Stock Alert</h2>
@@ -750,7 +777,7 @@ export function generatePasswordChangeAlertEmail(userEmail: string, userName: st
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         <div style="padding: 30px; background: #f9f9f9;">
           <h2 style="color: #333; margin-bottom: 20px;">Password Changed</h2>
@@ -771,7 +798,7 @@ export function generateAccountDeletionEmail(userEmail: string, userName: string
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <h1 style="color: white; margin: 0;">ChainSync</h1>
+          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
         </div>
         <div style="padding: 30px; background: #f9f9f9;">
           <h2 style="color: #333; margin-bottom: 20px;">Account Deleted</h2>

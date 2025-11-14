@@ -271,13 +271,139 @@ if (process.env.LOYALTY_REALDB !== '1') {
       }),
     }));
 
+    const extractQueryText = (query: unknown): string => {
+      if (!query) {
+        return '';
+      }
+
+      if (typeof query === 'string') {
+        return query;
+      }
+
+      if (typeof query === 'object' && query !== null) {
+        const obj = query as Record<string, unknown>;
+
+        if (typeof obj.text === 'string') {
+          return obj.text;
+        }
+        if (typeof obj.sql === 'string') {
+          return obj.sql;
+        }
+        if (typeof obj.query === 'string') {
+          return obj.query;
+        }
+
+        if (Array.isArray(obj.strings)) {
+          return (obj.strings as unknown[])
+            .map((part) => (typeof part === 'string' ? part : ''))
+            .join(' ');
+        }
+
+        const chunks = obj.queryChunks;
+        if (Array.isArray(chunks)) {
+          return chunks
+            .map((chunk: unknown) => {
+              if (typeof chunk === 'string') {
+                return chunk;
+              }
+              if (chunk && typeof chunk === 'object') {
+                const chunkObj = chunk as Record<string, unknown>;
+                if (typeof chunkObj.sql === 'string') {
+                  return chunkObj.sql;
+                }
+                if (typeof chunkObj.text === 'string') {
+                  return chunkObj.text;
+                }
+                const value = chunkObj.value;
+                if (typeof value === 'string') {
+                  return value;
+                }
+                if (Array.isArray(value)) {
+                  return value
+                    .map((part) => (typeof part === 'string' ? part : ''))
+                    .join(' ');
+                }
+              }
+              return '';
+            })
+            .join(' ');
+        }
+
+        if (typeof obj.toQuery === 'function') {
+          try {
+            const result = obj.toQuery();
+            if (result && typeof result.text === 'string') {
+              return result.text;
+            }
+          } catch {
+            /* noop */
+          }
+        }
+
+        if (typeof obj.toString === 'function') {
+          try {
+            return obj.toString();
+          } catch {
+            /* noop */
+          }
+        }
+      }
+
+      return '';
+    };
+
     const _db: Record<string, any> = {
       select,
       insert,
       update,
       delete: vi.fn(),
-      execute: vi.fn(async (query: string) => {
-        void query;
+      execute: vi.fn(async (query: unknown) => {
+        const textRaw = extractQueryText(query);
+        const text = textRaw.toLowerCase();
+
+        if (text.includes('information_schema.columns') && text.includes('subscriptions')) {
+          return [
+            { column_name: 'id' },
+            { column_name: 'org_id' },
+            { column_name: 'user_id' },
+            { column_name: 'tier' },
+            { column_name: 'plan_code' },
+            { column_name: 'provider' },
+            { column_name: 'status' },
+            { column_name: 'upfront_fee_paid' },
+            { column_name: 'upfront_fee_currency' },
+            { column_name: 'monthly_amount' },
+            { column_name: 'monthly_currency' },
+            { column_name: 'trial_start_date' },
+            { column_name: 'trial_end_date' },
+            { column_name: 'upfront_fee_credited' },
+            { column_name: 'created_at' },
+            { column_name: 'updated_at' },
+            { column_name: 'next_billing_date' },
+            { column_name: 'autopay_enabled' },
+            { column_name: 'autopay_provider' },
+            { column_name: 'autopay_reference' },
+            { column_name: 'autopay_configured_at' },
+            { column_name: 'autopay_last_status' },
+            { column_name: 'trial_reminder_7_sent_at' },
+            { column_name: 'trial_reminder_3_sent_at' },
+          ];
+        }
+
+        if (text.includes('pg_enum') && text.includes('subscription')) {
+          return [
+            { enumlabel: 'TRIAL' },
+            { enumlabel: 'ACTIVE' },
+            { enumlabel: 'PAST_DUE' },
+            { enumlabel: 'CANCELLED' },
+            { enumlabel: 'SUSPENDED' },
+          ];
+        }
+
+        if (!text) {
+          throw new Error('Mock DB execute encountered non-string query');
+        }
+
         return [];
       }),
     };

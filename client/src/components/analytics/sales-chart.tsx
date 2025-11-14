@@ -1,26 +1,45 @@
 import { useQuery } from "@tanstack/react-query";
 import { CalendarIcon, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, BarChart3, PieChart as PieChartIcon } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatDate } from "@/lib/pos-utils";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import type { CurrencyCode, Money } from "@shared/lib/currency";
+import { useAnalyticsScope } from "./analytics-scope-context";
 
-interface SalesData {
+interface TimeseriesResponse {
+  baseCurrency: CurrencyCode;
+  points: TimeseriesPoint[];
+}
+
+interface TimeseriesPoint {
+  date: string;
+  total: Money;
+  normalized?: {
+    amount: number;
+    currency: CurrencyCode;
+    baseCurrency: CurrencyCode;
+  };
+  transactions: number;
+  customers?: number;
+  averageOrder: Money;
+}
+
+interface ChartPoint {
   date: string;
   revenue: number;
   transactions: number;
   customers: number;
   averageOrder: number;
+  revenueMoney: Money;
+  averageOrderMoney: Money;
 }
 
 interface ChartProps {
-  storeId: string;
   className?: string;
 }
 
@@ -31,29 +50,40 @@ const CHART_TYPES = [
   { value: "pie", label: "Pie Chart", icon: PieChartIcon },
 ];
 
-const DATE_RANGES = [
-  { value: "7", label: "Last 7 Days" },
-  { value: "30", label: "Last 30 Days" },
-  { value: "90", label: "Last 90 Days" },
-  { value: "365", label: "Last Year" },
-];
-
 const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"];
 
-export default function SalesChart({ storeId, className }: ChartProps) {
+export default function SalesChart({ className }: ChartProps) {
   const [chartType, setChartType] = useState("line");
-  const [dateRange, setDateRange] = useState("30");
-  const [startDate, setStartDate] = useState<Date | undefined>(() => {
-    const date = new Date();
-    date.setDate(date.getDate() - 30);
-    return date;
-  });
-  const [endDate, setEndDate] = useState<Date | undefined>(new Date());
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const {
+    selectedStoreId,
+    dateRange,
+    displayCurrency,
+    resolvedCurrency,
+  } = useAnalyticsScope();
 
-  // Fetch sales data
-  const { data: salesData = [], isLoading } = useQuery<SalesData[]>({
-    queryKey: ["/api/analytics/timeseries", storeId, dateRange, startDate?.toISOString(), endDate?.toISOString()],
+  const hasExplicitRange = Boolean(dateRange.start && dateRange.end);
+  const effectiveRange = useMemo(() => {
+    if (dateRange.start && dateRange.end) {
+      return dateRange;
+    }
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(start.getDate() - 30);
+    return { start, end };
+  }, [dateRange]);
+
+  const startDate = effectiveRange.start;
+  const endDate = effectiveRange.end;
+  const storeId = selectedStoreId ?? "";
+
+  const { data: timeseries, isLoading } = useQuery<TimeseriesResponse>({
+    queryKey: [
+      "/api/analytics/timeseries",
+      storeId,
+      startDate?.toISOString() ?? null,
+      endDate?.toISOString() ?? null,
+      displayCurrency,
+    ],
     queryFn: async () => {
       const start = startDate?.toISOString();
       const end = endDate?.toISOString();
@@ -62,35 +92,59 @@ export default function SalesChart({ storeId, className }: ChartProps) {
       if (storeId) params.set('store_id', storeId);
       if (start) params.set('date_from', start);
       if (end) params.set('date_to', end);
+      params.set('normalize_currency', displayCurrency === 'native' ? 'false' : 'true');
+      if (displayCurrency !== 'native') {
+        params.set('target_currency', resolvedCurrency);
+      }
       const response = await apiRequest("GET", `/api/analytics/timeseries?${params.toString()}`);
       return response.json();
     },
-    enabled: !!startDate && !!endDate,
+    enabled: Boolean(storeId) && !!startDate && !!endDate,
   });
 
-  // Calculate summary statistics
-  const totalRevenue = salesData.reduce((sum, item) => sum + item.revenue, 0);
-  const totalTransactions = salesData.reduce((sum, item) => sum + item.transactions, 0);
-  const totalCustomers = salesData.reduce((sum, item) => sum + item.customers, 0);
-  const averageOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
+  const chartCurrency: CurrencyCode = (timeseries?.points?.[0]?.normalized?.currency
+    || timeseries?.points?.[0]?.total.currency
+    || timeseries?.baseCurrency
+    || resolvedCurrency) as CurrencyCode;
+
+  const chartPoints: ChartPoint[] = (timeseries?.points ?? []).map((point) => {
+    const revenueMoney: Money = point.normalized
+      ? { amount: point.normalized.amount, currency: point.normalized.currency }
+      : point.total;
+    const transactions = point.transactions ?? 0;
+    const averageOrderMoney: Money = point.normalized && transactions > 0
+      ? { amount: point.normalized.amount / transactions, currency: point.normalized.currency }
+      : point.averageOrder ?? { amount: 0, currency: revenueMoney.currency };
+    const customers = typeof point.customers === 'number' ? point.customers : transactions;
+    return {
+      date: point.date,
+      revenue: revenueMoney.amount,
+      transactions,
+      customers,
+      averageOrder: averageOrderMoney.amount,
+      revenueMoney,
+      averageOrderMoney,
+    };
+  });
+
+  const totalRevenueMoney: Money = {
+    amount: chartPoints.reduce((sum, item) => sum + item.revenueMoney.amount, 0),
+    currency: chartCurrency,
+  };
+  const totalTransactions = chartPoints.reduce((sum, item) => sum + item.transactions, 0);
+  const totalCustomers = chartPoints.reduce((sum, item) => sum + item.customers, 0);
+  const averageOrderMoney: Money = totalTransactions > 0
+    ? { amount: totalRevenueMoney.amount / totalTransactions, currency: totalRevenueMoney.currency }
+    : { amount: 0, currency: totalRevenueMoney.currency };
 
   // Calculate growth rates
-  const revenueGrowth = salesData.length >= 2 
-    ? ((salesData[salesData.length - 1].revenue - salesData[salesData.length - 2].revenue) / salesData[salesData.length - 2].revenue) * 100 
+  const revenueGrowth = chartPoints.length >= 2 
+    ? ((chartPoints[chartPoints.length - 1].revenue - chartPoints[chartPoints.length - 2].revenue) / (chartPoints[chartPoints.length - 2].revenue || 1)) * 100 
     : 0;
 
-  const transactionGrowth = salesData.length >= 2 
-    ? ((salesData[salesData.length - 1].transactions - salesData[salesData.length - 2].transactions) / salesData[salesData.length - 2].transactions) * 100 
+  const transactionGrowth = chartPoints.length >= 2 
+    ? ((chartPoints[chartPoints.length - 1].transactions - chartPoints[chartPoints.length - 2].transactions) / (chartPoints[chartPoints.length - 2].transactions || 1)) * 100 
     : 0;
-
-  const handleDateRangeChange = (range: string) => {
-    setDateRange(range);
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - parseInt(range));
-    setStartDate(start);
-    setEndDate(end);
-  };
 
   const renderChart = () => {
     if (isLoading) {
@@ -101,7 +155,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
       );
     }
 
-    if (salesData.length === 0) {
+    if (chartPoints.length === 0) {
       return (
         <div className="flex items-center justify-center h-64 text-gray-500">
           <div className="text-center">
@@ -116,19 +170,21 @@ export default function SalesChart({ storeId, className }: ChartProps) {
       case "line":
         return (
           <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={salesData}>
+            <LineChart data={chartPoints}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
                 dataKey="date" 
                 tickFormatter={(value) => formatDate(new Date(value), "MMM dd")}
               />
               <YAxis 
-                tickFormatter={(value) => formatCurrency(value)}
+                tickFormatter={(value) => formatCurrency({ amount: value, currency: chartCurrency })}
                 domain={[0, 'dataMax + 100']}
               />
               <Tooltip 
                 formatter={(value: any, name: string) => [
-                  name === 'revenue' ? formatCurrency(value) : value,
+                  name === 'revenue'
+                    ? formatCurrency({ amount: value, currency: chartCurrency })
+                    : value,
                   name === 'revenue' ? 'Revenue' : name === 'transactions' ? 'Transactions' : 'Customers'
                 ]}
                 labelFormatter={(label) => formatDate(new Date(label), "MMM dd, yyyy")}
@@ -157,19 +213,21 @@ export default function SalesChart({ storeId, className }: ChartProps) {
       case "bar":
         return (
           <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={salesData}>
+            <BarChart data={chartPoints}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
                 dataKey="date" 
                 tickFormatter={(value) => formatDate(new Date(value), "MMM dd")}
               />
               <YAxis 
-                tickFormatter={(value) => formatCurrency(value)}
+                tickFormatter={(value) => formatCurrency({ amount: value, currency: chartCurrency })}
                 domain={[0, 'dataMax + 100']}
               />
               <Tooltip 
                 formatter={(value: any, name: string) => [
-                  name === 'revenue' ? formatCurrency(value) : value,
+                  name === 'revenue'
+                    ? formatCurrency({ amount: value, currency: chartCurrency })
+                    : value,
                   name === 'revenue' ? 'Revenue' : 'Transactions'
                 ]}
                 labelFormatter={(label) => formatDate(new Date(label), "MMM dd, yyyy")}
@@ -184,38 +242,40 @@ export default function SalesChart({ storeId, className }: ChartProps) {
       case "area":
         return (
           <ResponsiveContainer width="100%" height={400}>
-            <AreaChart data={salesData}>
+            <AreaChart data={chartPoints}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="date" 
+              <XAxis
+                dataKey="date"
                 tickFormatter={(value) => formatDate(new Date(value), "MMM dd")}
               />
-              <YAxis 
-                tickFormatter={(value) => formatCurrency(value)}
+              <YAxis
+                tickFormatter={(value) => formatCurrency({ amount: value, currency: chartCurrency })}
                 domain={[0, 'dataMax + 100']}
               />
-              <Tooltip 
+              <Tooltip
                 formatter={(value: any, name: string) => [
-                  name === 'revenue' ? formatCurrency(value) : value,
+                  name === 'revenue'
+                    ? formatCurrency({ amount: value, currency: chartCurrency })
+                    : value,
                   name === 'revenue' ? 'Revenue' : 'Transactions'
                 ]}
                 labelFormatter={(label) => formatDate(new Date(label), "MMM dd, yyyy")}
               />
               <Legend />
-              <Area 
-                type="monotone" 
-                dataKey="revenue" 
+              <Area
+                type="monotone"
+                dataKey="revenue"
                 stackId="1"
-                stroke="#3B82F6" 
-                fill="#3B82F6" 
+                stroke="#3B82F6"
+                fill="#3B82F6"
                 fillOpacity={0.6}
               />
-              <Area 
-                type="monotone" 
-                dataKey="transactions" 
+              <Area
+                type="monotone"
+                dataKey="transactions"
                 stackId="2"
-                stroke="#10B981" 
-                fill="#10B981" 
+                stroke="#10B981"
+                fill="#10B981"
                 fillOpacity={0.6}
               />
             </AreaChart>
@@ -224,7 +284,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
 
       case "pie": {
         // For pie chart, we'll show revenue distribution by day
-        const pieData = salesData.map((item, index) => ({
+        const pieData = chartPoints.map((item, index) => ({
           name: formatDate(new Date(item.date), "MMM dd"),
           value: item.revenue,
           color: COLORS[index % COLORS.length],
@@ -248,7 +308,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
                 ))}
               </Pie>
               <Tooltip 
-                formatter={(value: any) => [formatCurrency(value), "Revenue"]}
+                formatter={(value: any) => [formatCurrency({ amount: value, currency: chartCurrency }), "Revenue"]}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -265,6 +325,16 @@ export default function SalesChart({ storeId, className }: ChartProps) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-xl">Sales Analytics</CardTitle>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <CalendarIcon className="h-4 w-4" />
+            {startDate && endDate ? (
+              <span>{formatDate(startDate, "MMM dd, yyyy")} – {formatDate(endDate, "MMM dd, yyyy")}</span>
+            ) : (
+              <span>Select a date range to view analytics</span>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
             {/* Chart Type Selector */}
             <Select value={chartType} onValueChange={setChartType}>
@@ -286,55 +356,23 @@ export default function SalesChart({ storeId, className }: ChartProps) {
               </SelectContent>
             </Select>
 
-            {/* Date Range Selector */}
-            <Select value={dateRange} onValueChange={handleDateRangeChange}>
-              <SelectTrigger className="w-40 bg-white border border-gray-200 hover:bg-gray-50">
-                <SelectValue placeholder="Date Range" />
-              </SelectTrigger>
-              <SelectContent className="z-50 bg-white border border-gray-200 shadow-lg min-w-[8rem]">
-                {DATE_RANGES.map((range) => (
-                  <SelectItem key={range.value} value={range.value} className="cursor-pointer hover:bg-gray-100">
-                    {range.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Custom Date Range */}
-            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="w-auto justify-start text-left font-normal">
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {startDate && endDate ? (
-                    <>
-                      {formatDate(startDate, "MMM dd")} - {formatDate(endDate, "MMM dd")}
-                    </>
-                  ) : (
-                    <span>Pick a date range</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 z-50 bg-white border border-gray-200 shadow-lg" align="end" side="bottom" sideOffset={4}>
-                <Calendar
-                  initialFocus
-                  mode="range"
-                  defaultMonth={startDate}
-                  selected={{
-                    from: startDate,
-                    to: endDate,
-                  }}
-                  onSelect={(range) => {
-                    setStartDate(range?.from);
-                    setEndDate(range?.to);
-                    if (range?.from && range?.to) {
-                      setIsDatePickerOpen(false);
-                    }
-                  }}
-                  numberOfMonths={2}
-                />
-              </PopoverContent>
-            </Popover>
+            {displayCurrency !== 'native' ? (
+              <div className="flex items-center space-x-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                <DollarSign className="h-3 w-3" />
+                <span>{resolvedCurrency}</span>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                <DollarSign className="h-3 w-3" />
+                <span>{chartCurrency}</span>
+              </div>
+            )}
           </div>
+          {hasExplicitRange ? null : (
+            <p className="text-xs text-muted-foreground">
+              Showing default 30-day range. Select dates in the scope controls to customize.
+            </p>
+          )}
         </div>
       </CardHeader>
 
@@ -345,7 +383,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
             <DollarSign className="w-8 h-8 text-blue-600" />
             <div>
               <p className="text-sm text-gray-600">Total Revenue</p>
-              <p className="text-lg font-semibold text-blue-600">{formatCurrency(totalRevenue)}</p>
+              <p className="text-lg font-semibold text-blue-600">{formatCurrency(totalRevenueMoney)}</p>
               <div className="flex items-center space-x-1">
                 {revenueGrowth >= 0 ? (
                   <TrendingUp className="w-3 h-3 text-green-600" />
@@ -389,7 +427,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
             <DollarSign className="w-8 h-8 text-orange-600" />
             <div>
               <p className="text-sm text-gray-600">Avg. Order</p>
-              <p className="text-lg font-semibold text-orange-600">{formatCurrency(averageOrderValue)}</p>
+              <p className="text-lg font-semibold text-orange-600">{formatCurrency(averageOrderMoney)}</p>
             </div>
           </div>
         </div>
@@ -411,6 +449,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
               if (end) params.set('date_to', end);
               window.open(`/api/analytics/export.csv?${params.toString()}`, '_blank');
             }}
+            disabled={!storeId || !startDate || !endDate}
           >
             Export CSV
           </Button>
@@ -426,6 +465,7 @@ export default function SalesChart({ storeId, className }: ChartProps) {
               if (end) params.set('date_to', end);
               window.open(`/api/analytics/export.pdf?${params.toString()}`, '_blank');
             }}
+            disabled={!storeId || !startDate || !endDate}
           >
             Export PDF
           </Button>

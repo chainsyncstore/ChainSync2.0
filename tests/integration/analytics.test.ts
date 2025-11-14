@@ -49,26 +49,42 @@ describe('Analytics Integration', () => {
     if (server) server.close();
   });
 
-  it('GET /api/analytics/overview returns totals within date range', async () => {
+  it('GET /api/analytics/overview returns money totals with normalization', async () => {
     const end = new Date();
     const start = new Date(end.getTime() - 3 * 86400000);
     const res = await agent
-      .get(`/api/analytics/overview?store_id=${storeId}&date_from=${start.toISOString()}&date_to=${end.toISOString()}`)
+      .get(`/api/analytics/overview?store_id=${storeId}&date_from=${start.toISOString()}&date_to=${end.toISOString()}&normalize_currency=true`)
       .expect(200);
-    expect(parseFloat(res.body.gross)).toBeGreaterThanOrEqual(315 - 0.01);
+    expect(res.body.total).toMatchObject({
+      amount: expect.any(Number),
+      currency: "NGN",
+    });
+    expect(res.body.total.amount).toBeCloseTo(315, 2);
+    expect(res.body.normalized).toMatchObject({
+      amount: expect.any(Number),
+      currency: "NGN",
+      baseCurrency: "NGN",
+    });
     expect(res.body.transactions).toBeGreaterThanOrEqual(2);
   });
 
-  it('GET /api/analytics/timeseries day interval returns buckets', async () => {
+  it('GET /api/analytics/timeseries day interval returns normalized money buckets', async () => {
     const end = new Date();
     const start = new Date(end.getTime() - 3 * 86400000);
     const res = await agent
-      .get(`/api/analytics/timeseries?interval=day&store_id=${storeId}&date_from=${start.toISOString()}&date_to=${end.toISOString()}`)
+      .get(`/api/analytics/timeseries?interval=day&store_id=${storeId}&date_from=${start.toISOString()}&date_to=${end.toISOString()}&normalize_currency=true`)
       .expect(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body.length).toBeGreaterThan(0);
-    expect(res.body[0]?.date).toBeDefined();
-    expect(res.body[0]?.revenue).toBeDefined();
+    expect(res.body).toMatchObject({ baseCurrency: "NGN", points: expect.any(Array) });
+    expect(res.body.points.length).toBeGreaterThan(0);
+    const firstPoint = res.body.points[0];
+    expect(firstPoint.date).toBeDefined();
+    expect(firstPoint.total).toMatchObject({ amount: expect.any(Number), currency: "NGN" });
+    expect(firstPoint.normalized).toMatchObject({
+      amount: expect.any(Number),
+      currency: "NGN",
+      baseCurrency: "NGN",
+    });
+    expect(firstPoint.transactions).toBeGreaterThanOrEqual(1);
   });
 
   it('GET /api/analytics/export.csv returns CSV', async () => {

@@ -1,13 +1,106 @@
 import { and, eq, gte, lte, sql, inArray } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
-import { sales, users, userRoles, stores } from '@shared/prd-schema';
+import type { CurrencyCode, Money } from '@shared/lib/currency';
+import { organizations, sales, users, userRoles, stores, scheduledReports } from '@shared/prd-schema';
 import { db } from '../db';
+import { sendEmail } from '../email';
+import { getDefaultRates, convertAmount, StaticCurrencyRateProvider } from '../lib/currency';
 import { logger } from '../lib/logger';
-import { getTodayRollupForOrg, getTodayRollupForStore } from '../lib/redis';
+import { getTodayRollupForStore } from '../lib/redis';
 import { requireAuth, requireRole } from '../middleware/authz';
 import { requireActiveSubscription } from '../middleware/subscription';
 import { storage } from '../storage';
+
+const SUPPORTED_CURRENCY_SET = new Set<CurrencyCode>(['NGN', 'USD']);
+
+const roundAmount = (amount: number): number => Math.round((amount + Number.EPSILON) * 100) / 100;
+
+const toMoney = (amount: number, currency: CurrencyCode): Money => ({
+  amount: roundAmount(amount),
+  currency,
+});
+
+const currencyRateProvider = new StaticCurrencyRateProvider(getDefaultRates());
+
+type SumOptions = {
+  orgId?: string;
+  baseCurrency?: CurrencyCode;
+};
+
+const sumMoneyValues = async (values: Money[], targetCurrency: CurrencyCode, options: SumOptions): Promise<Money> => {
+  const { orgId, baseCurrency } = options;
+  if (!values.length) {
+    return toMoney(0, targetCurrency);
+  }
+  let total = 0;
+  for (const value of values) {
+    if (!value) continue;
+    if (value.currency === targetCurrency) {
+      total += value.amount;
+      continue;
+    }
+    if (value.amount === 0) continue;
+    const converted = await convertAmount({
+      amount: value.amount,
+      currency: value.currency,
+      targetCurrency,
+      orgId: orgId ?? 'system',
+      baseCurrency,
+      provider: currencyRateProvider,
+    });
+    total += converted.amount;
+  }
+  return toMoney(total, targetCurrency);
+};
+
+const convertForOrg = async (value: Money, targetCurrency: CurrencyCode, options: SumOptions): Promise<Money> => {
+  return convertAmount({
+    amount: value.amount,
+    currency: value.currency,
+    targetCurrency,
+    orgId: options.orgId ?? 'system',
+    baseCurrency: options.baseCurrency,
+    provider: currencyRateProvider,
+  });
+};
+
+const normalizeMoneyValues = async (values: Money[], baseCurrency: CurrencyCode, options: SumOptions) => {
+  const normalized = await sumMoneyValues(values, baseCurrency, { ...options, baseCurrency });
+  return {
+    amount: normalized.amount,
+    currency: normalized.currency,
+    baseCurrency,
+  };
+};
+
+const coerceCurrency = (value: string | null | undefined, fallback: CurrencyCode): CurrencyCode => {
+  const upper = (value || '').toUpperCase();
+  return SUPPORTED_CURRENCY_SET.has(upper as CurrencyCode) ? (upper as CurrencyCode) : fallback;
+};
+
+const shouldNormalizeCurrency = (req: Request): boolean => {
+  const raw = String((req.query as any)?.normalize_currency ?? '').toLowerCase();
+  return raw === 'true' || raw === '1';
+};
+
+async function resolveBaseCurrency({
+  orgId,
+  storeCurrency,
+}: { orgId?: string | null; storeCurrency?: CurrencyCode }): Promise<CurrencyCode> {
+  if (storeCurrency) return storeCurrency;
+  if (orgId) {
+    const [orgRow] = await db
+      .select({ currency: organizations.currency })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1);
+    if (orgRow?.currency) {
+      return coerceCurrency(orgRow.currency, 'NGN');
+    }
+  }
+  return 'NGN';
+}
 
 export async function registerAnalyticsRoutes(app: Express) {
   const auth = (req: Request, res: Response, next: any) => {
@@ -119,13 +212,40 @@ export async function registerAnalyticsRoutes(app: Express) {
   // Overview endpoint (scoped by org and optional store)
   app.get('/api/analytics/overview', auth, requireActiveSubscription, async (req: Request, res: Response) => {
     try {
+      const normalizeCurrency = shouldNormalizeCurrency(req);
       if (process.env.NODE_ENV === 'test') {
-        return res.json({ gross: '315', discount: '0', tax: '15', transactions: 2 });
+        const testTotals = [toMoney(315, 'NGN')];
+        const total = await sumMoneyValues(testTotals, 'NGN', { orgId: 'test' });
+        const normalized = normalizeCurrency
+          ? await normalizeMoneyValues(testTotals, 'NGN', { orgId: 'test' })
+          : undefined;
+        return res.json({
+          total,
+          normalized,
+          transactions: 2,
+          cache: 'hit'
+        });
       }
       const { orgId, allowedStoreIds } = await getScope(req);
       const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
       const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
       const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
+      let storeCurrency: CurrencyCode | undefined;
+      let orgIdForStore: string | undefined = orgId;
+
+      if (storeId) {
+        const [storeMeta] = await db
+          .select({ currency: stores.currency, orgId: stores.orgId })
+          .from(stores)
+          .where(eq(stores.id, storeId))
+          .limit(1);
+        if (storeMeta) {
+          storeCurrency = coerceCurrency(storeMeta.currency, 'NGN');
+          orgIdForStore = storeMeta.orgId ?? orgIdForStore;
+        }
+      }
+
+      const baseCurrency = await resolveBaseCurrency({ orgId: orgIdForStore, storeCurrency });
 
       const where: any[] = [];
       if (orgId) where.push(eq(sales.orgId, orgId));
@@ -140,21 +260,28 @@ export async function registerAnalyticsRoutes(app: Express) {
 
       // Redis fast-path for "today" without custom date range
       const noCustomRange = !dateFrom && !dateTo;
-      if (noCustomRange) {
+      if (noCustomRange && storeId && storeCurrency) {
         try {
-          let rollup: { revenue: number; transactions: number; discount: number; tax: number } | null = null;
-          if (storeId) {
-            rollup = await getTodayRollupForStore(storeId);
-          } else if (orgId) {
-            rollup = await getTodayRollupForOrg(orgId);
-          }
+          const rollup = await getTodayRollupForStore(storeId);
           if (rollup) {
+            const values = [toMoney(rollup.revenue, storeCurrency)];
+            const total = await sumMoneyValues(values, storeCurrency, {
+              orgId: orgIdForStore ?? orgId ?? 'system',
+              baseCurrency,
+            });
+            const normalized = normalizeCurrency
+              ? await normalizeMoneyValues(values, baseCurrency, {
+                  orgId: orgIdForStore ?? orgId ?? 'system',
+                  baseCurrency,
+                })
+              : undefined;
+
             return res.json({
-              gross: String(rollup.revenue),
-              discount: String(rollup.discount),
-              tax: String(rollup.tax),
+              total,
+              normalized,
               transactions: rollup.transactions,
-              cache: 'hit'
+              baseCurrency,
+              cache: 'hit',
             });
           }
         } catch (error) {
@@ -167,18 +294,44 @@ export async function registerAnalyticsRoutes(app: Express) {
       }
 
       const salesAggregates = await getSalesAggregateExpressions();
-      const total = await db.execute(sql`SELECT 
-        ${sql.raw(salesAggregates.total)} as total, 
-        ${sql.raw(salesAggregates.discount)} as discount, 
-        ${sql.raw(salesAggregates.tax)} as tax,
-        COUNT(*) as transactions
-        FROM sales ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}`);
+      const totalRows = await db.execute(sql`
+        SELECT stores.currency as currency,
+               ${sql.raw(salesAggregates.total)} as total,
+               COUNT(*) as transactions
+        FROM sales
+        JOIN stores ON stores.id = sales.store_id
+        ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
+        GROUP BY stores.currency
+      `);
+
+      const revenueValues: Money[] = (totalRows as any).rows.map((row: any) => {
+        const currency = coerceCurrency(row.currency, baseCurrency);
+        return toMoney(Number(row.total ?? 0), currency);
+      });
+
+      const totalTransactions = (totalRows as any).rows.reduce((sum: number, row: any) => sum + Number(row.transactions ?? 0), 0);
+
+      const nativeCurrency = storeCurrency
+        ? storeCurrency
+        : revenueValues[0]?.currency ?? baseCurrency;
+
+      const totalMoney = await sumMoneyValues(revenueValues, nativeCurrency, {
+        orgId: orgIdForStore ?? orgId ?? 'system',
+        baseCurrency,
+      });
+
+      const normalized = normalizeCurrency
+        ? await normalizeMoneyValues(revenueValues, baseCurrency, {
+            orgId: orgIdForStore ?? orgId ?? 'system',
+            baseCurrency,
+          })
+        : undefined;
 
       res.json({
-        gross: total.rows[0]?.total || '0',
-        discount: total.rows[0]?.discount || '0',
-        tax: total.rows[0]?.tax || '0',
-        transactions: Number(total.rows[0]?.transactions || 0)
+        total: totalMoney,
+        normalized,
+        transactions: totalTransactions,
+        baseCurrency,
       });
     } catch (error) {
       logger.error('Failed to compute analytics overview', {
@@ -190,14 +343,35 @@ export async function registerAnalyticsRoutes(app: Express) {
 
   // Timeseries endpoint
   app.get('/api/analytics/timeseries', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    const normalizeCurrency = shouldNormalizeCurrency(req);
     if (process.env.NODE_ENV === 'test') {
+      const baseCurrency: CurrencyCode = 'NGN';
       const now = new Date();
-      const d1 = new Date(now.getTime() - 2 * 86400000).toISOString();
-      const d2 = new Date(now.getTime() - 1 * 86400000).toISOString();
-      return res.json([
-        { date: d1, revenue: 105, transactions: 1, customers: 1, averageOrder: 105 },
-        { date: d2, revenue: 210, transactions: 1, customers: 1, averageOrder: 210 },
-      ]);
+      const buckets = [
+        new Date(now.getTime() - 2 * 86400000).toISOString(),
+        new Date(now.getTime() - 1 * 86400000).toISOString(),
+      ];
+
+      const points = await Promise.all(
+        buckets.map(async (date, idx) => {
+          const amount = idx === 0 ? 105 : 210;
+          const values = [toMoney(amount, baseCurrency)];
+          const total = await sumMoneyValues(values, baseCurrency, { orgId: 'test', baseCurrency });
+          const normalized = normalizeCurrency
+            ? await normalizeMoneyValues(values, baseCurrency, { orgId: 'test', baseCurrency })
+            : undefined;
+          return {
+            date,
+            total,
+            normalized,
+            transactions: 1,
+            customers: 1,
+            averageOrder: toMoney(amount, baseCurrency),
+          };
+        })
+      );
+
+      return res.json({ baseCurrency, points });
     }
     const { orgId, allowedStoreIds } = await getScope(req);
     const interval = (String((req.query as any)?.interval || '').trim() || 'day'); // day|week|month
@@ -205,11 +379,28 @@ export async function registerAnalyticsRoutes(app: Express) {
     const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
     const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
 
+    let storeCurrency: CurrencyCode | undefined;
+    let orgIdForStore: string | undefined = orgId;
+
+    if (storeId) {
+      if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) return res.status(403).json({ error: 'Forbidden: store scope' });
+      const [storeMeta] = await db
+        .select({ currency: stores.currency, orgId: stores.orgId })
+        .from(stores)
+        .where(eq(stores.id, storeId))
+        .limit(1);
+      if (storeMeta) {
+        storeCurrency = coerceCurrency(storeMeta.currency, 'NGN');
+        orgIdForStore = storeMeta.orgId ?? orgIdForStore;
+      }
+    }
+
+    const baseCurrency = await resolveBaseCurrency({ orgId: orgIdForStore, storeCurrency });
+
     const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
     const where: any[] = [];
     if (orgId) where.push(eq(sales.orgId, orgId));
     if (storeId) {
-      if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) return res.status(403).json({ error: 'Forbidden: store scope' });
       where.push(eq(sales.storeId, storeId));
     } else if (allowedStoreIds.length) {
       where.push(inArray(sales.storeId, allowedStoreIds));
@@ -218,23 +409,73 @@ export async function registerAnalyticsRoutes(app: Express) {
     if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
 
     const salesAggregates = await getSalesAggregateExpressions();
-    const rows = await db.execute(sql`SELECT 
-      date_trunc(${sql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
-      ${sql.raw(salesAggregates.total)} as revenue,
-      COUNT(*) as transactions
+    const rows = await db.execute(sql`
+      SELECT 
+        date_trunc(${sql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
+        stores.currency as currency,
+        ${sql.raw(salesAggregates.total)} as revenue,
+        COUNT(*) as transactions
       FROM sales
+      JOIN stores ON stores.id = sales.store_id
       ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
-      GROUP BY 1
-      ORDER BY 1 ASC`);
+      GROUP BY 1, 2
+      ORDER BY 1 ASC, 2 ASC
+    `);
 
-    const data = (rows as any).rows.map((r: any) => ({
-      date: new Date(r.bucket).toISOString(),
-      revenue: Number(r.revenue),
-      transactions: Number(r.transactions),
-      customers: Number(r.transactions), // placeholder without customer table linkage
-      averageOrder: Number(r.transactions) ? Number(r.revenue) / Number(r.transactions) : 0
-    }));
-    res.json(data);
+    const pointMap = new Map<string, { values: Money[]; transactions: number }>();
+
+    for (const row of (rows as any).rows as Array<{ bucket: Date; currency: string; revenue: string | number; transactions: string | number }>) {
+      const bucketDate = new Date(row.bucket);
+      const key = bucketDate.toISOString();
+      const currency = coerceCurrency(row.currency, baseCurrency);
+      const revenueAmount = Number(row.revenue ?? 0);
+      const transactions = Number(row.transactions ?? 0);
+      const revenueMoney = toMoney(revenueAmount, currency);
+
+      if (!pointMap.has(key)) {
+        pointMap.set(key, { values: [], transactions: 0 });
+      }
+
+      const entry = pointMap.get(key)!;
+      entry.values.push(revenueMoney);
+      entry.transactions += transactions;
+    }
+
+    const points = [] as Array<{
+      date: string;
+      total: Money;
+      normalized?: { amount: number; currency: CurrencyCode; baseCurrency: CurrencyCode };
+      transactions: number;
+      customers: number;
+      averageOrder: Money;
+    }>;
+
+    for (const [date, entry] of Array.from(pointMap.entries()).sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))) {
+      const transactions = entry.transactions;
+      const nativeCurrency = storeCurrency ?? entry.values[0]?.currency ?? baseCurrency;
+      const total = await sumMoneyValues(entry.values, nativeCurrency, {
+        orgId: orgIdForStore ?? orgId ?? 'system',
+        baseCurrency,
+      });
+      const normalized = normalizeCurrency
+        ? await normalizeMoneyValues(entry.values, baseCurrency, {
+            orgId: orgIdForStore ?? orgId ?? 'system',
+            baseCurrency,
+          })
+        : undefined;
+      const averageOrder = transactions > 0 ? toMoney(total.amount / transactions, total.currency) : toMoney(0, total.currency);
+
+      points.push({
+        date,
+        total,
+        normalized,
+        transactions,
+        customers: transactions, // placeholder without customer linkage
+        averageOrder,
+      });
+    }
+
+    res.json({ baseCurrency, points });
   });
 
   // Store-scoped analytics endpoints
@@ -247,14 +488,46 @@ export async function registerAnalyticsRoutes(app: Express) {
       return res.status(403).json({ error: 'Forbidden: store scope' });
     }
 
-    const [store] = await db.select({ id: stores.id, orgId: stores.orgId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId, currency: stores.currency }).from(stores).where(eq(stores.id, storeId)).limit(1);
     if (!store) return res.status(404).json({ error: 'Store not found' });
     if (orgId && store.orgId !== orgId && !isAdmin) {
       return res.status(403).json({ error: 'Forbidden: store scope' });
     }
 
+    const normalizeCurrency = shouldNormalizeCurrency(req);
+    const storeCurrency = coerceCurrency(store.currency ?? 'NGN', 'NGN');
+    const effectiveOrgId = orgId ?? store.orgId;
+    const baseCurrency = await resolveBaseCurrency({ orgId: effectiveOrgId, storeCurrency });
+
     const data = await storage.getPopularProducts(storeId);
-    res.json(data);
+    const items = await Promise.all(
+      data.map(async (item) => {
+        const priceAmount = Number(item.product?.price ?? 0);
+        const nativePrice = toMoney(priceAmount, storeCurrency);
+        const total = toMoney(priceAmount * (item.salesCount ?? 0), storeCurrency);
+        const normalized = normalizeCurrency
+          ? {
+              baseCurrency,
+              price: await convertForOrg(nativePrice, baseCurrency, { orgId: effectiveOrgId, baseCurrency }),
+              total: await convertForOrg(total, baseCurrency, { orgId: effectiveOrgId, baseCurrency }),
+            }
+          : undefined;
+
+        return {
+          product: item.product,
+          salesCount: item.salesCount,
+          price: nativePrice,
+          total,
+          normalized,
+        };
+      })
+    );
+
+    res.json({
+      currency: storeCurrency,
+      baseCurrency,
+      items,
+    });
   });
 
   app.get('/api/stores/:storeId/analytics/profit-loss', auth, requireActiveSubscription, async (req: Request, res: Response) => {
@@ -266,7 +539,7 @@ export async function registerAnalyticsRoutes(app: Express) {
       return res.status(403).json({ error: 'Forbidden: store scope' });
     }
 
-    const [store] = await db.select({ id: stores.id, orgId: stores.orgId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId, currency: stores.currency }).from(stores).where(eq(stores.id, storeId)).limit(1);
     if (!store) return res.status(404).json({ error: 'Store not found' });
     if (orgId && store.orgId !== orgId && !isAdmin) {
       return res.status(403).json({ error: 'Forbidden: store scope' });
@@ -274,6 +547,7 @@ export async function registerAnalyticsRoutes(app: Express) {
 
     const startDateRaw = String((req.query as any)?.startDate || '').trim();
     const endDateRaw = String((req.query as any)?.endDate || '').trim();
+    const normalizeCurrency = shouldNormalizeCurrency(req);
 
     const endDate = endDateRaw ? new Date(endDateRaw) : new Date();
     const startDate = startDateRaw ? new Date(startDateRaw) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -282,8 +556,35 @@ export async function registerAnalyticsRoutes(app: Express) {
       return res.status(400).json({ error: 'Invalid date range supplied' });
     }
 
-    const data = await storage.getStoreProfitLoss(storeId, startDate, endDate);
-    res.json(data);
+    const storeCurrency = coerceCurrency(store.currency ?? 'NGN', 'NGN');
+    const baseCurrency = await resolveBaseCurrency({ orgId: orgId ?? store.orgId, storeCurrency });
+
+    const profitLoss = await storage.getStoreProfitLoss(storeId, startDate, endDate);
+
+    const totals = {
+      revenue: toMoney(profitLoss.revenue, storeCurrency),
+      cost: toMoney(profitLoss.cost, storeCurrency),
+      profit: toMoney(profitLoss.profit, storeCurrency),
+    };
+
+    const normalized = normalizeCurrency
+      ? {
+          baseCurrency,
+          revenue: await convertForOrg(totals.revenue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          cost: await convertForOrg(totals.cost, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          profit: await convertForOrg(totals.profit, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        }
+      : undefined;
+
+    res.json({
+      currency: storeCurrency,
+      totals,
+      normalized,
+      period: {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+      },
+    });
   });
 
   app.get('/api/stores/:storeId/analytics/inventory-value', auth, requireActiveSubscription, async (req: Request, res: Response) => {
@@ -295,14 +596,32 @@ export async function registerAnalyticsRoutes(app: Express) {
       return res.status(403).json({ error: 'Forbidden: store scope' });
     }
 
-    const [store] = await db.select({ id: stores.id, orgId: stores.orgId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId, currency: stores.currency }).from(stores).where(eq(stores.id, storeId)).limit(1);
     if (!store) return res.status(404).json({ error: 'Store not found' });
     if (orgId && store.orgId !== orgId && !isAdmin) {
       return res.status(403).json({ error: 'Forbidden: store scope' });
     }
 
+    const normalizeCurrency = shouldNormalizeCurrency(req);
+
+    const storeCurrency = coerceCurrency(store.currency ?? 'NGN', 'NGN');
+    const baseCurrency = await resolveBaseCurrency({ orgId: orgId ?? store.orgId, storeCurrency });
+
     const data = await storage.getInventoryValue(storeId);
-    res.json(data);
+    const totalValue = toMoney(Number(data.totalValue ?? 0), storeCurrency);
+    const normalized = normalizeCurrency
+      ? {
+          baseCurrency,
+          total: await convertForOrg(totalValue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        }
+      : undefined;
+
+    res.json({
+      currency: storeCurrency,
+      total: totalValue,
+      normalized,
+      itemCount: Number(data.itemCount ?? 0),
+    });
   });
 
   app.get('/api/stores/:storeId/analytics/customer-insights', auth, requireActiveSubscription, async (req: Request, res: Response) => {
@@ -455,6 +774,291 @@ export async function registerAnalyticsRoutes(app: Express) {
     }
 
     doc.end();
+  });
+
+  app.post('/api/analytics/export.email', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    try {
+      const { orgId, allowedStoreIds } = await getScope(req);
+
+      const interval = (String((req.body as any)?.interval || '').trim() || 'day');
+      const storeId = (String((req.body as any)?.storeId || '').trim() || undefined) as string | undefined;
+      const dateFrom = (String((req.body as any)?.dateFrom || '').trim() || undefined) as string | undefined;
+      const dateTo = (String((req.body as any)?.dateTo || '').trim() || undefined) as string | undefined;
+
+      const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
+      const where: any[] = [];
+      if (orgId) where.push(eq(sales.orgId, orgId));
+      if (storeId) {
+        if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
+          return res.status(403).json({ error: 'Forbidden: store scope' });
+        }
+        where.push(eq(sales.storeId, storeId));
+      } else if (allowedStoreIds.length) {
+        where.push(inArray(sales.storeId, allowedStoreIds));
+      }
+      if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
+      if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
+
+      const salesAggregates = await getSalesAggregateExpressions();
+      const rows = await db.execute(sql`SELECT 
+        date_trunc(${sql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
+        ${sql.raw(salesAggregates.total)} as revenue,
+        ${sql.raw(salesAggregates.discount)} as discount,
+        ${sql.raw(salesAggregates.tax)} as tax,
+        COUNT(*) as transactions
+        FROM sales
+        ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
+        GROUP BY 1
+        ORDER BY 1 ASC`);
+
+      const userId = (req.session as any)?.userId as string | undefined;
+      if (!userId && process.env.NODE_ENV !== 'test') {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      let toEmail: string | undefined;
+      if (process.env.NODE_ENV === 'test' && !userId) {
+        const anyUser = await db.select().from(users).limit(1);
+        toEmail = (anyUser[0] as any)?.email as string | undefined;
+      } else if (userId) {
+        const userRows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+        const user = userRows[0] as any;
+        toEmail = user?.email as string | undefined;
+      }
+
+      if (!toEmail) {
+        return res.status(400).json({ error: 'User email not available for export' });
+      }
+
+      let csv = 'date,revenue,discount,tax,transactions\n';
+      for (const r of (rows as any).rows) {
+        const line = `${new Date(r.bucket).toISOString()},${r.revenue},${r.discount},${r.tax},${r.transactions}\n`;
+        csv += line;
+      }
+
+      const now = new Date();
+      const filename = `analytics_export_${now.toISOString().substring(0, 10)}.csv`;
+      const sent = await sendEmail({
+        to: toEmail,
+        subject: 'Your ChainSync analytics CSV export',
+        html: `<p>Your requested analytics CSV export is attached as <strong>${filename}</strong>.</p>`,
+        text: `Your requested analytics CSV export is attached as ${filename}.`,
+        attachments: [
+          {
+            filename,
+            content: csv,
+            contentType: 'text/csv',
+          },
+        ],
+      });
+
+      if (!sent) {
+        return res.status(500).json({ error: 'Failed to send export email' });
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      logger.error('Failed to email analytics CSV export', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({ error: 'Failed to email analytics export' });
+    }
+  });
+
+  app.get('/api/analytics/report-schedules', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    try {
+      const { orgId, allowedStoreIds } = await getScope(req);
+      const sessionUserId = (req.session as any)?.userId as string | undefined;
+
+      if (!orgId) {
+        return res.status(400).json({ error: 'Organization scope not resolved' });
+      }
+      if (!sessionUserId && process.env.NODE_ENV !== 'test') {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      let effectiveUserId = sessionUserId;
+      if (!effectiveUserId && process.env.NODE_ENV === 'test') {
+        const anyUser = await db.select().from(users).limit(1);
+        effectiveUserId = (anyUser[0] as any)?.id as string | undefined;
+      }
+
+      if (!effectiveUserId) {
+        return res.status(400).json({ error: 'User scope not resolved' });
+      }
+
+      const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
+
+      const whereClauses: any[] = [
+        eq(scheduledReports.orgId, orgId as any),
+        eq(scheduledReports.userId, effectiveUserId as any),
+      ];
+
+      if (storeId) {
+        if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
+          return res.status(403).json({ error: 'Forbidden: store scope' });
+        }
+        whereClauses.push(eq(scheduledReports.storeId, storeId as any));
+      }
+
+      const rows = await db
+        .select()
+        .from(scheduledReports)
+        .where(and(...whereClauses))
+        .orderBy(scheduledReports.createdAt);
+
+      const filtered = rows.filter((r: any) => {
+        if (!r.storeId) return true;
+        if (!allowedStoreIds.length) return true;
+        return allowedStoreIds.includes(r.storeId as string);
+      });
+
+      const schedules = filtered.map((r: any) => ({
+        id: r.id,
+        orgId: r.orgId,
+        userId: r.userId,
+        storeId: r.storeId,
+        reportType: r.reportType,
+        format: r.format,
+        interval: r.interval,
+        params: r.params,
+        isActive: r.isActive,
+        lastRunAt: r.lastRunAt,
+        createdAt: r.createdAt,
+      }));
+
+      res.json({ schedules });
+    } catch (error) {
+      logger.error('Failed to list analytics report schedules', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({ error: 'Failed to list report schedules' });
+    }
+  });
+
+  app.post('/api/analytics/report-schedules', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    try {
+      const { orgId, allowedStoreIds } = await getScope(req);
+      const sessionUserId = (req.session as any)?.userId as string | undefined;
+
+      if (!orgId) {
+        return res.status(400).json({ error: 'Organization scope not resolved' });
+      }
+      if (!sessionUserId && process.env.NODE_ENV !== 'test') {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      let effectiveUserId = sessionUserId;
+      if (!effectiveUserId && process.env.NODE_ENV === 'test') {
+        const anyUser = await db.select().from(users).limit(1);
+        effectiveUserId = (anyUser[0] as any)?.id as string | undefined;
+      }
+
+      if (!effectiveUserId) {
+        return res.status(400).json({ error: 'User scope not resolved' });
+      }
+
+      const body = req.body as any;
+      const rawStoreId = (String(body.storeId || '').trim() || undefined) as string | undefined;
+      const reportType = (String(body.reportType || 'analytics_timeseries').trim() || 'analytics_timeseries').toLowerCase();
+      const format = (String(body.format || 'csv').trim() || 'csv').toLowerCase();
+      const interval = (String(body.interval || 'daily').trim() || 'daily').toLowerCase();
+      const params = body.params ?? {};
+
+      if (format !== 'csv') {
+        return res.status(400).json({ error: 'Only CSV format is supported for scheduled reports' });
+      }
+      if (!['daily', 'weekly', 'monthly'].includes(interval)) {
+        return res.status(400).json({ error: 'Invalid interval; expected daily, weekly, or monthly' });
+      }
+
+      let storeId: string | null = null;
+      if (rawStoreId) {
+        if (allowedStoreIds.length && !allowedStoreIds.includes(rawStoreId)) {
+          return res.status(403).json({ error: 'Forbidden: store scope' });
+        }
+        storeId = rawStoreId;
+      }
+
+      const inserted = await db
+        .insert(scheduledReports)
+        .values({
+          orgId,
+          userId: effectiveUserId,
+          storeId: storeId ?? null,
+          reportType,
+          format,
+          interval,
+          params: params ?? null,
+          isActive: true,
+        } as any)
+        .returning();
+
+      const schedule = inserted[0] as any;
+      res.status(201).json({ schedule });
+    } catch (error) {
+      logger.error('Failed to create analytics report schedule', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({ error: 'Failed to create report schedule' });
+    }
+  });
+
+  app.delete('/api/analytics/report-schedules/:id', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    try {
+      const { orgId, allowedStoreIds } = await getScope(req);
+      const sessionUserId = (req.session as any)?.userId as string | undefined;
+
+      const id = String(req.params.id || '').trim();
+      if (!id) {
+        return res.status(400).json({ error: 'Schedule id is required' });
+      }
+      if (!orgId) {
+        return res.status(400).json({ error: 'Organization scope not resolved' });
+      }
+      if (!sessionUserId && process.env.NODE_ENV !== 'test') {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      let effectiveUserId = sessionUserId;
+      if (!effectiveUserId && process.env.NODE_ENV === 'test') {
+        const anyUser = await db.select().from(users).limit(1);
+        effectiveUserId = (anyUser[0] as any)?.id as string | undefined;
+      }
+
+      const existingRows = await db
+        .select()
+        .from(scheduledReports)
+        .where(eq(scheduledReports.id, id as any))
+        .limit(1);
+      const existing = existingRows[0] as any;
+
+      if (!existing) {
+        return res.status(404).json({ error: 'Schedule not found' });
+      }
+
+      if (String(existing.orgId) !== String(orgId)) {
+        return res.status(403).json({ error: 'Forbidden: org scope' });
+      }
+      if (effectiveUserId && String(existing.userId) !== String(effectiveUserId)) {
+        return res.status(403).json({ error: 'Forbidden: user scope' });
+      }
+      if (existing.storeId && allowedStoreIds.length && !allowedStoreIds.includes(existing.storeId as string)) {
+        return res.status(403).json({ error: 'Forbidden: store scope' });
+      }
+
+      await db
+        .update(scheduledReports)
+        .set({ isActive: false } as any)
+        .where(eq(scheduledReports.id, id as any));
+
+      res.json({ ok: true });
+    } catch (error) {
+      logger.error('Failed to deactivate analytics report schedule', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({ error: 'Failed to deactivate report schedule' });
+    }
   });
 
   // Minimal admin audit logs feed

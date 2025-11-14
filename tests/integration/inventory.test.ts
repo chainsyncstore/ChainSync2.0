@@ -194,11 +194,17 @@ describe('Inventory Management Integration Tests', () => {
         .set('Cookie', sessionCookie)
         .expect(200);
 
-      expect(response.body).toHaveLength(3);
-      expect(response.body[0]?.productId).toBeDefined();
-      expect(response.body[0]?.quantity).toBeDefined();
-      expect(response.body[0]?.minStockLevel).toBeDefined();
-      expect(response.body[0]?.maxStockLevel).toBeDefined();
+      expect(response.body).toMatchObject({
+        storeId: testStore.id,
+        currency: expect.any(String),
+        totalProducts: 3,
+      });
+      expect(Array.isArray(response.body.items)).toBe(true);
+      expect(response.body.items).toHaveLength(3);
+      expect(response.body.items[0]?.productId).toBeDefined();
+      expect(response.body.items[0]?.quantity).toBeDefined();
+      expect(response.body.items[0]?.minStockLevel).toBeDefined();
+      expect(response.body.items[0]?.maxStockLevel).toBeDefined();
     });
 
     it('should filter inventory by category', async () => {
@@ -207,8 +213,13 @@ describe('Inventory Management Integration Tests', () => {
         .set('Cookie', sessionCookie)
         .expect(200);
 
-      expect(response.body).toHaveLength(2);
-      expect(response.body.every((item: any) => 
+      expect(response.body).toMatchObject({
+        storeId: testStore.id,
+        currency: expect.any(String),
+      });
+      expect(Array.isArray(response.body.items)).toBe(true);
+      expect(response.body.items).toHaveLength(2);
+      expect(response.body.items.every((item: any) => 
         item.product?.category === 'Test Category'
       )).toBe(true);
     });
@@ -219,8 +230,13 @@ describe('Inventory Management Integration Tests', () => {
         .set('Cookie', sessionCookie)
         .expect(200);
 
-      expect(response.body).toHaveLength(1);
-      expect(response.body[0].quantity).toBeLessThanOrEqual(response.body[0].minStockLevel);
+      expect(response.body).toMatchObject({
+        storeId: testStore.id,
+        currency: expect.any(String),
+      });
+      expect(Array.isArray(response.body.items)).toBe(true);
+      expect(response.body.items).toHaveLength(1);
+      expect(response.body.items[0].quantity).toBeLessThanOrEqual(response.body.items[0].minStockLevel);
     });
   });
 

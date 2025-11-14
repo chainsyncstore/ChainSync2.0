@@ -1,25 +1,26 @@
 import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/pos-utils";
+import type { Money } from "@shared/lib/currency";
 
 interface DashboardCardsProps {
   dailySales: {
-    revenue: number;
+    revenue: Money;
     transactions: number;
   };
   profitLoss: {
-    revenue: number;
-    cost: number;
-    profit: number;
+    revenue: Money;
+    cost: Money;
+    profit: Money;
   };
   popularProducts: Array<{
-    product: { id: string; name: string; price: string };
+    product: { id: string; name: string; price: string; currency?: string };
     salesCount: number;
   }>;
   additionalMetrics?: {
     totalProducts?: number;
     totalCustomers?: number;
-    averageOrderValue?: number;
+    averageOrderValue?: Money;
   };
 }
 
@@ -29,8 +30,14 @@ export default function DashboardCards({
   popularProducts,
   additionalMetrics = {},
 }: DashboardCardsProps) {
-  const profitMargin = profitLoss.revenue > 0 ? (profitLoss.profit / profitLoss.revenue) * 100 : 0;
-  const avgOrderValue = dailySales.transactions > 0 ? dailySales.revenue / dailySales.transactions : 0;
+  const revenueAmount = dailySales.revenue.amount;
+  const revenueCurrency = dailySales.revenue.currency;
+  const profitAmount = profitLoss.revenue.amount;
+  const profitValue = profitLoss.profit.amount;
+  const profitMargin = profitAmount > 0 ? (profitValue / profitAmount) * 100 : 0;
+  const avgOrderValue: Money = dailySales.transactions > 0
+    ? { amount: revenueAmount / dailySales.transactions, currency: revenueCurrency }
+    : { amount: 0, currency: revenueCurrency };
   const topProductSales = popularProducts.length > 0 ? popularProducts[0].salesCount : 0;
 
   return (
@@ -55,14 +62,14 @@ export default function DashboardCards({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Monthly Profit</CardTitle>
-          {profitLoss.profit >= 0 ? (
+          {profitLoss.profit.amount >= 0 ? (
             <TrendingUp className="h-4 w-4 text-green-600" />
           ) : (
             <TrendingDown className="h-4 w-4 text-red-600" />
           )}
         </CardHeader>
         <CardContent>
-          <div className={`text-2xl font-bold ${profitLoss.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <div className={`text-2xl font-bold ${profitLoss.profit.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
             {formatCurrency(profitLoss.profit)}
           </div>
           <p className="text-xs text-muted-foreground">

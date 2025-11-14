@@ -401,6 +401,13 @@ export async function registerAuthRoutes(app: Express) {
       });
     } catch (error) {
       logger.error('Signup error', { req: extractLogContext(req) }, error as Error);
+      if (process.env.NODE_ENV === 'test') {
+        logger.error('Signup error details', {
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        throw (error instanceof Error ? error : new Error(String(error)));
+      }
       // monitoringService.recordSignupEvent('attempt', { error: String(error), ...extractLogContext(req) });
       res.status(500).json({ message: 'Internal server error' });
     }

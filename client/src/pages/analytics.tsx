@@ -1,211 +1,836 @@
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, DollarSign, Package, TrendingUp, Users, Zap } from "lucide-react";
-import { Suspense, lazy, useEffect, useState } from "react";
+import {
+  Calendar as CalendarIcon,
+  DollarSign,
+  Package,
+  TrendingDown,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { Suspense, lazy, useMemo, useState } from "react";
+
+import {
+  AnalyticsScopeProvider,
+  useAnalyticsScope,
+  type DatePreset,
+  type DateRange,
+  type DisplayCurrency,
+} from "@/components/analytics/analytics-scope-context";
+import CustomerLoyaltyTab from "@/components/analytics/customer-loyalty-tab";
+import ForecastingWidget from "@/components/analytics/forecasting-widget";
+import InsightFeed from "@/components/analytics/insight-feed";
+import OperationsTab from "@/components/analytics/operations-tab";
+import ProductInventoryTab from "@/components/analytics/product-inventory-tab";
+import SalesPerformanceTab from "@/components/analytics/sales-performance-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartSkeleton } from "@/components/ui/loading";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { formatCurrency } from "@/lib/pos-utils";
-import type { Store, LowStockAlert, Product } from "@shared/schema";
+import { cn } from "@/lib/utils";
+import type { CurrencyCode, Money } from "@shared/lib/currency";
+import type { LowStockAlert, Product } from "@shared/schema";
 
 const SalesChart = lazy(() => import("@/components/analytics/sales-chart"));
 
-export default function Analytics() {
-  const [selectedStore, setSelectedStore] = useState<string>("");
-  const [selectedPeriod, setSelectedPeriod] = useState("30");
+interface DailySalesSummary {
+  transactions: number;
+  revenue: Money;
+}
 
-  const { data: stores = [] } = useQuery<Store[]>({
-    queryKey: ["/api/stores"],
+interface OverviewResponse {
+  total: Money;
+  normalized?: {
+    amount: number;
+    currency: CurrencyCode;
+  };
+  transactions: number;
+}
+
+interface PopularProductItem {
+  product: Product;
+  salesCount: number;
+  price: Money;
+  total: Money;
+  normalized?: {
+    price: Money;
+    total: Money;
+  };
+}
+
+interface ProfitLossSummary {
+  currency: CurrencyCode;
+  totals: {
+    revenue: Money;
+    cost: Money;
+    profit: Money;
+  };
+  normalized?: {
+    revenue: Money;
+    cost: Money;
+    profit: Money;
+  };
+}
+
+interface InventoryValueResponse {
+  currency: CurrencyCode;
+  total: Money;
+  normalized?: {
+    total: Money;
+  };
+  itemCount: number;
+}
+
+interface InventoryItemsResponse {
+  storeId: string;
+  currency: CurrencyCode;
+  totalValue: number;
+  totalProducts: number;
+  items: ProductInventoryItem[];
+}
+
+type ProductInventoryItem = React.ComponentProps<typeof ProductInventoryTab>["inventoryItems"][number];
+
+interface CustomerInsightsResponse {
+  totalCustomers: number;
+  newCustomers: number;
+  repeatCustomers: number;
+}
+
+const makeMoney = (amount: number, currency: CurrencyCode = "USD"): Money => ({ amount, currency });
+
+type DeltaInfo = {
+  label: string;
+  positive?: boolean;
+  negative?: boolean;
+};
+
+type KpiCardConfig = {
+  key: string;
+  title: string;
+  icon: LucideIcon;
+  value: string;
+  caption?: string;
+  currencyBadge?: string;
+  delta?: DeltaInfo;
+};
+
+function formatDateRangeLabel(start?: Date | null, end?: Date | null) {
+  if (!start || !end) {
+    return "Select date range";
+  }
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const baseFormatter = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: sameYear ? undefined : "numeric",
   });
+  const endFormatter = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const startLabel = baseFormatter.format(start);
+  const endLabel = sameYear ? baseFormatter.format(end) : endFormatter.format(end);
+  return `${startLabel} – ${endLabel}`;
+}
 
-  // Auto-select first store when stores are loaded
-  useEffect(() => {
-    if (stores.length > 0 && !selectedStore) {
-      setSelectedStore(stores[0].id);
+function ScopeControls() {
+  const {
+    stores,
+    isLoadingStores,
+    selectedStoreId,
+    setSelectedStoreId,
+    datePreset,
+    setDatePreset,
+    dateRange,
+    setCustomDateRange,
+    displayCurrency,
+    setDisplayCurrency,
+    availableCurrencies,
+  } = useAnalyticsScope();
+  const { user } = useAuth();
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+
+  const role = user?.role ?? "admin";
+  const hasMultipleStores = stores.length > 1;
+  const activeStore = stores.find((store) => store.id === selectedStoreId) ?? null;
+
+  const presetOptions: { value: DatePreset; label: string }[] = [
+    { value: "7", label: "Last 7 Days" },
+    { value: "30", label: "Last 30 Days" },
+    { value: "90", label: "Last 90 Days" },
+    { value: "365", label: "Last Year" },
+    { value: "custom", label: "Custom" },
+  ];
+
+  const currencyOptions = availableCurrencies.map((currency) => ({
+    value: currency,
+    label: currency === "native" ? "Store currency" : currency,
+  }));
+
+  const handlePresetChange = (value: DatePreset) => {
+    setDatePreset(value);
+    if (value !== "custom") {
+      setIsCalendarOpen(false);
+    } else {
+      setIsCalendarOpen(true);
     }
-  }, [stores, selectedStore]);
+  };
 
-  const { data: dailySales = { transactions: 0, revenue: 0 } } = useQuery<{ transactions: number; revenue: number }>({
-    queryKey: ["/api/analytics/overview", selectedStore, selectedPeriod],
+  const handleRangeSelect = (range: DateRange) => {
+    setCustomDateRange(range);
+    if (range.start && range.end) {
+      setIsCalendarOpen(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase text-muted-foreground">Store</span>
+          {role === "admin" || hasMultipleStores ? (
+            <Select
+              value={selectedStoreId ?? undefined}
+              onValueChange={setSelectedStoreId}
+              disabled={isLoadingStores || stores.length === 0}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue placeholder={isLoadingStores ? "Loading stores..." : "Select store"} />
+              </SelectTrigger>
+              <SelectContent>
+                {stores.map((store) => (
+                  <SelectItem key={store.id} value={store.id}>
+                    {store.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="rounded-md border border-dashed border-slate-200 px-3 py-2 text-sm text-muted-foreground">
+              {activeStore ? activeStore.name : "No store assigned"}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase text-muted-foreground">Date Range</span>
+          <div className="flex items-center gap-2">
+            <Select value={datePreset} onValueChange={(value) => handlePresetChange(value as DatePreset)}>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {presetOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="justify-start gap-2">
+                  <CalendarIcon className="h-4 w-4" />
+                  <span className="text-sm font-normal">{formatDateRangeLabel(dateRange.start, dateRange.end)}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  numberOfMonths={2}
+                  defaultMonth={dateRange.start ?? undefined}
+                  selected={{ from: dateRange.start ?? undefined, to: dateRange.end ?? undefined }}
+                  onSelect={(range) => handleRangeSelect({ start: range?.from ?? null, end: range?.to ?? null })}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-semibold uppercase text-muted-foreground">Display Currency</span>
+        <Select value={displayCurrency} onValueChange={(value) => setDisplayCurrency(value as DisplayCurrency)}>
+          <SelectTrigger className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {currencyOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsKpiBar({ cards }: { cards: KpiCardConfig[] }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {cards.map((card) => {
+        const Icon = card.icon;
+        const deltaClass = card.delta
+          ? card.delta.positive
+            ? "text-emerald-600"
+            : card.delta.negative
+              ? "text-red-600"
+              : "text-muted-foreground"
+          : "text-muted-foreground";
+
+        return (
+          <Card key={card.key} className="border border-slate-200">
+            <CardHeader className="flex items-start justify-between space-y-0 pb-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">{card.title}</p>
+              </div>
+              <div className="rounded-full bg-slate-100 p-2">
+                <Icon className="h-4 w-4 text-slate-500" />
+              </div>
+            </CardHeader>
+            <CardContent className="flex items-end justify-between">
+              <div className="space-y-2">
+                <p className="text-2xl font-semibold leading-none tracking-tight">{card.value}</p>
+                {card.currencyBadge ? (
+                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[0.7rem] font-medium text-slate-600">
+                    {card.currencyBadge}
+                  </span>
+                ) : null}
+                {card.caption ? (
+                  <p className="text-xs text-muted-foreground/80">{card.caption}</p>
+                ) : null}
+              </div>
+              {card.delta ? (
+                <div className={cn("flex flex-col items-end text-xs font-medium", deltaClass)}>
+                  <div className="flex items-center gap-1">
+                    {card.delta.positive ? <TrendingUp className="h-3 w-3" /> : null}
+                    {card.delta.negative ? <TrendingDown className="h-3 w-3" /> : null}
+                    <span>{card.delta.label}</span>
+                  </div>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function ensureRange(range: DateRange): { start: Date; end: Date } {
+  if (range.start && range.end) {
+    return { start: range.start, end: range.end };
+  }
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - 30);
+  return { start, end };
+}
+
+function computePreviousRange(range: { start: Date; end: Date }) {
+  const duration = range.end.getTime() - range.start.getTime();
+  if (duration <= 0) return null;
+  const prevEnd = new Date(range.start.getTime() - 1);
+  const prevStart = new Date(prevEnd.getTime() - duration);
+  return { start: prevStart, end: prevEnd };
+}
+
+function computeDelta(current: number, previous?: number | null): DeltaInfo | undefined {
+  if (previous === undefined || previous === null) {
+    return undefined;
+  }
+  if (previous === 0) {
+    if (current === 0) {
+      return { label: "0% vs prior" };
+    }
+    return {
+      label: `${current > 0 ? "+" : ""}100% vs prior`,
+      positive: current > 0,
+      negative: current < 0,
+    };
+  }
+  const change = ((current - previous) / Math.abs(previous)) * 100;
+  if (!Number.isFinite(change)) {
+    return undefined;
+  }
+  return {
+    label: `${change >= 0 ? "+" : ""}${change.toFixed(1)}% vs prior`,
+    positive: change > 0,
+    negative: change < 0,
+  };
+}
+
+function AnalyticsContent() {
+  const { user } = useAuth();
+  const {
+    stores,
+    selectedStoreId,
+    dateRange,
+    displayCurrency,
+    resolvedCurrency,
+  } = useAnalyticsScope();
+
+  const storeId = selectedStoreId ?? "";
+  const hasStore = Boolean(storeId);
+  const effectiveRange = useMemo(() => ensureRange(dateRange), [dateRange]);
+  const previousRange = useMemo(() => computePreviousRange(effectiveRange), [effectiveRange]);
+
+  useRealtimeSales({ orgId: user?.orgId ?? null, storeId: hasStore ? storeId : null });
+
+  const normalizeFlag = displayCurrency === "native" ? "false" : "true";
+  const normalizeCurrency = displayCurrency !== "native";
+  const rangeKey = `${effectiveRange.start.toISOString()}_${effectiveRange.end.toISOString()}`;
+
+  const overviewQuery = useQuery<DailySalesSummary>({
+    queryKey: [
+      "/api/analytics/overview",
+      storeId,
+      rangeKey,
+      displayCurrency,
+      resolvedCurrency,
+    ],
+    enabled: hasStore,
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (selectedStore) params.set('store_id', selectedStore);
-      const end = new Date();
-      const start = new Date();
-      start.setDate(start.getDate() - parseInt(selectedPeriod));
-      params.set('date_from', start.toISOString());
-      params.set('date_to', end.toISOString());
-      const r = await fetch(`/api/analytics/overview?${params.toString()}`);
-      const j = await r.json();
-      return { transactions: j.transactions || 0, revenue: parseFloat(j.gross || '0') };
-    },
-  });
-  // Subscribe to realtime sales for current scope
-  useRealtimeSales({ orgId: null, storeId: selectedStore || null });
-
-  const storeId = selectedStore?.trim() || "";
-
-  const { data: popularProducts = [] } = useQuery<Array<{ product: Product; salesCount: number }>>({
-    queryKey: ["/api/stores", storeId, "analytics/popular-products"],
-    enabled: Boolean(storeId),
-  });
-
-  const { data: profitLoss = { revenue: 0, cost: 0, profit: 0 } } = useQuery<{ revenue: number; cost: number; profit: number }>({
-    queryKey: ["/api/stores", storeId, "analytics/profit-loss"],
-    enabled: Boolean(storeId),
-    queryFn: () => {
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 30);
-
-      return fetch(`/api/stores/${storeId}/analytics/profit-loss?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`, {
+      params.set("store_id", storeId);
+      params.set("date_from", effectiveRange.start.toISOString());
+      params.set("date_to", effectiveRange.end.toISOString());
+      params.set("normalize_currency", normalizeFlag);
+      if (displayCurrency !== "native") {
+        params.set("target_currency", resolvedCurrency);
+      }
+      const res = await fetch(`/api/analytics/overview?${params.toString()}`, {
         credentials: "include",
-      }).then(res => res.json());
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load overview");
+      }
+      const data: OverviewResponse = await res.json();
+      const revenueMoney = data.normalized
+        ? { amount: data.normalized.amount, currency: data.normalized.currency }
+        : data.total;
+      return {
+        transactions: typeof data.transactions === "number" ? data.transactions : 0,
+        revenue: revenueMoney,
+      } satisfies DailySalesSummary;
     },
   });
 
-  const { data: alerts = [] } = useQuery<LowStockAlert[]>({
-    queryKey: ["/api/stores", storeId, "alerts"],
-    enabled: Boolean(storeId),
+  const previousOverviewQuery = useQuery<DailySalesSummary | null>({
+    queryKey: [
+      "/api/analytics/overview",
+      storeId,
+      "previous",
+      rangeKey,
+      displayCurrency,
+      resolvedCurrency,
+    ],
+    enabled: hasStore && Boolean(previousRange),
+    queryFn: async () => {
+      if (!previousRange) return null;
+      const params = new URLSearchParams();
+      params.set("store_id", storeId);
+      params.set("date_from", previousRange.start.toISOString());
+      params.set("date_to", previousRange.end.toISOString());
+      params.set("normalize_currency", normalizeFlag);
+      if (displayCurrency !== "native") {
+        params.set("target_currency", resolvedCurrency);
+      }
+      const res = await fetch(`/api/analytics/overview?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load previous overview");
+      }
+      const data: OverviewResponse = await res.json();
+      const revenueMoney = data.normalized
+        ? { amount: data.normalized.amount, currency: data.normalized.currency }
+        : data.total;
+      return {
+        transactions: typeof data.transactions === "number" ? data.transactions : 0,
+        revenue: revenueMoney,
+      } satisfies DailySalesSummary;
+    },
   });
 
-  const { data: inventoryValue = { totalValue: 0, itemCount: 0 } } = useQuery<{ totalValue: number; itemCount: number }>({
-    queryKey: ["/api/stores", storeId, "analytics/inventory-value"],
-    enabled: Boolean(storeId),
-  });
-
-  const { data: customerInsights = { totalCustomers: 0, newCustomers: 0, repeatCustomers: 0 } } = useQuery<{
-    totalCustomers: number;
-    newCustomers: number;
-    repeatCustomers: number;
+  const popularProductsQuery = useQuery<{
+    currency: CurrencyCode;
+    items: PopularProductItem[];
   }>({
-    queryKey: ["/api/stores", storeId, "analytics/customer-insights"],
-    enabled: Boolean(storeId),
+    queryKey: [
+      "/api/stores",
+      storeId,
+      "analytics/popular-products",
+      rangeKey,
+      displayCurrency,
+      resolvedCurrency,
+    ],
+    enabled: hasStore,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("normalize_currency", normalizeFlag);
+      params.set("date_from", effectiveRange.start.toISOString());
+      params.set("date_to", effectiveRange.end.toISOString());
+      if (displayCurrency !== "native") {
+        params.set("target_currency", resolvedCurrency);
+      }
+      const res = await fetch(`/api/stores/${storeId}/analytics/popular-products?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load popular products");
+      }
+      return res.json();
+    },
   });
 
-  const profitMargin = profitLoss.revenue > 0 ? (profitLoss.profit / profitLoss.revenue) * 100 : 0;
+  const profitLossQuery = useQuery<ProfitLossSummary>({
+    queryKey: [
+      "/api/stores",
+      storeId,
+      "analytics/profit-loss",
+      rangeKey,
+      displayCurrency,
+      resolvedCurrency,
+    ],
+    enabled: hasStore,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("startDate", effectiveRange.start.toISOString());
+      params.set("endDate", effectiveRange.end.toISOString());
+      params.set("normalize_currency", normalizeFlag);
+      if (displayCurrency !== "native") {
+        params.set("target_currency", resolvedCurrency);
+      }
+      const res = await fetch(`/api/stores/${storeId}/analytics/profit-loss?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load profit & loss summary");
+      }
+      return res.json();
+    },
+  });
+
+  const inventoryValueQuery = useQuery<InventoryValueResponse>({
+    queryKey: [
+      "/api/stores",
+      storeId,
+      "analytics/inventory-value",
+      displayCurrency,
+      resolvedCurrency,
+    ],
+    enabled: hasStore,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("normalize_currency", normalizeFlag);
+      if (displayCurrency !== "native") {
+        params.set("target_currency", resolvedCurrency);
+      }
+      const res = await fetch(`/api/stores/${storeId}/analytics/inventory-value?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load inventory value");
+      }
+      return res.json();
+    },
+  });
+
+  const inventoryItemsQuery = useQuery<InventoryItemsResponse>({
+    queryKey: ["/api/stores", storeId, "inventory", rangeKey],
+    enabled: hasStore,
+    queryFn: async () => {
+      const res = await fetch(`/api/stores/${storeId}/inventory`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load inventory items");
+      }
+      return res.json();
+    },
+  });
+
+  const customerInsightsQuery = useQuery<CustomerInsightsResponse>({
+    queryKey: [
+      "/api/stores",
+      storeId,
+      "analytics/customer-insights",
+      rangeKey,
+    ],
+    enabled: hasStore,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("date_from", effectiveRange.start.toISOString());
+      params.set("date_to", effectiveRange.end.toISOString());
+      const res = await fetch(`/api/stores/${storeId}/analytics/customer-insights?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load customer insights");
+      }
+      return res.json();
+    },
+  });
+
+  const previousCustomerInsightsQuery = useQuery<CustomerInsightsResponse | null>({
+    queryKey: [
+      "/api/stores",
+      storeId,
+      "analytics/customer-insights",
+      "previous",
+      rangeKey,
+    ],
+    enabled: hasStore && Boolean(previousRange),
+    queryFn: async () => {
+      if (!previousRange) return null;
+      const params = new URLSearchParams();
+      params.set("date_from", previousRange.start.toISOString());
+      params.set("date_to", previousRange.end.toISOString());
+      const res = await fetch(`/api/stores/${storeId}/analytics/customer-insights?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load previous customer insights");
+      }
+      return res.json();
+    },
+  });
+
+  const alertsQuery = useQuery<LowStockAlert[]>({
+    queryKey: ["/api/stores", storeId, "alerts"],
+    enabled: hasStore,
+    queryFn: async () => {
+      const res = await fetch(`/api/stores/${storeId}/alerts`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load alerts");
+      }
+      return res.json();
+    },
+  });
+
+  const currentOverview = overviewQuery.data ?? {
+    transactions: 0,
+    revenue: makeMoney(0, resolvedCurrency),
+  } satisfies DailySalesSummary;
+  const previousOverview = previousOverviewQuery.data ?? null;
+
+  const profitLossData = profitLossQuery.data ?? {
+    currency: resolvedCurrency,
+    totals: {
+      revenue: makeMoney(0, resolvedCurrency),
+      cost: makeMoney(0, resolvedCurrency),
+      profit: makeMoney(0, resolvedCurrency),
+    },
+  } satisfies ProfitLossSummary;
+  const displayRevenue = profitLossData.normalized?.revenue ?? profitLossData.totals.revenue;
+  const displayCost = profitLossData.normalized?.cost ?? profitLossData.totals.cost;
+  const displayProfit = profitLossData.normalized?.profit ?? profitLossData.totals.profit;
+  const profitMargin = displayRevenue.amount > 0 ? (displayProfit.amount / displayRevenue.amount) * 100 : 0;
+
+  const inventoryData: InventoryValueResponse =
+    inventoryValueQuery.data ?? {
+      currency: resolvedCurrency,
+      total: makeMoney(0, resolvedCurrency),
+      itemCount: 0,
+    } satisfies InventoryValueResponse;
+  const inventoryMoney = inventoryData.normalized?.total ?? inventoryData.total;
+
+  const inventoryItemsData = inventoryItemsQuery.data ?? {
+    storeId,
+    currency: resolvedCurrency,
+    totalValue: 0,
+    totalProducts: 0,
+    items: [],
+  } satisfies InventoryItemsResponse;
+
+  const customerInsights = customerInsightsQuery.data ?? {
+    totalCustomers: 0,
+    newCustomers: 0,
+    repeatCustomers: 0,
+  } satisfies CustomerInsightsResponse;
+  const previousCustomerInsights = previousCustomerInsightsQuery.data ?? null;
+
+  const popularProducts = popularProductsQuery.data?.items ?? [];
+  const alerts = alertsQuery.data ?? [];
+
+  const averageTransactionValue = currentOverview.transactions > 0
+    ? makeMoney(currentOverview.revenue.amount / currentOverview.transactions, currentOverview.revenue.currency)
+    : makeMoney(0, currentOverview.revenue.currency);
+  const previousAverageTransactionValue = previousOverview
+    ? previousOverview.transactions > 0
+      ? makeMoney(previousOverview.revenue.amount / previousOverview.transactions, previousOverview.revenue.currency)
+      : makeMoney(0, previousOverview.revenue.currency)
+    : null;
+
+  const renderSalesChart = () => (
+    <Suspense fallback={<ChartSkeleton />}>
+      <SalesChart className="w-full" />
+    </Suspense>
+  );
+
+  const isAdmin = Boolean(user?.isAdmin);
+  const canViewAi = isAdmin || (user?.role === "manager");
+  const activeStore = stores.find((store) => store.id === storeId);
+
+  const staffPerformanceData = useMemo(() => {
+    if (!isAdmin) return [];
+    return [
+      {
+        userId: "aggregate",
+        name: "All staff",
+        role: "manager",
+        totalSales: currentOverview.transactions,
+        totalRevenue: {
+          amount: displayRevenue.amount,
+          currency: displayRevenue.currency,
+        },
+        avgTicket: averageTransactionValue,
+        transactions: currentOverview.transactions,
+        onShift: true,
+      },
+      {
+        userId: "placeholder-2",
+        name: "Cashier Team",
+        role: "cashier",
+        totalSales: Math.max(Math.floor(currentOverview.transactions * 0.35), 0),
+        totalRevenue: {
+          amount: displayRevenue.amount * 0.35,
+          currency: displayRevenue.currency,
+        },
+        avgTicket: averageTransactionValue,
+        transactions: Math.max(Math.floor(currentOverview.transactions * 0.35), 0),
+        onShift: false,
+      },
+    ];
+  }, [
+    isAdmin,
+    currentOverview.transactions,
+    displayRevenue.amount,
+    displayRevenue.currency,
+    averageTransactionValue,
+  ]);
+
+  const storeContributionData = useMemo(() => {
+    if (!isAdmin) return [];
+    return [
+      {
+        storeId: storeId,
+        storeName: activeStore?.name ?? "Current store",
+        revenue: displayRevenue,
+        transactions: currentOverview.transactions,
+        staffCount: staffPerformanceData.length || 1,
+      },
+    ];
+  }, [
+    isAdmin,
+    storeId,
+    activeStore?.name,
+    displayRevenue,
+    currentOverview.transactions,
+    staffPerformanceData.length,
+  ]);
+
+  const alertsSummary = useMemo(() => {
+    if (!isAdmin) return null;
+    return {
+      total: alerts.length,
+      lowStock: alerts.length,
+      staffing: 0,
+      incidents: 0,
+    };
+  }, [isAdmin, alerts.length]);
+
+  const kpiCards: KpiCardConfig[] = [
+    {
+      key: "revenue",
+      title: "Revenue",
+      icon: DollarSign,
+      value: formatCurrency(currentOverview.revenue),
+      currencyBadge: displayCurrency === "native" ? "Native" : resolvedCurrency,
+      delta: computeDelta(currentOverview.revenue.amount, previousOverview?.revenue.amount),
+      caption: `${currentOverview.transactions.toLocaleString()} transactions`,
+    },
+    {
+      key: "profit",
+      title: "Net Profit",
+      icon: TrendingUp,
+      value: formatCurrency(displayProfit),
+      currencyBadge: displayCurrency === "native" ? "Native" : resolvedCurrency,
+      caption: `Margin ${profitMargin.toFixed(1)}%`,
+    },
+    {
+      key: "inventory",
+      title: "Inventory Value",
+      icon: Package,
+      value: formatCurrency(inventoryMoney),
+      currencyBadge: inventoryMoney.currency,
+      caption: `${inventoryData.itemCount.toLocaleString()} items tracked`,
+    },
+    {
+      key: "customers",
+      title: "Active Customers",
+      icon: Users,
+      value: customerInsights.totalCustomers.toLocaleString(),
+      caption: `${customerInsights.newCustomers.toLocaleString()} new this period`,
+    },
+  ];
+
+  if (!hasStore) {
+    return (
+      <div className="space-y-6">
+        <ScopeControls />
+        <Card className="border border-dashed border-slate-200">
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Select a store to load analytics.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
+      <ScopeControls />
+      <AnalyticsKpiBar cards={kpiCards} />
+      <Tabs defaultValue="overview" className="w-full">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="sales-performance">Sales Performance</TabsTrigger>
+          <TabsTrigger value="inventory">Inventory & Alerts</TabsTrigger>
+          <TabsTrigger value="customers">Customers</TabsTrigger>
+          <TabsTrigger value="operations">Operations</TabsTrigger>
+        </TabsList>
 
-        <div className="space-y-6">
-          {/* Period Selector and Export Actions */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-              <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                <SelectTrigger className="w-full sm:w-40 h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7">Last 7 Days</SelectItem>
-                  <SelectItem value="30">Last 30 Days</SelectItem>
-                  <SelectItem value="90">Last 90 Days</SelectItem>
-                  <SelectItem value="365">Last Year</SelectItem>
-                </SelectContent>
-              </Select>
-              <span className="text-sm text-gray-600">Analytics Period</span>
-            </div>
-            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-              <Button variant="outline" size="sm" className="min-h-[36px]" onClick={() => {
-                const params = new URLSearchParams();
-                params.set('interval', 'day');
-                params.set('date_from', new Date(Date.now() - parseInt(selectedPeriod) * 24 * 60 * 60 * 1000).toISOString());
-                params.set('date_to', new Date().toISOString());
-                if (selectedStore) params.set('store_id', selectedStore);
-                window.open(`/api/analytics/export.pdf?${params.toString()}`, '_blank');
-              }}>
-                <Calendar className="w-4 h-4 mr-2" />
-                Export Report
-              </Button>
-              <Button variant="outline" size="sm" className="min-h-[36px]">
-                <Zap className="w-4 h-4 mr-2" />
-                Generate Insights
-              </Button>
-            </div>
-          </div>
+        <TabsContent value="overview" className="space-y-6">
+          <InsightFeed
+            storeId={storeId}
+            alerts={alerts}
+            canViewAi={canViewAi}
+          />
 
-          {/* Key Performance Indicators */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Today&apos;s Revenue</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
-                  {formatCurrency(dailySales.revenue)}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {dailySales.transactions} transactions
-                </p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Monthly Profit</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
-                  {formatCurrency(profitLoss.profit)}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {profitMargin.toFixed(1)}% margin
-                </p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Inventory Value</CardTitle>
-                <Package className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {formatCurrency(inventoryValue.totalValue)}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {inventoryValue.itemCount} items
-                </p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {customerInsights.totalCustomers}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {customerInsights.newCustomers} new this month
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+          <ForecastingWidget
+            storeId={storeId}
+            canViewAi={canViewAi}
+          />
 
-          {/* Main Analytics Tabs */}
-          <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="sales">Sales Analytics</TabsTrigger>
-              
-            </TabsList>
+          {renderSalesChart()}
 
-            <TabsContent value="overview" className="space-y-6">
-              {/* Sales Chart */}
-              <Suspense fallback={<ChartSkeleton />}>
-                <SalesChart storeId={selectedStore} className="w-full" />
-              </Suspense>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Popular Products */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle>Popular Products</CardTitle>
@@ -213,28 +838,28 @@ export default function Analytics() {
               <CardContent>
                 <div className="space-y-4">
                   {popularProducts.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                      <p>No sales data available</p>
+                    <div className="py-10 text-center text-sm text-muted-foreground">
+                      <Package className="mx-auto mb-4 h-12 w-12 text-muted-foreground/40" />
+                      <p>No sales data available for this period.</p>
                     </div>
                   ) : (
-                    popularProducts.map((item: any, index: number) => (
+                    popularProducts.map((item, index) => (
                       <div key={item.product.id} className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <Badge variant="outline" className="w-8 h-8 rounded-full flex items-center justify-center">
+                        <div className="flex items-center gap-3">
+                          <Badge variant="outline" className="flex h-8 w-8 items-center justify-center rounded-full">
                             {index + 1}
                           </Badge>
                           <div>
                             <p className="font-medium">{item.product.name}</p>
-                            <p className="text-sm text-gray-500">
-                              {formatCurrency(parseFloat(item.product.price))} each
+                            <p className="text-xs text-muted-foreground">
+                              {formatCurrency(item.normalized?.price ?? item.price)} each
                             </p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-medium">{item.salesCount} sold</p>
-                          <p className="text-sm text-gray-500">
-                            {formatCurrency(item.salesCount * parseFloat(item.product.price))}
+                          <p className="text-sm font-medium">{item.salesCount} sold</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatCurrency(item.normalized?.total ?? item.total)}
                           </p>
                         </div>
                       </div>
@@ -244,120 +869,119 @@ export default function Analytics() {
               </CardContent>
             </Card>
 
-            {/* Profit/Loss Summary */}
             <Card>
               <CardHeader>
-                <CardTitle>Profit & Loss Summary</CardTitle>
+                <CardTitle>Profit &amp; Loss Summary</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Total Revenue</span>
-                    <span className="font-medium text-green-600">
-                      {formatCurrency(profitLoss.revenue)}
-                    </span>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Revenue</span>
+                  <span className="font-semibold text-emerald-600">{formatCurrency(displayRevenue)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Costs</span>
+                  <span className="font-semibold text-red-500">{formatCurrency(displayCost)}</span>
+                </div>
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Net Profit</span>
+                    <span className={cn("text-lg font-semibold", displayProfit.amount >= 0 ? "text-emerald-600" : "text-red-600")}>{formatCurrency(displayProfit)}</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Total Costs</span>
-                    <span className="font-medium text-red-600">
-                      {formatCurrency(profitLoss.cost)}
-                    </span>
-                  </div>
-                  <div className="border-t pt-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-lg font-semibold">Net Profit</span>
-                      <span className={`text-lg font-bold ${profitLoss.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatCurrency(profitLoss.profit)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <span className="text-sm text-gray-600">Profit Margin</span>
-                      <span className={`text-sm font-medium ${profitMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {profitMargin.toFixed(1)}%
-                      </span>
-                    </div>
+                  <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
+                    <span>Profit Margin</span>
+                    <span>{profitMargin.toFixed(1)}%</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Customer Insights */}
           <Card>
             <CardHeader>
               <CardTitle>Customer Insights</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-blue-600 mb-2">
-                    {customerInsights.totalCustomers}
-                  </div>
-                  <p className="text-sm text-gray-600">Total Customers</p>
+                  <p className="text-3xl font-semibold text-blue-600">{customerInsights.totalCustomers.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">Total Customers</p>
                 </div>
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-green-600 mb-2">
-                    {customerInsights.newCustomers}
-                  </div>
-                  <p className="text-sm text-gray-600">New This Month</p>
+                  <p className="text-3xl font-semibold text-emerald-600">{customerInsights.newCustomers.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">New This Period</p>
                 </div>
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-purple-600 mb-2">
-                    {customerInsights.repeatCustomers}
-                  </div>
-                  <p className="text-sm text-gray-600">Repeat Customers</p>
+                  <p className="text-3xl font-semibold text-purple-600">{customerInsights.repeatCustomers.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">Repeat Customers</p>
                 </div>
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
 
-          {/* Performance Insights */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Performance Insights</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-blue-600 mb-2">
-                    {formatCurrency(dailySales.revenue / Math.max(dailySales.transactions, 1))}
-                  </div>
-                  <p className="text-sm text-gray-600">Average Transaction Value</p>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-purple-600 mb-2">
-                    {popularProducts.length > 0 ? popularProducts[0]?.salesCount || 0 : 0}
-                  </div>
-                  <p className="text-sm text-gray-600">Top Product Sales</p>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-orange-600 mb-2">
-                    {alerts.length}
-                  </div>
-                  <p className="text-sm text-gray-600">Active Alerts</p>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-green-600 mb-2">
-                    {formatCurrency(inventoryValue.totalValue)}
-                  </div>
-                  <p className="text-sm text-gray-600">Inventory Value</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="sales-performance" className="space-y-6">
+          <SalesPerformanceTab
+            chart={renderSalesChart()}
+            currentOverview={currentOverview}
+            previousOverview={previousOverview}
+            averageTransactionValue={averageTransactionValue}
+            previousAverageTransactionValue={previousAverageTransactionValue}
+            displayRevenue={displayRevenue}
+            displayCost={displayCost}
+            displayProfit={displayProfit}
+            profitMargin={profitMargin}
+            popularProducts={popularProducts}
+            effectiveRange={effectiveRange}
+            normalizeCurrency={normalizeCurrency}
+          />
+        </TabsContent>
 
+        <TabsContent value="inventory" className="space-y-6">
+          <ProductInventoryTab
+            inventoryMoney={inventoryMoney}
+            inventoryNativeMoney={inventoryData.total}
+            inventoryItems={inventoryItemsData.items}
+            storeCurrency={inventoryItemsData.currency}
+            alerts={alerts}
+            displayCurrency={displayCurrency}
+            resolvedCurrency={resolvedCurrency}
+            isLoading={inventoryItemsQuery.isLoading}
+            isError={Boolean(inventoryItemsQuery.error)}
+            error={inventoryItemsQuery.error instanceof Error ? inventoryItemsQuery.error : new Error("Failed to load inventory")}
+          />
+        </TabsContent>
 
-            </TabsContent>
+        <TabsContent value="customers" className="space-y-6">
+          <CustomerLoyaltyTab
+            insights={customerInsights}
+            previousInsights={previousCustomerInsights}
+            averageTransactionValue={averageTransactionValue}
+            previousAverageTransactionValue={previousAverageTransactionValue}
+            transactions={currentOverview.transactions}
+            previousTransactions={previousOverview?.transactions ?? null}
+            effectiveRange={effectiveRange}
+          />
+        </TabsContent>
 
-            <TabsContent value="sales" className="space-y-6">
-              <Suspense fallback={<ChartSkeleton />}>
-                <SalesChart storeId={selectedStore} className="w-full" />
-              </Suspense>
-            </TabsContent>
+        <TabsContent value="operations" className="space-y-6">
+          <OperationsTab
+            isAdmin={isAdmin}
+            staffPerformance={staffPerformanceData}
+            storeContributions={storeContributionData}
+            alertsSummary={alertsSummary}
+            isLoading={false}
+            isError={false}
+          />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
 
-            
-          </Tabs>
-        </div>
-      </div>
-    );
+export default function Analytics() {
+  return (
+    <AnalyticsScopeProvider>
+      <AnalyticsContent />
+    </AnalyticsScopeProvider>
+  );
 }

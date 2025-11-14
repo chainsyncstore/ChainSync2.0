@@ -26,7 +26,10 @@ export class SubscriptionService {
         : Array.isArray((result as QueryResult<any>).rows)
           ? (result as QueryResult<any>).rows
           : [];
-      this.subscriptionColumns = new Set(rows.map((row) => row.column_name));
+      const columns = rows
+        .map((row) => row?.column_name)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0);
+      this.subscriptionColumns = new Set(columns);
     } catch (error) {
       logger.warn('SubscriptionService failed to load subscription columns', {
         error: error instanceof Error ? error.message : String(error),
@@ -235,12 +238,18 @@ export class SubscriptionService {
           ? (result as QueryResult<any>).rows
           : [];
 
-      this.subscriptionStatusValues = rows.map((row) => row.enumlabel);
+      const enumLabels = rows
+        .map((row) => row?.enumlabel)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+      this.subscriptionStatusValues = enumLabels.length > 0
+        ? enumLabels
+        : ['TRIAL', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'SUSPENDED'];
     } catch (error) {
       logger.warn('SubscriptionService failed to load subscription status enum values', {
         error: error instanceof Error ? error.message : String(error),
       });
-      this.subscriptionStatusValues = [];
+      this.subscriptionStatusValues = ['TRIAL', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'SUSPENDED'];
     }
 
     return this.subscriptionStatusValues;

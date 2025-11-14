@@ -82,8 +82,9 @@ describe('Authentication Integration Tests', () => {
 
       const response = await request(app)
         .post('/api/auth/signup')
-        .send(userData)
-        .expect(201);
+        .send(userData);
+
+      expect(response.status).toBe(201);
 
       expect(response.body.status).toBe('success');
       expect(response.body.verifyEmailSent).toBe(true);
@@ -98,14 +99,6 @@ describe('Authentication Integration Tests', () => {
       const { subscriptions, emailVerificationTokens } = await import('@shared/schema');
       const { db } = await import('@server/db');
       const subs = await db.select().from(subscriptions).where(eq(subscriptions.userId, created!.id));
-      console.log('subscriptions for user', created!.id, subs.map(sub => ({
-        id: sub.id,
-        userId: sub.userId,
-        tier: sub.tier,
-        status: sub.status,
-        createdAt: sub.createdAt,
-        updatedAt: sub.updatedAt,
-      })));
       if (subs.length !== 1) {
         throw new Error(`unexpected subscriptions for ${created!.id}: ${JSON.stringify(subs.map(sub => ({
           id: sub.id,
@@ -150,10 +143,11 @@ describe('Authentication Integration Tests', () => {
       const userData = makeSignupPayload();
 
       // Create first user
-      await request(app)
+      const firstResponse = await request(app)
         .post('/api/auth/signup')
-        .send(userData)
-        .expect(201);
+        .send(userData);
+
+      expect(firstResponse.status).toBe(201);
 
       // Try to create second user with same email
       const response = await request(app)
@@ -173,8 +167,9 @@ describe('Authentication Integration Tests', () => {
 
       const response = await request(app)
         .post('/api/auth/signup')
-        .send(userData)
-        .expect(201);
+        .send(userData);
+
+      expect(response.status).toBe(201);
 
       expect(response.body.status).toBe('success');
 

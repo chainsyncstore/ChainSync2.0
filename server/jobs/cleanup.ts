@@ -10,7 +10,8 @@ import {
   subscriptionPayments,
   stockAlerts,
   subscriptions,
-  users
+  users,
+  scheduledReports,
 } from "@shared/prd-schema";
 import { db } from "../db";
 import { pool } from "../db";
@@ -502,6 +503,148 @@ export function scheduleNightlyLowStockAlerts(): void {
     scheduleNext();
 }
 
+async function runScheduledReportsOnce(): Promise<void> {
+    const now = new Date();
+    try {
+        const schedules = await db
+            .select()
+            .from(scheduledReports)
+            .where(eq(scheduledReports.isActive as any, true as any));
+
+        for (const schedule of schedules as any[]) {
+            const lastRunAt = schedule.lastRunAt ? new Date(schedule.lastRunAt as string) : null;
+            const interval = String(schedule.interval || "daily").toLowerCase();
+
+            let due = false;
+            if (!lastRunAt) {
+                due = true;
+            } else {
+                const diffMs = now.getTime() - lastRunAt.getTime();
+                const diffDays = diffMs / ONE_DAY_MS;
+                if (interval === "daily" && diffDays >= 1) due = true;
+                else if (interval === "weekly" && diffDays >= 7) due = true;
+                else if (interval === "monthly" && diffDays >= 28) due = true;
+            }
+            if (!due) continue;
+
+            const params = (schedule.params || {}) as any;
+            const windowKey = String(params.window || "last_7_days").toLowerCase();
+            const bucketInterval = String(params.interval || "day").toLowerCase(); // day|week|month
+
+            let dateFrom: Date;
+            const dateTo = now;
+            if (windowKey === "last_30_days") {
+                dateFrom = new Date(now.getTime() - 30 * ONE_DAY_MS);
+            } else {
+                dateFrom = new Date(now.getTime() - 7 * ONE_DAY_MS);
+            }
+
+            const truncUnit = bucketInterval === "month" ? "month" : bucketInterval === "week" ? "week" : "day";
+            const where: any[] = [];
+            if (schedule.orgId) where.push(dsql`org_id = ${schedule.orgId}`);
+            if (schedule.storeId) where.push(dsql`store_id = ${schedule.storeId}`);
+            where.push(dsql`occurred_at >= ${dateFrom}`);
+            where.push(dsql`occurred_at <= ${dateTo}`);
+
+            const rows = await db.execute(dsql`SELECT 
+              date_trunc(${dsql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
+              SUM(total::numeric) as revenue,
+              SUM(discount::numeric) as discount,
+              SUM(tax::numeric) as tax,
+              COUNT(*) as transactions
+              FROM sales
+              ${where.length ? dsql`WHERE ${dsql.join(where, dsql` AND `)}` : dsql``}
+              GROUP BY 1
+              ORDER BY 1 ASC`);
+
+            let csv = "date,revenue,discount,tax,transactions\n";
+            for (const r of (rows as any).rows) {
+                const line = `${new Date(r.bucket).toISOString()},${r.revenue},${r.discount},${r.tax},${r.transactions}\n`;
+                csv += line;
+            }
+
+            if (!csv || csv === "date,revenue,discount,tax,transactions\n") continue;
+
+            const [user] = await db
+                .select()
+                .from(users)
+                .where(eq(users.id as any, schedule.userId as any))
+                .limit(1);
+            const toEmail = (user as any)?.email as string | undefined;
+            if (!toEmail) {
+                logger.warn("Scheduled report has no valid recipient email", { scheduleId: schedule.id });
+                continue;
+            }
+
+            const filename = `analytics_scheduled_${now.toISOString().substring(0, 10)}.csv`;
+            try {
+                const sent = await sendEmail({
+                    to: toEmail,
+                    subject: "Your scheduled ChainSync analytics report",
+                    html: `<p>Your scheduled analytics CSV report is attached as <strong>${filename}</strong>.</p>`,
+                    text: `Your scheduled analytics CSV report is attached as ${filename}.`,
+                    attachments: [
+                        {
+                            filename,
+                            content: csv,
+                            contentType: "text/csv",
+                        },
+                    ],
+                });
+                if (!sent) {
+                    logger.warn("Failed to send scheduled analytics report email", { scheduleId: schedule.id, toEmail });
+                    continue;
+                }
+            } catch (error) {
+                logger.error("Error sending scheduled analytics report email", {
+                    scheduleId: schedule.id,
+                    toEmail,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                continue;
+            }
+
+            try {
+                await db
+                    .update(scheduledReports as any)
+                    .set({ lastRunAt: now as any })
+                    .where(eq(scheduledReports.id as any, schedule.id as any));
+            } catch (error) {
+                logger.warn("Failed to update lastRunAt for scheduled report", {
+                    scheduleId: schedule.id,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
+    } catch (error) {
+        logger.error("Scheduled analytics reports job failed", {
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+}
+
+export async function runScheduledReportsNow(): Promise<void> {
+    await runScheduledReportsOnce();
+}
+
+export function scheduleAnalyticsReports(): void {
+    const enabled = process.env.ANALYTICS_REPORT_SCHEDULE !== "false";
+    if (!enabled) {
+        logger.info("Analytics reports scheduler disabled via env");
+        return;
+    }
+    const hourUtc = Number(process.env.ANALYTICS_REPORT_HOUR_UTC ?? 7);
+    const scheduleNext = () => {
+        const delay = msUntilNextHourUtc(hourUtc);
+        logger.info("Scheduling analytics reports job", { runInMs: delay });
+        setTimeout(async () => {
+            await runScheduledReportsOnce();
+            setInterval(runScheduledReportsOnce, ONE_DAY_MS);
+        }, delay);
+    };
+    scheduleNext();
+}
+
 // Provider reconciliation: verify active subscriptions are current and backfill missing payments
 async function runSubscriptionReconciliationOnce(): Promise<void> {
     try {
@@ -611,6 +754,10 @@ async function runSubscriptionReconciliationOnce(): Promise<void> {
     }
 }
 
+export async function runSubscriptionReconciliationNow(): Promise<void> {
+    await runSubscriptionReconciliationOnce();
+}
+
 export function scheduleSubscriptionReconciliation(): void {
     const enabled = process.env.SUBSCRIPTION_RECONCILIATION_SCHEDULE !== "false";
     if (!enabled) {
@@ -623,7 +770,7 @@ export function scheduleSubscriptionReconciliation(): void {
         logger.info("Scheduling daily subscription reconciliation", { runInMs: delay });
         setTimeout(async () => {
             await runSubscriptionReconciliationOnce();
-            setInterval(runSubscriptionReconciliationOnce, 24 * 60 * 60 * 1000);
+            setInterval(runSubscriptionReconciliationOnce, ONE_DAY_MS);
         }, delay);
     };
     scheduleNext();

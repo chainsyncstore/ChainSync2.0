@@ -303,6 +303,22 @@ export const auditLogs = pgTable('audit_logs', {
   orgIdx: index('audit_logs_org_idx').on(t.orgId),
   createdIdx: index('audit_logs_created_idx').on(t.createdAt),
 }));
+export const scheduledReports = pgTable('scheduled_reports', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid('org_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  storeId: uuid('store_id'),
+  reportType: varchar('report_type', { length: 64 }).notNull(),
+  format: varchar('format', { length: 16 }).notNull(),
+  interval: varchar('interval', { length: 16 }).notNull(),
+  params: jsonb('params'),
+  isActive: boolean('is_active').notNull().default(false),
+  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  orgIdx: index('scheduled_reports_org_idx').on(t.orgId),
+  userIdx: index('scheduled_reports_user_idx').on(t.userId),
+}));
 
 // Relations (minimal for Drizzle inference and joins)
 export const orgRelations = relations(organizations, ({ many }) => ({

@@ -1,9 +1,11 @@
-export function formatCurrency(amount: number, currency: 'USD' | 'NGN' = 'USD'): string {
-  const locale = currency === 'NGN' ? 'en-NG' : 'en-US';
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency,
-  }).format(amount);
+import { formatMoney, type Money } from "@shared/lib/currency";
+
+type CurrencyInput = Money | number;
+
+export function formatCurrency(input: CurrencyInput, currency: Money["currency"] = "USD"): string {
+  const money: Money = typeof input === "number" ? { amount: input, currency } : input;
+  const locale = money.currency === "NGN" ? "en-NG" : "en-US";
+  return formatMoney(money, { locale });
 }
 
 export function formatDate(date: Date, format: string = "MMM dd, yyyy"): string {
