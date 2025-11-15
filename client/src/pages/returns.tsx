@@ -392,7 +392,7 @@ export default function ReturnsPage() {
                     if (!entry) return null;
                     const maxQty = item.quantity;
                     return (
-                      <TableRow key={item.id}>
+                      <TableRow key={item.id} data-testid={`return-row-${item.id}`}>
                         <TableCell>
                           <div className="font-medium text-slate-800">{item.name || 'Product'}</div>
                           <div className="text-xs text-slate-500">SKU: {item.sku || '–'}</div>
@@ -403,6 +403,7 @@ export default function ReturnsPage() {
                             min={0}
                             max={maxQty}
                             value={entry.quantity}
+                            data-testid={`return-qty-${item.id}`}
                             onChange={(event) => {
                               const nextQty = Math.max(0, Math.min(Number(event.target.value) || 0, maxQty));
                               handleDraftChange(item.id, (current) => ({
@@ -420,7 +421,7 @@ export default function ReturnsPage() {
                               handleDraftChange(item.id, (current) => ({ ...current, restockAction: value }))
                             }
                           >
-                            <SelectTrigger>
+                            <SelectTrigger data-testid={`restock-trigger-${item.id}`}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -445,7 +446,7 @@ export default function ReturnsPage() {
                               })
                             }
                           >
-                            <SelectTrigger>
+                            <SelectTrigger data-testid={`refund-trigger-${item.id}`}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -462,6 +463,7 @@ export default function ReturnsPage() {
                               min={0}
                               step="0.01"
                               value={entry.refundAmount}
+                              data-testid={`refund-amount-${item.id}`}
                               onChange={(event) =>
                                 handleDraftChange(item.id, (current) => ({
                                   ...current,

@@ -337,3 +337,47 @@ export async function updateQueuedSalePayload(id: string, newPayload: any): Prom
 export type { OfflineSaleRecord };
 
 
+declare global {
+  interface Window {
+    __chainsyncE2E?: boolean;
+    __offlineQueueTestHarness?: {
+      listQueuedSales: typeof listQueuedSales;
+      listQueuedReturns: typeof listQueuedReturns;
+      clearQueuedSales: () => Promise<void>;
+      simulateProcessOnce: () => Promise<void>;
+    };
+  }
+}
+
+if (typeof window !== 'undefined') {
+  const w = window as Window;
+  if (w.__chainsyncE2E && !w.__offlineQueueTestHarness) {
+    w.__offlineQueueTestHarness = {
+      listQueuedSales,
+      listQueuedReturns,
+      clearQueuedSales: async () => {
+        const queued = await listQueuedSales();
+        await Promise.all(queued.map((entry) => deleteQueuedSale(entry.id)));
+      },
+      simulateProcessOnce: async () => {
+        const queued = await listQueuedSales();
+        for (const entry of queued) {
+          try {
+            await fetch(entry.url, {
+              method: entry.method,
+              headers: entry.headers,
+              body: JSON.stringify(entry.payload),
+              credentials: 'include',
+            });
+            await deleteQueuedSale(entry.id);
+          } catch (error) {
+            console.warn('Offline queue test harness replay failed', error);
+          }
+        }
+      },
+    };
+  }
+}
+
+
+
