@@ -87,6 +87,12 @@ export function useCart() {
     clearCartStorage();
   }, []);
 
+  const hydrateCart = useCallback((nextItems: CartItem[], nextPayment: PaymentData) => {
+    const clonedItems = nextItems.map((item) => ({ ...item }));
+    setItems(clonedItems);
+    setPayment({ ...nextPayment });
+  }, []);
+
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const appliedRedeemDiscount = Math.min(subtotal, Math.max(0, redeemPoints) * Math.max(0, redeemValue));
   const taxableSubtotal = Math.max(0, subtotal - appliedRedeemDiscount);
@@ -130,6 +136,7 @@ export function useCart() {
     updateQuantity,
     removeItem,
     clearCart,
+    hydrateCart,
     updatePayment,
     calculateChange,
     taxRate,

@@ -1,9 +1,16 @@
-import { Plus, Search, ScanLine, Power, PowerOff } from "lucide-react";
-import { useState } from "react";
+import { Plus, Search, ScanLine, Power, PowerOff, RefreshCcw } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { ScannerProfile } from "@/lib/peripherals";
+
+// eslint-disable-next-line no-unused-vars
+type OnScanHandler = (barcode: string) => void;
+// eslint-disable-next-line no-unused-vars
+type SelectProfileHandler = (profileId: string) => void;
 
 async function getCachedBarcode(barcode: string): Promise<any | null> {
   try {
@@ -18,7 +25,7 @@ async function getCachedBarcode(barcode: string): Promise<any | null> {
 }
 
 interface BarcodeScannerProps {
-  onScan: (barcode: string) => void; // eslint-disable-line no-unused-vars
+  onScan: OnScanHandler;
   onOpenSearch: () => void;
   isLoading?: boolean;
   isScannerActive?: boolean;
@@ -26,6 +33,10 @@ interface BarcodeScannerProps {
   onDeactivateScanner?: () => void;
   isScanning?: boolean;
   inputBuffer?: string;
+  profiles?: ScannerProfile[];
+  selectedProfile?: ScannerProfile;
+  onSelectProfile?: SelectProfileHandler;
+  onRefreshProfiles?: () => Promise<void>;
 }
 
 export default function BarcodeScanner({ 
@@ -36,9 +47,20 @@ export default function BarcodeScanner({
   onActivateScanner,
   onDeactivateScanner,
   isScanning = false,
-  inputBuffer = ""
+  inputBuffer = "",
+  profiles = [],
+  selectedProfile,
+  onSelectProfile,
+  onRefreshProfiles,
 }: BarcodeScannerProps) {
   const [barcodeInput, setBarcodeInput] = useState("");
+
+  const profileDisplay = useMemo(() => {
+    if (!selectedProfile) return "Auto-detect";
+    const label = selectedProfile.label || "Detected";
+    const connection = selectedProfile.connection?.replace(/-/g, " ") || "";
+    return connection ? `${label} • ${connection}` : label;
+  }, [selectedProfile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,23 +86,53 @@ export default function BarcodeScanner({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <h3 className="text-lg font-semibold text-slate-800">Product Scanner</h3>
-        <div className="flex items-center space-x-2">
-          {isScannerActive && (
-            <Badge variant="secondary" className="bg-green-100 text-green-800 text-xs">
-              <ScanLine className="w-3 h-3 mr-1" />
-              Scanner Active
-            </Badge>
+        <div className="flex flex-wrap items-center gap-2 justify-end">
+          {onSelectProfile && (
+            <div className="flex items-center gap-2">
+              <Select value={selectedProfile?.id} onValueChange={onSelectProfile}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Select scanner" />
+                </SelectTrigger>
+                <SelectContent>
+                  {profiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.label || profile.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {onRefreshProfiles && (
+                <Button size="icon" variant="ghost" onClick={() => { void onRefreshProfiles(); }} title="Refresh devices">
+                  <RefreshCcw className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
           )}
-          {isScanning && inputBuffer && (
-            <Badge variant="outline" className="font-mono text-xs">
-              {inputBuffer}
-            </Badge>
-          )}
+          <div className="flex items-center space-x-2">
+            {isScannerActive && (
+              <Badge variant="secondary" className="bg-green-100 text-green-800 text-xs">
+                <ScanLine className="w-3 h-3 mr-1" />
+                Scanner Active
+              </Badge>
+            )}
+            {isScanning && inputBuffer && (
+              <Badge variant="outline" className="font-mono text-xs">
+                {inputBuffer}
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
-      
+
+      {onSelectProfile && selectedProfile && (
+        <div className="mb-3 text-xs text-slate-500 flex items-center justify-between">
+          <span>Profile: {profileDisplay}</span>
+          <span>{selectedProfile.vendorHint || "Generic"}</span>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
         <div className="flex-1">
           <Label htmlFor="barcode" className="block text-sm font-medium text-slate-700 mb-2">

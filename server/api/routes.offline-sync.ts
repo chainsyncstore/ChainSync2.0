@@ -1,7 +1,7 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { sales, saleItems, inventory, products } from '@shared/prd-schema';
+import { sales, saleItems, inventory, products, customers, loyaltyAccounts, loyaltyTransactions, organizations } from '@shared/prd-schema';
 import { db } from '../db';
 import { logger, extractLogContext } from '../lib/logger';
 import { monitoringService } from '../lib/monitoring';
@@ -19,7 +19,10 @@ const OfflineSaleSchema = z.object({
   tax: z.number().min(0).default(0),
   paymentMethod: z.enum(['cash', 'card', 'mobile', 'other']),
   offlineTimestamp: z.string(),
-  clientId: z.string().optional()
+  clientId: z.string().optional(),
+  customerPhone: z.string().optional(),
+  redeemPoints: z.number().int().min(0).optional(),
+  loyaltyEarnBase: z.number().min(0).optional(),
 });
 
 const OfflineInventoryUpdateSchema = z.object({
@@ -70,6 +73,23 @@ export async function registerOfflineSyncRoutes(app: Express) {
         syncId: `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       };
 
+      const orgId = (req as any).orgId as string | undefined;
+      let orgSettings: { earnRate: number; redeemValue: number } = { earnRate: 1, redeemValue: 0.01 };
+      if (orgId) {
+        try {
+          const [orgRow] = await db
+            .select({ earnRate: organizations.loyaltyEarnRate, redeemValue: organizations.loyaltyRedeemValue })
+            .from(organizations)
+            .where(eq(organizations.id, orgId));
+          orgSettings = {
+            earnRate: Number(orgRow?.earnRate ?? 1),
+            redeemValue: Number(orgRow?.redeemValue ?? 0.01),
+          };
+        } catch (settingsError) {
+          logger.warn('Failed to load org loyalty settings for offline sync', settingsError as Error);
+        }
+      }
+
       logger.info('Offline sync upload started', {
         ...context,
         salesCount: offlineSales.length,
@@ -105,6 +125,50 @@ export async function registerOfflineSyncRoutes(app: Express) {
             const subtotal = sale.quantity * sale.salePrice;
             const total = subtotal - sale.discount + sale.tax;
 
+            let customerRecord: { id: string } | null = null;
+            let loyaltyAccountRecord: { id: string; points: number } | null = null;
+            const redeemPoints = Number(sale.redeemPoints || 0);
+
+            if (sale.customerPhone && orgId) {
+              const existingCustomer = await tx
+                .select({ id: customers.id })
+                .from(customers)
+                .where(and(eq(customers.orgId, orgId), eq(customers.phone, sale.customerPhone)))
+                .limit(1);
+              if (existingCustomer[0]) {
+                customerRecord = existingCustomer[0];
+              } else {
+                const insertedCustomer = await tx
+                  .insert(customers)
+                  .values({ orgId, phone: sale.customerPhone } as any)
+                  .returning({ id: customers.id });
+                customerRecord = insertedCustomer[0];
+              }
+
+              if (customerRecord) {
+                const accountRows = await tx
+                  .select({ id: loyaltyAccounts.id, points: loyaltyAccounts.points })
+                  .from(loyaltyAccounts)
+                  .where(and(eq(loyaltyAccounts.orgId, orgId), eq(loyaltyAccounts.customerId, customerRecord.id)))
+                  .limit(1);
+                if (accountRows[0]) {
+                  loyaltyAccountRecord = { id: accountRows[0].id, points: Number(accountRows[0].points || 0) };
+                } else {
+                  const insertedAccount = await tx
+                    .insert(loyaltyAccounts)
+                    .values({ orgId, customerId: customerRecord.id, points: 0 } as any)
+                    .returning({ id: loyaltyAccounts.id, points: loyaltyAccounts.points });
+                  loyaltyAccountRecord = { id: insertedAccount[0].id, points: Number(insertedAccount[0].points || 0) };
+                }
+              }
+            }
+
+            if (loyaltyAccountRecord && redeemPoints > 0) {
+              if (loyaltyAccountRecord.points < redeemPoints) {
+                throw new Error('Insufficient loyalty points for offline sale redemption');
+              }
+            }
+
             // Insert sale and get generated id
             const inserted = await tx
               .insert(sales)
@@ -118,6 +182,8 @@ export async function registerOfflineSyncRoutes(app: Express) {
                 total: String(total),
                 paymentMethod: sale.paymentMethod,
                 occurredAt: new Date(sale.offlineTimestamp),
+                walletReference: null,
+                paymentBreakdown: null,
                 idempotencyKey: sale.id,
               } as any)
               .returning({ id: sales.id });
@@ -144,6 +210,41 @@ export async function registerOfflineSyncRoutes(app: Express) {
                 eq(inventory.productId, sale.productId),
                 eq(inventory.storeId, sale.storeId)
               ));
+
+            if (loyaltyAccountRecord) {
+              // Redeem points first
+              if (redeemPoints > 0) {
+                const remaining = loyaltyAccountRecord.points - redeemPoints;
+                await tx
+                  .update(loyaltyAccounts)
+                  .set({ points: remaining } as any)
+                  .where(eq(loyaltyAccounts.id, loyaltyAccountRecord.id));
+                loyaltyAccountRecord.points = remaining;
+                await tx.insert(loyaltyTransactions).values({
+                  loyaltyAccountId: loyaltyAccountRecord.id,
+                  points: -redeemPoints,
+                  reason: 'redeem',
+                } as any);
+              }
+
+              // Earn points based on spend
+              const earnBase = sale.loyaltyEarnBase ?? subtotal;
+              const spendBase = Math.max(0, earnBase - sale.discount);
+              const pointsEarned = Math.floor(spendBase * Math.max(orgSettings.earnRate, 0));
+              if (pointsEarned > 0) {
+                const newBalance = loyaltyAccountRecord.points + pointsEarned;
+                await tx
+                  .update(loyaltyAccounts)
+                  .set({ points: newBalance } as any)
+                  .where(eq(loyaltyAccounts.id, loyaltyAccountRecord.id));
+                loyaltyAccountRecord.points = newBalance;
+                await tx.insert(loyaltyTransactions).values({
+                  loyaltyAccountId: loyaltyAccountRecord.id,
+                  points: pointsEarned,
+                  reason: 'earn',
+                } as any);
+              }
+            }
 
             results.salesProcessed++;
           });

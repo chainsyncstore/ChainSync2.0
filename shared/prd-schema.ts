@@ -159,6 +159,7 @@ export const sales = pgTable('sales', {
   tax: numeric('tax', { precision: 12, scale: 2 }).notNull().default('0'),
   total: numeric('total', { precision: 12, scale: 2 }).notNull(),
   paymentMethod: text('payment_method').notNull().default('manual'),
+  paymentBreakdown: jsonb('payment_breakdown'),
   status: saleStatusEnum('status').notNull().default('COMPLETED'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
   idempotencyKey: varchar('idempotency_key', { length: 128 }).notNull(),
@@ -185,10 +186,31 @@ export const saleItems = pgTable('sale_items', {
 export const returns = pgTable('returns', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   saleId: uuid('sale_id').notNull(),
+  storeId: uuid('store_id').notNull(),
   reason: text('reason'),
   processedBy: uuid('processed_by').notNull(),
+  refundType: varchar('refund_type', { length: 32 }).notNull().default('FULL'),
+  totalRefund: numeric('total_refund', { precision: 12, scale: 2 }).notNull().default('0'),
+  currency: varchar('currency', { length: 8 }).notNull().default('USD'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow(),
 });
+
+export const returnItems = pgTable('return_items', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  returnId: uuid('return_id').notNull().references(() => returns.id, { onDelete: 'cascade' }),
+  saleItemId: uuid('sale_item_id').notNull().references(() => saleItems.id),
+  productId: uuid('product_id').notNull(),
+  quantity: integer('quantity').notNull(),
+  restockAction: varchar('restock_action', { length: 16 }).notNull(),
+  refundType: varchar('refund_type', { length: 16 }).notNull().default('NONE'),
+  refundAmount: numeric('refund_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+  currency: varchar('currency', { length: 8 }).notNull().default('USD'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  returnIdx: index('return_items_return_idx').on(t.returnId),
+  saleItemIdx: index('return_items_sale_item_idx').on(t.saleItemId),
+}));
 
 export const priceChanges = pgTable('price_changes', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),

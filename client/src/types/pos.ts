@@ -17,11 +17,25 @@ export interface CartSummary {
   taxRate: number;
 }
 
+export interface PaymentPortion {
+  method: "cash" | "card" | "wallet";
+  amount: number;
+  reference?: string;
+}
+
 export interface PaymentData {
-  method: "cash" | "card" | "digital";
+  method: "cash" | "card" | "digital" | "split";
   amountReceived?: number;
   changeDue?: number;
+  split?: PaymentPortion[];
+  walletReference?: string;
 }
+
+export type LoyaltySyncState = {
+  state: "idle" | "online" | "cached" | "error";
+  updatedAt?: number;
+  message?: string;
+};
 
 export interface DailySales {
   revenue: number;

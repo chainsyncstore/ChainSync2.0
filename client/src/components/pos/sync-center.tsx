@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { OfflineSaleRecord } from "@/lib/offline-queue";
@@ -9,7 +9,9 @@ interface SyncCenterProps {
 }
 
 export default function SyncCenter({ open, onClose }: SyncCenterProps) {
-  const [items, setItems] = useState<OfflineSaleRecord[]>([]);
+  const [saleQueue, setSaleQueue] = useState<OfflineSaleRecord[]>([]);
+  const [returnQueue, setReturnQueue] = useState<OfflineSaleRecord[]>([]);
+  const [activeTab, setActiveTab] = useState<'sales' | 'returns'>('sales');
   const [loading, setLoading] = useState(false);
   const [health, setHealth] = useState<{ total: number; last24h: number } | null>(null);
   const [editing, setEditing] = useState<OfflineSaleRecord | null>(null);
@@ -18,8 +20,10 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
 
   const refresh = async () => {
     try {
-      const { listQueuedSales } = await import("@/lib/offline-queue");
-      setItems(await listQueuedSales());
+      const { listQueuedSales, listQueuedReturns } = await import("@/lib/offline-queue");
+      const [sales, returns] = await Promise.all([listQueuedSales(), listQueuedReturns()]);
+      setSaleQueue(sales);
+      setReturnQueue(returns);
     } catch (refreshError) {
       console.error('Failed to refresh queued sales', refreshError);
     }
@@ -37,12 +41,39 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
+    const hydrateCachedHealth = async () => {
+      try {
+        const { getLatestSyncHealth } = await import("@/lib/sync-health");
+        const latest = await getLatestSyncHealth();
+        if (!cancelled && latest?.sales) {
+          setHealth(latest.sales);
+        }
+      } catch (error) {
+        console.warn('Failed to hydrate cached sync health', error);
+      }
+    };
+    void hydrateCachedHealth();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const fetchHealth = async () => {
       try {
         const r = await fetch('/api/pos/sync/health', { credentials: 'include' });
         if (r.ok) {
           const j = await r.json();
-          setHealth(j?.sales || null);
+          const sales = j?.sales || null;
+          setHealth(sales);
+          try {
+            const { saveSyncHealthSnapshot } = await import("@/lib/sync-health");
+            await saveSyncHealthSnapshot({ capturedAt: Date.now(), sales });
+          } catch (persistError) {
+            console.warn('Failed to persist sync health snapshot', persistError);
+          }
         }
       } catch (healthError) {
         console.warn('Failed to load sync health status', healthError);
@@ -50,6 +81,18 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
     };
     void fetchHealth();
   }, [open]);
+
+  const activeItems = useMemo(() => (activeTab === 'sales' ? saleQueue : returnQueue), [activeTab, saleQueue, returnQueue]);
+
+  const renderCountdown = (item: OfflineSaleRecord) => {
+    if (!item.nextAttemptAt) return 'Retry pending';
+    const diff = item.nextAttemptAt - Date.now();
+    if (diff <= 0) return 'Retrying now';
+    const minutes = Math.floor(diff / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+    if (minutes > 0) return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+    return `${seconds}s`;
+  };
 
   if (!open) return null;
   return (
@@ -61,7 +104,9 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between mb-3">
-            <div className="text-sm text-slate-600">Queued sales: {items.length}</div>
+            <div className="text-sm text-slate-600">
+              {activeTab === 'sales' ? `Queued sales: ${saleQueue.length}` : `Queued returns: ${returnQueue.length}`}
+            </div>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => { void refresh(); }}>Refresh</Button>
               <Button
@@ -84,18 +129,29 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
               </Button>
             </div>
           </div>
+          <div className="mb-4 flex gap-2">
+            <Button size="sm" variant={activeTab === 'sales' ? 'default' : 'outline'} onClick={() => setActiveTab('sales')}>
+              Sales
+            </Button>
+            <Button size="sm" variant={activeTab === 'returns' ? 'default' : 'outline'} onClick={() => setActiveTab('returns')}>
+              Returns
+            </Button>
+          </div>
           {health && (
             <div className="text-xs text-slate-500 mb-2">Sales (24h): {health.last24h} • Total: {health.total}</div>
           )}
           <div className="space-y-2 max-h-96 overflow-auto">
-            {items.map((it) => (
+            {activeItems.map((it) => (
               <div key={it.id} className={`border rounded p-2 text-sm flex items-center justify-between ${it.attempts >= 5 ? 'border-red-300 bg-red-50' : ''}`}>
                 <div>
                   <div className="font-mono text-xs">{it.id}</div>
                   <div>Attempts: {it.attempts} {it.lastError ? <span className="text-amber-700">({it.lastError})</span> : null}</div>
                   {it.nextAttemptAt ? (
-                    <div className="text-xs text-slate-500">Next retry: {new Date(it.nextAttemptAt).toLocaleString()}</div>
+                    <div className="text-xs text-slate-500">Next retry: {new Date(it.nextAttemptAt).toLocaleString()} ({renderCountdown(it)})</div>
                   ) : null}
+                  {it.attempts >= 5 && (
+                    <div className="text-xs text-red-700">Queued item is stuck. Verify inventory/payment then retry.</div>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={async () => {
@@ -129,8 +185,8 @@ export default function SyncCenter({ open, onClose }: SyncCenterProps) {
                 </div>
               </div>
             ))}
-            {items.length === 0 && (
-              <div className="text-center text-slate-500 py-8 text-sm">No queued sales</div>
+            {activeItems.length === 0 && (
+              <div className="text-center text-slate-500 py-8 text-sm">No queued requests</div>
             )}
           </div>
           {editing && (

@@ -1,6 +1,13 @@
-import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext, useMemo } from "react";
+import type { ScannerProfile } from "@/lib/peripherals";
+import { DEFAULT_SCANNER_PROFILE } from "@/lib/peripherals";
 
-type BarcodeHandler = (code: string) => void; // eslint-disable-line no-unused-vars
+// eslint-disable-next-line no-unused-vars
+type BarcodeHandler = (code: string) => void;
+// eslint-disable-next-line no-unused-vars
+type SetOnScanHandler = (handler: BarcodeHandler) => void;
+// eslint-disable-next-line no-unused-vars
+type SelectProfileHandler = (profileId: string) => void;
 
 interface ScannerContextType {
   isScanning: boolean;
@@ -9,7 +16,11 @@ interface ScannerContextType {
   activateScanner: () => void;
   deactivateScanner: () => void;
   onScan: BarcodeHandler | null;
-  setOnScan: (handler: BarcodeHandler) => void; // eslint-disable-line no-unused-vars
+  setOnScan: SetOnScanHandler;
+  profiles: ScannerProfile[];
+  selectedProfile: ScannerProfile;
+  selectProfile: SelectProfileHandler;
+  refreshProfiles: () => Promise<void>;
 }
 
 const ScannerContext = createContext<ScannerContextType | null>(null);
@@ -22,12 +33,21 @@ export function useScannerContext() {
   return context;
 }
 
+const PROFILE_STORAGE_KEY = "chainsync_scanner_profile";
+
 export function ScannerProvider({ children }: { children: React.ReactNode }) {
   const [inputBuffer, setInputBuffer] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [isScannerActive, setIsScannerActive] = useState(false);
   const [onScan, setOnScan] = useState<BarcodeHandler | null>(null);
+  const [profiles, setProfiles] = useState<ScannerProfile[]>([DEFAULT_SCANNER_PROFILE]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(DEFAULT_SCANNER_PROFILE.id);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const selectedProfile = useMemo(() => {
+    const found = profiles.find((profile) => profile.id === selectedProfileId);
+    return found || profiles[0] || DEFAULT_SCANNER_PROFILE;
+  }, [profiles, selectedProfileId]);
 
   const activateScanner = useCallback(() => {
     setIsScannerActive(true);
@@ -62,7 +82,9 @@ export function ScannerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (event.key === "Enter") {
+    const triggerKey = selectedProfile.triggerKey || "Enter";
+
+    if (event.key === triggerKey) {
       if (inputBuffer.length > 3 && onScan) { // Minimum barcode length
         onScan(inputBuffer);
         setInputBuffer("");
@@ -83,12 +105,47 @@ export function ScannerProvider({ children }: { children: React.ReactNode }) {
         setIsScanning(false);
       }, 1000);
     }
-  }, [inputBuffer, onScan, isScannerActive]);
+  }, [inputBuffer, onScan, isScannerActive, selectedProfile.triggerKey]);
 
   useEffect(() => {
     document.addEventListener("keypress", handleKeyPress);
     return () => document.removeEventListener("keypress", handleKeyPress);
   }, [handleKeyPress]);
+
+  const refreshProfiles = useCallback(async () => {
+    try {
+      const { detectScannerCapabilities, profileFromCapability } = await import("@/lib/peripherals");
+      const capabilities = await detectScannerCapabilities();
+      const detected = capabilities
+        .map((cap) => profileFromCapability(cap))
+        .filter((profile): profile is ScannerProfile => Boolean(profile));
+      const nextProfiles = detected.length > 0 ? detected : [DEFAULT_SCANNER_PROFILE];
+      setProfiles(nextProfiles);
+      if (!nextProfiles.some((profile) => profile.id === selectedProfileId)) {
+        const nextId = nextProfiles[0]?.id ?? DEFAULT_SCANNER_PROFILE.id;
+        setSelectedProfileId(nextId);
+        localStorage.setItem(PROFILE_STORAGE_KEY, nextId);
+      }
+    } catch (error) {
+      console.warn("Scanner capability detection failed, falling back", error);
+      setProfiles([DEFAULT_SCANNER_PROFILE]);
+      setSelectedProfileId(DEFAULT_SCANNER_PROFILE.id);
+      localStorage.setItem(PROFILE_STORAGE_KEY, DEFAULT_SCANNER_PROFILE.id);
+    }
+  }, [selectedProfileId]);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (stored) {
+      setSelectedProfileId(stored);
+    }
+    void refreshProfiles();
+  }, [refreshProfiles]);
+
+  const selectProfile = useCallback((profileId: string) => {
+    setSelectedProfileId(profileId);
+    localStorage.setItem(PROFILE_STORAGE_KEY, profileId);
+  }, []);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -107,6 +164,10 @@ export function ScannerProvider({ children }: { children: React.ReactNode }) {
     deactivateScanner,
     onScan,
     setOnScan,
+    profiles,
+    selectedProfile,
+    selectProfile,
+    refreshProfiles,
   };
 
   return (

@@ -1,5 +1,5 @@
 import { parse as csvParse } from 'csv-parse';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -7,13 +7,14 @@ import {
   sales,
   saleItems,
   returns,
+  returnItems,
   stores,
   users,
+  products,
   organizations,
   customers as tblCustomers,
   loyaltyAccounts,
   loyaltyTransactions,
-  products,
 } from '@shared/prd-schema';
 import {
   transactions as prdTransactions,
@@ -26,6 +27,12 @@ import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/auth
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { storage } from '../storage';
 
+const PaymentBreakdownSchema = z.object({
+  method: z.enum(['cash', 'card', 'wallet']),
+  amount: z.string().regex(/^\d+(?:\.\d{1,2})?$/, 'amount must be a currency string'),
+  reference: z.string().optional(),
+});
+
 const SaleSchema = z.object({
   storeId: z.string().uuid(),
   subtotal: z.string(),
@@ -35,6 +42,8 @@ const SaleSchema = z.object({
   paymentMethod: z.string().default('manual'),
   customerPhone: z.string().min(3).max(32).optional(),
   redeemPoints: z.number().int().min(0).default(0).optional(),
+  walletReference: z.string().max(128).optional(),
+  paymentBreakdown: z.array(PaymentBreakdownSchema).optional(),
   items: z.array(z.object({
     productId: z.string().uuid(),
     quantity: z.number().int().positive(),
@@ -416,6 +425,8 @@ export async function registerPosRoutes(app: Express) {
     // Loyalty: attach customer by phone (optional), compute redeem discount and earn points
     const customerPhone = parsed.data.customerPhone?.trim();
     const redeemPoints = Number(parsed.data.redeemPoints || 0);
+    const paymentBreakdown = parsed.data.paymentBreakdown ?? [];
+    const walletReference = parsed.data.walletReference?.trim() || null;
 
     const client = (db as any).client;
     const hasTx = !!client;
@@ -426,6 +437,9 @@ export async function registerPosRoutes(app: Express) {
       const subtotalNum = parseFloat(parsed.data.subtotal);
       const discountNum = parseFloat(parsed.data.discount || '0');
       const taxNum = parseFloat(parsed.data.tax || '0');
+      if (!Number.isFinite(subtotalNum)) return res.status(400).json({ error: 'Invalid subtotal amount' });
+      if (!Number.isFinite(discountNum) || discountNum < 0) return res.status(400).json({ error: 'Invalid discount amount' });
+      if (!Number.isFinite(taxNum) || taxNum < 0) return res.status(400).json({ error: 'Invalid tax amount' });
       // Load or create customer and account if provided
       let customerId: string | null = null;
       let account: any | null = null;
@@ -453,9 +467,25 @@ export async function registerPosRoutes(app: Express) {
           return res.status(400).json({ error: 'Insufficient loyalty points' });
         }
       }
-
       const effectiveDiscount = discountNum + redeemDiscount;
       const adjustedTotal = Math.max(0, subtotalNum - effectiveDiscount + taxNum);
+      if (parsed.data.paymentMethod === 'digital' && !walletReference) {
+        if (hasTx && pg) await pg.query('ROLLBACK');
+        return res.status(400).json({ error: 'walletReference is required for digital payments' });
+      }
+
+      if (parsed.data.paymentMethod === 'split') {
+        if (!paymentBreakdown.length) {
+          if (hasTx && pg) await pg.query('ROLLBACK');
+          return res.status(400).json({ error: 'paymentBreakdown required for split payments' });
+        }
+        const breakdownTotal = paymentBreakdown.reduce((sum, portion) => sum + parseFloat(portion.amount), 0);
+        if (!Number.isFinite(breakdownTotal) || Math.abs(breakdownTotal - adjustedTotal) > 0.05) {
+          if (hasTx && pg) await pg.query('ROLLBACK');
+          return res.status(400).json({ error: 'paymentBreakdown totals must equal sale total' });
+        }
+      }
+
       // Trust client amounts within small epsilon; adjust server-side total to reflect redemption
       const inserted = await db.insert(sales).values({
         orgId: me.orgId,
@@ -466,6 +496,8 @@ export async function registerPosRoutes(app: Express) {
         tax: String(taxNum),
         total: String(adjustedTotal),
         paymentMethod: parsed.data.paymentMethod,
+        walletReference,
+        paymentBreakdown: paymentBreakdown.length ? paymentBreakdown : null,
         idempotencyKey,
       } as any).returning();
       const sale = inserted[0];
@@ -580,11 +612,150 @@ export async function registerPosRoutes(app: Express) {
     }
   });
 
+  app.get('/api/pos/returns', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const { storeId, saleId } = req.query as { storeId?: string; saleId?: string };
+    const limit = Number((req.query?.limit as string) ?? 25);
+    const offset = Number((req.query?.offset as string) ?? 0);
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
+    const whereClauses = [eq(returns.storeId, storeId)];
+    if (saleId) whereClauses.push(eq(returns.saleId, saleId));
+
+    const rows = await db
+      .select({
+        id: returns.id,
+        saleId: returns.saleId,
+        storeId: returns.storeId,
+        reason: returns.reason,
+        refundType: returns.refundType,
+        totalRefund: returns.totalRefund,
+        currency: returns.currency,
+        processedBy: returns.processedBy,
+        occurredAt: returns.occurredAt,
+      })
+      .from(returns)
+      .where(and(...whereClauses))
+      .orderBy(desc(returns.occurredAt))
+      .limit(Math.max(1, Math.min(limit, 100)))
+      .offset(Math.max(0, offset));
+
+    res.json({ ok: true, data: rows });
+  });
+
+  app.get('/api/pos/returns/:returnId', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const { returnId } = req.params as { returnId: string };
+    const { storeId } = req.query as { storeId?: string };
+
+    const retRows = await db
+      .select()
+      .from(returns)
+      .where(eq(returns.id, returnId))
+      .limit(1);
+    const ret = retRows[0];
+    if (!ret) return res.status(404).json({ error: 'Return not found' });
+    if (storeId && ret.storeId !== storeId) {
+      return res.status(404).json({ error: 'Return not found for store' });
+    }
+
+    const itemRows = await db
+      .select({
+        id: returnItems.id,
+        saleItemId: returnItems.saleItemId,
+        productId: returnItems.productId,
+        quantity: returnItems.quantity,
+        restockAction: returnItems.restockAction,
+        refundType: returnItems.refundType,
+        refundAmount: returnItems.refundAmount,
+        currency: returnItems.currency,
+        notes: returnItems.notes,
+        productName: products.name,
+        sku: products.sku,
+      })
+      .from(returnItems)
+      .leftJoin(products, eq(products.id, returnItems.productId))
+      .where(eq(returnItems.returnId, ret.id));
+
+    res.json({ ok: true, return: ret, items: itemRows });
+  });
+
+  app.get('/api/pos/sales/:saleId', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const { saleId } = req.params as { saleId: string };
+    const { storeId: queryStoreId } = req.query as { storeId?: string };
+
+    const saleRows = await db.select().from(sales).where(eq(sales.id, saleId)).limit(1);
+    const sale = saleRows[0];
+    if (!sale) return res.status(404).json({ error: 'Sale not found' });
+    if (queryStoreId && sale.storeId !== queryStoreId) {
+      return res.status(404).json({ error: 'Sale not found for store' });
+    }
+
+    const storeRow = await db
+      .select({ currency: stores.currency })
+      .from(stores)
+      .where(eq(stores.id, sale.storeId))
+      .limit(1);
+    const storeCurrency = storeRow[0]?.currency || 'USD';
+
+    const itemRows = await db
+      .select({
+        id: saleItems.id,
+        productId: saleItems.productId,
+        quantity: saleItems.quantity,
+        unitPrice: saleItems.unitPrice,
+        lineDiscount: saleItems.lineDiscount,
+        lineTotal: saleItems.lineTotal,
+        name: products.name,
+        sku: products.sku,
+        barcode: products.barcode,
+      })
+      .from(saleItems)
+      .leftJoin(products, eq(products.id, saleItems.productId))
+      .where(eq(saleItems.saleId, saleId));
+
+    return res.json({
+      sale: {
+        id: sale.id,
+        storeId: sale.storeId,
+        subtotal: Number(sale.subtotal || 0),
+        discount: Number(sale.discount || 0),
+        tax: Number(sale.tax || 0),
+        total: Number(sale.total || 0),
+        occurredAt: sale.occurredAt,
+        status: sale.status,
+        currency: storeCurrency,
+      },
+      items: itemRows.map((row) => ({
+        id: row.id,
+        productId: row.productId,
+        quantity: Number(row.quantity || 0),
+        unitPrice: Number(row.unitPrice || 0),
+        lineDiscount: Number(row.lineDiscount || 0),
+        lineTotal: Number(row.lineTotal || 0),
+        name: row.name || 'Product',
+        sku: row.sku || null,
+        barcode: row.barcode || null,
+      })),
+    });
+  });
+
   // POS Returns: restore inventory based on original sale items
+  const ReturnItemSchema = z.object({
+    saleItemId: z.string().uuid().optional(),
+    productId: z.string().uuid(),
+    quantity: z.number().int().positive(),
+    restockAction: z.enum(['RESTOCK', 'DISCARD']),
+    refundType: z.enum(['NONE', 'FULL', 'PARTIAL']).default('NONE'),
+    refundAmount: z.string().optional(),
+    notes: z.string().optional(),
+  });
   const ReturnSchema = z.object({
     saleId: z.string().uuid(),
     reason: z.string().optional(),
     storeId: z.string().uuid(),
+    items: z.array(ReturnItemSchema).min(1),
   });
 
   app.post('/api/pos/returns', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
@@ -596,6 +767,106 @@ export async function registerPosRoutes(app: Express) {
     const sale = saleRows[0];
     if (!sale) return res.status(404).json({ error: 'Sale not found' });
     if (sale.status === 'RETURNED') return res.status(409).json({ error: 'Sale already returned' });
+    if (sale.storeId !== parsed.data.storeId) {
+      return res.status(400).json({ error: 'Store mismatch for sale' });
+    }
+
+    const storeRow = await db
+      .select({ currency: stores.currency })
+      .from(stores)
+      .where(eq(stores.id, sale.storeId))
+      .limit(1);
+    const storeCurrency = storeRow[0]?.currency || 'USD';
+
+    const saleItemRows = await db.select().from(saleItems).where(eq(saleItems.saleId, parsed.data.saleId));
+    if (!saleItemRows.length) {
+      return res.status(400).json({ error: 'Sale has no items to return' });
+    }
+
+    const saleItemMap = new Map<string, typeof saleItemRows[number]>();
+    for (const item of saleItemRows) {
+      saleItemMap.set(item.id, item);
+    }
+
+    const priorReturnRows = await db
+      .select({ saleItemId: returnItems.saleItemId, quantity: returnItems.quantity })
+      .from(returnItems)
+      .innerJoin(returns, eq(returnItems.returnId, returns.id))
+      .where(eq(returns.saleId, parsed.data.saleId));
+    const consumedQtyMap = new Map<string, number>();
+    for (const existing of priorReturnRows) {
+      consumedQtyMap.set(
+        existing.saleItemId,
+        (consumedQtyMap.get(existing.saleItemId) || 0) + Number(existing.quantity || 0)
+      );
+    }
+
+    const sessionUserId = req.session?.userId as string | undefined;
+    if (!sessionUserId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const rowsToInsert: Array<{
+      saleItemId: string;
+      productId: string;
+      quantity: number;
+      restockAction: 'RESTOCK' | 'DISCARD';
+      refundType: 'NONE' | 'FULL' | 'PARTIAL';
+      refundAmount: number;
+      notes?: string;
+    }> = [];
+
+    for (const item of parsed.data.items) {
+      const targetSaleItem = item.saleItemId
+        ? saleItemMap.get(item.saleItemId)
+        : saleItemRows.find((row) => row.productId === item.productId);
+
+      if (!targetSaleItem) {
+        return res.status(400).json({ error: 'Return item does not match sale items' });
+      }
+
+      const saleItemId = targetSaleItem.id;
+      const alreadyReturned = consumedQtyMap.get(saleItemId) || 0;
+      const availableQty = Number(targetSaleItem.quantity || 0) - alreadyReturned;
+      if (item.quantity > availableQty) {
+        return res.status(400).json({ error: 'Return quantity exceeds remaining sale quantity' });
+      }
+
+      consumedQtyMap.set(saleItemId, alreadyReturned + item.quantity);
+
+      const unitValue = (() => {
+        const total = Number(targetSaleItem.lineTotal ?? 0);
+        const qty = Number(targetSaleItem.quantity || 1);
+        if (!qty) return total;
+        return total / qty;
+      })();
+      const baseRefund = unitValue * item.quantity;
+      const requestedAmount = Number.parseFloat(item.refundAmount ?? '0');
+      const refundAmount = (() => {
+        if (item.refundType === 'NONE') return 0;
+        if (item.refundType === 'FULL') return baseRefund;
+        if (!Number.isFinite(requestedAmount) || requestedAmount < 0) return 0;
+        return Math.min(requestedAmount, baseRefund);
+      })();
+
+      rowsToInsert.push({
+        saleItemId,
+        productId: targetSaleItem.productId,
+        quantity: item.quantity,
+        restockAction: item.restockAction,
+        refundType: item.refundType,
+        refundAmount,
+        notes: item.notes || undefined,
+      });
+    }
+
+    let totalRefund = 0;
+    for (const row of rowsToInsert) {
+      totalRefund += row.refundAmount;
+    }
+
+    let aggregateRefundType: 'NONE' | 'FULL' | 'PARTIAL' = 'NONE';
+    if (totalRefund > 0) {
+      aggregateRefundType = rowsToInsert.every((row) => row.refundType === 'FULL') ? 'FULL' : 'PARTIAL';
+    }
 
     const client2 = (db as any).client;
     const hasTx2 = !!client2;
@@ -608,26 +879,47 @@ export async function registerPosRoutes(app: Express) {
         await (db as any).execute(sql`UPDATE sales SET status = 'RETURNED' WHERE id = ${parsed.data.saleId}`);
       }
 
-      // Fetch sale items
-      const items = await db.select().from(saleItems).where(eq(saleItems.saleId, parsed.data.saleId));
-
-      // Restore inventory per item
-      for (const item of items) {
-        if (typeof (db as any).execute === 'function') {
-          await (db as any).execute(sql`UPDATE inventory SET quantity = quantity + ${item.quantity} WHERE store_id = ${parsed.data.storeId} AND product_id = ${item.productId}`);
-        }
-      }
-
-      // Record return entry
       const insertedReturn = await db.insert(returns).values({
         saleId: parsed.data.saleId,
+        storeId: parsed.data.storeId,
         reason: parsed.data.reason,
-        processedBy: (req.session as any).userId,
+        processedBy: sessionUserId,
+        refundType: aggregateRefundType,
+        totalRefund: String(totalRefund.toFixed(2)),
+        currency: storeCurrency,
       } as any).returning();
       const ret = insertedReturn[0];
 
+      const insertedItems = await db
+        .insert(returnItems)
+        .values(
+          rowsToInsert.map((row) => ({
+            returnId: ret.id,
+            saleItemId: row.saleItemId,
+            productId: row.productId,
+            quantity: row.quantity,
+            restockAction: row.restockAction,
+            refundType: row.refundType,
+            refundAmount: String(row.refundAmount.toFixed(2)),
+            currency: storeCurrency,
+            notes: row.notes,
+          })) as any
+        )
+        .returning();
+
+      for (const row of rowsToInsert) {
+        if (row.restockAction !== 'RESTOCK') continue;
+        if (typeof (db as any).execute === 'function') {
+          await (db as any).execute(sql`
+            UPDATE inventory
+            SET quantity = quantity + ${row.quantity}
+            WHERE store_id = ${parsed.data.storeId} AND product_id = ${row.productId}
+          `);
+        }
+      }
+
       if (hasTx2 && pg2) await pg2.query('COMMIT');
-      res.status(201).json({ ok: true, return: ret });
+      res.status(201).json({ ok: true, return: ret, items: insertedItems });
     } catch (error) {
       if (hasTx2 && pg2) {
         try { await pg2.query('ROLLBACK'); } catch (rollbackError) {

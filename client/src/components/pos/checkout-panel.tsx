@@ -1,17 +1,18 @@
-import { CheckCircle, Pause, X, CreditCard, Banknote, Users, Search } from "lucide-react";
+import { CheckCircle, Pause, X, CreditCard, Banknote, Users, Search, Printer, RefreshCcw, Smartphone, Split } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/pos-utils";
-import type { CartSummary, PaymentData } from "@/types/pos";
+import type { CartSummary, LoyaltySyncState, PaymentData, PaymentPortion } from "@/types/pos";
 
 /* eslint-disable no-unused-vars -- prop names document the external API */
 interface CheckoutPanelProps {
   summary: CartSummary;
   payment: PaymentData;
-  onPaymentMethodChange(method: "cash" | "card"): void;
+  onPaymentMethodChange(method: "cash" | "card" | "digital" | "split"): void;
   onAmountReceivedChange(amount: number): void;
+  onUpdatePayment?(data: Partial<PaymentData>): void;
   onCompleteSale(): void;
   onHoldTransaction(): void;
   onVoidTransaction(): void;
@@ -29,6 +30,21 @@ interface CheckoutPanelProps {
     redeemPoints: number;
     maxRedeemablePoints: number;
     onRedeemPointsChange(points: number): void;
+    syncStatus: LoyaltySyncState;
+  };
+  printers?: {
+    profiles: { id: string; label: string }[];
+    selectedId?: string;
+    onSelect?: (profileId: string) => void;
+    onRefresh?: () => Promise<void>;
+    onPrint?: () => Promise<void>;
+    isPrinting?: boolean;
+    lastError?: string | null;
+  };
+  held?: {
+    entries: { id: string; createdAt: string }[];
+    onResume(id: string): void;
+    onDiscard(id: string): void;
   };
 }
 /* eslint-enable no-unused-vars */
@@ -38,12 +54,15 @@ export default function CheckoutPanel({
   payment,
   onPaymentMethodChange,
   onAmountReceivedChange,
+  onUpdatePayment,
   onCompleteSale,
   onHoldTransaction,
   onVoidTransaction,
   isProcessing,
   currency = 'USD',
   loyalty,
+  printers,
+  held,
 }: CheckoutPanelProps) {
   const [amountReceived, setAmountReceived] = useState("");
   const [amountError, setAmountError] = useState("");
@@ -100,8 +119,43 @@ export default function CheckoutPanel({
     onAmountReceivedChange(amount || 0);
   };
 
-  const changeDue = payment.amountReceived ? Math.max(0, payment.amountReceived - summary.total) : 0;
-  const canCompleteSale = summary.itemCount > 0 && (payment.method === "card" || (payment.amountReceived && payment.amountReceived >= summary.total));
+  const changeDue = payment.method === "cash" && payment.amountReceived ? Math.max(0, payment.amountReceived - summary.total) : 0;
+  const splitPortions = payment.split ?? [];
+  const splitTotal = splitPortions.reduce((sum, portion) => sum + (Number(portion.amount) || 0), 0);
+  const splitBalanced = Math.abs(splitTotal - summary.total) < 0.01 && splitPortions.length > 0;
+  const canCompleteSale = summary.itemCount > 0 && (
+    payment.method === "card" ||
+    (payment.method === "cash" && payment.amountReceived && payment.amountReceived >= summary.total) ||
+    (payment.method === "digital" && Boolean(payment.walletReference)) ||
+    (payment.method === "split" && splitBalanced)
+  );
+
+  const handleSplitChange = (index: number, patch: Partial<PaymentPortion>) => {
+    const next = splitPortions.map((portion, idx) => (idx === index ? { ...portion, ...patch } : portion)) as PaymentPortion[];
+    onUpdatePayment?.({ split: next });
+  };
+
+  const handleAddSplitPortion = () => {
+    const next = [...splitPortions, { method: "card" as PaymentPortion['method'], amount: 0 }] as PaymentPortion[];
+    onUpdatePayment?.({ split: next });
+  };
+
+  const handleRemoveSplitPortion = (index: number) => {
+    const next = splitPortions.filter((_, idx) => idx !== index) as PaymentPortion[];
+    onUpdatePayment?.({ split: next });
+  };
+
+  const handleWalletReferenceChange = (value: string) => {
+    onUpdatePayment?.({ walletReference: value });
+  };
+
+  const loyaltyStatusMeta: Record<LoyaltySyncState['state'], { label: string; className: string }> = {
+    idle: { label: 'Idle', className: 'bg-slate-100 text-slate-600' },
+    online: { label: 'Live', className: 'bg-emerald-100 text-emerald-700' },
+    cached: { label: 'Cached', className: 'bg-amber-100 text-amber-700' },
+    error: { label: 'Check', className: 'bg-red-100 text-red-700' },
+  };
+  const loyaltyStatus = loyaltyStatusMeta[loyalty.syncStatus.state];
 
   return (
     <div className="flex flex-col space-y-4 sm:space-y-5">
@@ -161,11 +215,19 @@ export default function CheckoutPanel({
           <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
             <Users className="w-5 h-5" /> Customer Loyalty
           </h3>
-          {loyalty.loyaltyBalance !== null && (
-            <span className="text-sm text-slate-500">
-              Balance: {loyalty.loyaltyBalance} pts
+          <div className="flex items-center gap-3">
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded-full ${loyaltyStatus.className}`}
+              title={loyalty.syncStatus.message || undefined}
+            >
+              {loyaltyStatus.label}
             </span>
-          )}
+            {loyalty.loyaltyBalance !== null && (
+              <span className="text-sm text-slate-500">
+                Balance: {loyalty.loyaltyBalance} pts
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
@@ -228,7 +290,10 @@ export default function CheckoutPanel({
           <Button
             variant={payment.method === "cash" ? "default" : "outline"}
             className="p-3 sm:p-4 h-auto flex-col min-h-[60px] sm:min-h-[80px]"
-            onClick={() => onPaymentMethodChange("cash")}
+            onClick={() => {
+              onPaymentMethodChange("cash");
+              onUpdatePayment?.({ method: "cash", split: undefined, walletReference: undefined });
+            }}
           >
             <Banknote className="w-5 h-5 sm:w-6 sm:h-6 mb-1 sm:mb-2" />
             <span className="text-sm sm:text-base">Cash</span>
@@ -236,13 +301,41 @@ export default function CheckoutPanel({
           <Button
             variant={payment.method === "card" ? "default" : "outline"}
             className="p-3 sm:p-4 h-auto flex-col min-h-[60px] sm:min-h-[80px]"
-            onClick={() => onPaymentMethodChange("card")}
+            onClick={() => {
+              onPaymentMethodChange("card");
+              onUpdatePayment?.({ method: "card", split: undefined, walletReference: undefined });
+            }}
           >
             <CreditCard className="w-5 h-5 sm:w-6 sm:h-6 mb-1 sm:mb-2" />
             <span className="text-sm sm:text-base">Card</span>
           </Button>
+          <Button
+            variant={payment.method === "digital" ? "default" : "outline"}
+            className="p-3 sm:p-4 h-auto flex-col min-h-[60px] sm:min-h-[80px]"
+            onClick={() => {
+              onPaymentMethodChange("digital");
+              onUpdatePayment?.({ method: "digital", split: undefined });
+            }}
+          >
+            <Smartphone className="w-5 h-5 sm:w-6 sm:h-6 mb-1 sm:mb-2" />
+            <span className="text-sm sm:text-base">Mobile Wallet</span>
+          </Button>
+          <Button
+            variant={payment.method === "split" ? "default" : "outline"}
+            className="p-3 sm:p-4 h-auto flex-col min-h-[60px] sm:min-h-[80px]"
+            onClick={() => {
+              const initialSplit: PaymentPortion[] = splitPortions.length
+                ? splitPortions
+                : [{ method: "card" as PaymentPortion['method'], amount: summary.total }];
+              onPaymentMethodChange("split");
+              onUpdatePayment?.({ method: "split", split: initialSplit });
+            }}
+          >
+            <Split className="w-5 h-5 sm:w-6 sm:h-6 mb-1 sm:mb-2" />
+            <span className="text-sm sm:text-base">Split Payment</span>
+          </Button>
         </div>
-        
+
         {/* Cash Payment Input */}
         {payment.method === "cash" && (
           <div className="space-y-3">
@@ -269,6 +362,70 @@ export default function CheckoutPanel({
             </div>
           </div>
         )}
+
+        {payment.method === "digital" && (
+          <div className="space-y-2">
+            <Label htmlFor="wallet-reference" className="block text-sm font-medium text-slate-700">
+              Wallet Reference
+            </Label>
+            <Input
+              id="wallet-reference"
+              value={payment.walletReference || ""}
+              onChange={(e) => handleWalletReferenceChange(e.target.value)}
+              placeholder="Enter transaction reference"
+            />
+          </div>
+        )}
+
+        {payment.method === "split" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">Payment Portions</Label>
+              <Button size="sm" variant="outline" onClick={handleAddSplitPortion}>
+                Add Portion
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {splitPortions.map((portion, idx) => (
+                <div key={idx} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-center">
+                  <select
+                    className="border rounded-md px-2 py-2 text-sm"
+                    value={portion.method}
+                    onChange={(e) => handleSplitChange(idx, { method: e.target.value as PaymentPortion['method'] })}
+                  >
+                    <option value="card">Card</option>
+                    <option value="cash">Cash</option>
+                    <option value="wallet">Wallet</option>
+                  </select>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={portion.amount}
+                    onChange={(e) => handleSplitChange(idx, { amount: parseFloat(e.target.value) || 0 })}
+                    placeholder="Amount"
+                  />
+                  <div className="flex items-center gap-2">
+                    {portion.method === 'wallet' && (
+                      <Input
+                        className="text-xs"
+                        value={portion.reference || ''}
+                        onChange={(e) => handleSplitChange(idx, { reference: e.target.value })}
+                        placeholder="Ref"
+                      />
+                    )}
+                    <Button size="icon" variant="ghost" onClick={() => handleRemoveSplitPortion(idx)}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="text-sm text-slate-600">
+              Remaining: {formatCurrency(summary.total - splitTotal, currency)}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Checkout Actions */}
@@ -281,6 +438,42 @@ export default function CheckoutPanel({
           <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
           Complete Sale
         </Button>
+        {printers && (
+          <div className="space-y-2 border border-slate-200 rounded-lg p-3">
+            <div className="flex items-center justify-between text-sm text-slate-600">
+              <span className="font-medium flex items-center gap-2">
+                <Printer className="w-4 h-4" /> Receipt Printer
+              </span>
+              {printers.onRefresh && (
+                <Button size="icon" variant="ghost" onClick={() => { void printers.onRefresh?.(); }} title="Refresh printers">
+                  <RefreshCcw className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                className="flex-1 border rounded-md px-2 py-1 text-sm"
+                value={printers.selectedId}
+                onChange={(e) => printers.onSelect?.(e.target.value)}
+              >
+                {printers.profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.label}</option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={printers.isPrinting}
+                onClick={() => { void printers.onPrint?.(); }}
+              >
+                {printers.isPrinting ? 'Printing…' : 'Print Last'}
+              </Button>
+            </div>
+            {printers.lastError && (
+              <p className="text-xs text-red-600">{printers.lastError}</p>
+            )}
+          </div>
+        )}
         <Button
           variant="outline"
           className="w-full py-3 font-medium min-h-[44px]"
@@ -290,6 +483,41 @@ export default function CheckoutPanel({
           <Pause className="w-4 h-4 mr-2" />
           Hold Transaction
         </Button>
+        {held && held.entries.length > 0 && (
+          <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between text-sm text-slate-600">
+              <span className="font-medium">Held Transactions</span>
+              <span className="text-xs">{held.entries.length} waiting</span>
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {held.entries.map((entry) => (
+                <div key={entry.id} className="flex items-center justify-between text-xs bg-slate-50 rounded px-2 py-1">
+                  <div>
+                    <div className="font-medium">{new Date(entry.createdAt).toLocaleTimeString()}</div>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      variant="secondary"
+                      onClick={() => held.onResume(entry.id)}
+                    >
+                      Resume
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      variant="ghost"
+                      onClick={() => held.onDiscard(entry.id)}
+                    >
+                      Discard
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <Button
           variant="outline"
           className="w-full py-3 font-medium border-red-300 text-red-600 hover:bg-red-50 min-h-[44px]"

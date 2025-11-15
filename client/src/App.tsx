@@ -25,6 +25,7 @@ const Landing = lazy(() => import("@/pages/landing"));
 const POS = lazy(() => import("@/pages/pos"));
 const Inventory = lazy(() => import("@/pages/inventory"));
 const Analytics = lazy(() => import("@/pages/analytics"));  
+const Returns = lazy(() => import("@/pages/returns"));
 const AdminAudit = lazy(() => import("@/pages/admin/audit"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminIp = lazy(() => import("@/pages/admin/ip-whitelist"));
@@ -127,6 +128,7 @@ function Dashboard({ userRole }: { userRole: string }) {
             <Route path="/" component={POS} /> {/* Cashier sees POS as default */}
             <Route path="/login" component={POS} /> {/* Redirect login to default */}
             <Route path="/pos" component={POS} />
+            <Route path="/returns" component={Returns} />
             <Route path="/settings" component={Settings} />
             <Route component={NotFound} />
           </Switch>

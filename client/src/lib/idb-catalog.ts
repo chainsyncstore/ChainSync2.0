@@ -1,10 +1,11 @@
 // IndexedDB catalog for offline product/inventory/customer data
 type ProductRow = { id: string; name: string; barcode?: string; price: string };
 type InventoryRow = { storeId: string; productId: string; quantity: number };
-type CustomerRow = { id: string; phone: string; name?: string };
+type CustomerRow = { id: string; phone: string; name?: string; loyaltyPoints?: number; updatedAt?: number };
+type StoreRow = { id: string; name?: string; currency?: string; taxRate?: number; updatedAt: number };
 
 const DB_NAME = 'chainsync_catalog';
-const VERSION = 1;
+const VERSION = 2;
 
 function openDb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -24,6 +25,9 @@ function openDb(): Promise<IDBDatabase | null> {
       if (!db.objectStoreNames.contains('customers')) {
         const s = db.createObjectStore('customers', { keyPath: 'id' });
         s.createIndex('phone', 'phone', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('stores')) {
+        db.createObjectStore('stores', { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -81,13 +85,37 @@ export async function getProductByBarcodeLocally(barcode: string): Promise<Produ
   });
 }
 
+export async function putInventory(rows: InventoryRow[]): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('inventory','readwrite');
+    const s = tx.objectStore('inventory');
+    rows.forEach((r) => s.put(r));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+export async function getInventoryForStore(storeId: string): Promise<InventoryRow[]> {
+  const db = await openDb();
+  if (!db) return [];
+  return await new Promise((resolve) => {
+    const tx = db.transaction('inventory','readonly');
+    const idx = tx.objectStore('inventory').index('storeId');
+    const req = idx.getAll(IDBKeyRange.only(storeId));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
+
 export async function putCustomers(rows: CustomerRow[]): Promise<void> {
   const db = await openDb();
   if (!db) return;
   await new Promise<void>((resolve) => {
     const tx = db.transaction('customers','readwrite');
     const s = tx.objectStore('customers');
-    rows.forEach((r) => s.put(r));
+    rows.forEach((r) => s.put({ ...r, updatedAt: r.updatedAt ?? Date.now() }));
     tx.oncomplete = () => resolve();
     tx.onerror = () => resolve();
   });
@@ -105,6 +133,52 @@ export async function getCustomerByPhone(phone: string): Promise<CustomerRow | n
   });
 }
 
-export type { ProductRow, InventoryRow, CustomerRow };
+export async function upsertCustomerLoyaltySnapshot(row: { id: string; phone: string; name?: string; loyaltyPoints: number; updatedAt?: number }): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('customers','readwrite');
+    const store = tx.objectStore('customers');
+    store.put({ ...row, updatedAt: row.updatedAt ?? Date.now() });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+export async function upsertStores(rows: StoreRow[]): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('stores','readwrite');
+    const s = tx.objectStore('stores');
+    rows.forEach((r) => s.put({ ...r, updatedAt: r.updatedAt ?? Date.now() }));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+export async function getStore(storeId: string): Promise<StoreRow | null> {
+  const db = await openDb();
+  if (!db) return null;
+  return await new Promise((resolve) => {
+    const tx = db.transaction('stores','readonly');
+    const req = tx.objectStore('stores').get(storeId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  });
+}
+
+export async function listStores(): Promise<StoreRow[]> {
+  const db = await openDb();
+  if (!db) return [];
+  return await new Promise((resolve) => {
+    const tx = db.transaction('stores','readonly');
+    const req = tx.objectStore('stores').getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
+
+export type { ProductRow, InventoryRow, CustomerRow, StoreRow };
 
 

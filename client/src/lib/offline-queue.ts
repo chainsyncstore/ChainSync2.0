@@ -60,6 +60,40 @@ export function validateSalePayload(payload: any): { valid: boolean; errors: str
     const lineTotalNum = Number(it.lineTotal);
     if (!(Number.isFinite(lineTotalNum) && lineTotalNum >= 0)) errors.push(`Item ${idx + 1}: invalid lineTotal`);
   });
+
+  const totalNum = Number(payload.total);
+  if (!Number.isFinite(totalNum)) errors.push('Invalid total');
+
+  if (payload.paymentMethod === 'digital') {
+    if (!payload.walletReference || typeof payload.walletReference !== 'string' || !payload.walletReference.trim()) {
+      errors.push('walletReference required for digital payments');
+    }
+  }
+
+  if (payload.paymentMethod === 'split') {
+    if (!Array.isArray(payload.paymentBreakdown) || payload.paymentBreakdown.length === 0) {
+      errors.push('paymentBreakdown required for split payments');
+    } else {
+      const breakdownTotal = payload.paymentBreakdown.reduce((sum: number, portion: any, idx: number) => {
+        const amountNum = Number(portion?.amount);
+        if (!portion || (portion.method !== 'cash' && portion.method !== 'card' && portion.method !== 'wallet')) {
+          errors.push(`paymentBreakdown[${idx}]: invalid method`);
+        }
+        if (!Number.isFinite(amountNum) || amountNum <= 0) {
+          errors.push(`paymentBreakdown[${idx}]: invalid amount`);
+        }
+        if (portion.method === 'wallet' && (!portion.reference || !String(portion.reference).trim())) {
+          errors.push(`paymentBreakdown[${idx}]: wallet reference required`);
+        }
+        return sum + (Number.isFinite(amountNum) ? amountNum : 0);
+      }, 0);
+
+      if (Number.isFinite(breakdownTotal) && Number.isFinite(totalNum) && Math.abs(breakdownTotal - totalNum) > 0.05) {
+        errors.push('paymentBreakdown totals must equal sale total');
+      }
+    }
+  }
+
   return { valid: errors.length === 0, errors };
 }
 
@@ -100,13 +134,14 @@ async function idbAdd(record: OfflineSaleRecord): Promise<void> {
 
 export async function enqueueOfflineSale(params: { url: string; payload: any; idempotencyKey: string; headers?: Record<string, string> }): Promise<{ localId: string; idempotencyKey: string; }> {
   const localId = `local_${Date.now()}_${generateRandomString()}`;
+  const payloadCopy = JSON.parse(JSON.stringify(params.payload ?? {}));
   const record: OfflineSaleRecord = {
     id: localId,
     idempotencyKey: params.idempotencyKey,
     url: params.url,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': params.idempotencyKey, ...(params.headers || {}) },
-    payload: params.payload,
+    payload: payloadCopy,
     createdAt: Date.now(),
     attempts: 0,
     nextAttemptAt: Date.now(),
@@ -177,6 +212,11 @@ export async function listQueuedSales(): Promise<OfflineSaleRecord[]> {
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => resolve([]);
   });
+}
+
+export async function listQueuedReturns(): Promise<OfflineSaleRecord[]> {
+  const records = await listQueuedSales();
+  return records.filter((record) => record.url.includes('/api/pos/returns'));
 }
 
 export async function deleteQueuedSale(id: string): Promise<void> {

@@ -11,6 +11,7 @@ import {
 	ListChecks,
 	CreditCard,
 	Users,
+	Undo2,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,7 @@ const getNavigationItems = (
 	if (userRole === "cashier") {
 		return [
 			{ path: "/pos", icon: ScanBarcode, label: "POS" },
+			{ path: "/returns", icon: Undo2, label: "Returns" },
 			{ path: "/settings", icon: Settings, label: "Settings" },
 		];
 	}
