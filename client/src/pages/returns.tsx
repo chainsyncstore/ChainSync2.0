@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2, RefreshCcw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import SyncCenter from "@/components/pos/sync-center";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/hooks/use-auth";
 import { useOfflineSyncIndicator } from "@/hooks/use-offline-sync-indicator";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDateTime } from "@/lib/pos-utils";
@@ -61,7 +62,9 @@ type DraftEntryUpdater = (entry: ReturnDraftState[string]) => ReturnDraftState[s
 
 export default function ReturnsPage() {
   const { toast } = useToast();
-  const [selectedStore, setSelectedStore] = useState<string>("");
+  const { user } = useAuth();
+  const lockedStoreId = user?.role === "cashier" ? user.storeId ?? null : null;
+  const [selectedStore, setSelectedStore] = useState<string>(lockedStoreId ?? "");
   const [saleReference, setSaleReference] = useState("");
   const [saleData, setSaleData] = useState<SaleLookupResponse | null>(null);
   const [fetchingSale, setFetchingSale] = useState(false);
@@ -76,10 +79,14 @@ export default function ReturnsPage() {
   const { queuedCount, escalations, lastSync, handleSyncNow } = useOfflineSyncIndicator();
 
   useEffect(() => {
-    if (!selectedStore && stores.length > 0) {
+    if (lockedStoreId && selectedStore !== lockedStoreId) {
+      setSelectedStore(lockedStoreId);
+      return;
+    }
+    if (!lockedStoreId && !selectedStore && stores.length > 0) {
       setSelectedStore(stores[0].id);
     }
-  }, [stores, selectedStore]);
+  }, [lockedStoreId, selectedStore, stores]);
 
   useEffect(() => {
     setSaleData(null);
@@ -230,6 +237,8 @@ export default function ReturnsPage() {
       !processReturnMutation.isPending
   );
 
+  const lockedStore = useMemo(() => stores.find((store) => store.id === lockedStoreId) || null, [lockedStoreId, stores]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -272,18 +281,28 @@ export default function ReturnsPage() {
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label htmlFor="store">Store</Label>
-              <Select value={selectedStore} onValueChange={setSelectedStore} disabled={loadingStores}>
-                <SelectTrigger id="store">
-                  <SelectValue placeholder={loadingStores ? "Loading stores" : "Select store"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {stores.map((store) => (
-                    <SelectItem key={store.id} value={store.id}>
-                      {store.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {lockedStoreId ? (
+                <Input
+                  id="store"
+                  value={lockedStore?.name || "Current store"}
+                  readOnly
+                  disabled
+                  className="bg-slate-100"
+                />
+              ) : (
+                <Select value={selectedStore} onValueChange={setSelectedStore} disabled={loadingStores}>
+                  <SelectTrigger id="store">
+                    <SelectValue placeholder={loadingStores ? "Loading stores" : "Select store"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {stores.map((store) => (
+                      <SelectItem key={store.id} value={store.id}>
+                        {store.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="sale">Sale / Receipt ID</Label>
