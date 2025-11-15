@@ -178,15 +178,34 @@ async function setPartialRefundAmount(page: any, itemId: string, value: string) 
   await page.locator(`[data-testid="refund-amount-${itemId}"]`).fill(value);
 }
 
-async function ensureScannerReady(page: any) {
-  const activateButton = page.getByRole('button', { name: /Activate Scanner/i });
-  if (await activateButton.isVisible()) {
-    await activateButton.click();
+async function getScannerToggleLocator(page: any) {
+  const toggleByTestId = page.getByTestId('scanner-toggle');
+  if (await toggleByTestId.count()) {
+    return toggleByTestId.first();
   }
-  await expect(page.getByText(/Scanner Active/i)).toBeVisible({ timeout: 5000 });
+  return page.getByRole('button', { name: /(Activate|Deactivate) Scanner/i }).first();
+}
+
+async function getScannerBadgeLocator(page: any) {
+  const badgeByTestId = page.getByTestId('scanner-active-badge');
+  if (await badgeByTestId.count()) {
+    return badgeByTestId.first();
+  }
+  return page.getByText(/Scanner Active/i).first();
+}
+
+async function ensureScannerReady(page: any) {
+  const toggleButton = await getScannerToggleLocator(page);
+  await expect(toggleButton).toBeVisible({ timeout: 5000 });
+  const badge = await getScannerBadgeLocator(page);
+  if (!(await badge.isVisible())) {
+    await toggleButton.click();
+  }
+  await expect(badge).toBeVisible({ timeout: 5000 });
 }
 
 async function simulateBarcodeScan(page: any, barcode: string) {
+  await expect(page.getByLabel('Scan or Enter Barcode')).toBeVisible({ timeout: 10_000 });
   await ensureScannerReady(page);
   for (const char of barcode.split('')) {
     await page.keyboard.press(char);

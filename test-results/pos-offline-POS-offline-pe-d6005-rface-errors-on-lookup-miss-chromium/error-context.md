@@ -1,0 +1,66 @@
+# Page snapshot
+
+```yaml
+- region "Notifications (F8)":
+  - list
+- banner:
+  - button:
+    - img
+  - heading "ChainSync" [level=2]
+  - paragraph: POS & Analytics System
+  - text: Live Sync Nov 15, 2025, 07:05 PM
+  - button "Logout":
+    - img
+    - text: Logout
+- main:
+  - heading "Shopping Cart" [level=3]
+  - img
+  - paragraph: Cart is empty
+  - paragraph: Scan a product to get started
+  - heading "Product Scanner" [level=3]
+  - text: Scan or Enter Barcode
+  - textbox "Scan or Enter Barcode"
+  - img
+  - button "Add Item" [disabled]:
+    - img
+    - text: Add Item
+  - button "Search":
+    - img
+    - text: Search
+  - button "Activate Scanner":
+    - img
+    - text: Activate Scanner
+  - text: Online
+  - heading "Order Summary" [level=3]
+  - text: 0 items Subtotal ₦0.00 Tax (8.50%) ₦0.00 Total Due ₦0.00
+  - heading "Customer Loyalty" [level=3]:
+    - img
+    - text: Customer Loyalty
+  - textbox "Customer phone number"
+  - button "Lookup" [disabled]:
+    - img
+    - text: Lookup
+  - button "Clear"
+  - text: Redeem Points
+  - spinbutton "Redeem Points" [disabled]: "0"
+  - text: Max 0 pts available this sale
+  - heading "Payment Method" [level=3]
+  - button "Cash":
+    - img
+    - text: Cash
+  - button "Card":
+    - img
+    - text: Card
+  - text: Amount Received
+  - spinbutton "Amount Received"
+  - text: Change Due ₦0.00
+  - button "Complete Sale" [disabled]:
+    - img
+    - text: Complete Sale
+  - button "Hold Transaction" [disabled]:
+    - img
+    - text: Hold Transaction
+  - button "Void Sale" [disabled]:
+    - img
+    - text: Void Sale
+```

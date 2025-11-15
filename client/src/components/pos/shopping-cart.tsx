@@ -55,14 +55,20 @@ export default function ShoppingCart({
       
       <div className="flex-1 overflow-auto">
         {items.map((item) => (
-          <div key={item.id} className="border-b border-slate-100 p-3 sm:p-4 hover:bg-slate-50">
+          <div
+            key={item.id}
+            className="border-b border-slate-100 p-3 sm:p-4 hover:bg-slate-50"
+            data-testid={`cart-item-${item.id}`}
+          >
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
               <div className="flex items-center space-x-3 sm:space-x-4">
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
                   <Package className="text-slate-400 w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-slate-800 text-sm sm:text-base truncate">{item.name}</p>
+                  <p className="font-medium text-slate-800 text-sm sm:text-base truncate" data-testid={`cart-item-name-${item.id}`}>
+                    {item.name}
+                  </p>
                   <p className="text-xs sm:text-sm text-slate-500">SKU: {item.barcode}</p>
                 </div>
               </div>

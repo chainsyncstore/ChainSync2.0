@@ -112,7 +112,11 @@ export default function BarcodeScanner({
           )}
           <div className="flex items-center space-x-2">
             {isScannerActive && (
-              <Badge variant="secondary" className="bg-green-100 text-green-800 text-xs">
+              <Badge
+                variant="secondary"
+                className="bg-green-100 text-green-800 text-xs"
+                data-testid="scanner-active-badge"
+              >
                 <ScanLine className="w-3 h-3 mr-1" />
                 Scanner Active
               </Badge>
@@ -179,6 +183,7 @@ export default function BarcodeScanner({
               variant={isScannerActive ? "destructive" : "default"}
               onClick={isScannerActive ? onDeactivateScanner : onActivateScanner}
               className="px-4 sm:px-6 py-3 font-medium min-h-[48px] sm:min-h-[40px]"
+              data-testid="scanner-toggle"
             >
               {isScannerActive ? (
                 <>
