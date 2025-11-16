@@ -1035,8 +1035,13 @@ function AnalyticsContent() {
 }
 
 export default function Analytics() {
+  const { user } = useAuth();
+  const normalizedRole = user?.role?.toLowerCase();
+  const managerStoreId = user?.storeId;
+  const initialStoreId = normalizedRole === "manager" && managerStoreId ? managerStoreId : null;
+
   return (
-    <AnalyticsScopeProvider>
+    <AnalyticsScopeProvider initialStoreId={initialStoreId}>
       <AnalyticsContent />
     </AnalyticsScopeProvider>
   );
