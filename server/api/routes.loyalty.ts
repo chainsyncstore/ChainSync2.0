@@ -1,7 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { loyaltyAccounts, loyaltyTransactions, organizations, users } from '@shared/prd-schema';
+import { loyaltyAccounts, legacyLoyaltyTransactions as loyaltyTransactions, organizations, users } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/authz';

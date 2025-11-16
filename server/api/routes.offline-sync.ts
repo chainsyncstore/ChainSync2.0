@@ -1,7 +1,7 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { sales, saleItems, inventory, products, customers, loyaltyAccounts, loyaltyTransactions, organizations } from '@shared/prd-schema';
+import { legacySales as sales, legacySaleItems as saleItems, inventory, products, legacyCustomers as customers, loyaltyAccounts, legacyLoyaltyTransactions as loyaltyTransactions, organizations } from '@shared/schema';
 import { db } from '../db';
 import { logger, extractLogContext } from '../lib/logger';
 import { monitoringService } from '../lib/monitoring';

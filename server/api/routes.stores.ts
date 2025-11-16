@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { stores, users, subscriptions } from '@shared/prd-schema';
+import { stores, users, subscriptions } from '@shared/schema';
 import { db } from '../db';
 import { getPlan } from '../lib/plans';
 import { requireAuth, requireRole, enforceIpWhitelist } from '../middleware/authz';

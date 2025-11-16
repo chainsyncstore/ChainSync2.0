@@ -2,7 +2,7 @@ import { and, eq, gte, lte, sql, inArray } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import type { CurrencyCode, Money } from '@shared/lib/currency';
-import { organizations, sales, users, userRoles, stores, scheduledReports } from '@shared/prd-schema';
+import { organizations, legacySales as sales, legacyReturns as returns, users, userRoles, stores, scheduledReports } from '@shared/schema';
 import { db } from '../db';
 import { sendEmail } from '../email';
 import { getDefaultRates, convertAmount, StaticCurrencyRateProvider } from '../lib/currency';
@@ -327,9 +327,66 @@ export async function registerAnalyticsRoutes(app: Express) {
           })
         : undefined;
 
+      const refundWhere: any[] = [];
+      if (orgIdForStore ?? orgId) {
+        refundWhere.push(eq(stores.orgId, orgIdForStore ?? orgId!));
+      }
+      if (storeId) {
+        refundWhere.push(eq(returns.storeId, storeId));
+      } else if (allowedStoreIds.length) {
+        refundWhere.push(inArray(returns.storeId, allowedStoreIds));
+      }
+      if (dateFrom) refundWhere.push(gte(returns.occurredAt, new Date(dateFrom)));
+      if (dateTo) refundWhere.push(lte(returns.occurredAt, new Date(dateTo)));
+
+      const refundQueryBase = db
+        .select({
+          currency: stores.currency,
+          total: sql`COALESCE(SUM(${returns.totalRefund}::numeric), 0)`,
+          count: sql`COUNT(*)`
+        })
+        .from(returns)
+        .innerJoin(stores, eq(stores.id, returns.storeId));
+
+      const refundRows = refundWhere.length
+        ? await refundQueryBase.where(and(...refundWhere)).groupBy(stores.currency)
+        : await refundQueryBase.groupBy(stores.currency);
+      const refundValues: Money[] = refundRows.map((row) => {
+        const currency = coerceCurrency(row.currency ?? nativeCurrency, nativeCurrency);
+        return toMoney(Number(row.total ?? 0), currency);
+      });
+      const totalRefundCount = refundRows.reduce((sum, row) => sum + Number(row.count ?? 0), 0);
+      const refundMoney = await sumMoneyValues(refundValues, nativeCurrency, {
+        orgId: orgIdForStore ?? orgId ?? 'system',
+        baseCurrency,
+      });
+      const refundNormalized = normalizeCurrency
+        ? await normalizeMoneyValues(refundValues, baseCurrency, {
+            orgId: orgIdForStore ?? orgId ?? 'system',
+            baseCurrency,
+          })
+        : undefined;
+      const netMoney = toMoney(totalMoney.amount - refundMoney.amount, nativeCurrency);
+      const netNormalized = normalized
+        ? {
+            amount: normalized.amount - (refundNormalized?.amount ?? 0),
+            currency: normalized.currency,
+            baseCurrency,
+          }
+        : undefined;
+
       res.json({
         total: totalMoney,
         normalized,
+        refunds: {
+          total: refundMoney,
+          normalized: refundNormalized,
+          count: totalRefundCount,
+        },
+        net: {
+          total: netMoney,
+          normalized: netNormalized,
+        },
         transactions: totalTransactions,
         baseCurrency,
       });
@@ -441,6 +498,44 @@ export async function registerAnalyticsRoutes(app: Express) {
       entry.transactions += transactions;
     }
 
+    const refundWhere: any[] = [];
+    if (orgId) refundWhere.push(eq(stores.orgId, orgId));
+    if (storeId) {
+      refundWhere.push(eq(returns.storeId, storeId));
+    } else if (allowedStoreIds.length) {
+      refundWhere.push(inArray(returns.storeId, allowedStoreIds));
+    }
+    if (dateFrom) refundWhere.push(gte(returns.occurredAt, new Date(dateFrom)));
+    if (dateTo) refundWhere.push(lte(returns.occurredAt, new Date(dateTo)));
+
+    const refundRows = await db.execute(sql`
+      SELECT 
+        date_trunc(${sql.raw(`'${truncUnit}'`)}, ${returns.occurredAt}) as bucket,
+        stores.currency as currency,
+        COALESCE(SUM(${returns.totalRefund}::numeric), 0) as refund_total,
+        COUNT(*) as refund_count
+      FROM ${returns}
+      JOIN stores ON stores.id = ${returns.storeId}
+      ${refundWhere.length ? sql`WHERE ${sql.join(refundWhere, sql` AND `)}` : sql``}
+      GROUP BY 1, 2
+      ORDER BY 1 ASC, 2 ASC
+    `);
+
+    const refundMap = new Map<string, { values: Money[]; count: number }>();
+    for (const row of (refundRows as any).rows as Array<{ bucket: Date; currency: string; refund_total: string | number; refund_count: string | number }>) {
+      const bucketDate = new Date(row.bucket);
+      const key = bucketDate.toISOString();
+      const currency = coerceCurrency(row.currency, baseCurrency);
+      const amount = Number(row.refund_total ?? 0);
+      const money = toMoney(amount, currency);
+      if (!refundMap.has(key)) {
+        refundMap.set(key, { values: [], count: 0 });
+      }
+      const entry = refundMap.get(key)!;
+      entry.values.push(money);
+      entry.count += Number(row.refund_count ?? 0);
+    }
+
     const points = [] as Array<{
       date: string;
       total: Money;
@@ -448,7 +543,16 @@ export async function registerAnalyticsRoutes(app: Express) {
       transactions: number;
       customers: number;
       averageOrder: Money;
-    }>;
+      refunds: {
+        total: Money;
+        normalized?: { amount: number; currency: CurrencyCode; baseCurrency: CurrencyCode };
+        count: number;
+      };
+      net: {
+        total: Money;
+        normalized?: { amount: number; currency: CurrencyCode; baseCurrency: CurrencyCode };
+      };
+    }>
 
     for (const [date, entry] of Array.from(pointMap.entries()).sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))) {
       const transactions = entry.transactions;
@@ -465,6 +569,28 @@ export async function registerAnalyticsRoutes(app: Express) {
         : undefined;
       const averageOrder = transactions > 0 ? toMoney(total.amount / transactions, total.currency) : toMoney(0, total.currency);
 
+      const refundEntry = refundMap.get(date);
+      const refundValues = refundEntry?.values ?? [];
+      const refundTotal = await sumMoneyValues(refundValues, nativeCurrency, {
+        orgId: orgIdForStore ?? orgId ?? 'system',
+        baseCurrency,
+      });
+      const refundNormalized = normalizeCurrency
+        ? await normalizeMoneyValues(refundValues, baseCurrency, {
+            orgId: orgIdForStore ?? orgId ?? 'system',
+            baseCurrency,
+          })
+        : undefined;
+      const refundCount = refundEntry?.count ?? 0;
+      const netTotal = toMoney(total.amount - refundTotal.amount, nativeCurrency);
+      const netNormalized = normalized
+        ? {
+            amount: normalized.amount - (refundNormalized?.amount ?? 0),
+            currency: normalized.currency,
+            baseCurrency,
+          }
+        : undefined;
+
       points.push({
         date,
         total,
@@ -472,6 +598,15 @@ export async function registerAnalyticsRoutes(app: Express) {
         transactions,
         customers: transactions, // placeholder without customer linkage
         averageOrder,
+        refunds: {
+          total: refundTotal,
+          normalized: refundNormalized,
+          count: refundCount,
+        },
+        net: {
+          total: netTotal,
+          normalized: netNormalized,
+        },
       });
     }
 
@@ -561,18 +696,29 @@ export async function registerAnalyticsRoutes(app: Express) {
 
     const profitLoss = await storage.getStoreProfitLoss(storeId, startDate, endDate);
 
+    const revenueMoney = toMoney(profitLoss.revenue, storeCurrency);
+    const costMoney = toMoney(profitLoss.cost, storeCurrency);
+    const refundMoney = toMoney(profitLoss.refundAmount, storeCurrency);
+    const netRevenueMoney = toMoney(profitLoss.revenue - profitLoss.refundAmount, storeCurrency);
+    const profitMoney = toMoney(profitLoss.profit, storeCurrency);
+
     const totals = {
-      revenue: toMoney(profitLoss.revenue, storeCurrency),
-      cost: toMoney(profitLoss.cost, storeCurrency),
-      profit: toMoney(profitLoss.profit, storeCurrency),
+      revenue: revenueMoney,
+      cost: costMoney,
+      profit: profitMoney,
+      refunds: refundMoney,
+      netRevenue: netRevenueMoney,
+      refundCount: profitLoss.refundCount,
     };
 
     const normalized = normalizeCurrency
       ? {
           baseCurrency,
-          revenue: await convertForOrg(totals.revenue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          cost: await convertForOrg(totals.cost, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          profit: await convertForOrg(totals.profit, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          revenue: await convertForOrg(revenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          cost: await convertForOrg(costMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          profit: await convertForOrg(profitMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          refunds: await convertForOrg(refundMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          netRevenue: await convertForOrg(netRevenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
         }
       : undefined;
 
@@ -651,7 +797,11 @@ export async function registerAnalyticsRoutes(app: Express) {
       const now = new Date();
       const d1 = new Date(now.getTime() - 2 * 86400000).toISOString();
       const d2 = new Date(now.getTime() - 1 * 86400000).toISOString();
-      res.end(['date,revenue,discount,tax,transactions', `${d1},105,0,5,1`, `${d2},210,0,10,1`].join('\n'));
+      res.end([
+        'date,revenue,discount,tax,transactions,refunds,refund_count,net_revenue',
+        `${d1},105,0,5,1,5,1,100`,
+        `${d2},210,0,10,1,10,1,200`,
+      ].join('\n'));
       return;
     }
     const { orgId, allowedStoreIds } = await getScope(req);
@@ -684,11 +834,49 @@ export async function registerAnalyticsRoutes(app: Express) {
       GROUP BY 1
       ORDER BY 1 ASC`);
 
+    const refundWhere: any[] = [];
+    if (orgId) refundWhere.push(eq(stores.orgId, orgId));
+    if (storeId) {
+      refundWhere.push(eq(returns.storeId, storeId));
+    } else if (allowedStoreIds.length) {
+      refundWhere.push(inArray(returns.storeId, allowedStoreIds));
+    }
+    if (dateFrom) refundWhere.push(gte(returns.occurredAt, new Date(dateFrom)));
+    if (dateTo) refundWhere.push(lte(returns.occurredAt, new Date(dateTo)));
+
+    const refundRows = await db.execute(sql`
+      SELECT 
+        date_trunc(${sql.raw(`'${truncUnit}'`)}, ${returns.occurredAt}) as bucket,
+        COALESCE(SUM(${returns.totalRefund}::numeric), 0) as refund_total,
+        COUNT(*) as refund_count
+      FROM ${returns}
+      JOIN stores ON stores.id = ${returns.storeId}
+      ${refundWhere.length ? sql`WHERE ${sql.join(refundWhere, sql` AND `)}` : sql``}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `);
+
+    const refundMap = new Map<string, { total: number; count: number }>();
+    for (const r of (refundRows as any).rows) {
+      const key = new Date(r.bucket).toISOString();
+      refundMap.set(key, {
+        total: Number(r.refund_total ?? 0),
+        count: Number(r.refund_count ?? 0),
+      });
+    }
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="analytics_export.csv"');
-    res.write('date,revenue,discount,tax,transactions\n');
+    res.write('date,revenue,discount,tax,transactions,refunds,refund_count,net_revenue\n');
     for (const r of (rows as any).rows) {
-      const line = `${new Date(r.bucket).toISOString()},${r.revenue},${r.discount},${r.tax},${r.transactions}\n`;
+      const bucketDate = new Date(r.bucket);
+      const key = bucketDate.toISOString();
+      const refund = refundMap.get(key);
+      const refundTotal = refund?.total ?? 0;
+      const refundCount = refund?.count ?? 0;
+      const revenue = Number(r.revenue ?? 0);
+      const netRevenue = revenue - refundTotal;
+      const line = `${key},${r.revenue},${r.discount},${r.tax},${r.transactions},${refundTotal},${refundCount},${netRevenue}\n`;
       res.write(line);
     }
     res.end();
@@ -703,13 +891,13 @@ export async function registerAnalyticsRoutes(app: Express) {
       doc.pipe(res);
       doc.fontSize(18).text('Sales Analytics Report (Test)', { align: 'center' });
       doc.moveDown();
-      doc.fontSize(12).text('Date           Revenue  Discount  Tax  Transactions');
-      doc.fontSize(12).text('-------------- -------  --------  ---  -------------');
+      doc.fontSize(12).text('Date           Revenue  Refunds  Net  Discount  Tax  Transactions');
+      doc.fontSize(12).text('-------------- -------  -------  ---  --------  ---  -------------');
       const now = new Date();
       const d1 = new Date(now.getTime() - 2 * 86400000).toISOString().substring(0,10);
       const d2 = new Date(now.getTime() - 1 * 86400000).toISOString().substring(0,10);
-      doc.fontSize(12).text(`${d1}   105      0         5    1`);
-      doc.fontSize(12).text(`${d2}   210      0         10   1`);
+      doc.fontSize(12).text(`${d1}   105      5       100  0         5    1`);
+      doc.fontSize(12).text(`${d2}   210      10      200  0         10   1`);
       doc.end();
       return;
     }
@@ -743,6 +931,37 @@ export async function registerAnalyticsRoutes(app: Express) {
       GROUP BY 1
       ORDER BY 1 ASC`);
 
+    const refundWhere: any[] = [];
+    if (orgId) refundWhere.push(eq(stores.orgId, orgId));
+    if (storeId) {
+      refundWhere.push(eq(returns.storeId, storeId));
+    } else if (allowedStoreIds.length) {
+      refundWhere.push(inArray(returns.storeId, allowedStoreIds));
+    }
+    if (dateFrom) refundWhere.push(gte(returns.occurredAt, new Date(dateFrom)));
+    if (dateTo) refundWhere.push(lte(returns.occurredAt, new Date(dateTo)));
+
+    const refundRows = await db.execute(sql`
+      SELECT 
+        date_trunc(${sql.raw(`'${truncUnit}'`)}, ${returns.occurredAt}) as bucket,
+        COALESCE(SUM(${returns.totalRefund}::numeric), 0) as refund_total,
+        COUNT(*) as refund_count
+      FROM ${returns}
+      JOIN stores ON stores.id = ${returns.storeId}
+      ${refundWhere.length ? sql`WHERE ${sql.join(refundWhere, sql` AND `)}` : sql``}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `);
+
+    const refundMap = new Map<string, { total: number; count: number }>();
+    for (const r of (refundRows as any).rows) {
+      const key = new Date(r.bucket).toISOString();
+      refundMap.set(key, {
+        total: Number(r.refund_total ?? 0),
+        count: Number(r.refund_count ?? 0),
+      });
+    }
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="analytics_report.pdf"');
 
@@ -757,20 +976,31 @@ export async function registerAnalyticsRoutes(app: Express) {
 
     // Table header
     doc.fontSize(12).text('Date', 50, doc.y, { continued: true });
-    doc.text('Revenue', 180, doc.y, { continued: true });
-    doc.text('Discount', 280, doc.y, { continued: true });
-    doc.text('Tax', 370, doc.y, { continued: true });
-    doc.text('Transactions', 440);
+    doc.text('Revenue', 130, doc.y, { continued: true });
+    doc.text('Refunds', 210, doc.y, { continued: true });
+    doc.text('Net', 290, doc.y, { continued: true });
+    doc.text('Discount', 370, doc.y, { continued: true });
+    doc.text('Tax', 450, doc.y, { continued: true });
+    doc.text('Transactions', 510);
     doc.moveDown(0.5);
     doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
 
     for (const r of (rows as any).rows) {
-      const date = new Date(r.bucket).toISOString().substring(0, 10);
+      const bucketDate = new Date(r.bucket);
+      const key = bucketDate.toISOString();
+      const refund = refundMap.get(key);
+      const refundTotal = refund?.total ?? 0;
+      const revenue = Number(r.revenue ?? 0);
+      const netRevenue = revenue - refundTotal;
+      const date = key.substring(0, 10);
+
       doc.fontSize(10).text(date, 50, doc.y, { continued: true });
-      doc.text(String(r.revenue), 180, doc.y, { continued: true });
-      doc.text(String(r.discount), 280, doc.y, { continued: true });
-      doc.text(String(r.tax), 370, doc.y, { continued: true });
-      doc.text(String(r.transactions), 460);
+      doc.text(String(r.revenue), 130, doc.y, { continued: true });
+      doc.text(String(refundTotal), 210, doc.y, { continued: true });
+      doc.text(String(netRevenue), 290, doc.y, { continued: true });
+      doc.text(String(r.discount), 370, doc.y, { continued: true });
+      doc.text(String(r.tax), 450, doc.y, { continued: true });
+      doc.text(String(r.transactions), 510);
     }
 
     doc.end();
@@ -811,6 +1041,37 @@ export async function registerAnalyticsRoutes(app: Express) {
         GROUP BY 1
         ORDER BY 1 ASC`);
 
+      const refundWhere: any[] = [];
+      if (orgId) refundWhere.push(eq(stores.orgId, orgId));
+      if (storeId) {
+        refundWhere.push(eq(returns.storeId, storeId));
+      } else if (allowedStoreIds.length) {
+        refundWhere.push(inArray(returns.storeId, allowedStoreIds));
+      }
+      if (dateFrom) refundWhere.push(gte(returns.occurredAt, new Date(dateFrom)));
+      if (dateTo) refundWhere.push(lte(returns.occurredAt, new Date(dateTo)));
+
+      const refundRows = await db.execute(sql`
+        SELECT 
+          date_trunc(${sql.raw(`'${truncUnit}'`)}, ${returns.occurredAt}) as bucket,
+          COALESCE(SUM(${returns.totalRefund}::numeric), 0) as refund_total,
+          COUNT(*) as refund_count
+        FROM ${returns}
+        JOIN stores ON stores.id = ${returns.storeId}
+        ${refundWhere.length ? sql`WHERE ${sql.join(refundWhere, sql` AND `)}` : sql``}
+        GROUP BY 1
+        ORDER BY 1 ASC
+      `);
+
+      const refundMap = new Map<string, { total: number; count: number }>();
+      for (const r of (refundRows as any).rows) {
+        const key = new Date(r.bucket).toISOString();
+        refundMap.set(key, {
+          total: Number(r.refund_total ?? 0),
+          count: Number(r.refund_count ?? 0),
+        });
+      }
+
       const userId = (req.session as any)?.userId as string | undefined;
       if (!userId && process.env.NODE_ENV !== 'test') {
         return res.status(401).json({ error: 'Not authenticated' });
@@ -830,9 +1091,16 @@ export async function registerAnalyticsRoutes(app: Express) {
         return res.status(400).json({ error: 'User email not available for export' });
       }
 
-      let csv = 'date,revenue,discount,tax,transactions\n';
+      let csv = 'date,revenue,discount,tax,transactions,refunds,refund_count,net_revenue\n';
       for (const r of (rows as any).rows) {
-        const line = `${new Date(r.bucket).toISOString()},${r.revenue},${r.discount},${r.tax},${r.transactions}\n`;
+        const bucketDate = new Date(r.bucket);
+        const key = bucketDate.toISOString();
+        const refund = refundMap.get(key);
+        const refundTotal = refund?.total ?? 0;
+        const refundCount = refund?.count ?? 0;
+        const revenue = Number(r.revenue ?? 0);
+        const netRevenue = revenue - refundTotal;
+        const line = `${key},${r.revenue},${r.discount},${r.tax},${r.transactions},${refundTotal},${refundCount},${netRevenue}\n`;
         csv += line;
       }
 

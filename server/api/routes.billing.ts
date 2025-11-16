@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 
-import { organizations, subscriptions, users } from '@shared/prd-schema';
+import { organizations, subscriptions, users } from '@shared/schema';
 
 import { db } from '../db';
 import { logger } from '../lib/logger';

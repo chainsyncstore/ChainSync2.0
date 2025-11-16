@@ -1,5 +1,5 @@
 import { eq, and, gte, sql, desc } from 'drizzle-orm';
-import { sales, saleItems, products, inventory } from '@shared/prd-schema';
+import { legacySales as sales, legacySaleItems as saleItems, products, inventory } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 

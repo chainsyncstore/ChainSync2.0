@@ -1,6 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
-import { organizations, stores as prdStores, products as prdProducts, inventory as prdInventory } from '@shared/prd-schema';
+import { organizations, stores as prdStores, products as prdProducts, inventory as prdInventory } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { storage } from '../storage';

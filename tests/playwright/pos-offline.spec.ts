@@ -2,8 +2,6 @@ import { test, expect } from '@playwright/test';
 import type { APIResponse } from '@playwright/test';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://chainsync.store';
-const ADMIN_EMAIL = process.env.PLAYWRIGHT_ADMIN_EMAIL ?? 'info.elvisoffice@gmail.com';
-const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? '@Chisom5940';
 const CASHIER_EMAIL = process.env.PLAYWRIGHT_CASHIER_EMAIL ?? 'info.elvisarinze@gmail.com';
 const CASHIER_PASSWORD = process.env.PLAYWRIGHT_CASHIER_PASSWORD ?? '@Chisom5940';
 
@@ -118,11 +116,6 @@ async function loginAsCashier(page: any) {
   await apiLogin(page, { email: CASHIER_EMAIL, password: CASHIER_PASSWORD, role: 'cashier' });
   await page.goto(POS_PAGE_URL);
   await expect(page).toHaveURL(/\/pos/);
-}
-
-async function loginAsAdmin(page: any) {
-  await page.goto('/login');
-  await apiLogin(page, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: 'admin' });
 }
 
 async function enableE2EHarness(page: any) {
@@ -268,7 +261,8 @@ test.describe.serial('POS offline, peripherals, and returns flows', () => {
     const barcode = 'QA123456';
     const product = await addProductViaBarcodeMock(page, barcode, { name: 'Scanner Success Item', price: 42 });
 
-    await expect(page.getByText(product.name)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId(`cart-item-${product.id}`)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId(`cart-item-name-${product.id}`)).toHaveText(product.name, { timeout: 10_000 });
 
     const failingBarcode = 'FAIL404';
     const failRoute = new RegExp(`/api/products/barcode/${failingBarcode}$`);

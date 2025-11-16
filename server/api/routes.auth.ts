@@ -349,7 +349,7 @@ export async function registerAuthRoutes(app: Express) {
 
       await db
         .update(users)
-        .set({ signupCompleted: false as any, isActive: false as any })
+        .set({ signupCompleted: false, isActive: false } as any)
         .where(eq(users.id, user.id));
 
       const { code: otpCode, hash: otpHash, salt: otpSalt, expiresAt: otpExpiresAt } = buildOtpPayload();

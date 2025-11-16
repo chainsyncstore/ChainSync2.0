@@ -171,6 +171,7 @@ export default function MultiStore() {
       const now = new Date();
       return mockMetrics.map((metrics, index) => ({
         id: `placeholder-${index}`,
+        orgId: "", 
         name: index === 0 ? "Main Street Store" : index === 1 ? "Downtown Branch" : "Mall Location",
         ownerId: "",
         address: "",

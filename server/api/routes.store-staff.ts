@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { stores as prdStores } from '@shared/prd-schema';
+import { stores as prdStores } from '@shared/schema';
 import { users as sharedUsers, userRoles, userStorePermissions } from '@shared/schema';
 import { AuthService } from '../auth';
 import { db } from '../db';

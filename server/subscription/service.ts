@@ -1,7 +1,6 @@
 import { and, eq, lte, sql } from 'drizzle-orm';
 import type { QueryResult } from 'pg';
 
-import { subscriptions as prdSubscriptions, stores as prdStores } from '@shared/prd-schema';
 import { subscriptions, subscriptionPayments, stores, users } from '../../shared/schema';
 import { db } from '../db';
 import { VALID_TIERS, type ValidTier } from '../lib/constants';
@@ -54,33 +53,10 @@ export class SubscriptionService {
   private async countStoresForOrg(orgId: string): Promise<number> {
     const [{ count }] = await db
       .select({ count: sql<number>`COUNT(*)` })
-      .from(prdStores)
-      .where(eq(prdStores.orgId, orgId));
-
-    if (Number.isFinite(count)) {
-      return Number(count);
-    }
-
-    const [{ count: fallbackCount }] = await db
-      .select({ count: sql<number>`COUNT(*)` })
       .from(stores)
       .where(eq(stores.ownerId, orgId as any));
 
-    return Number(fallbackCount ?? 0);
-  }
-
-  private async syncPrdSubscription(subscriptionId: string, payload: Record<string, unknown>) {
-    try {
-      await db
-        .update(prdSubscriptions)
-        .set({ ...payload } as any)
-        .where(eq(prdSubscriptions.id, subscriptionId));
-    } catch (error) {
-      logger.warn('Failed to sync PRD subscription mirror', {
-        subscriptionId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    return Number(count ?? 0);
   }
 
   private buildBillingImpact(
@@ -197,12 +173,6 @@ export class SubscriptionService {
       .where(eq(subscriptions.id, subscriptionId))
       .returning();
 
-    await this.syncPrdSubscription(subscriptionId, {
-      planCode,
-      tier: normalizedTarget,
-      updatedAt: now,
-    });
-
     const billingImpact = this.buildBillingImpact(updated, plan);
 
     return {
@@ -313,12 +283,12 @@ export class SubscriptionService {
     const subscriptionColumns = await this.getSubscriptionColumns();
     const statusValue = await this.resolveSubscriptionStatus('TRIAL');
 
-    const subscriptionData: typeof subscriptions.$inferInsert = {
+    const subscriptionData: any = {
       orgId,
       tier,
       planCode,
       provider,
-      status: statusValue as typeof subscriptions.$inferInsert['status'],
+      status: statusValue,
       upfrontFeePaid: (upfrontFeeAmount / 100).toFixed(2),
       upfrontFeeCurrency,
       monthlyAmount: (monthlyAmount / 100).toFixed(2),
@@ -326,7 +296,7 @@ export class SubscriptionService {
       trialStartDate,
       trialEndDate,
       upfrontFeeCredited: false,
-    } as any;
+    };
 
     if (supportsUserIdColumn) {
       subscriptionData.userId = userId;
@@ -400,8 +370,8 @@ export class SubscriptionService {
         ? ((inserted.provider as typeof subscriptionData.provider | null) ?? provider)
         : provider;
       const statusInserted = subscriptionColumns.has('status')
-        ? ((inserted.status as typeof subscriptionData.status | null) ?? (statusValue as typeof subscriptionData.status))
-        : (statusValue as typeof subscriptionData.status);
+        ? ((inserted.status as typeof subscriptionData.status | null) ?? statusValue)
+        : statusValue;
       const upfrontFeeCreditedValue = subscriptionColumns.has('upfront_fee_credited')
         ? Boolean(inserted.upfront_fee_credited)
         : subscriptionData.upfrontFeeCredited;
@@ -519,18 +489,6 @@ export class SubscriptionService {
       .where(eq(subscriptions.id, subscriptionId))
       .returning();
 
-    await db
-      .update(prdSubscriptions)
-      .set({
-        autopayEnabled: true,
-        autopayProvider: provider,
-        autopayReference: reference,
-        autopayConfiguredAt: now,
-        autopayLastStatus: 'configured',
-        updatedAt: now,
-      } as any)
-      .where(eq(prdSubscriptions.id, subscriptionId));
-
     return this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
   }
 
@@ -557,15 +515,6 @@ export class SubscriptionService {
       } as any)
       .where(eq(subscriptions.id, subscriptionId))
       .returning();
-
-    await db
-      .update(prdSubscriptions)
-      .set({
-        autopayLastStatus: status,
-        updatedAt: now,
-        ...disabledPatch,
-      } as any)
-      .where(eq(prdSubscriptions.id, subscriptionId));
 
     return this.extractFirstRow<typeof subscriptions.$inferSelect>(updateResult);
   }

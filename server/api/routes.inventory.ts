@@ -6,7 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import type { QueryResult } from 'pg';
 import { z } from 'zod';
-import { products, stores, users } from '@shared/prd-schema';
+import { products, stores, users } from '@shared/schema';
 import { db } from '../db';
 import { logger, extractLogContext } from '../lib/logger';
 import { securityAuditService } from '../lib/security-audit';

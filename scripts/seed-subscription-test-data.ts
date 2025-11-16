@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
 import { db } from '../server/db';
-import { organizations, subscriptions, stores, users, userRoles } from '../shared/prd-schema';
+import { organizations, subscriptions, stores, users, userRoles } from '../shared/schema';
 
 async function seedSubscriptionTestData() {
   console.log('🌱 Seeding subscription test data...');

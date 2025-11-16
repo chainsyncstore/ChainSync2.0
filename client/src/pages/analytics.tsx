@@ -3,6 +3,7 @@ import {
   Calendar as CalendarIcon,
   DollarSign,
   Package,
+  RotateCcw,
   TrendingDown,
   TrendingUp,
   Users,
@@ -43,6 +44,9 @@ const SalesChart = lazy(() => import("@/components/analytics/sales-chart"));
 interface DailySalesSummary {
   transactions: number;
   revenue: Money;
+  refunds: Money;
+  refundCount: number;
+  netRevenue: Money;
 }
 
 interface OverviewResponse {
@@ -52,6 +56,21 @@ interface OverviewResponse {
     currency: CurrencyCode;
   };
   transactions: number;
+  refunds?: {
+    total?: Money;
+    normalized?: {
+      amount: number;
+      currency: CurrencyCode;
+    };
+    count?: number;
+  };
+  net?: {
+    total?: Money;
+    normalized?: {
+      amount: number;
+      currency: CurrencyCode;
+    };
+  };
 }
 
 interface PopularProductItem {
@@ -65,18 +84,19 @@ interface PopularProductItem {
   };
 }
 
+interface ProfitLossSummaryTotals {
+  revenue: Money;
+  cost: Money;
+  profit: Money;
+  refunds?: Money;
+  netRevenue?: Money;
+  refundCount?: number;
+}
+
 interface ProfitLossSummary {
   currency: CurrencyCode;
-  totals: {
-    revenue: Money;
-    cost: Money;
-    profit: Money;
-  };
-  normalized?: {
-    revenue: Money;
-    cost: Money;
-    profit: Money;
-  };
+  totals: ProfitLossSummaryTotals;
+  normalized?: Omit<ProfitLossSummaryTotals, "refundCount">;
 }
 
 interface InventoryValueResponse {
@@ -279,7 +299,7 @@ function ScopeControls() {
 
 function AnalyticsKpiBar({ cards }: { cards: KpiCardConfig[] }) {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">
       {cards.map((card) => {
         const Icon = card.icon;
         const deltaClass = card.delta
@@ -421,9 +441,18 @@ function AnalyticsContent() {
       const revenueMoney = data.normalized
         ? { amount: data.normalized.amount, currency: data.normalized.currency }
         : data.total;
+      const refundMoney = data.refunds?.normalized
+        ? { amount: data.refunds.normalized.amount, currency: data.refunds.normalized.currency }
+        : data.refunds?.total ?? makeMoney(0, revenueMoney.currency);
+      const netMoney = data.net?.normalized
+        ? { amount: data.net.normalized.amount, currency: data.net.normalized.currency }
+        : data.net?.total ?? makeMoney(revenueMoney.amount - refundMoney.amount, revenueMoney.currency);
       return {
         transactions: typeof data.transactions === "number" ? data.transactions : 0,
         revenue: revenueMoney,
+        refunds: refundMoney,
+        refundCount: data.refunds?.count ?? 0,
+        netRevenue: netMoney,
       } satisfies DailySalesSummary;
     },
   });
@@ -448,7 +477,7 @@ function AnalyticsContent() {
       if (displayCurrency !== "native") {
         params.set("target_currency", resolvedCurrency);
       }
-      const res = await fetch(`/api/analytics/overview?${params.toString()}`, {
+      const res = await fetch(`/api/analytics/overview?${params.toString()}` , {
         credentials: "include",
       });
       if (!res.ok) {
@@ -458,9 +487,19 @@ function AnalyticsContent() {
       const revenueMoney = data.normalized
         ? { amount: data.normalized.amount, currency: data.normalized.currency }
         : data.total;
+      const refundMoney = data.refunds?.normalized
+        ? { amount: data.refunds.normalized.amount, currency: data.refunds.normalized.currency }
+        : data.refunds?.total ?? makeMoney(0, revenueMoney.currency);
+      const netMoney = data.net?.normalized
+        ? { amount: data.net.normalized.amount, currency: data.net.normalized.currency }
+        : data.net?.total ?? makeMoney(revenueMoney.amount - refundMoney.amount, revenueMoney.currency);
+
       return {
         transactions: typeof data.transactions === "number" ? data.transactions : 0,
         revenue: revenueMoney,
+        refunds: refundMoney,
+        refundCount: data.refunds?.count ?? 0,
+        netRevenue: netMoney,
       } satisfies DailySalesSummary;
     },
   });
@@ -626,6 +665,9 @@ function AnalyticsContent() {
   const currentOverview = overviewQuery.data ?? {
     transactions: 0,
     revenue: makeMoney(0, resolvedCurrency),
+    refunds: makeMoney(0, resolvedCurrency),
+    refundCount: 0,
+    netRevenue: makeMoney(0, resolvedCurrency),
   } satisfies DailySalesSummary;
   const previousOverview = previousOverviewQuery.data ?? null;
 
@@ -635,11 +677,17 @@ function AnalyticsContent() {
       revenue: makeMoney(0, resolvedCurrency),
       cost: makeMoney(0, resolvedCurrency),
       profit: makeMoney(0, resolvedCurrency),
+      refunds: makeMoney(0, resolvedCurrency),
+      netRevenue: makeMoney(0, resolvedCurrency),
+      refundCount: 0,
     },
   } satisfies ProfitLossSummary;
   const displayRevenue = profitLossData.normalized?.revenue ?? profitLossData.totals.revenue;
   const displayCost = profitLossData.normalized?.cost ?? profitLossData.totals.cost;
   const displayProfit = profitLossData.normalized?.profit ?? profitLossData.totals.profit;
+  const displayRefunds = profitLossData.normalized?.refunds ?? profitLossData.totals.refunds ?? makeMoney(0, resolvedCurrency);
+  const displayNetRevenue = profitLossData.normalized?.netRevenue ?? profitLossData.totals.netRevenue ?? makeMoney(displayRevenue.amount - displayRefunds.amount, displayRevenue.currency);
+  const totalRefundCount = profitLossData.totals.refundCount ?? 0;
   const profitMargin = displayRevenue.amount > 0 ? (displayProfit.amount / displayRevenue.amount) * 100 : 0;
 
   const inventoryData: InventoryValueResponse =
@@ -763,7 +811,15 @@ function AnalyticsContent() {
       value: formatCurrency(currentOverview.revenue),
       currencyBadge: displayCurrency === "native" ? "Native" : resolvedCurrency,
       delta: computeDelta(currentOverview.revenue.amount, previousOverview?.revenue.amount),
-      caption: `${currentOverview.transactions.toLocaleString()} transactions`,
+      caption: `Net ${formatCurrency(displayNetRevenue)} • ${currentOverview.transactions.toLocaleString()} transactions`,
+    },
+    {
+      key: "refunds",
+      title: "Refunds",
+      icon: RotateCcw,
+      value: formatCurrency(displayRefunds),
+      currencyBadge: displayCurrency === "native" ? "Native" : resolvedCurrency,
+      caption: `${totalRefundCount.toLocaleString()} refund${totalRefundCount === 1 ? "" : "s"}`,
     },
     {
       key: "profit",

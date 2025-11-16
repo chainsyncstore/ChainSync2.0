@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { Request, Response, NextFunction, RequestHandler } from "express";
 import { z, ZodError } from "zod";
-import { auditLogs, users } from "@shared/prd-schema";
+import { auditLogs, users } from "@shared/schema";
 import { db } from "../db";
 import { sendErrorResponse } from "../lib/errors";
 import { ValidationError } from "../lib/errors";

@@ -6,17 +6,17 @@ import {
   stores as T_STORES,
   products as T_PRODUCTS,
   inventory as T_INVENTORY,
-  customers as T_CUSTOMERS,
+  legacyCustomers as T_CUSTOMERS,
   loyaltyAccounts as T_LA,
-  loyaltyTransactions as T_LT,
-  sales as T_SALES,
-  saleItems as T_SALE_ITEMS,
+  legacyLoyaltyTransactions as T_LT,
+  legacySales as T_SALES,
+  legacySaleItems as T_SALE_ITEMS,
   auditLogs as T_AUDIT,
   users as T_PRD_USERS,
   subscriptions as T_PRD_SUBSCRIPTIONS,
   subscriptionPayments as T_PRD_SUBSCRIPTION_PAYMENTS,
   organizations as T_PRD_ORGANIZATIONS,
-} from '../../shared/prd-schema';
+} from '../../shared/schema';
 import {
   users as T_USERS,
   userRoles as T_USER_ROLES,

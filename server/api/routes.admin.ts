@@ -3,7 +3,7 @@ import { eq, and, sql, gte, lte } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { users, ipWhitelist, priceChanges, subscriptions, subscriptionPayments, dunningEvents, organizations } from '@shared/prd-schema';
+import { users, ipWhitelists as ipWhitelist, subscriptions, subscriptionPayments, dunningEvents, organizations } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { getPlan } from '../lib/plans';
@@ -390,13 +390,6 @@ export async function registerAdminRoutes(app: Express) {
         const newPrice = absolute ? absolute : (Number(oldPrice) * (factor as number)).toFixed(2);
         if (!parsed.data.dryRun) {
           await exec('UPDATE products SET sale_price = $1 WHERE id = $2', [newPrice, r.id]);
-          await db.insert(priceChanges).values({
-            orgId: me.orgId,
-            productId: r.id as any,
-            oldPrice: oldPrice as any,
-            newPrice: newPrice as any,
-            initiatedBy: currentUserId as any,
-          } as any);
         }
         changes.push({ productId: r.id, oldPrice, newPrice });
       }
@@ -447,7 +440,6 @@ export async function registerAdminRoutes(app: Express) {
         const row = (found as any).rows?.[0];
         if (!row) continue;
         await db.execute(sql`UPDATE products SET sale_price = ${newPrice} WHERE id = ${row.id}`);
-        await db.insert(priceChanges).values({ orgId: me.orgId, productId: row.id as any, oldPrice: row.sale_price as any, newPrice: newPrice as any, initiatedBy: currentUserId as any } as any);
         count++;
       }
       if (pg) await pg.query('COMMIT');

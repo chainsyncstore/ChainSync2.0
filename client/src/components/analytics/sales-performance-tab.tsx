@@ -1,4 +1,4 @@
-import { Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import { Loader2, RotateCcw, TrendingDown, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -17,7 +17,12 @@ import { useAnalyticsScope } from "./analytics-scope-context";
 interface DailySalesSummary {
   transactions: number;
   revenue: Money;
+  refunds: Money;
+  refundCount: number;
+  netRevenue: Money;
 }
+
+const makeMoney = (amount: number, currency: Money["currency"]): Money => ({ amount, currency });
 
 interface PopularProductItem {
   product: Product;
@@ -220,8 +225,17 @@ export default function SalesPerformanceTab({
       title: "Revenue",
       value: formatCurrency(currentOverview.revenue),
       delta: revenueDelta,
-      caption: `${currentOverview.transactions.toLocaleString()} transactions`,
+      caption: `Net ${formatCurrency(currentOverview.netRevenue)} • ${currentOverview.transactions.toLocaleString()} txns`,
       currencyBadge,
+    },
+    {
+      key: "refunds",
+      title: "Refunds",
+      value: formatCurrency(currentOverview.refunds ?? makeMoney(0, currentOverview.revenue.currency)),
+      delta: computeDelta(currentOverview.refunds?.amount ?? 0, previousOverview?.refunds?.amount ?? 0),
+      caption: `${currentOverview.refundCount.toLocaleString()} refund${currentOverview.refundCount === 1 ? "" : "s"}`,
+      currencyBadge,
+      icon: RotateCcw,
     },
     {
       key: "transactions",
@@ -246,7 +260,7 @@ export default function SalesPerformanceTab({
     <div className="space-y-6">
       {chart}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
         {comparisonCards.map((card) => (
           <Card key={card.key} className="border border-slate-200">
             <CardHeader className="space-y-1">
@@ -343,6 +357,14 @@ export default function SalesPerformanceTab({
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Cost</span>
               <span className="font-semibold text-red-500">{formatCurrency(displayCost)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Refunds</span>
+              <span className="font-semibold text-amber-600">{formatCurrency(currentOverview.refunds)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Net Revenue</span>
+              <span className="font-semibold text-slate-900">{formatCurrency(currentOverview.netRevenue)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Net Profit</span>

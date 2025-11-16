@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import express, { type Express, type Request, type Response } from 'express';
-import { subscriptions, subscriptionPayments, organizations, webhookEvents } from '@shared/prd-schema';
+import { subscriptions, subscriptionPayments, organizations, webhookEvents } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 

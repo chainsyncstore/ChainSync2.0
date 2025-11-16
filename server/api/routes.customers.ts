@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { customers, users, stores } from '@shared/prd-schema';
+import { legacyCustomers as customers, users, stores } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/authz';

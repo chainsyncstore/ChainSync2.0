@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import type { Request, Response, NextFunction } from 'express';
-import { subscriptions, users } from '@shared/prd-schema';
+import { subscriptions, users } from '@shared/schema';
 import { db } from '../db';
 
 // Enforce org active subscription for non-admin users

@@ -10,7 +10,7 @@ import {
   subscriptions as prdSubscriptions,
   subscriptionPayments,
   users as prdUsers,
-} from '@shared/prd-schema';
+} from '@shared/schema';
 import { db } from '@server/db';
 import { runTrialExpirationBillingNow } from '@server/jobs/cleanup';
 import { registerRoutes } from '@server/routes';

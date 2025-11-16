@@ -20,6 +20,8 @@ import { z } from "zod";
 export const roleEnum = pgEnum("role", ["ADMIN", "MANAGER", "CASHIER"]);
 export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "voided", "held"]);
 export const paymentMethodEnum = pgEnum("payment_method", ["cash", "card", "digital"]);
+export const transactionKindEnum = pgEnum("transaction_kind", ["SALE", "REFUND", "ADJUSTMENT"]);
+export const saleStatusEnum = pgEnum("sale_status", ["COMPLETED", "RETURNED"]);
 
 // Subscription Enums
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["TRIAL", "ACTIVE", "PAST_DUE", "CANCELLED", "SUSPENDED"]);
@@ -42,7 +44,7 @@ export const organizations = pgTable("organizations", {
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   orgId: uuid("org_id").references(() => organizations.id, { onDelete: "set null" }),
-  subscriptionId: uuid("subscription_id").references(() => subscriptions.id, { onDelete: "set null" }),
+  subscriptionId: uuid("subscription_id"),
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   settings: jsonb("settings").default({}),
@@ -79,6 +81,44 @@ export const users = pgTable("users", {
   storeIdx: index("users_store_idx").on(table.storeId),
 }));
 
+// Subscriptions table (billing for organizations)
+export const subscriptions = pgTable("subscriptions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: uuid("user_id"),
+  tier: varchar("tier", { length: 50 }).notNull(),
+  planCode: varchar("plan_code", { length: 128 }).notNull(),
+  provider: subscriptionProviderEnum("provider").notNull().default("PAYSTACK"),
+  status: subscriptionStatusEnum("status").notNull().default("TRIAL"),
+  upfrontFeePaid: decimal("upfront_fee_paid", { precision: 10, scale: 2 }).notNull(),
+  upfrontFeeCurrency: varchar("upfront_fee_currency", { length: 3 }).notNull(),
+  monthlyAmount: decimal("monthly_amount", { precision: 10, scale: 2 }).notNull(),
+  monthlyCurrency: varchar("monthly_currency", { length: 3 }).notNull(),
+  trialStartDate: timestamp("trial_start_date").notNull().defaultNow(),
+  trialEndDate: timestamp("trial_end_date").notNull(),
+  nextBillingDate: timestamp("next_billing_date"),
+  upfrontFeeCredited: boolean("upfront_fee_credited").notNull().default(false),
+  autopayEnabled: boolean("autopay_enabled").notNull().default(false),
+  autopayProvider: subscriptionProviderEnum("autopay_provider"),
+  autopayReference: varchar("autopay_reference", { length: 255 }),
+  autopayConfiguredAt: timestamp("autopay_configured_at", { withTimezone: true }),
+  autopayLastStatus: varchar("autopay_last_status", { length: 32 }),
+  trialReminder7SentAt: timestamp("trial_reminder_7_sent_at", { withTimezone: true }),
+  trialReminder3SentAt: timestamp("trial_reminder_3_sent_at", { withTimezone: true }),
+  externalCustomerId: varchar("external_customer_id", { length: 255 }),
+  externalSubId: varchar("external_sub_id", { length: 255 }),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  lastEventRaw: jsonb("last_event_raw"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  orgIdx: index("subscriptions_org_idx").on(table.orgId),
+  userIdIdx: index("subscriptions_user_id_idx").on(table.userId),
+  statusIdx: index("subscriptions_status_idx").on(table.status),
+  trialEndDateIdx: index("subscriptions_trial_end_date_idx").on(table.trialEndDate),
+}));
+
 // User roles table (align with production migrations)
 export const userRoles = pgTable('user_roles', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -107,6 +147,7 @@ export const userRolesRelations = relations(userRoles, ({ one }) => ({
 // Stores table
 export const stores = pgTable("stores", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").references(() => organizations.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   ownerId: uuid("owner_id"),
   address: text("address"),
@@ -122,12 +163,16 @@ export const stores = pgTable("stores", {
 // Products table
 export const products = pgTable("products", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id"),
   name: varchar("name", { length: 255 }).notNull(),
   sku: varchar("sku", { length: 255 }).unique(),
   barcode: varchar("barcode", { length: 255 }).unique(),
   description: text("description"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   cost: decimal("cost", { precision: 10, scale: 2 }),
+  costPrice: varchar("cost_price", { length: 255 }),
+  salePrice: varchar("sale_price", { length: 255 }),
+  vatRate: varchar("vat_rate", { length: 64 }),
   category: varchar("category", { length: 255 }),
   brand: varchar("brand", { length: 255 }),
   isActive: boolean("is_active").default(true),
@@ -147,6 +192,7 @@ export const inventory = pgTable("inventory", {
   productId: uuid("product_id").notNull(),
   storeId: uuid("store_id").notNull(),
   quantity: integer("quantity").notNull().default(0),
+  reorderLevel: integer("reorder_level"),
   minStockLevel: integer("min_stock_level").default(10),
   maxStockLevel: integer("max_stock_level").default(100),
   lastRestocked: timestamp("last_restocked"),
@@ -162,6 +208,7 @@ export const transactions = pgTable("transactions", {
   storeId: uuid("store_id").notNull(),
   cashierId: uuid("cashier_id").notNull(),
   status: transactionStatusEnum("status").default("pending"),
+  kind: transactionKindEnum("kind").notNull().default("SALE"),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   taxAmount: decimal("tax_amount", { precision: 10, scale: 2 }).notNull(),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
@@ -169,6 +216,7 @@ export const transactions = pgTable("transactions", {
   amountReceived: decimal("amount_received", { precision: 10, scale: 2 }),
   changeDue: decimal("change_due", { precision: 10, scale: 2 }),
   receiptNumber: varchar("receipt_number", { length: 255 }).unique(),
+  originTransactionId: uuid("origin_transaction_id"),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 }, (table) => ({
@@ -189,6 +237,84 @@ export const transactionItems = pgTable("transaction_items", {
   transactionIdIdx: index("transaction_items_transaction_id_idx").on(table.transactionId),
   productIdIdx: index("transaction_items_product_id_idx").on(table.productId),
 }));
+
+// Legacy POS sales tables (production-aligned)
+export const legacySales = pgTable("sales", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull(),
+  storeId: uuid("store_id").notNull(),
+  cashierId: uuid("cashier_id").notNull(),
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  discount: decimal("discount", { precision: 10, scale: 2 }).notNull(),
+  tax: decimal("tax", { precision: 10, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  status: saleStatusEnum("status").notNull().default("COMPLETED"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+  walletReference: varchar("wallet_reference", { length: 255 }),
+  paymentBreakdown: jsonb("payment_breakdown"),
+});
+
+export const legacySaleItems = pgTable("sale_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  saleId: uuid("sale_id").notNull(),
+  productId: uuid("product_id").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  lineDiscount: decimal("line_discount", { precision: 10, scale: 2 }).notNull(),
+  lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
+});
+
+export const legacyReturns = pgTable("returns", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  saleId: uuid("sale_id").notNull(),
+  storeId: uuid("store_id").notNull(),
+  reason: text("reason"),
+  processedBy: uuid("processed_by").notNull(),
+  refundType: varchar("refund_type", { length: 16 }).notNull(),
+  totalRefund: decimal("total_refund", { precision: 10, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow(),
+});
+
+export const legacyReturnItems = pgTable("return_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  returnId: uuid("return_id").notNull(),
+  saleItemId: uuid("sale_item_id").notNull(),
+  productId: uuid("product_id").notNull(),
+  quantity: integer("quantity").notNull(),
+  restockAction: varchar("restock_action", { length: 16 }).notNull(),
+  refundType: varchar("refund_type", { length: 16 }).notNull(),
+  refundAmount: decimal("refund_amount", { precision: 10, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull(),
+  notes: text("notes"),
+});
+
+// Legacy loyalty tables (org-scoped)
+export const legacyCustomers = pgTable("customers", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull(),
+  phone: varchar("phone", { length: 255 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const loyaltyAccounts = pgTable("loyalty_accounts", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull(),
+  customerId: uuid("customer_id").notNull(),
+  points: integer("points").notNull().default(0),
+  tier: varchar("tier", { length: 255 }),
+});
+
+export const legacyLoyaltyTransactions = pgTable("loyalty_transactions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  loyaltyAccountId: uuid("loyalty_account_id").notNull(),
+  points: integer("points").notNull(),
+  reason: varchar("reason", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
 
 // Realtime notifications table for websocket broadcasting
 export const notifications = pgTable("notifications", {
@@ -712,9 +838,9 @@ export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ on
   }),
 }));
 
-// IP Whitelist Tables
 export const ipWhitelists = pgTable("ip_whitelists", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   ipAddress: varchar("ip_address", { length: 45 }).notNull(), // IPv6 can be up to 45 chars
   description: varchar("description", { length: 255 }),
   whitelistedBy: uuid("whitelisted_by").notNull(), // User ID who added this IP
@@ -726,401 +852,114 @@ export const ipWhitelists = pgTable("ip_whitelists", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   ipAddressIdx: index("ip_whitelists_ip_address_idx").on(table.ipAddress),
+  orgIdIdx: index("ip_whitelists_org_id_idx").on(table.orgId),
   whitelistedByIdx: index("ip_whitelists_whitelisted_by_idx").on(table.whitelistedBy),
   whitelistedForIdx: index("ip_whitelists_whitelisted_for_idx").on(table.whitelistedFor),
   storeIdIdx: index("ip_whitelists_store_id_idx").on(table.storeId),
 }));
 
+// IP Whitelist Logs table
 export const ipWhitelistLogs = pgTable("ip_whitelist_logs", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  ipAddress: varchar("ip_address", { length: 45 }).notNull(),
-  userId: uuid("user_id"),
-  username: varchar("username", { length: 255 }),
-  action: varchar("action", { length: 50 }).notNull(), // 'login_attempt', 'whitelist_added', 'whitelist_removed'
-  success: boolean("success").notNull(),
-  reason: varchar("reason", { length: 255 }),
-  userAgent: text("user_agent"),
-  createdAt: timestamp("created_at").defaultNow(),
+	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+	ipAddress: varchar("ip_address", { length: 45 }).notNull(),
+	userId: uuid("user_id"),
+	username: varchar("username", { length: 255 }),
+	action: varchar("action", { length: 50 }).notNull(), // 'login_attempt', 'whitelist_added', 'whitelist_removed'
+	success: boolean("success").notNull(),
+	reason: varchar("reason", { length: 255 }),
+	userAgent: text("user_agent"),
+	createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-  ipAddressIdx: index("ip_whitelist_logs_ip_address_idx").on(table.ipAddress),
-  userIdIdx: index("ip_whitelist_logs_user_id_idx").on(table.userId),
-}));
-
-// Session table for express-session
-export const sessions = pgTable("session", {
-  sid: varchar("sid", { length: 255 }).primaryKey(),
-  sess: text("sess").notNull(),
-  expire: timestamp("expire").notNull(),
-}, (table) => ({
-  expireIdx: index("session_expire_idx").on(table.expire),
-}));
-
-// Password Reset Tokens table
-export const passwordResetTokens = pgTable("password_reset_tokens", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: uuid("user_id").notNull(),
-  token: varchar("token", { length: 255 }).notNull().unique(),
-  expiresAt: timestamp("expires_at").notNull(),
-  isUsed: boolean("is_used").default(false),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  userIdIdx: index("password_reset_tokens_user_id_idx").on(table.userId),
-  tokenIdx: index("password_reset_tokens_token_idx").on(table.token),
-}));
-
-// Email Verification Tokens table
-export const emailVerificationTokens = pgTable("email_verification_tokens", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: uuid("user_id").notNull(),
-  token: varchar("token", { length: 255 }).notNull().unique(),
-  expiresAt: timestamp("expires_at").notNull(),
-  isUsed: boolean("is_used").default(false),
-  createdAt: timestamp("created_at").defaultNow(),
-  usedAt: timestamp("used_at"),
-}, (table) => ({
-  userIdIdx: index("email_verification_tokens_user_id_idx").on(table.userId),
-  tokenIdx: index("email_verification_tokens_token_idx").on(table.token),
-  expiresAtIdx: index("email_verification_tokens_expires_at_idx").on(table.expiresAt),
-}));
-
-// Phone Verification OTP table
-export const phoneVerificationOTP = pgTable("phone_verification_otp", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: uuid("user_id").notNull(),
-  phone: varchar("phone", { length: 50 }).notNull(),
-  otpHash: varchar("otp_hash", { length: 255 }).notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
-  attempts: integer("attempts").default(0),
-  maxAttempts: integer("max_attempts").default(3),
-  createdAt: timestamp("created_at").defaultNow(),
-  verifiedAt: timestamp("verified_at"),
-  isVerified: boolean("is_verified").default(false),
-}, (table) => ({
-  userIdIdx: index("phone_verification_otp_user_id_idx").on(table.userId),
-  phoneIdx: index("phone_verification_otp_phone_idx").on(table.phone),
-  expiresAtIdx: index("phone_verification_otp_expires_at_idx").on(table.expiresAt),
-}));
-
-// Account Lockout Logs table
-export const accountLockoutLogs = pgTable("account_lockout_logs", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: uuid("user_id"),
-  username: varchar("username", { length: 255 }).notNull(),
-  ipAddress: varchar("ip_address", { length: 45 }).notNull(), // IPv6 compatible
-  action: varchar("action", { length: 50 }).notNull(),
-  success: boolean("success").notNull(),
-  reason: text("reason"),
-  userAgent: text("user_agent"),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  userIdIdx: index("account_lockout_logs_user_id_idx").on(table.userId),
-  ipAddressIdx: index("account_lockout_logs_ip_address_idx").on(table.ipAddress),
-  createdAtIdx: index("account_lockout_logs_created_at_idx").on(table.createdAt),
-  actionIdx: index("account_lockout_logs_action_idx").on(table.action),
-}));
-
-// User Sessions table for JWT token management
-export const userSessions = pgTable("user_sessions", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: uuid("user_id").notNull(),
-  sessionToken: varchar("session_token", { length: 255 }).notNull().unique(),
-  refreshToken: varchar("refresh_token", { length: 255 }).notNull().unique(),
-  ipAddress: varchar("ip_address", { length: 45 }),
-  userAgent: text("user_agent"),
-  expiresAt: timestamp("expires_at").notNull(),
-  refreshExpiresAt: timestamp("refresh_expires_at").notNull(),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-  lastUsedAt: timestamp("last_used_at").defaultNow(),
-}, (table) => ({
-  userIdIdx: index("user_sessions_user_id_idx").on(table.userId),
-  sessionTokenIdx: index("user_sessions_session_token_idx").on(table.sessionToken),
-  refreshTokenIdx: index("user_sessions_refresh_token_idx").on(table.refreshToken),
-  expiresAtIdx: index("user_sessions_expires_at_idx").on(table.expiresAt),
-  isActiveIdx: index("user_sessions_is_active_idx").on(table.isActive),
-}));
-
-// AI Demand Forecasting Tables
-export const forecastModels = pgTable("forecast_models", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: uuid("store_id").notNull(),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  modelType: varchar("model_type", { length: 100 }).notNull(), // 'linear', 'arima', 'lstm', 'prophet', etc.
-  parameters: text("parameters"), // JSON string of model parameters
-  accuracy: decimal("accuracy", { precision: 5, scale: 4 }),
-  isActive: boolean("is_active").default(true),
-  lastTrained: timestamp("last_trained"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => ({
-  storeIdIdx: index("forecast_models_store_id_idx").on(table.storeId),
-}));
-
-export const demandForecasts = pgTable("demand_forecasts", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: uuid("store_id").notNull(),
-  productId: uuid("product_id").notNull(),
-  modelId: uuid("model_id").notNull(),
-  forecastDate: timestamp("forecast_date").notNull(),
-  predictedDemand: integer("predicted_demand").notNull(),
-  confidenceLower: integer("confidence_lower"),
-  confidenceUpper: integer("confidence_upper"),
-  actualDemand: integer("actual_demand"),
-  accuracy: decimal("accuracy", { precision: 5, scale: 4 }),
-  factors: text("factors"), // JSON string of factors that influenced the forecast
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  storeIdIdx: index("demand_forecasts_store_id_idx").on(table.storeId),
-  productIdIdx: index("demand_forecasts_product_id_idx").on(table.productId),
-  modelIdIdx: index("demand_forecasts_model_id_idx").on(table.modelId),
-  forecastDateIdx: index("demand_forecasts_forecast_date_idx").on(table.forecastDate),
-}));
-
-export const aiInsights = pgTable("ai_insights", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: uuid("store_id").notNull(),
-  insightType: varchar("insight_type", { length: 100 }).notNull(), // 'trend', 'anomaly', 'recommendation', 'pattern'
-  title: varchar("title", { length: 255 }).notNull(),
-  description: text("description").notNull(),
-  severity: varchar("severity", { length: 50 }).default("medium"), // 'low', 'medium', 'high', 'critical'
-  data: text("data"), // JSON string of insight data
-  isRead: boolean("is_read").default(false),
-  isActioned: boolean("is_actioned").default(false),
-  actionable: boolean("actionable").default(false),
-  confidenceScore: decimal("confidence_score", { precision: 5, scale: 2 }),
-  createdAt: timestamp("created_at").defaultNow(),
-  actionedAt: timestamp("actioned_at"),
-}, (table) => ({
-  storeIdIdx: index("ai_insights_store_id_idx").on(table.storeId),
-}));
-
-export const seasonalPatterns = pgTable("seasonal_patterns", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: uuid("store_id").notNull(),
-  productId: uuid("product_id"),
-  patternType: varchar("pattern_type", { length: 100 }).notNull(), // 'daily', 'weekly', 'monthly', 'yearly'
-  season: varchar("season", { length: 50 }),
-  dayOfWeek: integer("day_of_week"), // 0-6 for Sunday-Saturday
-  month: integer("month"), // 1-12
-  averageDemand: integer("average_demand").notNull(),
-  confidence: decimal("confidence", { precision: 5, scale: 4 }),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  storeIdIdx: index("seasonal_patterns_store_id_idx").on(table.storeId),
-  productIdIdx: index("seasonal_patterns_product_id_idx").on(table.productId),
-}));
-
-export const externalFactors = pgTable("external_factors", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: uuid("store_id").notNull(),
-  factorType: varchar("factor_type", { length: 100 }).notNull(), // 'weather', 'holiday', 'event', 'economic'
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  startDate: timestamp("start_date").notNull(),
-  endDate: timestamp("end_date"),
-  impact: varchar("impact", { length: 50 }).default("neutral"), // 'positive', 'negative', 'neutral'
-  impactStrength: decimal("impact_strength", { precision: 3, scale: 2 }).default("0.00"), // -1.00 to 1.00
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  storeIdIdx: index("external_factors_store_id_idx").on(table.storeId),
-}));
-
-// AI Relations
-export const forecastModelsRelations = relations(forecastModels, ({ one, many }) => ({
-  store: one(stores, {
-    fields: [forecastModels.storeId],
-    references: [stores.id],
-  }),
-  forecasts: many(demandForecasts),
-}));
-
-export const demandForecastsRelations = relations(demandForecasts, ({ one }) => ({
-  store: one(stores, {
-    fields: [demandForecasts.storeId],
-    references: [stores.id],
-  }),
-  product: one(products, {
-    fields: [demandForecasts.productId],
-    references: [products.id],
-  }),
-  model: one(forecastModels, {
-    fields: [demandForecasts.modelId],
-    references: [forecastModels.id],
-  }),
-}));
-
-export const aiInsightsRelations = relations(aiInsights, ({ one }) => ({
-  store: one(stores, {
-    fields: [aiInsights.storeId],
-    references: [stores.id],
-  }),
-}));
-
-export const seasonalPatternsRelations = relations(seasonalPatterns, ({ one }) => ({
-  store: one(stores, {
-    fields: [seasonalPatterns.storeId],
-    references: [stores.id],
-  }),
-  product: one(products, {
-    fields: [seasonalPatterns.productId],
-    references: [products.id],
-  }),
-}));
-
-export const externalFactorsRelations = relations(externalFactors, ({ one }) => ({
-  store: one(stores, {
-    fields: [externalFactors.storeId],
-    references: [stores.id],
-  }),
-}));
-
-// IP Whitelist Relations
-export const ipWhitelistsRelations = relations(ipWhitelists, ({ one }) => ({
-  whitelistedByUser: one(users, {
-    fields: [ipWhitelists.whitelistedBy],
-    references: [users.id],
-  }),
-  whitelistedForUser: one(users, {
-    fields: [ipWhitelists.whitelistedFor],
-    references: [users.id],
-  }),
-  store: one(stores, {
-    fields: [ipWhitelists.storeId],
-    references: [stores.id],
-  }),
-}));
-
-export const ipWhitelistLogsRelations = relations(ipWhitelistLogs, ({ one }) => ({
-  user: one(users, {
-    fields: [ipWhitelistLogs.userId],
-    references: [users.id],
-  }),
-}));
-
-// Password Reset Token Relations
-export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
-  user: one(users, {
-    fields: [passwordResetTokens.userId],
-    references: [users.id],
-  }),
-}));
-
-// Email Verification Token Relations
-export const emailVerificationTokensRelations = relations(emailVerificationTokens, ({ one }) => ({
-  user: one(users, {
-    fields: [emailVerificationTokens.userId],
-    references: [users.id],
-  }),
-}));
-
-// Phone Verification OTP Relations
-export const phoneVerificationOTPRelations = relations(phoneVerificationOTP, ({ one }) => ({
-  user: one(users, {
-    fields: [phoneVerificationOTP.userId],
-    references: [users.id],
-  }),
-}));
-
-// Account Lockout Log Relations
-export const accountLockoutLogsRelations = relations(accountLockoutLogs, ({ one }) => ({
-  user: one(users, {
-    fields: [accountLockoutLogs.userId],
-    references: [users.id],
-  }),
-}));
-
-// User Session Relations
-export const userSessionsRelations = relations(userSessions, ({ one }) => ({
-  user: one(users, {
-    fields: [userSessions.userId],
-    references: [users.id],
-  }),
-}));
-
-// Subscriptions table
-export const subscriptions = pgTable("subscriptions", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
-  tier: varchar("tier", { length: 50 }).notNull(),
-  planCode: varchar("plan_code", { length: 128 }).notNull(),
-  provider: subscriptionProviderEnum("provider").notNull().default("PAYSTACK"),
-  status: subscriptionStatusEnum("status").notNull().default("TRIAL"),
-  upfrontFeePaid: decimal("upfront_fee_paid", { precision: 10, scale: 2 }).notNull(),
-  upfrontFeeCurrency: varchar("upfront_fee_currency", { length: 3 }).notNull(),
-  monthlyAmount: decimal("monthly_amount", { precision: 10, scale: 2 }).notNull(),
-  monthlyCurrency: varchar("monthly_currency", { length: 3 }).notNull(),
-  trialStartDate: timestamp("trial_start_date").notNull().defaultNow(),
-  trialEndDate: timestamp("trial_end_date").notNull(),
-  nextBillingDate: timestamp("next_billing_date"),
-  upfrontFeeCredited: boolean("upfront_fee_credited").notNull().default(false),
-  autopayEnabled: boolean("autopay_enabled").notNull().default(false),
-  autopayProvider: subscriptionProviderEnum("autopay_provider"),
-  autopayReference: varchar("autopay_reference", { length: 255 }),
-  autopayConfiguredAt: timestamp("autopay_configured_at", { withTimezone: true }),
-  autopayLastStatus: varchar("autopay_last_status", { length: 32 }),
-  trialReminder7SentAt: timestamp("trial_reminder_7_sent_at", { withTimezone: true }),
-  trialReminder3SentAt: timestamp("trial_reminder_3_sent_at", { withTimezone: true }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => ({
-  orgIdx: index("subscriptions_org_idx").on(table.orgId),
-  userIdIdx: index("subscriptions_user_id_idx").on(table.userId),
-  statusIdx: index("subscriptions_status_idx").on(table.status),
-  trialEndDateIdx: index("subscriptions_trial_end_date_idx").on(table.trialEndDate),
+	ipAddressIdx: index("ip_whitelist_logs_ip_address_idx").on(table.ipAddress),
+	userIdIdx: index("ip_whitelist_logs_user_id_idx").on(table.userId),
 }));
 
 // Subscription Payments table
 export const subscriptionPayments = pgTable("subscription_payments", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   subscriptionId: uuid("subscription_id").notNull().references(() => subscriptions.id, { onDelete: "cascade" }),
-  paymentReference: varchar("payment_reference", { length: 255 }).notNull(),
+  orgId: uuid("org_id"),
+  paymentReference: varchar("payment_reference", { length: 255 }),
+  planCode: varchar("plan_code", { length: 128 }),
+  externalSubId: varchar("external_sub_id", { length: 255 }),
+  externalInvoiceId: varchar("external_invoice_id", { length: 255 }),
+  reference: varchar("reference", { length: 255 }),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).notNull(),
   paymentType: varchar("payment_type", { length: 50 }).notNull(), // 'upfront_fee', 'monthly_billing'
   status: varchar("status", { length: 50 }).notNull(), // 'pending', 'completed', 'failed'
   provider: varchar("provider", { length: 50 }).notNull(), // 'paystack', 'flutterwave'
+  eventType: varchar("event_type", { length: 64 }),
+  raw: jsonb("raw"),
   metadata: jsonb("metadata").$type<Record<string, unknown> | null>(),
+  occurredAt: timestamp("occurred_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   subscriptionIdIdx: index("subscription_payments_subscription_id_idx").on(table.subscriptionId),
+  orgIdx: index("subscription_payments_org_id_idx").on(table.orgId),
   paymentReferenceIdx: index("subscription_payments_reference_idx").on(table.paymentReference),
   statusIdx: index("subscription_payments_status_idx").on(table.status),
 }));
 
-// Add subscription relations to existing tables
-export const subscriptionsRelations = relations(subscriptions, ({ one, many }) => ({
-  organization: one(organizations, {
-    fields: [subscriptions.orgId],
-    references: [organizations.id],
-  }),
-  user: one(users, {
-    fields: [subscriptions.userId],
-    references: [users.id],
-  }),
-  payments: many(subscriptionPayments),
+export const dunningEvents = pgTable("dunning_events", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id"),
+  subscriptionId: uuid("subscription_id").notNull().references(() => subscriptions.id, { onDelete: "cascade" }),
+  attempt: integer("attempt"),
+  status: varchar("status", { length: 32 }),
+  sentAt: timestamp("sent_at"),
+  nextAttemptAt: timestamp("next_attempt_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  subscriptionIdx: index("dunning_events_subscription_id_idx").on(table.subscriptionId),
+  orgIdx: index("dunning_events_org_id_idx").on(table.orgId),
 }));
 
-export const subscriptionPaymentsRelations = relations(subscriptionPayments, ({ one }) => ({
-  subscription: one(subscriptions, {
-    fields: [subscriptionPayments.subscriptionId],
-    references: [subscriptions.id],
-  }),
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id"),
+  userId: uuid("user_id"),
+  action: varchar("action", { length: 64 }).notNull(),
+  entity: varchar("entity", { length: 64 }),
+  entityId: uuid("entity_id"),
+  meta: jsonb("meta"),
+  ip: varchar("ip", { length: 45 }),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  orgIdx: index("audit_logs_org_id_idx").on(table.orgId),
+  userIdx: index("audit_logs_user_id_idx").on(table.userId),
 }));
 
-// AI Insert Schemas
-export const insertForecastModelSchema = createInsertSchema(forecastModels);
+// Scheduled analytics reports table
+export const scheduledReports = pgTable("scheduled_reports", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id"),
+  storeId: uuid("store_id"),
+  userId: uuid("user_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  interval: varchar("interval", { length: 32 }).notNull().default("daily"),
+  params: jsonb("params"),
+  lastRunAt: timestamp("last_run_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  orgIdx: index("scheduled_reports_org_id_idx").on(table.orgId),
+  userIdx: index("scheduled_reports_user_id_idx").on(table.userId),
+}));
 
-export const insertDemandForecastSchema = createInsertSchema(demandForecasts);
-
-export const insertAiInsightSchema = createInsertSchema(aiInsights);
-
-export const insertSeasonalPatternSchema = createInsertSchema(seasonalPatterns);
-
-export const insertExternalFactorSchema = createInsertSchema(externalFactors);
+// Password Reset Tokens table
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+	userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+	token: varchar("token", { length: 255 }).notNull().unique(),
+	expiresAt: timestamp("expires_at").notNull(),
+	isUsed: boolean("is_used").default(false),
+	createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+	userIdIdx: index("password_reset_tokens_user_id_idx").on(table.userId),
+	tokenIdx: index("password_reset_tokens_token_idx").on(table.token),
+}));
 
 // IP Whitelist Insert Schemas
 export const insertIpWhitelistSchema = createInsertSchema(ipWhitelists);
@@ -1129,18 +968,6 @@ export const insertIpWhitelistLogSchema = createInsertSchema(ipWhitelistLogs);
 
 // Password Reset Token Insert Schema
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens);
-
-// Email Verification Token Insert Schema
-export const insertEmailVerificationTokenSchema = createInsertSchema(emailVerificationTokens);
-
-// Phone Verification OTP Insert Schema
-export const insertPhoneVerificationOTPSchema = createInsertSchema(phoneVerificationOTP);
-
-// Account Lockout Log Insert Schema
-export const insertAccountLockoutLogSchema = createInsertSchema(accountLockoutLogs);
-
-// User Session Insert Schema
-export const insertUserSessionSchema = createInsertSchema(userSessions);
 
 // IP Whitelist Types
 export type IpWhitelist = typeof ipWhitelists.$inferSelect;
@@ -1153,30 +980,112 @@ export type InsertIpWhitelistLog = z.infer<typeof insertIpWhitelistLogSchema>;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
 
-// Email Verification Token Types
-export type EmailVerificationToken = typeof emailVerificationTokens.$inferSelect;
-export type InsertEmailVerificationToken = z.infer<typeof insertEmailVerificationTokenSchema>;
+// Email Verification Tokens table
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
+	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+	userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+	token: varchar("token", { length: 255 }).notNull().unique(),
+	expiresAt: timestamp("expires_at").notNull(),
+	isUsed: boolean("is_used").default(false),
+	createdAt: timestamp("created_at").defaultNow(),
+	usedAt: timestamp("used_at"),
+}, (table) => ({
+	userIdIdx: index("email_verification_tokens_user_id_idx").on(table.userId),
+	tokenIdx: index("email_verification_tokens_token_idx").on(table.token),
+	expiresAtIdx: index("email_verification_tokens_expires_at_idx").on(table.expiresAt),
+}));
 
-// Phone Verification OTP Types
-export type PhoneVerificationOTP = typeof phoneVerificationOTP.$inferSelect;
-export type InsertPhoneVerificationOTP = z.infer<typeof insertPhoneVerificationOTPSchema>;
+// Phone Verification OTP table
+export const phoneVerificationOTP = pgTable("phone_verification_otp", {
+	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+	userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+	phone: varchar("phone", { length: 50 }).notNull(),
+	otpHash: varchar("otp_hash", { length: 255 }).notNull(),
+	expiresAt: timestamp("expires_at").notNull(),
+	attempts: integer("attempts").default(0),
+	maxAttempts: integer("max_attempts").default(3),
+	createdAt: timestamp("created_at").defaultNow(),
+	verifiedAt: timestamp("verified_at"),
+	isVerified: boolean("is_verified").default(false),
+}, (table) => ({
+	userIdIdx: index("phone_verification_otp_user_id_idx").on(table.userId),
+	phoneIdx: index("phone_verification_otp_phone_idx").on(table.phone),
+	expiresAtIdx: index("phone_verification_otp_expires_at_idx").on(table.expiresAt),
+}));
 
-// Account Lockout Log Types
-export type AccountLockoutLog = typeof accountLockoutLogs.$inferSelect;
-export type InsertAccountLockoutLog = z.infer<typeof insertAccountLockoutLogSchema>;
+// Account Lockout Logs table
+export const accountLockoutLogs = pgTable("account_lockout_logs", {
+	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+	userId: uuid("user_id"),
+	username: varchar("username", { length: 255 }).notNull(),
+	ipAddress: varchar("ip_address", { length: 45 }).notNull(),
+	action: varchar("action", { length: 50 }).notNull(),
+	success: boolean("success").notNull(),
+	reason: text("reason"),
+	userAgent: text("user_agent"),
+	createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+	userIdIdx: index("account_lockout_logs_user_id_idx").on(table.userId),
+	ipAddressIdx: index("account_lockout_logs_ip_address_idx").on(table.ipAddress),
+	createdAtIdx: index("account_lockout_logs_created_at_idx").on(table.createdAt),
+	actionIdx: index("account_lockout_logs_action_idx").on(table.action),
+}));
 
-// User Session Types
-export type UserSession = typeof userSessions.$inferSelect;
-export type InsertUserSession = z.infer<typeof insertUserSessionSchema>;
+// User Sessions table
+export const userSessions = pgTable("user_sessions", {
+	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+	userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+	sessionToken: text("session_token").notNull(),
+	refreshToken: text("refresh_token").notNull(),
+	ipAddress: varchar("ip_address", { length: 45 }),
+	userAgent: text("user_agent"),
+	expiresAt: timestamp("expires_at").notNull(),
+	refreshExpiresAt: timestamp("refresh_expires_at").notNull(),
+	isActive: boolean("is_active").notNull().default(true),
+	createdAt: timestamp("created_at").defaultNow(),
+	lastUsedAt: timestamp("last_used_at"),
+}, (table) => ({
+	userIdIdx: index("user_sessions_user_id_idx").on(table.userId),
+	refreshTokenIdx: index("user_sessions_refresh_token_idx").on(table.refreshToken),
+	isActiveIdx: index("user_sessions_is_active_idx").on(table.isActive),
+}));
+
+// Webhook events idempotency table
+export const webhookEvents = pgTable("webhook_events", {
+	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+	provider: varchar("provider", { length: 32 }).notNull(),
+	eventId: varchar("event_id", { length: 255 }).notNull().unique(),
+	createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+	providerIdx: index("webhook_events_provider_idx").on(table.provider),
+	eventIdIdx: index("webhook_events_event_id_idx").on(table.eventId),
+}));
+
+// Stock alerts table used by nightly low stock scanner
+export const stockAlerts = pgTable("stock_alerts", {
+	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+	storeId: uuid("store_id").notNull(),
+	productId: uuid("product_id").notNull(),
+	currentQty: integer("current_qty").notNull(),
+	reorderLevel: integer("reorder_level").notNull(),
+	resolved: boolean("resolved").notNull().default(false),
+	createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+	storeIdx: index("stock_alerts_store_id_idx").on(table.storeId),
+	productIdx: index("stock_alerts_product_id_idx").on(table.productId),
+}));
 
 // Subscription Insert Schemas
 export const insertSubscriptionSchema = createInsertSchema(subscriptions);
 
 export const insertSubscriptionPaymentSchema = createInsertSchema(subscriptionPayments);
 
-// Subscription Types
+// Subscription and Auth Types
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
 
 export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
 export type InsertSubscriptionPayment = z.infer<typeof insertSubscriptionPaymentSchema>;
+
+export type EmailVerificationToken = typeof emailVerificationTokens.$inferSelect;
+export type UserSession = typeof userSessions.$inferSelect;

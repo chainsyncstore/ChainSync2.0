@@ -1,8 +1,9 @@
 import { eq } from 'drizzle-orm';
 import type { Request, Response, NextFunction } from 'express';
-import { users, userRoles, ipWhitelist, organizations, subscriptions } from '@shared/prd-schema';
+import { users, userRoles, organizations, subscriptions } from '@shared/schema';
 import { db } from '../db';
 import { getPlan } from '../lib/plans';
+import { storage } from '../storage';
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
@@ -87,12 +88,7 @@ export async function enforceIpWhitelist(req: Request, res: Response, next: Next
   if (user.isAdmin) return next();
 
   const clientIp = getClientIp(req);
-
-  // Determine role to enforce (fallback to CASHIER)
-  const roles = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
-  const role = roles[0]?.role || 'CASHIER';
-  const wl = await db.select().from(ipWhitelist).where(eq(ipWhitelist.orgId, user.orgId!));
-  const allowed = wl.some(w => (w.role === role) && ipMatchesCidrOrIp(w.cidrOrIp, clientIp));
+  const allowed = await storage.checkIpWhitelisted(clientIp, userId);
   if (!allowed) return res.status(403).json({ error: 'IP not allowed' });
   next();
 }

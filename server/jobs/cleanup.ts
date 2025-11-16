@@ -12,7 +12,7 @@ import {
   subscriptions,
   users,
   scheduledReports,
-} from "@shared/prd-schema";
+} from "@shared/schema";
 import { db } from "../db";
 import { pool } from "../db";
 import { generateTrialPaymentReminderEmail, sendEmail } from "../email";

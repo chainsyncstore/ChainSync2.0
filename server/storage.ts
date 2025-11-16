@@ -1,7 +1,6 @@
 import crypto from "crypto";
 import { eq, and, desc, asc, sql, lt, lte, gte, isNotNull, or } from "drizzle-orm";
 import type { QueryResult } from "pg";
-import { users as prdUsers } from "@shared/prd-schema";
 import {
   customers,
   inventory,
@@ -83,6 +82,14 @@ export type OrganizationInventorySummary = {
     currencyTotals: OrganizationInventoryCurrencyTotal[];
   };
   stores: OrganizationStoreInventorySummary[];
+};
+
+type ProfitLossResult = {
+  revenue: number;
+  cost: number;
+  refundAmount: number;
+  refundCount: number;
+  profit: number;
 };
 
 // Simple in-memory cache for frequently accessed data
@@ -242,7 +249,7 @@ export interface IStorage {
   // Analytics operations
   getDailySales(storeId: string, date: Date): Promise<{ revenue: number; transactions: number }>;
   getPopularProducts(storeId: string, limit?: number): Promise<Array<{ product: Product; salesCount: number }>>;
-  getStoreProfitLoss(storeId: string, startDate: Date, endDate: Date): Promise<{ revenue: number; cost: number; profit: number }>;
+  getStoreProfitLoss(storeId: string, startDate: Date, endDate: Date): Promise<ProfitLossResult>;
   getStoreInventory(storeId: string): Promise<any>;
 
   // Alert operations
@@ -334,91 +341,6 @@ export class DatabaseStorage implements IStorage {
       return randomUUID();
     } catch {
       return 'id_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    }
-  }
-
-  private async syncPrdUser(userId: string, data: Partial<typeof prdUsers.$inferInsert>) {
-    if (this.isTestEnv) return;
-
-    const updatePayload: Record<string, unknown> = {};
-    const requiresPasswordChange = (data as { requiresPasswordChange?: unknown }).requiresPasswordChange;
-    if (typeof requiresPasswordChange !== 'undefined') {
-      (updatePayload as Record<string, unknown>).requiresPasswordChange = Boolean(requiresPasswordChange);
-    }
-    const passwordHashUpdate = (data as { passwordHash?: unknown; password?: unknown }).passwordHash
-      ?? (data as { password?: unknown }).password;
-    if (typeof passwordHashUpdate !== 'undefined') {
-      (updatePayload as Record<string, unknown>).passwordHash = String(passwordHashUpdate);
-    }
-    if (!Object.keys(updatePayload).length) return;
-
-    try {
-      const updated = await db
-        .update(prdUsers)
-        .set(updatePayload as any)
-        .where(eq(prdUsers.id, userId))
-        .returning({ id: prdUsers.id });
-
-      if (!updated.length) {
-        logger.warn('syncPrdUser: user not found in PRD mirror', {
-          userId,
-          updatePayload,
-        });
-      }
-    } catch (error) {
-      logger.warn('syncPrdUser: failed to update PRD mirror', {
-        userId,
-        updatePayload,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private async insertPrdTestUser(user: {
-    id: string;
-    email: string;
-    passwordHash: string;
-    orgId: string | null;
-    settings: Record<string, unknown>;
-    isAdmin: boolean;
-    requires2fa: boolean;
-    totpSecret: string | null;
-    createdAt: Date;
-    lastLoginAt: Date | null;
-    emailVerified: boolean;
-    requiresPasswordChange: boolean;
-  }): Promise<void> {
-    try {
-      await db.insert(prdUsers)
-        .values({
-          id: user.id,
-          email: user.email,
-          passwordHash: user.passwordHash,
-          orgId: user.orgId,
-          settings: user.settings as any,
-          isAdmin: user.isAdmin,
-          requires2fa: user.requires2fa,
-          totpSecret: user.totpSecret,
-          createdAt: user.createdAt,
-          lastLoginAt: user.lastLoginAt,
-          emailVerified: user.emailVerified,
-          requiresPasswordChange: user.requiresPasswordChange,
-        } as typeof prdUsers.$inferInsert)
-        .onConflictDoUpdate({
-          target: prdUsers.email,
-          set: {
-            passwordHash: user.passwordHash,
-            orgId: user.orgId,
-            isAdmin: user.isAdmin,
-            requires2fa: user.requires2fa,
-            emailVerified: user.emailVerified,
-            requiresPasswordChange: user.requiresPasswordChange,
-            lastLoginAt: user.lastLoginAt,
-            settings: user.settings as any,
-          } as Partial<typeof prdUsers.$inferInsert>,
-        });
-    } catch (error) {
-      console.warn('Test createUser PRD insert failed', error);
     }
   }
   // User operations
@@ -824,29 +746,6 @@ export class DatabaseStorage implements IStorage {
         ...userData,
         signupStartedAt: userData.signupStartedAt ?? now,
       } as User as any;
-
-      const hashedForDb = typeof user.passwordHash === 'string'
-        ? user.passwordHash
-        : (typeof (user as any).password === 'string' ? (user as any).password : '');
-
-      if (!hashedForDb) {
-        throw new Error('Test createUser requires hashed password');
-      }
-
-      await this.insertPrdTestUser({
-        id,
-        orgId: user.orgId ?? null,
-        email: user.email,
-        passwordHash: hashedForDb,
-        settings: (user.settings ?? {}) as any,
-        isAdmin: user.isAdmin ?? false,
-        requires2fa: user.requires2fa ?? false,
-        totpSecret: user.totpSecret ?? null,
-        createdAt: user.createdAt ?? now,
-        lastLoginAt: user.lastLoginAt ?? null,
-        emailVerified: user.emailVerified ?? false,
-        requiresPasswordChange: user.requiresPasswordChange ?? false,
-      });
 
       this.mem.users.set(id, user);
       return user;
@@ -1603,6 +1502,7 @@ export class DatabaseStorage implements IStorage {
       and(
         eq(transactions.storeId, storeId),
         eq(transactions.status, "completed"),
+        eq(transactions.kind, 'SALE'),
         gte(transactions.createdAt, startDate),
         lte(transactions.createdAt, endDate)
       )
@@ -1667,6 +1567,7 @@ export class DatabaseStorage implements IStorage {
       and(
         eq(transactions.storeId, storeId),
         eq(transactions.status, "completed"),
+        eq(transactions.kind, 'SALE'),
         gte(transactions.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
       )
     )
@@ -1782,22 +1683,6 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, id))
       .returning()) as typeof users.$inferSelect[];
     const mapped = mapDbUser(user);
-
-    const prdUpdate: Record<string, unknown> = {};
-    const requiresPasswordChangeUpdate = (userData as { requiresPasswordChange?: unknown }).requiresPasswordChange;
-    if (typeof requiresPasswordChangeUpdate !== 'undefined') {
-      prdUpdate.requiresPasswordChange = Boolean(requiresPasswordChangeUpdate);
-    }
-    const passwordUpdate = (userData as { passwordHash?: unknown; password?: unknown }).passwordHash
-      ?? (userData as { password?: unknown }).password
-      ?? undefined;
-    if (typeof passwordUpdate !== 'undefined') {
-      prdUpdate.passwordHash = String(passwordUpdate);
-    }
-    if (Object.keys(prdUpdate).length) {
-      await this.syncPrdUser(id, prdUpdate as Partial<typeof prdUsers.$inferInsert>);
-    }
-
     return mapped;
   }
 
@@ -2414,8 +2299,8 @@ export class DatabaseStorage implements IStorage {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const result = await db.select({
-      revenue: sql`SUM(${transactions.total})`,
+    const [salesRow] = await db.select({
+      revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
       transactions: sql`COUNT(*)`
     })
     .from(transactions)
@@ -2423,14 +2308,32 @@ export class DatabaseStorage implements IStorage {
       and(
         eq(transactions.storeId, storeId),
         eq(transactions.status, "completed"),
+        eq(transactions.kind, 'SALE'),
         gte(transactions.createdAt, startOfDay),
         lt(transactions.createdAt, endOfDay)
       )
     );
 
+    const [refundRow] = await db.select({
+      revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.storeId, storeId),
+        eq(transactions.status, "completed"),
+        eq(transactions.kind, 'REFUND'),
+        gte(transactions.createdAt, startOfDay),
+        lt(transactions.createdAt, endOfDay)
+      )
+    );
+
+    const grossRevenue = parseFloat(String(salesRow?.revenue || "0"));
+    const refundTotal = parseFloat(String(refundRow?.revenue || "0"));
+
     return {
-      revenue: parseFloat(String(result[0]?.revenue || "0")),
-      transactions: parseInt(String(result[0]?.transactions || "0"))
+      revenue: grossRevenue - refundTotal,
+      transactions: parseInt(String(salesRow?.transactions || "0"))
     };
   }
 
@@ -2440,7 +2343,7 @@ export class DatabaseStorage implements IStorage {
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(startOfDay);
     endOfDay.setDate(endOfDay.getDate() + 1);
-    const result = await db.select({
+    const [salesRow] = await db.select({
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
       transactions: sql`COUNT(*)`
     })
@@ -2448,21 +2351,38 @@ export class DatabaseStorage implements IStorage {
     .where(
       and(
         eq(transactions.status, "completed"),
+        eq(transactions.kind, 'SALE'),
         gte(transactions.createdAt, startOfDay),
         lt(transactions.createdAt, endOfDay)
       )
     );
+
+    const [refundRow] = await db.select({
+      revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.status, "completed"),
+        eq(transactions.kind, 'REFUND'),
+        gte(transactions.createdAt, startOfDay),
+        lt(transactions.createdAt, endOfDay)
+      )
+    );
+
+    const grossRevenue = parseFloat(String(salesRow?.revenue || '0'));
+    const refundTotal = parseFloat(String(refundRow?.revenue || '0'));
+
     return {
-      revenue: parseFloat(String(result[0]?.revenue || '0')),
-      transactions: parseInt(String(result[0]?.transactions || '0'))
+      revenue: grossRevenue - refundTotal,
+      transactions: parseInt(String(salesRow?.transactions || '0'))
     };
   }
 
   async getPopularProducts(storeId: string, limit = 10): Promise<Array<{ product: Product; salesCount: number }>> {
     const result = await db.select({
-      productId: transactionItems.productId,
-      salesCount: sql`COUNT(*)`,
-      product: products
+      product: products,
+      salesCount: sql<number>`COUNT(*)`,
     })
     .from(transactionItems)
     .innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
@@ -2470,23 +2390,23 @@ export class DatabaseStorage implements IStorage {
     .where(
       and(
         eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed")
+        eq(transactions.status, "completed"),
       )
     )
-    .groupBy(transactionItems.productId, products.id)
+    .groupBy(products.id)
     .orderBy(desc(sql`COUNT(*)`))
     .limit(limit);
 
     return result.map(row => ({
       product: row.product,
-      salesCount: parseInt(String(row.salesCount))
+      salesCount: Number(row.salesCount ?? 0),
     }));
   }
 
-  async getStoreProfitLoss(storeId: string, startDate: Date, endDate: Date): Promise<{ revenue: number; cost: number; profit: number }> {
-    const result = await db.select({
-      revenue: sql`SUM(${transactions.total})`,
-      cost: sql`SUM(${transactionItems.quantity} * ${products.cost})`
+  async getStoreProfitLoss(storeId: string, startDate: Date, endDate: Date): Promise<ProfitLossResult> {
+    const [salesRow] = await db.select({
+      revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+      cost: sql`COALESCE(SUM(${transactionItems.quantity} * ${products.cost}), 0)`,
     })
     .from(transactions)
     .innerJoin(transactionItems, eq(transactions.id, transactionItems.transactionId))
@@ -2495,51 +2415,49 @@ export class DatabaseStorage implements IStorage {
       and(
         eq(transactions.storeId, storeId),
         eq(transactions.status, "completed"),
+        eq(transactions.kind, 'SALE'),
         gte(transactions.createdAt, startDate),
-        lt(transactions.createdAt, endDate)
+        lt(transactions.createdAt, endDate),
       )
     );
 
-    const revenue = parseFloat(String(result[0]?.revenue || "0"));
-    const cost = parseFloat(String(result[0]?.cost || "0"));
-    const profit = revenue - cost;
-
-    return { revenue, cost, profit };
-  }
-
-  async getCombinedProfitLoss(startDate: Date, endDate: Date): Promise<{ revenue: number; cost: number; profit: number }> {
-    const result = await db.select({
-      revenue: sql`SUM(${transactions.total})`,
-      cost: sql`SUM(${transactionItems.quantity} * ${products.cost})`
+    const [refundRow] = await db.select({
+      refundAmount: sql`COALESCE(SUM(${transactions.total}), 0)`,
+      refundCount: sql`COUNT(*)`,
     })
     .from(transactions)
-    .innerJoin(transactionItems, eq(transactions.id, transactionItems.transactionId))
-    .innerJoin(products, eq(transactionItems.productId, products.id))
     .where(
       and(
+        eq(transactions.storeId, storeId),
         eq(transactions.status, "completed"),
+        eq(transactions.kind, 'REFUND'),
         gte(transactions.createdAt, startDate),
-        lt(transactions.createdAt, endDate)
+        lt(transactions.createdAt, endDate),
       )
     );
 
-    const revenue = parseFloat(String(result[0]?.revenue || "0"));
-    const cost = parseFloat(String(result[0]?.cost || "0"));
-    const profit = revenue - cost;
-    return { revenue, cost, profit };
+    const revenue = parseFloat(String(salesRow?.revenue || "0"));
+    const cost = parseFloat(String(salesRow?.cost || "0"));
+    const refundAmount = parseFloat(String(refundRow?.refundAmount || "0"));
+    const refundCount = parseInt(String(refundRow?.refundCount || "0"));
+    const netRevenue = revenue - refundAmount;
+    const profit = netRevenue - cost;
+
+    return { revenue, cost, refundAmount, refundCount, profit };
   }
 
   async getStoreInventory(storeId: string): Promise<any> {
     if (this.isTestEnv) {
-      const items = await this.getInventoryByStore(storeId);
-      return items.map((inv: any) => ({
+      const inv = Array.from(this.mem.inventory.values()).filter((i: any) => i.storeId === storeId);
+      return inv.map((inv: any) => ({
         ...inv,
-        product: this.mem.products.get(inv.productId)
+        product: this.mem.products.get(inv.productId),
       }));
     }
+
     const result = await db.select({
       product: products,
-      inventory: inventory
+      inventory: inventory,
     })
     .from(inventory)
     .innerJoin(products, eq(inventory.productId, products.id))
@@ -2547,7 +2465,7 @@ export class DatabaseStorage implements IStorage {
 
     return result.map(row => ({
       ...row.inventory,
-      product: row.product
+      product: row.product,
     }));
   }
 

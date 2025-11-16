@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { users, userRoles } from '@shared/prd-schema';
+import { users, userRoles } from '@shared/schema';
 import { db } from '../db';
 import { sendEmail, generateProfileUpdateEmail } from '../email';
 import { logger } from '../lib/logger';

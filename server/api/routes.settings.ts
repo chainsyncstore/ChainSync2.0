@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { users } from '@shared/prd-schema';
+import { users } from '@shared/schema';
 import { db } from '../db';
 import { requireAuth } from '../middleware/authz';
 

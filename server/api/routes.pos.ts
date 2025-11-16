@@ -4,19 +4,17 @@ import type { Express, Request, Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import {
-  sales,
-  saleItems,
-  returns,
-  returnItems,
+  legacySales as sales,
+  legacySaleItems as saleItems,
+  legacyReturns as returns,
+  legacyReturnItems as returnItems,
   stores,
   users,
   products,
   organizations,
-  customers as tblCustomers,
+  legacyCustomers as tblCustomers,
   loyaltyAccounts,
-  loyaltyTransactions,
-} from '@shared/prd-schema';
-import {
+  legacyLoyaltyTransactions as loyaltyTransactions,
   transactions as prdTransactions,
   transactionItems as prdTransactionItems,
 } from '@shared/schema';
@@ -52,6 +50,13 @@ const SaleSchema = z.object({
     lineTotal: z.string(),
   })),
 });
+
+const normalizePaymentMethod = (raw: string | null | undefined): 'cash' | 'card' | 'digital' => {
+  const value = (raw ?? '').toString().toLowerCase();
+  if (value === 'cash' || value === 'card' || value === 'digital') return value as 'cash' | 'card' | 'digital';
+  if (value === 'transfer' || value === 'bank_transfer' || value === 'wallet') return 'digital';
+  return 'cash';
+};
 
 export async function registerPosRoutes(app: Express) {
   // Integration-test compatible POS endpoints
@@ -305,6 +310,7 @@ export async function registerPosRoutes(app: Express) {
                 storeId,
                 cashierId,
                 status: 'completed',
+                kind: 'SALE',
                 subtotal: totalPrice,
                 taxAmount: '0',
                 total: totalPrice,
@@ -515,6 +521,36 @@ export async function registerPosRoutes(app: Express) {
         if (typeof (db as any).execute === 'function') {
           await (db as any).execute(sql`UPDATE inventory SET quantity = quantity - ${item.quantity} WHERE store_id = ${parsed.data.storeId} AND product_id = ${item.productId}`);
         }
+      }
+
+      const normalizedPaymentMethod = normalizePaymentMethod(parsed.data.paymentMethod);
+      const [tx] = await db
+        .insert(prdTransactions)
+        .values({
+          storeId: parsed.data.storeId,
+          cashierId: me.id,
+          status: 'completed',
+          kind: 'SALE',
+          subtotal: String(subtotalNum),
+          taxAmount: String(taxNum),
+          total: String(adjustedTotal),
+          paymentMethod: normalizedPaymentMethod,
+          amountReceived: String(adjustedTotal),
+          changeDue: '0',
+          receiptNumber: sale.id,
+        } as any)
+        .returning();
+
+      for (const item of parsed.data.items) {
+        await db
+          .insert(prdTransactionItems)
+          .values({
+            transactionId: tx.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.lineTotal,
+          } as any);
       }
 
       // Loyalty transactions: record redeem (negative) and earn (positive)
@@ -804,6 +840,17 @@ export async function registerPosRoutes(app: Express) {
     const sessionUserId = req.session?.userId as string | undefined;
     if (!sessionUserId) return res.status(401).json({ error: 'Not authenticated' });
 
+    const [originTx] = await db
+      .select({ id: prdTransactions.id })
+      .from(prdTransactions)
+      .where(
+        and(
+          eq(prdTransactions.storeId, parsed.data.storeId),
+          eq(prdTransactions.receiptNumber, sale.id),
+        ),
+      )
+      .limit(1);
+
     const rowsToInsert: Array<{
       saleItemId: string;
       productId: string;
@@ -917,6 +964,26 @@ export async function registerPosRoutes(app: Express) {
           `);
         }
       }
+
+      const refundPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod as string | undefined);
+      const [refundTx] = await db
+        .insert(prdTransactions)
+        .values({
+          storeId: parsed.data.storeId,
+          cashierId: sessionUserId,
+          status: 'completed',
+          kind: 'REFUND',
+          subtotal: String(totalRefund.toFixed(2)),
+          taxAmount: '0',
+          total: String(totalRefund.toFixed(2)),
+          paymentMethod: refundPaymentMethod,
+          amountReceived: '0',
+          changeDue: '0',
+          receiptNumber: ret.id,
+          originTransactionId: originTx?.id ?? null,
+        } as any)
+        .returning();
+      void refundTx;
 
       if (hasTx2 && pg2) await pg2.query('COMMIT');
       res.status(201).json({ ok: true, return: ret, items: insertedItems });

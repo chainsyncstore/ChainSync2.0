@@ -7,7 +7,7 @@ import {
   organizations,
   subscriptions as prdSubscriptions,
   users as prdUsers,
-} from '@shared/prd-schema';
+} from '@shared/schema';
 import { db } from '@server/db';
 import { registerRoutes } from '@server/routes';
 import { storage } from '@server/storage';

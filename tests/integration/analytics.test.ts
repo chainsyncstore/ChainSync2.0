@@ -3,7 +3,7 @@ import session from 'express-session';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { organizations, stores as storesTbl, users as usersTbl, sales as salesTbl } from '@shared/prd-schema';
+import { organizations, stores as storesTbl, users as usersTbl, legacySales as salesTbl } from '@shared/schema';
 import { registerAnalyticsRoutes } from '../../server/api/routes.analytics';
 import { db } from '../../server/db';
 
