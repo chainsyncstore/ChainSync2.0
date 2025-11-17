@@ -59,24 +59,37 @@ async function cleanupAbandonedSignupsOlderThanOneHour(): Promise<number> {
 	return deleted;
 }
 
+let skipDbCleanupProcedure = false;
+
 async function runCleanupOnce(): Promise<void> {
 	try {
-		const client = await pool.connect();
-		try {
-			const start = Date.now();
-			const result = await client.query<{ cleanup_abandoned_signups: number }>(
-				"SELECT cleanup_abandoned_signups()"
-			);
-			const deletedCount = (result.rows?.[0] as any)?.cleanup_abandoned_signups ?? 0;
-			logger.info("Abandoned signup cleanup completed", {
-				deletedCount,
-				durationMs: Date.now() - start,
-			});
-		} finally {
-			client.release();
+		if (!skipDbCleanupProcedure) {
+			const client = await pool.connect();
+			try {
+				const start = Date.now();
+				const result = await client.query<{ cleanup_abandoned_signups: number }>(
+					"SELECT cleanup_abandoned_signups()"
+				);
+				const deletedCount = (result.rows?.[0] as any)?.cleanup_abandoned_signups ?? 0;
+				logger.info("Abandoned signup cleanup completed", {
+					deletedCount,
+					durationMs: Date.now() - start,
+				});
+			} finally {
+				client.release();
+			}
 		}
 	} catch (error) {
-		logger.error("Abandoned signup cleanup failed", {}, error as Error);
+		const pgCode = (error as any)?.code;
+		const missingProcedure = pgCode === "42883" || (error as Error)?.message?.includes("cleanup_abandoned_signups");
+		if (missingProcedure) {
+			if (!skipDbCleanupProcedure) {
+				skipDbCleanupProcedure = true;
+				logger.warn("cleanup_abandoned_signups() function missing; falling back to manual cleanup only.");
+			}
+		} else {
+			logger.error("Abandoned signup cleanup failed", {}, error as Error);
+		}
 	}
 
 	try {
