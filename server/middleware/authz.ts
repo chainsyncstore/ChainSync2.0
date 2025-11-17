@@ -48,6 +48,48 @@ export function requireRole(required: AnyRole | AnyRole[]) {
   };
 }
 
+export function requireManagerWithStore() {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.session?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const rows = await db.select({
+      id: users.id,
+      orgId: users.orgId,
+      storeId: users.storeId,
+      isAdmin: users.isAdmin,
+    }).from(users).where(eq(users.id, userId));
+    const user = rows[0];
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    if (user.isAdmin) return res.status(403).json({ error: 'Admins cannot access this endpoint' });
+    if (!user.orgId) return res.status(400).json({ error: 'Organization not set' });
+
+    const orgRows = await db.select().from(organizations).where(eq(organizations.id, user.orgId));
+    const org = orgRows[0];
+    const now = new Date();
+    if (!org?.isActive) return res.status(402).json({ error: 'Organization inactive' });
+    if (org.lockedUntil && new Date(org.lockedUntil) > now) return res.status(402).json({ error: 'Organization locked' });
+
+    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.orgId, user.orgId)))[0];
+    const plan = getPlan(sub?.planCode || 'basic');
+    if (!plan.availableRoles.includes('MANAGER')) {
+      return res.status(403).json({ error: 'Role not available in your plan' });
+    }
+
+    const roles = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+    const hasManagerRole = roles.some((r) => String(r.role).toUpperCase() === 'MANAGER');
+    if (!hasManagerRole) return res.status(403).json({ error: 'Manager role required' });
+
+    if (!user.storeId) {
+      return res.status(403).json({ error: 'Store assignment required' });
+    }
+
+    (req as any).managerStoreId = user.storeId;
+    (req as any).managerOrgId = user.orgId;
+    next();
+  };
+}
+
 // Extract client IP with support for X-Forwarded-For behind proxies (Render)
 export function getClientIp(req: Request): string {
   const xff = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();

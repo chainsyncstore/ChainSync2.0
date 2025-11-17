@@ -70,6 +70,8 @@ function Dashboard({ userRole }: { userRole: string }) {
     }
   }, [location, setLocation, defaultPath]);
 
+  const managerHasStore = role === "manager" && Boolean(user?.storeId);
+
   if (role === "admin") {
     return (
       <ScannerProvider>
@@ -87,7 +89,6 @@ function Dashboard({ userRole }: { userRole: string }) {
               <Route path="/admin/billing" component={AdminBilling} />
               <Route path="/loyalty" component={Loyalty} />
               <Route path="/alerts" component={Alerts} />
-              <Route path="/data-import" component={DataImport} />
               <Route path="/multi-store" component={MultiStore} />
               <Route path="/settings" component={Settings} />
               <Route path="/stores/:storeId/staff" component={StoreStaff} />
@@ -116,7 +117,9 @@ function Dashboard({ userRole }: { userRole: string }) {
               <Route path="/admin/bulk-pricing" component={AdminBulk} />
               <Route path="/loyalty" component={Loyalty} />
               <Route path="/alerts" component={Alerts} />
-              <Route path="/data-import" component={DataImport} />
+              {managerHasStore ? (
+                <Route path="/data-import" component={DataImport} />
+              ) : null}
               <Route path="/settings" component={Settings} />
               <Route path="/stores/:storeId/staff" component={StoreStaff} />
               <Route component={NotFound} />

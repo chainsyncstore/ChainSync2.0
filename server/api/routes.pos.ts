@@ -17,6 +17,7 @@ import {
   legacyLoyaltyTransactions as loyaltyTransactions,
   transactions as prdTransactions,
   transactionItems as prdTransactionItems,
+  importJobs,
 } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
@@ -133,11 +134,33 @@ export async function registerPosRoutes(app: Express) {
     return res.json({ ...tx, items });
   });
 
+  app.get('/api/import-jobs', requireAuth, async (req: Request, res: Response) => {
+    const userId = req.session?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const [me] = await db.select().from(users).where(eq(users.id, userId));
+    const orgId = me?.orgId as string | undefined;
+    if (!orgId) {
+      return res.json([]);
+    }
+
+    const rows = await db
+      .select()
+      .from(importJobs)
+      .where(eq(importJobs.orgId, orgId))
+      .orderBy(desc(importJobs.createdAt))
+      .limit(25);
+
+    return res.json(rows);
+  });
+
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
   const uploadSingle: any = upload.single('file');
 
   const TransactionImportRowSchema = z.object({
-    transaction_date: z.string().optional().transform((val) => (val ? String(val).trim() : '')),
+    transaction_date: z.string().min(1, 'transaction_date is required').transform((val) => String(val).trim()),
     sku: z.string().min(1),
     product_name: z.string().optional(),
     quantity: z.string().regex(/^\d+$/, 'quantity must be a whole number'),
@@ -161,6 +184,16 @@ export async function registerPosRoutes(app: Express) {
       const uploaded = (req as any).file as { buffer: Buffer } | undefined;
       if (!uploaded) {
         return res.status(400).json({ error: 'file is required' });
+      }
+
+      const cutoffInput = String(req.body?.cutoffDate ?? req.body?.adoptionCutoff ?? '').trim();
+      if (!cutoffInput) {
+        return res.status(400).json({ error: 'cutoffDate is required for historical imports' });
+      }
+
+      const cutoffDate = new Date(cutoffInput);
+      if (Number.isNaN(cutoffDate.getTime())) {
+        return res.status(400).json({ error: 'cutoffDate must be a valid date (YYYY-MM-DD)' });
       }
 
       const userId = req.session?.userId as string | undefined;
@@ -187,9 +220,28 @@ export async function registerPosRoutes(app: Express) {
         return res.status(400).json({ error: 'Invalid CSV file' });
       }
 
+      const totalRows = records.length;
+      const fileName = (uploaded as any)?.originalname || 'transactions_import.csv';
+
+      const [job] = await db
+        .insert(importJobs)
+        .values({
+          userId,
+          orgId,
+          type: 'historical_transactions',
+          status: 'processing',
+          fileName,
+          cutoffDate,
+          totalRows,
+        } as any)
+        .returning();
+
+      const batchId = job.id;
+
       const invalidRows: Array<{ row: any; error: string }> = [];
       let created = 0;
       let updated = 0; // reserved for future, kept for parity with other import responses
+      let skipped = 0;
 
       const storeCache = new Map<string, string>();
       const productCache = new Map<string, string>();
@@ -222,6 +274,18 @@ export async function registerPosRoutes(app: Express) {
           }
 
           const row = parsed.data;
+          const transactionDate = new Date(row.transaction_date);
+          if (Number.isNaN(transactionDate.getTime())) {
+            invalidRows.push({ row: raw, error: 'transaction_date is invalid' });
+            continue;
+          }
+
+          if (transactionDate.getTime() >= cutoffDate.getTime()) {
+            skipped += 1;
+            invalidRows.push({ row: raw, error: 'transaction_date is on or after adoption cutoff' });
+            continue;
+          }
+
           const quantity = Number(row.quantity);
           const unitPrice = row.unit_price;
           const totalPrice = row.total_price ?? (quantity * parseFloat(unitPrice)).toFixed(2);
@@ -318,6 +382,8 @@ export async function registerPosRoutes(app: Express) {
                 receiptNumber: row.receipt_number || `IMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 amountReceived: totalPrice,
                 changeDue: '0',
+                source: 'historical_import',
+                importBatchId: batchId,
               } as any)
               .returning();
 
@@ -332,12 +398,9 @@ export async function registerPosRoutes(app: Express) {
               } as any)
               .returning();
 
-            const transactionDate = row.transaction_date ? new Date(row.transaction_date) : null;
-            if (transactionDate && !Number.isNaN(transactionDate.getTime())) {
-              await db.execute(
-                sql`UPDATE ${prdTransactions} SET created_at = ${transactionDate}, completed_at = ${transactionDate} WHERE id = ${tx.id}`
-              );
-            }
+            await db.execute(
+              sql`UPDATE ${prdTransactions} SET created_at = ${transactionDate}, completed_at = ${transactionDate} WHERE id = ${tx.id}`
+            );
 
             created += 1;
           } catch (error) {
@@ -349,6 +412,21 @@ export async function registerPosRoutes(app: Express) {
         }
 
         await pg.query('COMMIT');
+
+        const status = invalidRows.length > 0 ? 'completed_with_errors' : 'completed';
+        const details = invalidRows.length ? { invalidRows: invalidRows.slice(0, 50) } : null;
+        await db
+          .update(importJobs)
+          .set({
+            status,
+            processedRows: created,
+            errorCount: invalidRows.length,
+            invalidCount: invalidRows.length,
+            skippedCount: skipped,
+            completedAt: new Date(),
+            details: details as any,
+          } as any)
+          .where(eq(importJobs.id, batchId));
       } catch (error) {
         try {
           await pg.query('ROLLBACK');
@@ -357,16 +435,40 @@ export async function registerPosRoutes(app: Express) {
             error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
           });
         }
+        const errorMessage = error instanceof Error ? error.message : String(error);
         logger.error('Failed to import transactions', {
           userId,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage,
         });
+
+        await db
+          .update(importJobs)
+          .set({
+            status: 'failed',
+            errorMessage,
+            processedRows: created,
+            errorCount: invalidRows.length,
+            invalidCount: invalidRows.length,
+            skippedCount: skipped,
+            completedAt: new Date(),
+            details: invalidRows.length ? ({ invalidRows: invalidRows.slice(0, 50) } as any) : null,
+          } as any)
+          .where(eq(importJobs.id, batchId));
+
         return res.status(500).json({ error: 'Failed to import transactions' });
       } finally {
         pg.release();
       }
 
-      return res.status(200).json({ imported: created, updated, invalid: invalidRows.length, invalidRows });
+      return res.status(200).json({
+        importBatchId: batchId,
+        cutoffDate: cutoffDate.toISOString(),
+        imported: created,
+        updated,
+        skipped,
+        invalid: invalidRows.length,
+        invalidRows,
+      });
     }
   );
 

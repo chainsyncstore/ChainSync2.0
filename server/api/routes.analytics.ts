@@ -247,7 +247,7 @@ export async function registerAnalyticsRoutes(app: Express) {
 
       const baseCurrency = await resolveBaseCurrency({ orgId: orgIdForStore, storeCurrency });
       const targetCurrencyRaw = String((req.query as any)?.target_currency || '').trim() || undefined;
-      const targetCurrency = targetCurrencyRaw ? coerceCurrency(targetCurrencyRaw, baseCurrency) : undefined;
+      const requestedCurrency = targetCurrencyRaw ? coerceCurrency(targetCurrencyRaw, baseCurrency) : undefined;
 
       const where: any[] = [];
       if (orgId) where.push(eq(sales.orgId, orgId));
@@ -317,7 +317,7 @@ export async function registerAnalyticsRoutes(app: Express) {
         ? storeCurrency
         : revenueValues[0]?.currency ?? baseCurrency;
 
-      const totalsCurrency = targetCurrency ?? nativeCurrency;
+      const totalsCurrency = requestedCurrency ?? nativeCurrency;
 
       const totalMoney = await sumMoneyValues(revenueValues, totalsCurrency, {
         orgId: orgIdForStore ?? orgId ?? 'system',
@@ -457,6 +457,8 @@ export async function registerAnalyticsRoutes(app: Express) {
     }
 
     const baseCurrency = await resolveBaseCurrency({ orgId: orgIdForStore, storeCurrency });
+    const targetCurrencyRaw = String((req.query as any)?.target_currency || '').trim() || undefined;
+    const requestedCurrency = targetCurrencyRaw ? coerceCurrency(targetCurrencyRaw, baseCurrency) : undefined;
 
     const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
     const where: any[] = [];
@@ -561,7 +563,7 @@ export async function registerAnalyticsRoutes(app: Express) {
     for (const [date, entry] of Array.from(pointMap.entries()).sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))) {
       const transactions = entry.transactions;
       const nativeCurrency = storeCurrency ?? entry.values[0]?.currency ?? baseCurrency;
-      const outputCurrency = targetCurrency ?? nativeCurrency;
+      const outputCurrency = requestedCurrency ?? nativeCurrency;
       const total = await sumMoneyValues(entry.values, outputCurrency, {
         orgId: orgIdForStore ?? orgId ?? 'system',
         baseCurrency,

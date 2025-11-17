@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Upload, Database, CheckCircle, AlertTriangle } from "lucide-react";
+import { Upload, Database, CheckCircle, AlertTriangle, CalendarClock, History } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import CSVUploader from "@/components/data-import/csv-uploader";
 import ProductInput from "@/components/data-import/product-input";
@@ -8,10 +8,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/use-auth";
 import { formatDateTime } from "@/lib/pos-utils";
-import type { Store, LowStockAlert } from "@shared/schema";
+import type { Store } from "@shared/schema";
 
 interface ImportJob {
   id: string;
@@ -26,6 +28,10 @@ interface ImportJob {
 }
 
 export default function DataImport() {
+  const { user } = useAuth();
+  const role = user?.role?.toLowerCase() ?? "";
+  const isManager = role === "manager";
+  const managerStoreId = isManager ? (user?.storeId ?? "") : "";
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [activeTab, setActiveTab] = useState("products");
 
@@ -33,23 +39,37 @@ export default function DataImport() {
     queryKey: ["/api/stores"],
   });
 
-  // Auto-select first store when stores are loaded
+  const { data: importJobHistory = [] } = useQuery<any[]>({
+    queryKey: ["/api/import-jobs"],
+  });
+
   useEffect(() => {
+    if (isManager && managerStoreId && selectedStore !== managerStoreId) {
+      setSelectedStore(managerStoreId);
+    }
+  }, [isManager, managerStoreId, selectedStore]);
+
+  // Auto-select first store for non-managers when stores are loaded
+  useEffect(() => {
+    if (isManager) return;
     if (stores.length > 0 && !selectedStore) {
       setSelectedStore(stores[0].id);
     }
-  }, [stores, selectedStore]);
-
-  const { data: alerts = [] } = useQuery<LowStockAlert[]>({
-    queryKey: ["/api/stores", selectedStore, "alerts"],
-  });
-  const lowStockCount = alerts.length;
+  }, [stores, selectedStore, isManager]);
 
   // Mock import jobs data - in real app this would come from backend
   const [importJobs, setImportJobs] = useState<ImportJob[]>([]);
   const [importErrors, setImportErrors] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [successSummary, setSuccessSummary] = useState<string | null>(null);
+  const [inventoryMode, setInventoryMode] = useState<"overwrite" | "regularize" | null>(null);
+  const [loyaltyMode, setLoyaltyMode] = useState<"overwrite" | "regularize" | null>(null);
+  const [transactionCutoff, setTransactionCutoff] = useState<string>("");
+  type ImportStats =
+    | { type: "inventory"; mode?: string; addedProducts: number; stockAdjusted: number; skipped: number }
+    | { type: "loyalty"; mode?: string; imported: number; updated: number; skipped: number }
+    | { type: "historical"; cutoffDate: string; imported: number; skipped: number; invalid: number };
+  const [importStats, setImportStats] = useState<ImportStats | null>(null);
 
   const fileEndpoints = useMemo(() => ({
     inventory: "/api/inventory/import",
@@ -58,7 +78,11 @@ export default function DataImport() {
     products: "/api/products", // handled via ProductInput component, not CSV uploader
   }), []);
 
-  const handleFileUpload = async (file: File, type: "inventory" | "transactions" | "loyalty") => {
+  const handleFileUpload = async (
+    file: File,
+    type: "inventory" | "transactions" | "loyalty",
+    options?: { mode?: "overwrite" | "regularize"; cutoffDate?: string }
+  ) => {
     const endpoint = fileEndpoints[type];
     if (!endpoint) {
       setImportErrors([{ error: `No endpoint configured for ${type} import.` }]);
@@ -70,9 +94,20 @@ export default function DataImport() {
       return;
     }
 
+    if ((type === "inventory" || type === "loyalty") && !options?.mode) {
+      setImportErrors([{ error: `Select a ${type} import mode before uploading.` }]);
+      return;
+    }
+
+    if (type === "transactions" && !options?.cutoffDate) {
+      setImportErrors([{ error: "Select an adoption cutoff date before uploading." }]);
+      return;
+    }
+
     setIsUploading(true);
     setImportErrors([]);
     setSuccessSummary(null);
+    setImportStats(null);
 
     const jobId = Date.now().toString();
     const newJob: ImportJob = {
@@ -93,6 +128,12 @@ export default function DataImport() {
       if (type !== "loyalty" && selectedStore) {
         formData.append("storeId", selectedStore);
       }
+      if (options?.mode) {
+        formData.append("mode", options.mode);
+      }
+      if (options?.cutoffDate) {
+        formData.append("cutoffDate", options.cutoffDate);
+      }
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -107,7 +148,22 @@ export default function DataImport() {
         return;
       }
 
-      const { imported = 0, updated = 0, invalid = 0, invalidRows = [] } = result || {};
+      const imported = Number(result?.imported ?? 0);
+      const updated = Number(result?.updated ?? 0);
+      const invalid = Number(result?.invalid ?? 0);
+      const invalidRows = Array.isArray(result?.invalidRows) ? result.invalidRows : [];
+      const summaryParts: string[] = [];
+      if (result?.mode) {
+        summaryParts.push(`Mode: ${String(result.mode).toUpperCase()}`);
+      }
+      summaryParts.push(`Imported ${imported}`);
+      if (updated > 0) {
+        summaryParts.push(`Updated ${updated}`);
+      }
+      if (invalid > 0) {
+        summaryParts.push(`${invalid} invalid`);
+      }
+
       setImportJobs((prev) => prev.map((job) => job.id === jobId
         ? {
             ...job,
@@ -129,7 +185,35 @@ export default function DataImport() {
         setImportErrors([]);
       }
 
-      setSuccessSummary(`Imported ${imported} record${imported === 1 ? "" : "s"}${updated ? `, updated ${updated}` : ""}${invalid ? `, ${invalid} invalid` : ""}.`);
+      setSuccessSummary(summaryParts.join(" · "));
+
+      if (type === "inventory") {
+        setImportStats({
+          type: "inventory",
+          mode: result?.mode,
+          addedProducts: Number(result?.addedProducts ?? 0),
+          stockAdjusted: Number(result?.stockAdjusted ?? 0),
+          skipped: Number(result?.skipped ?? 0),
+        });
+      } else if (type === "loyalty") {
+        setImportStats({
+          type: "loyalty",
+          mode: result?.mode,
+          imported: Number(result?.imported ?? 0),
+          updated: Number(result?.updated ?? 0),
+          skipped: Number(result?.skipped ?? 0),
+        });
+      } else if (type === "transactions") {
+        setImportStats({
+          type: "historical",
+          cutoffDate: String(result?.cutoffDate ?? options?.cutoffDate ?? ""),
+          imported: Number(result?.imported ?? 0),
+          skipped: Number(result?.skipped ?? 0),
+          invalid: Number(result?.invalid ?? 0),
+        });
+      } else {
+        setImportStats(null);
+      }
     } catch (error) {
       setImportJobs((prev) => prev.map((job) => job.id === jobId ? { ...job, status: "failed", errorCount: 1 } : job));
       setImportErrors([{ error: error instanceof Error ? error.message : String(error) }]);
@@ -138,7 +222,41 @@ export default function DataImport() {
     }
   };
 
+  if (!isManager) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Access restricted</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert variant="destructive">
+            <AlertTitle>Insufficient permissions</AlertTitle>
+            <AlertDescription>
+              Only store managers with an assigned location can import data.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
 
+  if (isManager && !managerStoreId) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Store assignment required</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <AlertTitle>No store assigned</AlertTitle>
+            <AlertDescription>
+              Ask an administrator to assign you to a store before using the import tools.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const getStatusIcon = (status: ImportJob["status"]) => {
     switch (status) {
@@ -220,16 +338,6 @@ export default function DataImport() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{lowStockCount}</div>
-            <p className="text-xs text-muted-foreground">Active alerts for selected store</p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Import Interface */}
@@ -240,7 +348,7 @@ export default function DataImport() {
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="products">Products</TabsTrigger>
               <TabsTrigger value="inventory">Inventory</TabsTrigger>
-              <TabsTrigger value="transactions">Transactions</TabsTrigger>
+              <TabsTrigger value="transactions">Historical Transactions</TabsTrigger>
               <TabsTrigger value="loyalty">Loyalty</TabsTrigger>
             </TabsList>
 
@@ -267,20 +375,73 @@ export default function DataImport() {
                 </div>
                 <TemplateDownloader type="inventory" />
               </div>
-              <CSVUploader onFileUpload={(file) => handleFileUpload(file, "inventory")} disabled={isUploading} />
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="inventory-mode">Inventory import mode</Label>
+                  <Select
+                    value={inventoryMode ?? undefined}
+                    onValueChange={(value) => setInventoryMode(value as "overwrite" | "regularize")}
+                  >
+                    <SelectTrigger id="inventory-mode">
+                      <SelectValue placeholder="Select mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="regularize">
+                        Regularize (add quantities to existing stock)
+                      </SelectItem>
+                      <SelectItem value="overwrite">
+                        Overwrite (set quantities exactly to file values)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Regularize adds the CSV quantity to current stock; Overwrite replaces stock with the CSV quantity.
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3 bg-muted/40 text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">Mode tips</p>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>Use Regularize for cycle counts or incremental restocks.</li>
+                    <li>Use Overwrite when inventory should match the CSV exactly.</li>
+                  </ul>
+                </div>
+              </div>
+              <CSVUploader
+                onFileUpload={(file) => inventoryMode && handleFileUpload(file, "inventory", { mode: inventoryMode })}
+                disabled={isUploading || !inventoryMode}
+              />
             </TabsContent>
 
             <TabsContent value="transactions" className="space-y-4">
               <div className="flex justify-between items-center">
                 <div>
-                  <h3 className="text-lg font-semibold">Transaction Import</h3>
+                  <h3 className="text-lg font-semibold">Historical Transactions</h3>
                   <p className="text-sm text-gray-600">
-                    Import historical transaction data for analytics. Includes sales records and transaction details.
+                    Import historical transaction data for analytics. Choose your adoption cutoff to avoid duplicating live sales.
                   </p>
                 </div>
                 <TemplateDownloader type="transactions" />
               </div>
-              <CSVUploader onFileUpload={(file) => handleFileUpload(file, "transactions")} disabled={isUploading} />
+              <div className="space-y-2">
+                <Label htmlFor="transaction-cutoff" className="flex items-center gap-2">
+                  <CalendarClock className="w-4 h-4" /> Adoption cutoff date
+                </Label>
+                <input
+                  id="transaction-cutoff"
+                  type="date"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={transactionCutoff}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setTransactionCutoff(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Rows dated on or after this cutoff will be rejected so your live sales stay clean.
+                </p>
+              </div>
+              <CSVUploader
+                onFileUpload={(file) => transactionCutoff && handleFileUpload(file, "transactions", { cutoffDate: transactionCutoff })}
+                disabled={isUploading || !transactionCutoff}
+              />
             </TabsContent>
 
             <TabsContent value="loyalty" className="space-y-4">
@@ -293,7 +454,37 @@ export default function DataImport() {
                 </div>
                 <TemplateDownloader type="loyalty" />
               </div>
-              <CSVUploader onFileUpload={(file) => handleFileUpload(file, "loyalty")} disabled={isUploading} />
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="loyalty-mode">Loyalty import mode</Label>
+                  <Select
+                    value={loyaltyMode ?? undefined}
+                    onValueChange={(value) => setLoyaltyMode(value as "overwrite" | "regularize")}
+                  >
+                    <SelectTrigger id="loyalty-mode">
+                      <SelectValue placeholder="Select mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="regularize">Regularize (ignore duplicates by email/phone)</SelectItem>
+                      <SelectItem value="overwrite">Overwrite (update matching customers)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Regularize keeps existing loyalty records when email or phone already exists. Overwrite updates those rows instead.
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3 bg-muted/40 text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">Mode tips</p>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>Use Regularize for partial lists—existing members remain untouched.</li>
+                    <li>Use Overwrite to refresh contact info or points en masse.</li>
+                  </ul>
+                </div>
+              </div>
+              <CSVUploader
+                onFileUpload={(file) => loyaltyMode && handleFileUpload(file, "loyalty", { mode: loyaltyMode })}
+                disabled={isUploading || !loyaltyMode}
+              />
             </TabsContent>
           </Tabs>
         </CardContent>
@@ -310,6 +501,64 @@ export default function DataImport() {
                 <AlertTitle>Success</AlertTitle>
                 <AlertDescription>{successSummary}</AlertDescription>
               </Alert>
+            )}
+
+            {importStats?.type === "inventory" && (
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Mode</p>
+                  <p className="text-lg font-semibold capitalize">{importStats.mode ?? "?"}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Products added</p>
+                  <p className="text-2xl font-semibold">{importStats.addedProducts}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Stock adjustments</p>
+                  <p className="text-2xl font-semibold">{importStats.stockAdjusted}</p>
+                  <p className="text-xs text-muted-foreground">{importStats.skipped} skipped rows</p>
+                </div>
+              </div>
+            )}
+
+            {importStats?.type === "loyalty" && (
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Mode</p>
+                  <p className="text-lg font-semibold capitalize">{importStats.mode ?? "?"}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">New customers</p>
+                  <p className="text-2xl font-semibold">{importStats.imported}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Updated records</p>
+                  <p className="text-2xl font-semibold">{importStats.updated}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Skipped duplicates</p>
+                  <p className="text-2xl font-semibold">{importStats.skipped}</p>
+                  <p className="text-xs text-muted-foreground">Duplicates skipped during Regularize mode.</p>
+                </div>
+              </div>
+            )}
+
+            {importStats?.type === "historical" && (
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Cutoff date</p>
+                  <p className="text-lg font-semibold">{importStats.cutoffDate?.slice(0, 10) || "—"}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Imported rows</p>
+                  <p className="text-2xl font-semibold">{importStats.imported}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Skipped/Invalid</p>
+                  <p className="text-2xl font-semibold">{importStats.skipped + importStats.invalid}</p>
+                  <p className="text-xs text-muted-foreground">{importStats.skipped} skipped · {importStats.invalid} invalid</p>
+                </div>
+              </div>
             )}
 
             {importErrors.length > 0 && (
@@ -338,6 +587,7 @@ export default function DataImport() {
                 <Button variant="outline" onClick={() => {
                   setSuccessSummary(null);
                   setImportErrors([]);
+                  setImportStats(null);
                 }}>
                   Clear Results
                 </Button>
@@ -349,55 +599,61 @@ export default function DataImport() {
 
       {/* Import History */}
       <Card>
-        <CardHeader>
-          <CardTitle>Import History</CardTitle>
+        <CardHeader className="flex items-center justify-between">
+          <div>
+            <CardTitle>Import History</CardTitle>
+            <p className="text-sm text-muted-foreground">Latest 25 batches across all import types.</p>
+          </div>
+          <History className="w-5 h-5 text-muted-foreground" />
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {importJobs.length === 0 ? (
+            {importJobHistory.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <Upload className="w-12 h-12 mx-auto mb-4 text-gray-300" />
                 <p>No import jobs yet</p>
                 <p className="text-sm">Upload a CSV file to get started</p>
               </div>
             ) : (
-              importJobs.map((job) => (
+              importJobHistory.map((job) => (
                 <div key={job.id} className="border rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center space-x-3">
                       {getStatusIcon(job.status)}
                       <div>
-                        <p className="font-medium">{job.fileName}</p>
-                        <p className="text-sm text-gray-500 capitalize">{job.type} import</p>
+                        <p className="font-medium">{job.fileName || job.type}</p>
+                        <p className="text-sm text-gray-500 capitalize">{job.type?.replace(/_/g, ' ')}</p>
                       </div>
                     </div>
                     <Badge variant={getStatusColor(job.status)} className="capitalize">
-                      {job.status}
+                      {job.status.replace(/_/g, ' ')}
                     </Badge>
                   </div>
 
-                  {job.status === "processing" && (
-                    <div className="mb-2">
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>Progress</span>
-                        <span>{job.processedRows}/{job.totalRows || "?"}</span>
-                      </div>
-                      <Progress 
-                        value={job.totalRows ? (job.processedRows / job.totalRows) * 100 : 0} 
-                        className="h-2"
-                      />
-                    </div>
-                  )}
-
-                  <div className="flex justify-between text-sm text-gray-500">
+                  <div className="grid gap-2 text-sm text-gray-600 md:grid-cols-4">
+                    <span>Rows: {job.processedRows}/{job.totalRows}</span>
+                    {job.cutoffDate && <span>Cutoff: {new Date(job.cutoffDate).toLocaleDateString()}</span>}
+                    {job.mode && <span>Mode: {job.mode}</span>}
                     <span>Started: {formatDateTime(new Date(job.createdAt))}</span>
-                    {job.completedAt && (
+                  </div>
+
+                  <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                    {job.completedAt ? (
                       <span>Completed: {formatDateTime(new Date(job.completedAt))}</span>
+                    ) : (
+                      <span>In progress</span>
                     )}
                     {job.errorCount > 0 && (
-                      <span className="text-red-600">{job.errorCount} errors</span>
+                      <span className="text-red-600">{job.errorCount} errors · {job.skippedCount} skipped</span>
                     )}
                   </div>
+
+                  {job.details?.invalidRows && (
+                    <details className="mt-2 text-xs">
+                      <summary className="cursor-pointer text-foreground">View sample errors</summary>
+                      <pre className="mt-2 max-h-40 overflow-y-auto bg-muted/60 p-2 rounded">{JSON.stringify(job.details.invalidRows, null, 2)}</pre>
+                    </details>
+                  )}
                 </div>
               ))
             )}

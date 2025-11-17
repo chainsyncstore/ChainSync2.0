@@ -104,17 +104,6 @@ async function runCleanupOnce(): Promise<void> {
 	}
 }
 
-function msUntilNext(hourUtc: number, minute: number = 0, second: number = 0): number {
-	const now = new Date();
-	const next = new Date(now);
-	next.setUTCDate(now.getUTCDate());
-	next.setUTCHours(hourUtc, minute, second, 0);
-	if (next.getTime() <= now.getTime()) {
-		next.setUTCDate(next.getUTCDate() + 1);
-	}
-	return next.getTime() - now.getTime();
-}
-
 export function scheduleAbandonedSignupCleanup(): void {
 	const enabled = process.env.CLEANUP_ABANDONED_SIGNUPS !== "false";
 	if (!enabled) {

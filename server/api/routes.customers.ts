@@ -91,10 +91,13 @@ export async function registerCustomerRoutes(app: Express) {
   const uploadSingle: any = upload.single('file');
   const CustomerImportRowSchema = z.object({
     phone: z.string().min(3).max(32),
+    email: z.string().email().max(255).optional(),
     name: z.string().max(255).optional(),
     first_name: z.string().max(255).optional(),
     last_name: z.string().max(255).optional(),
   });
+
+  const CustomerImportModeSchema = z.enum(['overwrite', 'regularize']);
 
   app.post(
     '/api/customers/import',
@@ -108,6 +111,13 @@ export async function registerCustomerRoutes(app: Express) {
       if (!uploaded) {
         return res.status(400).json({ error: 'file is required' });
       }
+
+      const modeInput = typeof req.body?.mode === 'string' ? req.body.mode.toLowerCase() : '';
+      const parsedMode = CustomerImportModeSchema.safeParse(modeInput);
+      if (!parsedMode.success) {
+        return res.status(400).json({ error: 'mode must be either overwrite or regularize' });
+      }
+      const mode = parsedMode.data;
 
       try {
         const userId = req.session?.userId as string | undefined;
@@ -129,15 +139,18 @@ export async function registerCustomerRoutes(app: Express) {
         const invalidRows: Array<{ row: any; error: string }> = [];
         let created = 0;
         let updated = 0;
+        let skipped = 0;
 
         for (const raw of records) {
           const phoneCandidate = String(raw.phone ?? raw.phone_number ?? raw.Phone ?? '').trim();
           const nameCandidate = raw.name ?? raw.Name ?? undefined;
           const firstName = raw.first_name ?? raw.firstName ?? raw.FirstName ?? undefined;
           const lastName = raw.last_name ?? raw.lastName ?? raw.LastName ?? undefined;
+          const emailCandidate = String(raw.email ?? raw.Email ?? raw.email_address ?? raw.EmailAddress ?? '').trim().toLowerCase();
 
           const parsed = CustomerImportRowSchema.safeParse({
             phone: phoneCandidate,
+            email: emailCandidate || undefined,
             name: nameCandidate,
             first_name: firstName,
             last_name: lastName,
@@ -155,26 +168,55 @@ export async function registerCustomerRoutes(app: Express) {
             resolvedName = parts.join(' ').trim();
           }
           const nameValue = resolvedName || null;
+          const emailValue = record.email ?? undefined;
 
           try {
-            const existing = await db
+            let existingRow = null;
+            const byPhone = await db
               .select()
               .from(customers)
               .where(and(eq(customers.orgId, orgId), eq(customers.phone, record.phone)))
               .limit(1);
+            if (byPhone[0]) {
+              existingRow = byPhone[0];
+            } else if (emailValue) {
+              const byEmail = await db
+                .select()
+                .from(customers)
+                .where(and(eq(customers.orgId, orgId), eq(customers.email, emailValue)))
+                .limit(1);
+              existingRow = byEmail[0] ?? null;
+            }
 
-            if (existing[0]) {
-              if (nameValue && existing[0].name !== nameValue) {
+            if (existingRow) {
+              if (mode === 'regularize') {
+                skipped += 1;
+                continue;
+              }
+
+              const updatePayload: Record<string, any> = {};
+              if (nameValue && existingRow.name !== nameValue) {
+                updatePayload.name = nameValue;
+              }
+              if (emailValue && existingRow.email !== emailValue) {
+                updatePayload.email = emailValue;
+              }
+              if (record.phone && existingRow.phone !== record.phone) {
+                updatePayload.phone = record.phone;
+              }
+
+              if (Object.keys(updatePayload).length > 0) {
                 await db
                   .update(customers)
-                  .set({ name: nameValue } as any)
-                  .where(eq(customers.id, existing[0].id));
+                  .set(updatePayload as any)
+                  .where(eq(customers.id, existingRow.id));
               }
+
               updated += 1;
             } else {
               await db
                 .insert(customers)
-                .values({ orgId, phone: record.phone, name: nameValue } as any);
+                .values({ orgId, phone: record.phone, email: emailValue ?? null, name: nameValue } as any);
               created += 1;
             }
           } catch (processingError) {
@@ -185,7 +227,14 @@ export async function registerCustomerRoutes(app: Express) {
           }
         }
 
-        return res.status(200).json({ imported: created, updated, invalid: invalidRows.length, invalidRows });
+        return res.status(200).json({
+          mode,
+          imported: created,
+          updated,
+          skipped,
+          invalid: invalidRows.length,
+          invalidRows,
+        });
       } catch (error) {
         logger.error('Failed to import customers', {
           userId: req.session?.userId,

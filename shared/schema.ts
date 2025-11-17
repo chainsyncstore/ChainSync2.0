@@ -202,6 +202,27 @@ export const inventory = pgTable("inventory", {
   productIdIdx: index("inventory_product_id_idx").on(table.productId),
 }));
 
+export const importJobs = pgTable("import_jobs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull(),
+  orgId: uuid("org_id"),
+  storeId: uuid("store_id"),
+  type: varchar("type", { length: 64 }).notNull(),
+  status: varchar("status", { length: 32 }).notNull().default("processing"),
+  fileName: varchar("file_name", { length: 255 }),
+  mode: varchar("mode", { length: 32 }),
+  cutoffDate: timestamp("cutoff_date", { withTimezone: true }),
+  totalRows: integer("total_rows").notNull().default(0),
+  processedRows: integer("processed_rows").notNull().default(0),
+  errorCount: integer("error_count").notNull().default(0),
+  invalidCount: integer("invalid_count").notNull().default(0),
+  skippedCount: integer("skipped_count").notNull().default(0),
+  details: jsonb("details"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
 // Transactions table
 export const transactions = pgTable("transactions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -217,6 +238,8 @@ export const transactions = pgTable("transactions", {
   changeDue: decimal("change_due", { precision: 10, scale: 2 }),
   receiptNumber: varchar("receipt_number", { length: 255 }).unique(),
   originTransactionId: uuid("origin_transaction_id"),
+  source: varchar("source", { length: 64 }).notNull().default("pos"),
+  importBatchId: uuid("import_batch_id"),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 }, (table) => ({
@@ -296,6 +319,7 @@ export const legacyCustomers = pgTable("customers", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   orgId: uuid("org_id").notNull(),
   phone: varchar("phone", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }),
   name: varchar("name", { length: 255 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });

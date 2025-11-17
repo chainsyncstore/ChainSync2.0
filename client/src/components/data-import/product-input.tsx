@@ -1,14 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, ScanLine, AlertTriangle, CheckCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ScanLine, AlertTriangle, CheckCircle, Package, Layers } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useBarcodeInput } from "@/hooks/use-barcode-input";
 import type { Product, Inventory } from "@shared/schema";
 
 interface ProductInputProps {
@@ -29,470 +32,552 @@ interface ProductFormData {
   maxStockLevel: string;
 }
 
+const DEFAULT_FORM: ProductFormData = {
+  name: "",
+  sku: "",
+  barcode: "",
+  description: "",
+  price: "",
+  cost: "",
+  category: "",
+  brand: "",
+  quantity: "",
+  minStockLevel: "10",
+  maxStockLevel: "100",
+};
+
 export default function ProductInput({ selectedStore }: ProductInputProps) {
-  const [formData, setFormData] = useState<ProductFormData>({
-    name: "",
-    sku: "",
-    barcode: "",
-    description: "",
-    price: "",
-    cost: "",
-    category: "",
-    brand: "",
-    quantity: "",
-    minStockLevel: "10",
-    maxStockLevel: "100",
-  });
-  const [existingProduct, setExistingProduct] = useState<Product | null>(null);
+  const [activeTab, setActiveTab] = useState<"existing" | "new">("existing");
+  const [existingSearch, setExistingSearch] = useState({ barcode: "", sku: "", name: "" });
+  const [existingQuantity, setExistingQuantity] = useState("1");
+  const [newProductForm, setNewProductForm] = useState<ProductFormData>(DEFAULT_FORM);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [barcodeTarget, setBarcodeTarget] = useState<"existing" | "new">("existing");
   const queryClient = useQueryClient();
 
-  // Check if product exists by barcode
-  const { data: existingProductData } = useQuery<Product | null>({
-    queryKey: ["/api/products", "barcode", formData.barcode],
-    enabled: !!formData.barcode && formData.barcode.length > 0,
+  const { data: productByBarcode } = useQuery<Product | null>({
+    queryKey: ["/api/products", "barcode", existingSearch.barcode],
+    enabled: Boolean(existingSearch.barcode),
     queryFn: async () => {
-      if (!formData.barcode) return null;
+      if (!existingSearch.barcode) return null;
       try {
-        const response = await fetch(`/api/products/barcode/${formData.barcode}`);
-        if (response.ok) {
-          return response.json();
-        }
-        return null;
+        const res = await fetch(`/api/products/barcode/${existingSearch.barcode}`);
+        if (!res.ok) return null;
+        return res.json();
       } catch {
         return null;
       }
     },
   });
 
-  // Check if product exists by name
-  const { data: existingProductByName } = useQuery<Product | null>({
-    queryKey: ["/api/products", "name", formData.name],
-    enabled: !!formData.name && formData.name.length > 2 && !formData.barcode && !formData.sku,
+  const { data: productBySku } = useQuery<Product | null>({
+    queryKey: ["/api/products", "sku", existingSearch.sku],
+    enabled: Boolean(existingSearch.sku) && !existingSearch.barcode,
     queryFn: async () => {
-      if (!formData.name) return null;
+      if (!existingSearch.sku) return null;
       try {
-        const response = await fetch(`/api/products/search?name=${encodeURIComponent(formData.name)}`);
-        if (response.ok) {
-          const products = await response.json();
-          return products.length > 0 ? products[0] : null;
-        }
-        return null;
-      } catch (error) {
-        console.error("Failed to search product by name", error);
+        const res = await fetch(`/api/products/sku/${existingSearch.sku}`);
+        if (!res.ok) return null;
+        return res.json();
+      } catch {
         return null;
       }
     },
   });
 
-  // Check if product exists by SKU
-  const { data: existingProductBySku } = useQuery<Product | null>({
-    queryKey: ["/api/products", "sku", formData.sku],
-    enabled: !!formData.sku && formData.sku.length > 0 && !formData.barcode,
+  const { data: productByName } = useQuery<Product | null>({
+    queryKey: ["/api/products", "name", existingSearch.name],
+    enabled: Boolean(existingSearch.name) && !existingSearch.barcode && !existingSearch.sku && existingSearch.name.length > 2,
     queryFn: async () => {
-      if (!formData.sku) return null;
+      if (!existingSearch.name) return null;
       try {
-        const response = await fetch(`/api/products/sku/${formData.sku}`);
-        if (response.ok) {
-          return response.json();
-        }
-        return null;
-      } catch (error) {
-        console.error("Failed to search product by SKU", error);
+        const res = await fetch(`/api/products/search?name=${encodeURIComponent(existingSearch.name)}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data?.[0] ?? null;
+      } catch {
         return null;
       }
     },
   });
 
-  // Get current inventory for existing product
+  const existingProduct = useMemo(() => {
+    if (productByBarcode) return productByBarcode;
+    if (productBySku) return productBySku;
+    if (productByName) return productByName;
+    return null;
+  }, [productByBarcode, productBySku, productByName]);
+
   const { data: currentInventory } = useQuery<Inventory | null>({
     queryKey: ["/api/inventory", existingProduct?.id, selectedStore],
-    enabled: !!existingProduct?.id && !!selectedStore,
+    enabled: Boolean(existingProduct?.id && selectedStore),
     queryFn: async () => {
+      if (!existingProduct?.id || !selectedStore) return null;
       try {
-        const response = await fetch(`/api/inventory/${existingProduct?.id}/${selectedStore}`);
-        if (response.ok) {
-          return response.json();
-        }
-        return null;
+        const res = await fetch(`/api/inventory/${existingProduct.id}/${selectedStore}`);
+        if (!res.ok) return null;
+        return res.json();
       } catch {
         return null;
       }
     },
   });
 
-  // Add/Update product mutation
-  const addProductMutation = useMutation({
-    mutationFn: async (data: ProductFormData) => {
-      const productData = {
-        name: data.name,
-        sku: data.sku || undefined,
-        barcode: data.barcode || undefined,
-        description: data.description,
-        price: parseFloat(data.price),
-        cost: data.cost ? parseFloat(data.cost) : undefined,
-        category: data.category,
-        brand: data.brand,
-      };
-
-      const inventoryData = {
-        productId: "", // Will be set after product creation
-        storeId: selectedStore,
-        quantity: parseInt(data.quantity),
-        minStockLevel: parseInt(data.minStockLevel),
-        maxStockLevel: parseInt(data.maxStockLevel),
-      };
-
-      if (existingProduct) {
-        // Update existing product inventory
-        const response = await fetch(`/api/inventory/${existingProduct.id}/${selectedStore}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            quantity: currentInventory ? currentInventory.quantity + parseInt(data.quantity) : parseInt(data.quantity),
-            minStockLevel: parseInt(data.minStockLevel),
-            maxStockLevel: parseInt(data.maxStockLevel),
-          }),
-        });
-        return response.json();
-      } else {
-        // Create new product and inventory
-        const productResponse = await fetch("/api/products", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(productData),
-        });
-        const newProduct = await productResponse.json();
-        
-        inventoryData.productId = newProduct.id;
-        const inventoryResponse = await fetch("/api/inventory", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(inventoryData),
-        });
-        return inventoryResponse.json();
+  const adjustInventoryMutation = useMutation({
+    mutationFn: async ({ productId, quantity }: { productId: string; quantity: number }) => {
+      const response = await fetch(`/api/inventory/${productId}/${selectedStore}/adjust`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity, reason: "single_product_import" }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to adjust inventory");
       }
+      return result;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      setSuccessMessage("Stock updated successfully.");
+      setExistingQuantity("1");
       void queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      resetForm();
+      void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+    },
+    onError: (error: unknown) => {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to adjust inventory");
     },
   });
 
-  const handleBarcodeScan = (barcode: string) => {
-    setFormData(prev => ({ ...prev, barcode }));
-    setExistingProduct(null);
-  };
+  const createProductMutation = useMutation({
+    mutationFn: async (payload: ProductFormData) => {
+      const productPayload = {
+        name: payload.name,
+        sku: payload.sku,
+        barcode: payload.barcode,
+        description: payload.description,
+        price: parseFloat(payload.price),
+        cost: payload.cost ? parseFloat(payload.cost) : undefined,
+        category: payload.category,
+        brand: payload.brand,
+      };
 
-  const handleNameSearch = (name: string) => {
-    setFormData(prev => ({ ...prev, name }));
-    setExistingProduct(null);
-  };
+      const productRes = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(productPayload),
+      });
 
-  const handleSkuSearch = (sku: string) => {
-    setFormData(prev => ({ ...prev, sku }));
-    setExistingProduct(null);
-  };
+      const product = await productRes.json();
+      if (!productRes.ok) {
+        throw new Error(product?.error || "Failed to create product");
+      }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name || !formData.price || !formData.quantity) {
+      const inventoryRes = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: product.id,
+          storeId: selectedStore,
+          quantity: parseInt(payload.quantity, 10),
+          minStockLevel: parseInt(payload.minStockLevel, 10),
+          maxStockLevel: parseInt(payload.maxStockLevel, 10) || undefined,
+        }),
+      });
+
+      const inventoryResult = await inventoryRes.json();
+      if (!inventoryRes.ok) {
+        throw new Error(inventoryResult?.error || "Failed to seed inventory");
+      }
+
+      return { product, inventory: inventoryResult };
+    },
+    onSuccess: () => {
+      setSuccessMessage("New product added successfully.");
+      setNewProductForm(DEFAULT_FORM);
+      void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+    },
+    onError: (error: unknown) => {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to add product");
+    },
+  });
+
+  const handleExistingSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    if (!selectedStore) {
+      setErrorMessage("Please select a store before adding stock.");
       return;
     }
-    addProductMutation.mutate(formData);
+
+    if (!existingProduct) {
+      setErrorMessage("No product matched your search.");
+      return;
+    }
+
+    const qty = parseInt(existingQuantity, 10);
+    if (Number.isNaN(qty) || qty <= 0) {
+      setErrorMessage("Quantity must be at least 1.");
+      return;
+    }
+
+    adjustInventoryMutation.mutate({ productId: existingProduct.id, quantity: qty });
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: "",
-      sku: "",
-      barcode: "",
-      description: "",
-      price: "",
-      cost: "",
-      category: "",
-      brand: "",
-      quantity: "",
-      minStockLevel: "10",
-      maxStockLevel: "100",
-    });
-    setExistingProduct(null);
+  const handleNewProductSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    if (!selectedStore) {
+      setErrorMessage("Please select a store before adding a new product.");
+      return;
+    }
+
+    if (!newProductForm.name || !newProductForm.sku || !newProductForm.barcode || !newProductForm.price || !newProductForm.quantity) {
+      setErrorMessage("Please complete all required fields.");
+      return;
+    }
+
+    createProductMutation.mutate(newProductForm);
   };
 
-  // Update existing product when barcode, SKU, or name search results change
+  const handleBarcodeDetected = useCallback((code: string) => {
+    if (!code) return;
+    if (barcodeTarget === "new") {
+      setNewProductForm((prev) => ({ ...prev, barcode: code }));
+    } else {
+      setExistingSearch((prev) => ({ ...prev, barcode: code }));
+    }
+  }, [barcodeTarget]);
+
+  const scannerStatus = useBarcodeInput({ onScan: handleBarcodeDetected, autoActivate: true });
+
   useEffect(() => {
-    if (existingProductData) {
-      setExistingProduct(existingProductData);
-      return;
-    }
+    setSuccessMessage(null);
+    setErrorMessage(null);
+    setBarcodeTarget(activeTab === "new" ? "new" : "existing");
+  }, [activeTab]);
 
-    if (!formData.barcode && existingProductBySku) {
-      setExistingProduct(existingProductBySku);
-      return;
-    }
+  const resetExistingSearch = () => {
+    setExistingSearch({ barcode: "", sku: "", name: "" });
+    setExistingQuantity("1");
+  };
 
-    if (!formData.barcode && !formData.sku && existingProductByName) {
-      setExistingProduct(existingProductByName);
-      return;
-    }
+  const resetNewProductForm = () => {
+    setNewProductForm(DEFAULT_FORM);
+  };
 
-    setExistingProduct(null);
-  }, [existingProductData, existingProductBySku, existingProductByName, formData.barcode, formData.sku]);
-
-  return (
-    <div className="space-y-6">
-      {/* Barcode Scanner Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ScanLine className="w-5 h-5" />
-            Scan Barcode
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label htmlFor="barcode-input">Barcode</Label>
-              <Input
-                id="barcode-input"
-                type="text"
-                value={formData.barcode}
-                onChange={(e) => handleBarcodeScan(e.target.value)}
-                placeholder="Scan or enter barcode..."
-                className="font-mono"
-              />
-            </div>
-            <div>
-              <Label htmlFor="sku-input">SKU</Label>
-              <Input
-                id="sku-input"
-                type="text"
-                value={formData.sku}
-                onChange={(e) => handleSkuSearch(e.target.value)}
-                placeholder="Search by SKU..."
-                className="font-mono"
-              />
-            </div>
-            <div>
-              <Label htmlFor="name-input">Product Name</Label>
-              <Input
-                id="name-input"
-                type="text"
-                value={formData.name}
-                onChange={(e) => handleNameSearch(e.target.value)}
-                placeholder="Search by product name..."
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Existing Product Alert */}
-      {existingProduct && (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Product already exists:</strong> {existingProduct.name}
-            {currentInventory && (
-              <span className="block text-sm text-muted-foreground mt-1">
-                Current stock: {currentInventory.quantity} units
-              </span>
-            )}
-          </AlertDescription>
-        </Alert>
+  const scannerIndicator = (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      {scannerStatus.isScannerActive ? (
+        <Badge variant="secondary" className="flex items-center gap-1">
+          <ScanLine className="w-3 h-3" /> Scanner active
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="text-muted-foreground">Scanner idle</Badge>
       )}
-
-      {/* Product Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Plus className="w-5 h-5" />
-            {existingProduct ? "Add Stock to Existing Product" : "Add New Product"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="name">Product Name *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Enter product name"
-                  required
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="sku">SKU</Label>
-                <Input
-                  id="sku"
-                  value={formData.sku}
-                  onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
-                  placeholder="Enter SKU"
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="barcode">Barcode</Label>
-                <Input
-                  id="barcode"
-                  value={formData.barcode}
-                  onChange={(e) => setFormData(prev => ({ ...prev, barcode: e.target.value }))}
-                  placeholder="Enter barcode"
-                />
-              </div>
-              
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="price">Price *</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.price}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price: e.target.value }))}
-                  placeholder="0.00"
-                  required
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="cost">Cost</Label>
-                <Input
-                  id="cost"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.cost}
-                  onChange={(e) => setFormData(prev => ({ ...prev, cost: e.target.value }))}
-                  placeholder="0.00"
-                />
-              </div>
-              
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="category">Category</Label>
-                <Select value={formData.category} onValueChange={(value) => setFormData(prev => ({ ...prev, category: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="electronics">Electronics</SelectItem>
-                    <SelectItem value="clothing">Clothing</SelectItem>
-                    <SelectItem value="food">Food & Beverages</SelectItem>
-                    <SelectItem value="home">Home & Garden</SelectItem>
-                    <SelectItem value="sports">Sports & Outdoors</SelectItem>
-                    <SelectItem value="books">Books & Media</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div>
-                <Label htmlFor="brand">Brand</Label>
-                <Input
-                  id="brand"
-                  value={formData.brand}
-                  onChange={(e) => setFormData(prev => ({ ...prev, brand: e.target.value }))}
-                  placeholder="Enter brand name"
-                />
-              </div>
-            </div>
-            
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Enter product description"
-                rows={3}
-              />
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="quantity">Quantity to Add *</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  min="1"
-                  value={formData.quantity}
-                  onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))}
-                  placeholder="0"
-                  required
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="minStock">Min Stock Level</Label>
-                <Input
-                  id="minStock"
-                  type="number"
-                  min="0"
-                  value={formData.minStockLevel}
-                  onChange={(e) => setFormData(prev => ({ ...prev, minStockLevel: e.target.value }))}
-                  placeholder="10"
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="maxStock">Max Stock Level</Label>
-                <Input
-                  id="maxStock"
-                  type="number"
-                  min="0"
-                  value={formData.maxStockLevel}
-                  onChange={(e) => setFormData(prev => ({ ...prev, maxStockLevel: e.target.value }))}
-                  placeholder="100"
-                />
-              </div>
-            </div>
-            
-            <div className="flex justify-end space-x-4">
-              <Button type="button" variant="outline" onClick={resetForm}>
-                Reset Form
-              </Button>
-              <Button 
-                type="submit" 
-                disabled={addProductMutation.isPending || !formData.name || !formData.price || !formData.quantity}
-              >
-                {addProductMutation.isPending ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4 mr-2" />
-                    {existingProduct ? "Add Stock" : "Add Product"}
-                  </>
-                )}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Success Message */}
-      {addProductMutation.isSuccess && (
-        <Alert>
-          <CheckCircle className="h-4 w-4" />
-          <AlertDescription>
-            {existingProduct 
-              ? `Successfully added ${formData.quantity} units to ${existingProduct.name}`
-              : "Product added successfully!"
-            }
-          </AlertDescription>
-        </Alert>
+      {scannerStatus.isScanning && scannerStatus.inputBuffer && (
+        <span className="font-mono text-muted-foreground">{scannerStatus.inputBuffer}</span>
       )}
     </div>
   );
-} 
+
+  return (
+    <div className="space-y-4">
+      {successMessage && (
+        <Alert className="border-green-200 text-green-900">
+          <CheckCircle className="h-4 w-4" />
+          <AlertDescription>{successMessage}</AlertDescription>
+        </Alert>
+      )}
+      {errorMessage && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Single Product Import</CardTitle>
+          <p className="text-sm text-muted-foreground">Use your barcode scanner or manual inputs to add products individually.</p>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "existing" | "new")}>
+            <TabsList className="grid grid-cols-2 w-full">
+              <TabsTrigger value="existing" className="flex items-center gap-2">
+                <Layers className="w-4 h-4" /> Existing product
+              </TabsTrigger>
+              <TabsTrigger value="new" className="flex items-center gap-2">
+                <Package className="w-4 h-4" /> New product
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="existing" className="space-y-4 pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold">Find product</h3>
+                  <p className="text-sm text-muted-foreground">Scan a barcode or search by SKU/name to load a product.</p>
+                </div>
+                {scannerIndicator}
+              </div>
+
+              <form onSubmit={handleExistingSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="existing-barcode">Barcode</Label>
+                    <Input
+                      id="existing-barcode"
+                      className="font-mono"
+                      value={existingSearch.barcode}
+                      onChange={(e) => setExistingSearch((prev) => ({ ...prev, barcode: e.target.value }))}
+                      onFocus={() => setBarcodeTarget("existing")}
+                      placeholder="Scan or type barcode"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="existing-sku">SKU</Label>
+                    <Input
+                      id="existing-sku"
+                      className="font-mono"
+                      value={existingSearch.sku}
+                      onChange={(e) => setExistingSearch((prev) => ({ ...prev, sku: e.target.value }))}
+                      placeholder="Enter SKU"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="existing-name">Product name</Label>
+                    <Input
+                      id="existing-name"
+                      value={existingSearch.name}
+                      onChange={(e) => setExistingSearch((prev) => ({ ...prev, name: e.target.value }))}
+                      placeholder="Search by name"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>{existingProduct ? `Found: ${existingProduct.name}` : "No product selected"}</span>
+                  <Button type="button" variant="ghost" size="sm" onClick={resetExistingSearch}>Clear</Button>
+                </div>
+
+                {existingProduct ? (
+                  <div className="rounded-lg border p-4 bg-muted/40">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Product</p>
+                        <p className="font-semibold">{existingProduct.name}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">SKU</p>
+                        <p className="font-mono">{existingProduct.sku || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Barcode</p>
+                        <p className="font-mono">{existingProduct.barcode || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Current stock</p>
+                        <p className="font-semibold">{currentInventory?.quantity ?? "n/a"}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <Alert>
+                    <AlertDescription>Scan or search to select a product before adding stock.</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="existing-quantity">Quantity to add</Label>
+                    <Input
+                      id="existing-quantity"
+                      type="number"
+                      min="1"
+                      value={existingQuantity}
+                      onChange={(e) => setExistingQuantity(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    disabled={!existingProduct || adjustInventoryMutation.isPending || !selectedStore}
+                  >
+                    {adjustInventoryMutation.isPending ? "Updating..." : "Add to inventory"}
+                  </Button>
+                </div>
+              </form>
+            </TabsContent>
+
+            <TabsContent value="new" className="space-y-4 pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold">New product details</h3>
+                  <p className="text-sm text-muted-foreground">Fill out every field before saving. Barcode scans will auto-fill the barcode field.</p>
+                </div>
+                {scannerIndicator}
+              </div>
+
+              <form onSubmit={handleNewProductSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="new-name">Product name *</Label>
+                    <Input
+                      id="new-name"
+                      value={newProductForm.name}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, name: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="new-sku">SKU *</Label>
+                    <Input
+                      id="new-sku"
+                      className="font-mono"
+                      value={newProductForm.sku}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, sku: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="new-barcode">Barcode *</Label>
+                    <Input
+                      id="new-barcode"
+                      className="font-mono"
+                      value={newProductForm.barcode}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, barcode: e.target.value }))}
+                      onFocus={() => setBarcodeTarget("new")}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="new-price">Price *</Label>
+                    <Input
+                      id="new-price"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newProductForm.price}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, price: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="new-cost">Cost *</Label>
+                    <Input
+                      id="new-cost"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newProductForm.cost}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, cost: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="new-category">Category *</Label>
+                    <Select
+                      value={newProductForm.category}
+                      onValueChange={(value) => setNewProductForm((prev) => ({ ...prev, category: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="electronics">Electronics</SelectItem>
+                        <SelectItem value="clothing">Clothing</SelectItem>
+                        <SelectItem value="food">Food & Beverages</SelectItem>
+                        <SelectItem value="home">Home & Garden</SelectItem>
+                        <SelectItem value="sports">Sports & Outdoors</SelectItem>
+                        <SelectItem value="books">Books & Media</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="new-brand">Brand *</Label>
+                    <Input
+                      id="new-brand"
+                      value={newProductForm.brand}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, brand: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="new-description">Description *</Label>
+                  <Textarea
+                    id="new-description"
+                    rows={3}
+                    value={newProductForm.description}
+                    onChange={(e) => setNewProductForm((prev) => ({ ...prev, description: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="new-quantity">Opening stock *</Label>
+                    <Input
+                      id="new-quantity"
+                      type="number"
+                      min="1"
+                      value={newProductForm.quantity}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="new-min">Min stock level *</Label>
+                    <Input
+                      id="new-min"
+                      type="number"
+                      min="0"
+                      value={newProductForm.minStockLevel}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, minStockLevel: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="new-max">Max stock level *</Label>
+                    <Input
+                      id="new-max"
+                      type="number"
+                      min="0"
+                      value={newProductForm.maxStockLevel}
+                      onChange={(e) => setNewProductForm((prev) => ({ ...prev, maxStockLevel: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-between">
+                  <Button type="button" variant="outline" onClick={resetNewProductForm}>
+                    Reset form
+                  </Button>
+                  <Button type="submit" disabled={createProductMutation.isPending || !selectedStore}>
+                    {createProductMutation.isPending ? "Saving..." : "Create product"}
+                  </Button>
+                </div>
+              </form>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';

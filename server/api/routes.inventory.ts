@@ -10,8 +10,7 @@ import { products, stores, users } from '@shared/schema';
 import { db } from '../db';
 import { logger, extractLogContext } from '../lib/logger';
 import { securityAuditService } from '../lib/security-audit';
-import { requireAuth, enforceIpWhitelist } from '../middleware/authz';
-import { requireRole } from '../middleware/authz';
+import { requireAuth, enforceIpWhitelist, requireManagerWithStore, requireRole } from '../middleware/authz';
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { storage } from '../storage';
 
@@ -54,6 +53,7 @@ const getProductColumns = async (): Promise<Set<string>> => {
     logger.warn('Failed to inspect products columns', {
       error: error instanceof Error ? error.message : String(error),
     });
+
     productColumnsCache = new Set();
   }
 
@@ -161,6 +161,11 @@ export async function registerInventoryRoutes(app: Express) {
     maxStockLevel: z.number().int().min(0).optional(),
   });
 
+  const InventoryAdjustSchema = z.object({
+    quantity: z.coerce.number().int().min(1, { message: 'quantity must be at least 1' }),
+    reason: z.string().trim().max(200).optional(),
+  });
+
   const DeleteInventorySchema = z.object({
     storeId: z.string().uuid(),
     reason: z.string().trim().min(3).max(500),
@@ -251,6 +256,68 @@ export async function registerInventoryRoutes(app: Express) {
       return res.status(500).json({ error: 'Failed to save inventory' });
     }
   });
+
+  app.post(
+    '/api/inventory/:productId/:storeId/adjust',
+    requireAuth,
+    enforceIpWhitelist,
+    requireManagerWithStore(),
+    async (req: Request, res: Response) => {
+      const managerStoreId = (req as any).managerStoreId as string | undefined;
+      const managerOrgId = (req as any).managerOrgId as string | undefined;
+      const userId = req.session?.userId as string | undefined;
+      const { productId, storeId } = req.params as { productId?: string; storeId?: string };
+
+      if (!productId || !storeId) {
+        return res.status(400).json({ error: 'productId and storeId are required' });
+      }
+
+      if (!managerStoreId || storeId !== managerStoreId) {
+        return res.status(403).json({ error: 'Managers can only adjust inventory for their assigned store' });
+      }
+
+      const parsed = InventoryAdjustSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+      }
+
+      const [productRow] = await db
+        .select({ id: products.id, orgId: products.orgId })
+        .from(products)
+        .where(eq(products.id, productId))
+        .limit(1);
+
+      if (!productRow) {
+        return res.status(404).json({ error: 'Product not found' });
+      }
+
+      if (managerOrgId && productRow.orgId && productRow.orgId !== managerOrgId) {
+        return res.status(403).json({ error: 'Product does not belong to your organization' });
+      }
+
+      try {
+        const updatedInventory = await storage.adjustInventory(productId, storeId, parsed.data.quantity);
+
+        logger.logInventoryEvent('stock_adjusted', {
+          productId,
+          storeId,
+          quantityChange: parsed.data.quantity,
+          userId,
+          reason: parsed.data.reason ?? 'manual_import_adjustment',
+        });
+
+        return res.json({ inventory: updatedInventory });
+      } catch (error) {
+        logger.error('Failed to adjust inventory', {
+          productId,
+          storeId,
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return res.status(500).json({ error: 'Failed to adjust inventory' });
+      }
+    }
+  );
 
   app.delete('/api/inventory/:productId', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const productId = String(req.params?.productId ?? '').trim();
@@ -614,12 +681,33 @@ export async function registerInventoryRoutes(app: Express) {
     store_code: z.string().optional(),
   });
 
-  app.post('/api/inventory/import', requireAuth, enforceIpWhitelist, sensitiveEndpointRateLimit, uploadSingle, async (req: Request, res: Response) => {
+  const InventoryImportModeSchema = z.enum(['overwrite', 'regularize']);
+
+  app.post(
+    '/api/inventory/import',
+    requireAuth,
+    enforceIpWhitelist,
+    requireManagerWithStore(),
+    sensitiveEndpointRateLimit,
+    uploadSingle,
+    async (req: Request, res: Response) => {
     const uploaded = (req as any).file as { buffer: Buffer } | undefined;
     if (!uploaded) return res.status(400).json({ error: 'file is required' });
 
+    const modeInput = typeof req.body?.mode === 'string' ? req.body.mode.toLowerCase() : '';
+    const parsedMode = InventoryImportModeSchema.safeParse(modeInput);
+    if (!parsedMode.success) {
+      return res.status(400).json({ error: 'mode must be either overwrite or regularize' });
+    }
+    const mode = parsedMode.data;
+
     const invalidRows: Array<{ row: any; error: string }> = [];
     const results: any[] = [];
+    let addedProducts = 0;
+    let stockAdjusted = 0;
+    let skipped = 0;
+
+    const managerStoreId = (req as any).managerStoreId as string;
 
     const text = uploaded.buffer.toString('utf-8');
     const records: any[] = [];
@@ -673,7 +761,14 @@ export async function registerInventoryRoutes(app: Express) {
           storeId = (sr as any)[0]?.id;
         }
         if (!storeId) {
+          storeId = managerStoreId;
+        }
+        if (!storeId) {
           invalidRows.push({ row: raw, error: 'store_id or valid store_code required' });
+          continue;
+        }
+        if (storeId !== managerStoreId) {
+          invalidRows.push({ row: raw, error: 'Managers can only import inventory into their assigned store' });
           continue;
         }
 
@@ -688,14 +783,50 @@ export async function registerInventoryRoutes(app: Express) {
           const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, barcode, name, cost_price, sale_price, vat_rate)
              VALUES (${orgId}, ${r.sku}, ${r.barcode}, ${r.name}, ${r.cost_price}, ${r.sale_price}, ${r.vat_rate}) RETURNING id`);
           productId = (inserted as any).rows[0].id;
+          addedProducts += 1;
         }
 
-        // Ensure inventory row exists per store/product and set quantity
-        await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level)
-           VALUES (${storeId}, ${productId}, ${Number(r.initial_quantity)}, ${Number(r.reorder_level)})
-           ON CONFLICT (store_id, product_id)
-           DO UPDATE SET quantity = EXCLUDED.quantity, reorder_level = EXCLUDED.reorder_level`);
-        results.push({ sku: r.sku, productId });
+        const reorderLevel = Number(r.reorder_level);
+        const quantityDelta = Number(r.initial_quantity);
+        if (!Number.isFinite(quantityDelta)) {
+          invalidRows.push({ row: raw, error: 'initial_quantity must be numeric' });
+          continue;
+        }
+        if (quantityDelta < 0) {
+          invalidRows.push({ row: raw, error: 'initial_quantity cannot be negative' });
+          continue;
+        }
+        if (quantityDelta === 0) {
+          skipped += 1;
+          continue;
+        }
+
+        if (mode === 'overwrite') {
+          await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level)
+             VALUES (${storeId}, ${productId}, ${quantityDelta}, ${reorderLevel})
+             ON CONFLICT (store_id, product_id)
+             DO UPDATE SET quantity = EXCLUDED.quantity, reorder_level = EXCLUDED.reorder_level`);
+          stockAdjusted += 1;
+        } else {
+          const existingInventory = await db.execute(sql`SELECT quantity FROM inventory WHERE store_id = ${storeId} AND product_id = ${productId} LIMIT 1`);
+          const existingRow = Array.isArray((existingInventory as any).rows)
+            ? (existingInventory as any).rows[0]
+            : (existingInventory as any)[0];
+
+          if (existingRow && typeof existingRow.quantity === 'number') {
+            const currentQuantity = existingRow.quantity;
+            const newQuantity = currentQuantity + quantityDelta;
+            await db.execute(sql`UPDATE inventory SET quantity = ${newQuantity}, reorder_level = ${reorderLevel}
+               WHERE store_id = ${storeId} AND product_id = ${productId}`);
+            stockAdjusted += 1;
+          } else {
+            await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level)
+               VALUES (${storeId}, ${productId}, ${quantityDelta}, ${reorderLevel})`);
+            stockAdjusted += 1;
+          }
+        }
+
+        results.push({ sku: r.sku, productId, storeId, mode });
       }
       await pg.query('COMMIT');
     } catch (error) {
@@ -716,8 +847,17 @@ export async function registerInventoryRoutes(app: Express) {
       pg.release();
     }
 
-    res.status(200).json({ imported: results.length, invalid: invalidRows.length, invalidRows });
-  });
+    res.status(200).json({
+      mode,
+      imported: results.length,
+      invalid: invalidRows.length,
+      invalidRows,
+      addedProducts,
+      stockAdjusted,
+      skipped,
+    });
+  }
+  );
 }
 
 

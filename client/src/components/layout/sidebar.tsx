@@ -52,7 +52,6 @@ const getNavigationItems = (
 		{ path: "/analytics", icon: TrendingUp, label: "Analytics" },
 		{ path: "/loyalty", icon: Crown, label: "Loyalty" },
 		{ path: "/alerts", icon: AlertTriangle, label: "Alerts", hasAlert: true },
-		{ path: "/data-import", icon: Upload, label: "Data Import" },
 		{ path: "/settings", icon: Settings, label: "Settings" },
 	];
 
@@ -64,6 +63,13 @@ const getNavigationItems = (
 			path: manageStaffPath,
 			icon: Users,
 			label: "Manage Staff",
+			disabled: !options.managerStoreId,
+		});
+
+		items.splice(items.length - 1, 0, {
+			path: options.managerStoreId ? "/data-import" : "",
+			icon: Upload,
+			label: "Data Import",
 			disabled: !options.managerStoreId,
 		});
 	}

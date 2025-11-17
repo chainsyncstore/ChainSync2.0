@@ -794,7 +794,7 @@ function AnalyticsContent() {
       staffing: 0,
       incidents: 0,
     };
-  }, [isAdmin, alerts.length]);
+  }, [canViewOperations, alerts.length]);
 
   const kpiCards: KpiCardConfig[] = [
     {

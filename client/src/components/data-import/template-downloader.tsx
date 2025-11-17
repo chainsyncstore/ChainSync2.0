@@ -11,6 +11,8 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
     let headers: string[] = [];
     let sampleData: string[] = [];
 
+    let additionalNotes: string[] = [];
+
     switch (type) {
       case "inventory":
         headers = [
@@ -38,6 +40,12 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "100",
           "electronics",
           "Sample Brand"
+        ];
+        additionalNotes = [
+          "Mode guidance:",
+          "- Regularize: quantities will be ADDED to current stock.",
+          "- Overwrite: quantities will REPLACE current stock.",
+          "Tip: include store_id or store_code if importing for non-default store."
         ];
         break;
       
@@ -83,6 +91,11 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "card",
           "cashier-123"
         ];
+        additionalNotes = [
+          "Historical imports require an adoption cutoff date (YYYY-MM-DD).",
+          "Rows dated ON or AFTER the cutoff are rejected.",
+          "Imported rows are tagged as historical and excluded from live alerts."
+        ];
         break;
       
       case "loyalty":
@@ -107,6 +120,12 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "2500",
           "Silver",
           "2024-01-15"
+        ];
+        additionalNotes = [
+          "Duplicate handling:",
+          "- Regularize: rows whose phone/email already exist are skipped.",
+          "- Overwrite: rows with matching phone/email update existing records.",
+          "Ensure phone or email is provided for reliable matching."
         ];
         break;
     }
@@ -168,11 +187,17 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
       });
     }
     
-    const csvContent = [
+    const csvSections = [
       headers.join(","),
       sampleData.join(","),
       ...additionalRows
-    ].join("\n");
+    ];
+
+    if (additionalNotes.length > 0) {
+      csvSections.push("", "# Notes:", ...additionalNotes.map((note) => `# ${note}`));
+    }
+
+    const csvContent = csvSections.join("\n");
 
     // Create and download file
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
