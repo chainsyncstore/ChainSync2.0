@@ -188,32 +188,7 @@ export async function registerAuthRoutes(app: Express) {
         });
       }
 
-      // Block signup if a user already exists
-      let userCount = 0;
-      if (process.env.NODE_ENV === 'test') {
-        try {
-          const memUsers = ((storage as any)?.getTestMemory?.() ?? (storage as any)?.mem?.users) as Map<string, unknown> | undefined;
-          if (memUsers && typeof memUsers.size === 'number') {
-            userCount = memUsers.size;
-          } else if ((storage as any)?.getAllTestUsers) {
-            const testUsers = await (storage as any).getAllTestUsers();
-            userCount = Array.isArray(testUsers) ? testUsers.length : 0;
-          }
-        } catch (memoryError) {
-          logger.warn('Failed to inspect in-memory storage during signup', {
-            error: memoryError instanceof Error ? memoryError.message : String(memoryError)
-          });
-        }
-      } else {
-        const result = await db.select({ count: sql`count(*)` }).from(users);
-        userCount = Number(result?.[0]?.count ?? 0);
-      }
-
-      if (!env.SIGNUPS_ENABLED && userCount > 0) {
-        return res.status(403).json({ message: 'Signup is disabled', code: 'SIGNUPS_DISABLED' });
-      }
-
-      const role = userCount === 0 ? 'admin' : 'user';
+      const role = 'admin';
       const hashedPassword = await AuthService.hashPassword(password);
 
       const username = email.toLowerCase();
@@ -243,7 +218,7 @@ export async function registerAuthRoutes(app: Express) {
         } as any)
         .returning();
 
-      const normalizedRole = role === 'admin' ? 'ADMIN' : 'MANAGER';
+      const normalizedRole = 'ADMIN';
 
       await db
         .update(users)
