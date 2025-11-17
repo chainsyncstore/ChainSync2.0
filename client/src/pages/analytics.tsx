@@ -168,6 +168,7 @@ function ScopeControls() {
     isLoadingStores,
     selectedStoreId,
     setSelectedStoreId,
+    storeSelectionLocked,
     datePreset,
     setDatePreset,
     dateRange,
@@ -182,6 +183,7 @@ function ScopeControls() {
   const role = user?.role ?? "admin";
   const hasMultipleStores = stores.length > 1;
   const activeStore = stores.find((store) => store.id === selectedStoreId) ?? null;
+  const canSelectStore = (role === "admin" || hasMultipleStores) && !storeSelectionLocked;
 
   const presetOptions: { value: DatePreset; label: string }[] = [
     { value: "7", label: "Last 7 Days" },
@@ -217,7 +219,7 @@ function ScopeControls() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="flex flex-col gap-2">
           <span className="text-xs font-semibold uppercase text-muted-foreground">Store</span>
-          {role === "admin" || hasMultipleStores ? (
+          {canSelectStore ? (
             <Select
               value={selectedStoreId ?? undefined}
               onValueChange={setSelectedStoreId}
@@ -1039,9 +1041,10 @@ export default function Analytics() {
   const normalizedRole = user?.role?.toLowerCase();
   const managerStoreId = user?.storeId;
   const initialStoreId = normalizedRole === "manager" && managerStoreId ? managerStoreId : null;
+  const lockedStoreId = normalizedRole === "manager" ? managerStoreId ?? null : null;
 
   return (
-    <AnalyticsScopeProvider initialStoreId={initialStoreId}>
+    <AnalyticsScopeProvider initialStoreId={initialStoreId} lockedStoreId={lockedStoreId}>
       <AnalyticsContent />
     </AnalyticsScopeProvider>
   );

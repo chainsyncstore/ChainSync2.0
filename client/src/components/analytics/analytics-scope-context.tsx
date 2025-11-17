@@ -19,6 +19,7 @@ export interface AnalyticsScopeValue {
   isLoadingStores: boolean;
   selectedStoreId: string | null;
   setSelectedStoreId: Dispatch<SetStateAction<string | null>>;
+  storeSelectionLocked: boolean;
   datePreset: DatePreset;
   setDatePreset: Dispatch<SetStateAction<DatePreset>>;
   dateRange: DateRange;
@@ -62,6 +63,7 @@ interface ProviderProps {
   initialStoreId?: string | null;
   initialPreset?: DatePreset;
   initialDisplayCurrency?: DisplayCurrency;
+  lockedStoreId?: string | null;
 }
 
 export function AnalyticsScopeProvider({
@@ -69,21 +71,40 @@ export function AnalyticsScopeProvider({
   initialStoreId = null,
   initialPreset = "30",
   initialDisplayCurrency = "native",
+  lockedStoreId = null,
 }: ProviderProps) {
   const { data: stores = [], isPending: isLoadingStores } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
   });
 
-  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(initialStoreId);
+  const [selectedStoreState, setSelectedStoreState] = useState<string | null>(lockedStoreId ?? initialStoreId);
   const [datePreset, setDatePresetState] = useState<DatePreset>(initialPreset);
   const [dateRange, setDateRange] = useState<DateRange>(() => calculatePresetRange(initialPreset));
   const [displayCurrency, setDisplayCurrencyState] = useState<DisplayCurrency>(initialDisplayCurrency);
 
   useEffect(() => {
-    if (!selectedStoreId && stores.length > 0) {
-      setSelectedStoreId(stores[0].id);
+    if (lockedStoreId) {
+      setSelectedStoreState(lockedStoreId);
+      return;
     }
-  }, [stores, selectedStoreId]);
+    if (!selectedStoreState && stores.length > 0) {
+      setSelectedStoreState(stores[0].id);
+    }
+  }, [stores, selectedStoreState, lockedStoreId]);
+
+  const selectedStoreId = lockedStoreId ?? selectedStoreState;
+  const storeSelectionLocked = Boolean(lockedStoreId);
+
+  const setSelectedStoreId = useMemo<Dispatch<SetStateAction<string | null>>>(() => {
+    if (lockedStoreId) {
+      return () => {
+        /* selection locked */
+      };
+    }
+    return (value) => {
+      setSelectedStoreState((prev) => (typeof value === "function" ? value(prev) : value));
+    };
+  }, [lockedStoreId]);
 
   useEffect(() => {
     if (datePreset !== "custom") {
@@ -131,6 +152,7 @@ export function AnalyticsScopeProvider({
     isLoadingStores,
     selectedStoreId,
     setSelectedStoreId,
+    storeSelectionLocked,
     datePreset,
     setDatePreset: setDatePresetState,
     dateRange,
@@ -146,6 +168,8 @@ export function AnalyticsScopeProvider({
     stores,
     isLoadingStores,
     selectedStoreId,
+    setSelectedStoreId,
+    storeSelectionLocked,
     datePreset,
     dateRange,
     displayCurrency,
