@@ -246,6 +246,8 @@ export async function registerAnalyticsRoutes(app: Express) {
       }
 
       const baseCurrency = await resolveBaseCurrency({ orgId: orgIdForStore, storeCurrency });
+      const targetCurrencyRaw = String((req.query as any)?.target_currency || '').trim() || undefined;
+      const targetCurrency = targetCurrencyRaw ? coerceCurrency(targetCurrencyRaw, baseCurrency) : undefined;
 
       const where: any[] = [];
       if (orgId) where.push(eq(sales.orgId, orgId));
@@ -315,7 +317,9 @@ export async function registerAnalyticsRoutes(app: Express) {
         ? storeCurrency
         : revenueValues[0]?.currency ?? baseCurrency;
 
-      const totalMoney = await sumMoneyValues(revenueValues, nativeCurrency, {
+      const totalsCurrency = targetCurrency ?? nativeCurrency;
+
+      const totalMoney = await sumMoneyValues(revenueValues, totalsCurrency, {
         orgId: orgIdForStore ?? orgId ?? 'system',
         baseCurrency,
       });
@@ -356,7 +360,7 @@ export async function registerAnalyticsRoutes(app: Express) {
         return toMoney(Number(row.total ?? 0), currency);
       });
       const totalRefundCount = refundRows.reduce((sum, row) => sum + Number(row.count ?? 0), 0);
-      const refundMoney = await sumMoneyValues(refundValues, nativeCurrency, {
+      const refundMoney = await sumMoneyValues(refundValues, totalsCurrency, {
         orgId: orgIdForStore ?? orgId ?? 'system',
         baseCurrency,
       });
@@ -366,7 +370,7 @@ export async function registerAnalyticsRoutes(app: Express) {
             baseCurrency,
           })
         : undefined;
-      const netMoney = toMoney(totalMoney.amount - refundMoney.amount, nativeCurrency);
+      const netMoney = toMoney(totalMoney.amount - refundMoney.amount, totalsCurrency);
       const netNormalized = normalized
         ? {
             amount: normalized.amount - (refundNormalized?.amount ?? 0),
@@ -557,7 +561,8 @@ export async function registerAnalyticsRoutes(app: Express) {
     for (const [date, entry] of Array.from(pointMap.entries()).sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))) {
       const transactions = entry.transactions;
       const nativeCurrency = storeCurrency ?? entry.values[0]?.currency ?? baseCurrency;
-      const total = await sumMoneyValues(entry.values, nativeCurrency, {
+      const outputCurrency = targetCurrency ?? nativeCurrency;
+      const total = await sumMoneyValues(entry.values, outputCurrency, {
         orgId: orgIdForStore ?? orgId ?? 'system',
         baseCurrency,
       });
@@ -571,7 +576,7 @@ export async function registerAnalyticsRoutes(app: Express) {
 
       const refundEntry = refundMap.get(date);
       const refundValues = refundEntry?.values ?? [];
-      const refundTotal = await sumMoneyValues(refundValues, nativeCurrency, {
+      const refundTotal = await sumMoneyValues(refundValues, outputCurrency, {
         orgId: orgIdForStore ?? orgId ?? 'system',
         baseCurrency,
       });
@@ -582,7 +587,7 @@ export async function registerAnalyticsRoutes(app: Express) {
           })
         : undefined;
       const refundCount = refundEntry?.count ?? 0;
-      const netTotal = toMoney(total.amount - refundTotal.amount, nativeCurrency);
+      const netTotal = toMoney(total.amount - refundTotal.amount, outputCurrency);
       const netNormalized = normalized
         ? {
             amount: normalized.amount - (refundNormalized?.amount ?? 0),

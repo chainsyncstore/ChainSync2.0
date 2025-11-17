@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CalendarIcon, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, BarChart3, PieChart as PieChartIcon } from "lucide-react";
+import { CalendarIcon, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, BarChart3, PieChart as PieChartIcon, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -27,15 +27,36 @@ interface TimeseriesPoint {
   transactions: number;
   customers?: number;
   averageOrder: Money;
+  refunds?: {
+    total: Money;
+    normalized?: {
+      amount: number;
+      currency: CurrencyCode;
+      baseCurrency: CurrencyCode;
+    };
+    count?: number;
+  };
+  net?: {
+    total: Money;
+    normalized?: {
+      amount: number;
+      currency: CurrencyCode;
+      baseCurrency: CurrencyCode;
+    };
+  };
 }
 
 interface ChartPoint {
   date: string;
   revenue: number;
+  netRevenue: number;
+  refunds: number;
   transactions: number;
   customers: number;
   averageOrder: number;
   revenueMoney: Money;
+  netRevenueMoney: Money;
+  refundsMoney: Money;
   averageOrderMoney: Money;
 }
 
@@ -116,19 +137,37 @@ export default function SalesChart({ className }: ChartProps) {
       ? { amount: point.normalized.amount / transactions, currency: point.normalized.currency }
       : point.averageOrder ?? { amount: 0, currency: revenueMoney.currency };
     const customers = typeof point.customers === 'number' ? point.customers : transactions;
+    const refundsMoney: Money = point.refunds?.normalized
+      ? { amount: point.refunds.normalized.amount, currency: point.refunds.normalized.currency }
+      : point.refunds?.total ?? { amount: 0, currency: revenueMoney.currency };
+    const netMoney: Money = point.net?.normalized
+      ? { amount: point.net.normalized.amount, currency: point.net.normalized.currency }
+      : point.net?.total ?? { amount: revenueMoney.amount - refundsMoney.amount, currency: revenueMoney.currency };
     return {
       date: point.date,
       revenue: revenueMoney.amount,
+      netRevenue: netMoney.amount,
+      refunds: refundsMoney.amount,
       transactions,
       customers,
       averageOrder: averageOrderMoney.amount,
       revenueMoney,
+      netRevenueMoney: netMoney,
+      refundsMoney,
       averageOrderMoney,
     };
   });
 
   const totalRevenueMoney: Money = {
     amount: chartPoints.reduce((sum, item) => sum + item.revenueMoney.amount, 0),
+    currency: chartCurrency,
+  };
+  const totalNetMoney: Money = {
+    amount: chartPoints.reduce((sum, item) => sum + item.netRevenueMoney.amount, 0),
+    currency: chartCurrency,
+  };
+  const totalRefundMoney: Money = {
+    amount: chartPoints.reduce((sum, item) => sum + item.refundsMoney.amount, 0),
     currency: chartCurrency,
   };
   const totalTransactions = chartPoints.reduce((sum, item) => sum + item.transactions, 0);
@@ -144,6 +183,14 @@ export default function SalesChart({ className }: ChartProps) {
 
   const transactionGrowth = chartPoints.length >= 2 
     ? ((chartPoints[chartPoints.length - 1].transactions - chartPoints[chartPoints.length - 2].transactions) / (chartPoints[chartPoints.length - 2].transactions || 1)) * 100 
+    : 0;
+
+  const refundGrowth = chartPoints.length >= 2
+    ? ((chartPoints[chartPoints.length - 1].refunds - chartPoints[chartPoints.length - 2].refunds) / (chartPoints[chartPoints.length - 2].refunds || 1)) * 100
+    : 0;
+
+  const netGrowth = chartPoints.length >= 2
+    ? ((chartPoints[chartPoints.length - 1].netRevenue - chartPoints[chartPoints.length - 2].netRevenue) / (chartPoints[chartPoints.length - 2].netRevenue || 1)) * 100
     : 0;
 
   const renderChart = () => {
@@ -180,12 +227,21 @@ export default function SalesChart({ className }: ChartProps) {
                 tickFormatter={(value) => formatCurrency({ amount: value, currency: chartCurrency })}
                 domain={[0, 'dataMax + 100']}
               />
+              <YAxis yAxisId="right" orientation="right" hide />
               <Tooltip 
                 formatter={(value: any, name: string) => [
-                  name === 'revenue'
+                  ['revenue', 'netRevenue', 'refunds'].includes(name)
                     ? formatCurrency({ amount: value, currency: chartCurrency })
                     : value,
-                  name === 'revenue' ? 'Revenue' : name === 'transactions' ? 'Transactions' : 'Customers'
+                  name === 'revenue'
+                    ? 'Revenue'
+                    : name === 'netRevenue'
+                      ? 'Net Revenue'
+                      : name === 'refunds'
+                        ? 'Refunds'
+                        : name === 'transactions'
+                          ? 'Transactions'
+                          : 'Customers'
                 ]}
                 labelFormatter={(label) => formatDate(new Date(label), "MMM dd, yyyy")}
               />
@@ -200,11 +256,28 @@ export default function SalesChart({ className }: ChartProps) {
               />
               <Line 
                 type="monotone" 
+                dataKey="netRevenue" 
+                stroke="#6366F1" 
+                strokeWidth={2}
+                dot={{ fill: "#6366F1", strokeWidth: 2, r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="refunds" 
+                stroke="#F43F5E" 
+                strokeWidth={2}
+                dot={{ fill: "#F43F5E", strokeWidth: 2, r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+              <Line 
+                type="monotone" 
                 dataKey="transactions" 
                 stroke="#10B981" 
                 strokeWidth={2}
                 dot={{ fill: "#10B981", strokeWidth: 2, r: 4 }}
                 activeDot={{ r: 6 }}
+                yAxisId="right"
               />
             </LineChart>
           </ResponsiveContainer>
@@ -225,15 +298,23 @@ export default function SalesChart({ className }: ChartProps) {
               />
               <Tooltip 
                 formatter={(value: any, name: string) => [
-                  name === 'revenue'
+                  ['revenue', 'netRevenue', 'refunds'].includes(name)
                     ? formatCurrency({ amount: value, currency: chartCurrency })
                     : value,
-                  name === 'revenue' ? 'Revenue' : 'Transactions'
+                  name === 'revenue'
+                    ? 'Revenue'
+                    : name === 'netRevenue'
+                      ? 'Net Revenue'
+                      : name === 'refunds'
+                        ? 'Refunds'
+                        : 'Transactions'
                 ]}
                 labelFormatter={(label) => formatDate(new Date(label), "MMM dd, yyyy")}
               />
               <Legend />
               <Bar dataKey="revenue" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="netRevenue" fill="#6366F1" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="refunds" fill="#F43F5E" radius={[4, 4, 0, 0]} />
               <Bar dataKey="transactions" fill="#10B981" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -268,15 +349,31 @@ export default function SalesChart({ className }: ChartProps) {
                 stackId="1"
                 stroke="#3B82F6"
                 fill="#3B82F6"
-                fillOpacity={0.6}
+                fillOpacity={0.35}
+              />
+              <Area
+                type="monotone"
+                dataKey="netRevenue"
+                stackId="1"
+                stroke="#6366F1"
+                fill="#6366F1"
+                fillOpacity={0.25}
+              />
+              <Area
+                type="monotone"
+                dataKey="refunds"
+                stackId="2"
+                stroke="#F43F5E"
+                fill="#F43F5E"
+                fillOpacity={0.3}
               />
               <Area
                 type="monotone"
                 dataKey="transactions"
-                stackId="2"
+                stackId="3"
                 stroke="#10B981"
                 fill="#10B981"
-                fillOpacity={0.6}
+                fillOpacity={0.2}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -378,7 +475,7 @@ export default function SalesChart({ className }: ChartProps) {
 
       <CardContent>
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6 mb-6">
           <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-lg">
             <DollarSign className="w-8 h-8 text-blue-600" />
             <div>
@@ -392,6 +489,24 @@ export default function SalesChart({ className }: ChartProps) {
                 )}
                 <span className={`text-xs ${revenueGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {Math.abs(revenueGrowth).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 p-3 bg-indigo-50 rounded-lg">
+            <TrendingUp className="w-8 h-8 text-indigo-600" />
+            <div>
+              <p className="text-sm text-gray-600">Net Revenue</p>
+              <p className="text-lg font-semibold text-indigo-600">{formatCurrency(totalNetMoney)}</p>
+              <div className="flex items-center space-x-1">
+                {netGrowth >= 0 ? (
+                  <TrendingUp className="w-3 h-3 text-green-600" />
+                ) : (
+                  <TrendingDown className="w-3 h-3 text-red-600" />
+                )}
+                <span className={`text-xs ${netGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {Math.abs(netGrowth).toFixed(1)}%
                 </span>
               </div>
             </div>
@@ -428,6 +543,24 @@ export default function SalesChart({ className }: ChartProps) {
             <div>
               <p className="text-sm text-gray-600">Avg. Order</p>
               <p className="text-lg font-semibold text-orange-600">{formatCurrency(averageOrderMoney)}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 p-3 bg-rose-50 rounded-lg">
+            <RotateCcw className="w-8 h-8 text-rose-600" />
+            <div>
+              <p className="text-sm text-gray-600">Refunds</p>
+              <p className="text-lg font-semibold text-rose-600">{formatCurrency(totalRefundMoney)}</p>
+              <div className="flex items-center space-x-1">
+                {refundGrowth >= 0 ? (
+                  <TrendingUp className="w-3 h-3 text-red-600" />
+                ) : (
+                  <TrendingDown className="w-3 h-3 text-green-600" />
+                )}
+                <span className={`text-xs ${refundGrowth >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {Math.abs(refundGrowth).toFixed(1)}%
+                </span>
+              </div>
             </div>
           </div>
         </div>

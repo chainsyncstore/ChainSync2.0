@@ -1,5 +1,5 @@
 import { eq, and, gte, sql, desc } from 'drizzle-orm';
-import { legacySales as sales, legacySaleItems as saleItems, products, inventory } from '@shared/schema';
+import { legacySales as sales, legacySaleItems as saleItems, legacyReturns as returns, products, inventory } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 
@@ -169,7 +169,8 @@ export class AdvancedAnalyticsService {
       }
 
       // Generate revenue insights
-      const revenueInsights = this.generateRevenueInsights();
+      const revenueMetrics = await this.getStoreRevenueMetrics(storeId);
+      const revenueInsights = this.generateRevenueInsights(revenueMetrics);
       insights.push(...revenueInsights);
 
       // Generate inventory insights
@@ -328,26 +329,85 @@ export class AdvancedAnalyticsService {
     return anomalies;
   }
 
-  private generateRevenueInsights(): BusinessInsight[] {
+  private async getStoreRevenueMetrics(storeId: string): Promise<{ revenue: number; refunds: number; refundCount: number; net: number; returnRate: number; lookbackDays: number; }> {
+    const lookbackDays = 30;
+    const lookbackDate = new Date();
+    lookbackDate.setDate(lookbackDate.getDate() - lookbackDays);
+
+    const revenueRow = await db
+      .select({ total: sql`COALESCE(SUM(${sales.total}::numeric), 0)` })
+      .from(sales)
+      .where(and(eq(sales.storeId, storeId), gte(sales.occurredAt, lookbackDate)))
+      .limit(1);
+    const revenue = Number(revenueRow[0]?.total ?? 0);
+
+    const refundRow = await db
+      .select({
+        total: sql`COALESCE(SUM(${returns.totalRefund}::numeric), 0)`,
+        count: sql`COUNT(*)`
+      })
+      .from(returns)
+      .where(and(eq(returns.storeId, storeId), gte(returns.occurredAt, lookbackDate)))
+      .limit(1);
+    const refunds = Number(refundRow[0]?.total ?? 0);
+    const refundCount = Number(refundRow[0]?.count ?? 0);
+
+    const net = revenue - refunds;
+    const returnRate = revenue > 0 ? refunds / revenue : 0;
+
+    return { revenue, refunds, refundCount, net, returnRate, lookbackDays };
+  }
+
+  private generateRevenueInsights(metrics?: { revenue: number; refunds: number; refundCount: number; net: number; returnRate: number; lookbackDays: number; }): BusinessInsight[] {
+    if (metrics) {
+      const { revenue, refunds, refundCount, net, returnRate, lookbackDays } = metrics;
+      const percent = Number.isFinite(returnRate) ? +(returnRate * 100).toFixed(1) : 0;
+      const priority = returnRate > 0.2 ? 'critical' : returnRate > 0.12 ? 'high' : returnRate > 0.07 ? 'medium' : 'low';
+      const isElevated = returnRate >= 0.07;
+      const description = isElevated
+        ? `Returns consumed ${percent}% of gross revenue over the last ${lookbackDays} days (${refundCount} refund${refundCount === 1 ? '' : 's'}). Net revenue is ${net.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`
+        : `Return rate held at ${percent}% over the last ${lookbackDays} days. Net revenue remains healthy at ${net.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`;
+
+      return [{
+        category: 'revenue',
+        priority,
+        title: isElevated ? 'Return rate is eroding revenue' : 'Returns remain under control',
+        description,
+        impact: isElevated ? 'negative' : 'positive',
+        confidence: 0.84,
+        actionable: isElevated,
+        recommendedActions: isElevated
+          ? [
+              'Audit top-returned products and root causes',
+              'Tighten QC or revise product descriptions',
+              'Coach staff on troubleshooting before initiating refunds'
+            ]
+          : [
+              'Keep monitoring refund approvals weekly',
+              'Promote best practices that keep returns low'
+            ],
+        metrics: {
+          grossRevenue: revenue,
+          netRevenue: net,
+          refunds,
+          refundCount,
+          returnRate,
+        },
+        generatedAt: new Date().toISOString()
+      }];
+    }
+
     return [{
       category: 'revenue',
-      priority: 'high',
-      title: 'Revenue Growth Opportunity',
-      description: 'Weekend sales show 20% higher conversion rates. Consider targeted weekend promotions.',
-      impact: 'positive',
-      confidence: 0.88,
-      actionable: true,
-      recommendedActions: [
-        'Create weekend-specific promotions',
-        'Increase weekend staff',
-        'Stock popular weekend items'
-      ],
-      metrics: {
-        weekendConversionRate: 0.24,
-        weekdayConversionRate: 0.20,
-        potentialIncrease: 0.15
-      },
-      generatedAt: new Date().toISOString()
+      priority: 'medium',
+      title: 'Revenue monitoring',
+      description: 'Unable to calculate return rate. Please verify recent sales and returns data.',
+      impact: 'neutral',
+      confidence: 0.4,
+      actionable: false,
+      recommendedActions: [],
+      metrics: {},
+      generatedAt: new Date().toISOString(),
     }];
   }
 

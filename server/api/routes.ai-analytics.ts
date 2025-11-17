@@ -196,7 +196,7 @@ export async function registerAIAnalyticsRoutes(app: Express) {
         metadata: {
           storeId: storeIdStr,
           filters: { category, priority, actionableOnly },
-          generatedAt: new Date().toISOString()
+          generatedAt: new Date().toISOString(),
         }
       });
 
