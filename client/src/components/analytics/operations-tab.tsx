@@ -42,7 +42,7 @@ interface AlertSummary {
 }
 
 interface OperationsTabProps {
-  isAdmin: boolean;
+  hasAccess: boolean;
   staffPerformance: StaffPerformance[];
   storeContributions: StoreContribution[];
   alertsSummary: AlertSummary | null;
@@ -52,7 +52,7 @@ interface OperationsTabProps {
 }
 
 export default function OperationsTab({
-  isAdmin,
+  hasAccess,
   staffPerformance,
   storeContributions,
   alertsSummary,
@@ -60,14 +60,18 @@ export default function OperationsTab({
   isError,
   error,
 }: OperationsTabProps) {
-  const topStaff = useMemo(() => staffPerformance.slice(0, 5), [staffPerformance]);
+  const cashierPerformance = useMemo(
+    () => staffPerformance.filter((member) => member.role.toLowerCase() === "cashier"),
+    [staffPerformance],
+  );
+  const topStaff = useMemo(() => cashierPerformance.slice(0, 5), [cashierPerformance]);
   const topStores = useMemo(() => storeContributions.slice(0, 3), [storeContributions]);
 
-  if (!isAdmin) {
+  if (!hasAccess) {
     return (
       <Card className="border border-dashed border-slate-200">
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          Operations insights are visible to admin users only.
+          You don’t have access to operations insights.
         </CardContent>
       </Card>
     );
@@ -100,11 +104,11 @@ export default function OperationsTab({
     );
   }
 
-  if (staffPerformance.length === 0) {
+  if (cashierPerformance.length === 0) {
     return (
       <Card className="border border-dashed border-slate-200">
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          No staff performance data available yet.
+          No cashier performance data available yet.
         </CardContent>
       </Card>
     );
@@ -120,7 +124,7 @@ export default function OperationsTab({
               <Users className="h-4 w-4" />
             </div>
             <div className="text-2xl font-semibold">
-              {staffPerformance.filter((member) => member.onShift).length}
+              {cashierPerformance.filter((member) => member.onShift).length}
             </div>
             <p className="text-xs text-muted-foreground">Active users with recent transactions</p>
           </CardHeader>
@@ -235,19 +239,19 @@ export default function OperationsTab({
             <InsightTile
               icon={TrendingUp}
               title="Avg tickets per staff"
-              value={computeAverageTickets(staffPerformance).toFixed(1)}
+              value={computeAverageTickets(cashierPerformance).toFixed(1)}
               description="Workload distribution across active staff"
             />
             <InsightTile
               icon={Award}
               title="Revenue per staff"
-              value={formatCurrency(computeRevenuePerStaff(staffPerformance))}
+              value={formatCurrency(computeRevenuePerStaff(cashierPerformance))}
               description="Average revenue contribution per staff"
             />
             <InsightTile
               icon={BarChart3}
               title="Staffing coverage"
-              value={`${((staffPerformance.filter((member) => member.onShift).length / Math.max(staffPerformance.length, 1)) * 100).toFixed(1)}%`}
+              value={`${((cashierPerformance.filter((member) => member.onShift).length / Math.max(cashierPerformance.length, 1)) * 100).toFixed(1)}%`}
               description="Share of staff currently active"
             />
           </CardContent>

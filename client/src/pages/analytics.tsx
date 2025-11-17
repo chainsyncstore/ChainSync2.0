@@ -734,16 +734,18 @@ function AnalyticsContent() {
   );
 
   const isAdmin = Boolean(user?.isAdmin);
-  const canViewAi = isAdmin || (user?.role === "manager");
+  const isManager = user?.role === "manager";
+  const canViewAi = isAdmin || isManager;
+  const canViewOperations = isAdmin || isManager;
   const activeStore = stores.find((store) => store.id === storeId);
 
   const staffPerformanceData = useMemo(() => {
-    if (!isAdmin) return [];
+    if (!canViewOperations || !hasStore) return [];
     return [
       {
-        userId: "aggregate",
-        name: "All staff",
-        role: "manager",
+        userId: "cashier-aggregate",
+        name: "Cashier Team",
+        role: "cashier",
         totalSales: currentOverview.transactions,
         totalRevenue: {
           amount: displayRevenue.amount,
@@ -751,24 +753,12 @@ function AnalyticsContent() {
         },
         avgTicket: averageTransactionValue,
         transactions: currentOverview.transactions,
-        onShift: true,
-      },
-      {
-        userId: "placeholder-2",
-        name: "Cashier Team",
-        role: "cashier",
-        totalSales: Math.max(Math.floor(currentOverview.transactions * 0.35), 0),
-        totalRevenue: {
-          amount: displayRevenue.amount * 0.35,
-          currency: displayRevenue.currency,
-        },
-        avgTicket: averageTransactionValue,
-        transactions: Math.max(Math.floor(currentOverview.transactions * 0.35), 0),
-        onShift: false,
+        onShift: currentOverview.transactions > 0,
       },
     ];
   }, [
-    isAdmin,
+    canViewOperations,
+    hasStore,
     currentOverview.transactions,
     displayRevenue.amount,
     displayRevenue.currency,
@@ -776,7 +766,7 @@ function AnalyticsContent() {
   ]);
 
   const storeContributionData = useMemo(() => {
-    if (!isAdmin) return [];
+    if (!canViewOperations || !hasStore) return [];
     return [
       {
         storeId: storeId,
@@ -787,7 +777,8 @@ function AnalyticsContent() {
       },
     ];
   }, [
-    isAdmin,
+    canViewOperations,
+    hasStore,
     storeId,
     activeStore?.name,
     displayRevenue,
@@ -796,7 +787,7 @@ function AnalyticsContent() {
   ]);
 
   const alertsSummary = useMemo(() => {
-    if (!isAdmin) return null;
+    if (!canViewOperations) return null;
     return {
       total: alerts.length,
       lowStock: alerts.length,
@@ -1023,7 +1014,7 @@ function AnalyticsContent() {
 
         <TabsContent value="operations" className="space-y-6">
           <OperationsTab
-            isAdmin={isAdmin}
+            hasAccess={canViewOperations}
             staffPerformance={staffPerformanceData}
             storeContributions={storeContributionData}
             alertsSummary={alertsSummary}
