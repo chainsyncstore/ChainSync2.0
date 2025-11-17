@@ -69,12 +69,6 @@ function Dashboard({ userRole }: { userRole: string }) {
     }
   }, [location, setLocation, defaultPath]);
 
-  useEffect(() => {
-    if (role === "admin" && !user?.storeId) {
-      setLocation("/multi-store", { replace: true });
-    }
-  }, [role, user, setLocation]);
-
   if (role === "admin") {
     return (
       <ScannerProvider>
