@@ -804,6 +804,13 @@ export async function registerAuthRoutes(app: Express) {
         });
       }
 
+      // Once signup is complete, clear any stale pending signup tokens
+      const pending = await PendingSignup.getByEmailWithTokenAsync(user.email);
+      if (pending) {
+        PendingSignup.clearByToken(pending.token);
+        res.clearCookie('pending_signup');
+      }
+
       // Check if email is verified (skip in test to align with E2E mocks)
       if (process.env.NODE_ENV !== 'test' && !user.emailVerified) {
         const normalizedRole = typeof user.role === 'string' ? user.role.toLowerCase() : undefined;

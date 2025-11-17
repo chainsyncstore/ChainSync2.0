@@ -212,8 +212,11 @@ export function useAuth(): AuthState & AuthActions {
 
         const role = normalizedUser?.isAdmin ? 'admin' : (normalizedUser as any)?.role || 'cashier';
         let defaultPath = "/pos";
-        if (role === "admin") defaultPath = "/analytics";
-        else if (role === "manager") defaultPath = "/inventory";
+        if (role === "admin") {
+          defaultPath = normalizedUser?.storeId ? "/analytics" : "/multi-store";
+        } else if (role === "manager") {
+          defaultPath = "/inventory";
+        }
         window.location.href = defaultPath;
         return;
       }
@@ -243,8 +246,11 @@ export function useAuth(): AuthState & AuthActions {
 
       const role = normalizedUser?.isAdmin ? 'admin' : (normalizedUser as any)?.role || 'cashier';
       let defaultPath = "/pos";
-      if (role === "admin") defaultPath = "/analytics";
-      else if (role === "manager") defaultPath = "/inventory";
+      if (role === "admin") {
+        defaultPath = normalizedUser?.storeId ? "/analytics" : "/multi-store";
+      } else if (role === "manager") {
+        defaultPath = "/inventory";
+      }
       window.location.href = defaultPath;
     } catch (err) {
       console.error('Login request failed', err);

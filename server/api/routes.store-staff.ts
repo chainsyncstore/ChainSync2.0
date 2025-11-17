@@ -259,7 +259,7 @@ export async function registerStoreStaffRoutes(app: Express) {
       isAdmin: false as any,
       isActive: true,
       password: tempPassword,
-      emailVerified: false,
+      emailVerified: true,
       signupCompleted: true,
       requiresPasswordChange: true,
     } as any);
@@ -272,6 +272,7 @@ export async function registerStoreStaffRoutes(app: Express) {
         storeId,
         role: normalizedRole,
         isActive: true,
+        emailVerified: true,
         requiresPasswordChange: true,
       } as any)
       .where(eq(sharedUsers.id, (newUser as any).id));
