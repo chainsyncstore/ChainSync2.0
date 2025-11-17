@@ -167,6 +167,14 @@ export function useAuth(): AuthState & AuthActions {
         /* ignore */
       }
 
+      if ((response.status === 202 || response.status === 423 || response.status === 429 || loginResp?.pending) && loginResp?.pending) {
+        const pendingIdentifier = body.email ?? body.username ?? usernameOrEmail;
+        const query = pendingIdentifier ? `?email=${encodeURIComponent(pendingIdentifier)}` : "";
+        window.location.href = `/signup/verify-otp${query}`;
+        setIsLoading(false);
+        return;
+      }
+
       if (loginResp?.status === 'otp_required') {
         const otp = window.prompt('Enter 2FA code from your authenticator app');
         if (!otp) {

@@ -771,6 +771,64 @@ export async function registerAuthRoutes(app: Express) {
         return res.status(400).json({ message: 'Invalid email or password' });
       }
 
+      // Force pending signups back into the OTP flow
+      if (!user.signupCompleted) {
+        const pending = await PendingSignup.getByEmailWithTokenAsync(user.email);
+
+        if (!pending) {
+          return res.status(423).json({
+            pending: true,
+            message: 'Your signup session expired. Please restart signup to activate your account.',
+          });
+        }
+
+        const { token, data } = pending;
+
+        if (data.otpResendCount >= MAX_OTP_ATTEMPTS) {
+          PendingSignup.clearByToken(token);
+          res.clearCookie('pending_signup');
+          return res.status(429).json({
+            pending: true,
+            message: 'Too many verification attempts. Please restart signup.',
+          });
+        }
+
+        const { code: otpCode, hash: otpHash, salt: otpSalt, expiresAt: otpExpiresAt } = buildOtpPayload();
+        const updatedData = {
+          ...data,
+          otpHash,
+          otpSalt,
+          otpExpiresAt: otpExpiresAt.toISOString(),
+          otpAttempts: 0,
+          otpResendCount: data.otpResendCount + 1,
+          lastOtpSentAt: new Date().toISOString(),
+        } as typeof data;
+
+        await PendingSignup.updateToken(token, updatedData);
+        setPendingCookie(res, token);
+
+        try {
+          const otpEmail = generateSignupOtpEmail(
+            user.email,
+            user.firstName || user.email,
+            otpCode,
+            otpExpiresAt
+          );
+          await sendEmail(otpEmail);
+        } catch (otpError) {
+          logger.error('Failed to send login-triggered OTP email', {
+            error: otpError instanceof Error ? otpError.message : String(otpError),
+            userId: user.id,
+            email: user.email,
+          });
+        }
+
+        return res.status(202).json({
+          pending: true,
+          message: 'Please enter the verification code we just emailed to finish activating your account.',
+        });
+      }
+
       // Check if email is verified (skip in test to align with E2E mocks)
       if (process.env.NODE_ENV !== 'test' && !user.emailVerified) {
         const normalizedRole = typeof user.role === 'string' ? user.role.toLowerCase() : undefined;

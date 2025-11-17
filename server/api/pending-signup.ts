@@ -26,7 +26,7 @@ const tokenToSignup = new Map<string, PendingSignupData>();
 const referenceToToken = new Map<string, string>();
 const emailToToken = new Map<string, string>();
 
-const TOKEN_TTL_SECONDS = 30 * 60; // 30 minutes
+const TOKEN_TTL_SECONDS = 60 * 60; // 60 minutes
 const KEY_PREFIX = 'chainsync:pending-signup';
 
 function tokenKey(token: string): string {

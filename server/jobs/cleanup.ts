@@ -12,6 +12,8 @@ import {
   subscriptions,
   users,
   scheduledReports,
+  userRoles,
+  stores,
 } from "@shared/schema";
 import { db } from "../db";
 import { pool } from "../db";
@@ -19,6 +21,43 @@ import { generateTrialPaymentReminderEmail, sendEmail } from "../email";
 import { PRICING_TIERS } from "../lib/constants";
 import { logger } from "../lib/logger";
 import { PaymentService } from "../payment/service";
+
+const ABANDONED_SIGNUP_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+async function cleanupAbandonedSignupsOlderThanOneHour(): Promise<number> {
+	const cutoff = new Date(Date.now() - ABANDONED_SIGNUP_MAX_AGE_MS);
+	const abandonedUsers = await db
+		.select({
+			id: users.id,
+			orgId: users.orgId,
+			createdAt: users.createdAt,
+		})
+		.from(users)
+		.where(
+			and(
+				lt(users.createdAt, cutoff),
+				or(isNull(users.signupCompleted), eq(users.signupCompleted, false as any)),
+				or(isNull(users.signupCompletedAt), lt(users.signupCompletedAt, cutoff)),
+				or(isNull(users.isActive), eq(users.isActive, false as any))
+			)
+		);
+
+	let deleted = 0;
+	for (const abandoned of abandonedUsers) {
+		await db.transaction(async (tx) => {
+			if (abandoned.orgId) {
+				await tx.delete(userRoles).where(eq(userRoles.orgId, abandoned.orgId));
+				await tx.delete(stores).where(eq(stores.orgId, abandoned.orgId));
+				await tx.delete(subscriptions).where(eq(subscriptions.orgId, abandoned.orgId));
+				await tx.delete(organizations).where(eq(organizations.id, abandoned.orgId));
+			}
+			await tx.delete(users).where(eq(users.id, abandoned.id));
+		});
+		deleted += 1;
+	}
+
+	return deleted;
+}
 
 async function runCleanupOnce(): Promise<void> {
 	try {
@@ -38,6 +77,17 @@ async function runCleanupOnce(): Promise<void> {
 		}
 	} catch (error) {
 		logger.error("Abandoned signup cleanup failed", {}, error as Error);
+	}
+
+	try {
+		const manualDeleted = await cleanupAbandonedSignupsOlderThanOneHour();
+		if (manualDeleted > 0) {
+			logger.info("Manual abandoned signup cleanup removed users", { count: manualDeleted });
+		}
+	} catch (error) {
+		logger.error("Manual abandoned signup cleanup failed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
 	}
 }
 
@@ -59,20 +109,23 @@ export function scheduleAbandonedSignupCleanup(): void {
 		return;
 	}
 
-	// Default schedule: daily at 03:00 UTC
-	const hourUtc = Number(process.env.CLEANUP_ABANDONED_SIGNUPS_HOUR_UTC ?? 3);
+	const intervalMinutesEnv = Number(process.env.CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MINUTES ?? 60);
+	const intervalMinutes = Number.isFinite(intervalMinutesEnv) && intervalMinutesEnv > 0 ? intervalMinutesEnv : 60;
+	const intervalMs = intervalMinutes * 60 * 1000;
+	const initialDelayMsEnv = Number(process.env.CLEANUP_ABANDONED_SIGNUPS_INITIAL_DELAY_MS ?? 30_000);
+	const initialDelayMs = Number.isFinite(initialDelayMsEnv) && initialDelayMsEnv >= 0 ? initialDelayMsEnv : 30_000;
 
-	const scheduleNext = () => {
-		const delay = msUntilNext(hourUtc);
-		logger.info("Scheduling abandoned signup cleanup", { runInMs: delay });
-		setTimeout(async () => {
-			await runCleanupOnce();
-			// After first run at the scheduled time, run every 24h
-			setInterval(runCleanupOnce, 24 * 60 * 60 * 1000);
-		}, delay);
-	};
+	logger.info("Scheduling abandoned signup cleanup loop", {
+		intervalMinutes,
+		initialDelayMs,
+	});
 
-	scheduleNext();
+	setTimeout(() => {
+		void runCleanupOnce();
+		setInterval(() => {
+			void runCleanupOnce();
+		}, intervalMs);
+	}, initialDelayMs);
 }
 
 export async function runAbandonedSignupCleanupNow(): Promise<void> {
