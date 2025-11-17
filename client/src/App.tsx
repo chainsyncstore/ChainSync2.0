@@ -54,13 +54,26 @@ function Dashboard({ userRole }: { userRole: string }) {
   const role = userRole || "admin";
   console.log("Dashboard rendering with role:", role);
   const [location, setLocation] = useLocation();
+  const { user } = useAuth();
+
+  const defaultPath = role === "admin"
+    ? (user?.storeId ? "/analytics" : "/multi-store")
+    : role === "manager"
+      ? "/inventory"
+      : "/pos";
 
   useEffect(() => {
-    const defaultPath = role === "admin" ? "/analytics" : role === "manager" ? "/inventory" : "/pos";
-    if (location === "/login" || location === "/") {
+    const authPaths = ["/", "/login", "/signup", "/signup/verify-otp", "/forgot-password", "/reset-password"];
+    if (authPaths.some((path) => location.startsWith(path))) {
       setLocation(defaultPath, { replace: true });
     }
-  }, [location, setLocation, role]);
+  }, [location, setLocation, defaultPath]);
+
+  useEffect(() => {
+    if (role === "admin" && !user?.storeId) {
+      setLocation("/multi-store", { replace: true });
+    }
+  }, [role, user, setLocation]);
 
   if (role === "admin") {
     return (
