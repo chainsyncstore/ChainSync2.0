@@ -63,8 +63,9 @@ function Dashboard({ userRole }: { userRole: string }) {
       : "/pos";
 
   useEffect(() => {
-    const authPaths = ["/", "/login", "/signup", "/signup/verify-otp", "/forgot-password", "/reset-password"];
-    if (authPaths.some((path) => location.startsWith(path))) {
+    const authPaths = new Set(["/", "/login", "/signup", "/signup/verify-otp", "/forgot-password", "/reset-password"]);
+    const pathname = location.split("?")[0];
+    if (authPaths.has(pathname)) {
       setLocation(defaultPath, { replace: true });
     }
   }, [location, setLocation, defaultPath]);
