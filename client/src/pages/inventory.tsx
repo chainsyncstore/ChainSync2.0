@@ -114,6 +114,41 @@ const formatFlexibleCurrency = (value: number, currencyCode?: string) => {
   }
 };
 
+const createEmptyOrgTotals = (): OrganizationInventorySummary["totals"] => ({
+  totalProducts: 0,
+  lowStockCount: 0,
+  outOfStockCount: 0,
+  overstockCount: 0,
+  currencyTotals: [],
+});
+
+const deriveTotalsFromStores = (stores: OrganizationInventorySummary["stores"] | undefined): OrganizationInventorySummary["totals"] => {
+  if (!stores?.length) {
+    return createEmptyOrgTotals();
+  }
+
+  const currencyTotals = new Map<string, number>();
+  const totals: OrganizationInventorySummary["totals"] = createEmptyOrgTotals();
+
+  for (const store of stores) {
+    totals.totalProducts += store.totalProducts ?? 0;
+    totals.lowStockCount += store.lowStockCount ?? 0;
+    totals.outOfStockCount += store.outOfStockCount ?? 0;
+    totals.overstockCount += store.overstockCount ?? 0;
+    currencyTotals.set(store.currency, (currencyTotals.get(store.currency) ?? 0) + (store.totalValue ?? 0));
+  }
+
+  totals.currencyTotals = Array.from(currencyTotals.entries()).map(([currency, totalValue]) => ({ currency, totalValue }));
+  return totals;
+};
+
+const hasMeaningfulTotals = (totals: OrganizationInventorySummary["totals"] | undefined) => {
+  if (!totals) return false;
+  const hasCounts = Boolean(totals.totalProducts || totals.lowStockCount || totals.outOfStockCount || totals.overstockCount);
+  const hasCurrencyValue = totals.currencyTotals?.some(({ totalValue }) => totalValue > 0);
+  return hasCounts || hasCurrencyValue;
+};
+
 export default function Inventory() {
   const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
@@ -133,6 +168,7 @@ export default function Inventory() {
     endDate: "",
   });
   const [historyProduct, setHistoryProduct] = useState<InventoryWithProduct | null>(null);
+  const [selectedOrgCurrency, setSelectedOrgCurrency] = useState<string | null>(null);
 
   const userRole = (user?.role ?? (user?.isAdmin ? "admin" : undefined))?.toString().toLowerCase();
   const isAdmin = userRole === "admin";
@@ -164,7 +200,13 @@ export default function Inventory() {
   const storeId = isAllStoresView ? "" : selectedStore?.trim() || "";
   const orgId = useMemo(() => {
     const authUser = user as any;
-    const derivedOrgId = authUser?.orgId ?? authUser?.org_id;
+    const derivedOrgId =
+      authUser?.orgId ??
+      authUser?.org_id ??
+      authUser?.organizationId ??
+      authUser?.organization_id ??
+      authUser?.org?.id ??
+      authUser?.organization?.id;
     return derivedOrgId ? String(derivedOrgId) : "";
   }, [user]);
 
@@ -172,6 +214,8 @@ export default function Inventory() {
     if (!isAdmin) return stores;
     return [ALL_STORES_OPTION, ...stores];
   }, [isAdmin, stores]);
+
+  const orgCurrencyStorageKey = useMemo(() => (orgId ? `inventory-org-currency-${orgId}` : null), [orgId]);
 
   const { data: inventoryData } = useQuery<InventoryApiResponse>({
     queryKey: ["/api/stores", storeId, "inventory"],
@@ -311,16 +355,16 @@ export default function Inventory() {
 
   const aggregatedTotals = useMemo<OrganizationInventorySummary["totals"] | null>(() => {
     if (!isAllStoresView) return null;
-    if (orgInventorySummary?.totals) {
-      return orgInventorySummary.totals;
+
+    if (hasMeaningfulTotals(orgInventorySummary?.totals)) {
+      return orgInventorySummary!.totals;
     }
-    return {
-      totalProducts: 0,
-      lowStockCount: 0,
-      outOfStockCount: 0,
-      overstockCount: 0,
-      currencyTotals: [],
-    } satisfies OrganizationInventorySummary["totals"];
+
+    if (orgInventorySummary?.stores?.length) {
+      return deriveTotalsFromStores(orgInventorySummary.stores);
+    }
+
+    return createEmptyOrgTotals();
   }, [isAllStoresView, orgInventorySummary]);
 
   const aggregatedCurrencyDisplay = useMemo<Array<{ currency: string; display: string }>>(() => {
@@ -337,6 +381,47 @@ export default function Inventory() {
     }
     return [{ currency: currency, display: formatFlexibleCurrency(totalStockValue, currency) }];
   }, [aggregatedTotals, currency, isAllStoresView, totalStockValue]);
+
+  useEffect(() => {
+    if (!isAllStoresView) {
+      setSelectedOrgCurrency(null);
+      return;
+    }
+
+    const availableCurrencies = aggregatedCurrencyDisplay.map((entry) => entry.currency);
+    if (!availableCurrencies.length) {
+      setSelectedOrgCurrency(null);
+      return;
+    }
+
+    setSelectedOrgCurrency((previous) => {
+      if (previous && availableCurrencies.includes(previous)) {
+        return previous;
+      }
+
+      if (orgCurrencyStorageKey && typeof window !== "undefined") {
+        const stored = window.localStorage.getItem(orgCurrencyStorageKey);
+        if (stored && availableCurrencies.includes(stored)) {
+          return stored;
+        }
+      }
+
+      return availableCurrencies[0];
+    });
+  }, [aggregatedCurrencyDisplay, isAllStoresView, orgCurrencyStorageKey]);
+
+  useEffect(() => {
+    if (!orgCurrencyStorageKey || !selectedOrgCurrency || typeof window === "undefined") return;
+    window.localStorage.setItem(orgCurrencyStorageKey, selectedOrgCurrency);
+  }, [orgCurrencyStorageKey, selectedOrgCurrency]);
+
+  const selectedCurrencyEntry = useMemo(() => {
+    if (!aggregatedCurrencyDisplay.length) return null;
+    if (!selectedOrgCurrency) return aggregatedCurrencyDisplay[0];
+    return aggregatedCurrencyDisplay.find((entry) => entry.currency === selectedOrgCurrency) ?? aggregatedCurrencyDisplay[0];
+  }, [aggregatedCurrencyDisplay, selectedOrgCurrency]);
+
+  const hasMultipleOrgCurrencies = aggregatedCurrencyDisplay.length > 1;
 
   const canEditInventory = useMemo(
     () => isManager && storeId === managerStoreId && Boolean(storeId),
@@ -599,11 +684,32 @@ export default function Inventory() {
         {isAllStoresView ? (
           <div className="space-y-6">
             <Card>
-              <CardHeader className="flex flex-col gap-2">
-                <CardTitle>All stores summary</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Aggregated snapshot across every store. Pick a specific store to inspect detailed stock levels.
-                </p>
+              <CardHeader className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle>All stores summary</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Aggregated snapshot across every store. Pick a specific store to inspect detailed stock levels.
+                    </p>
+                  </div>
+                  {hasMultipleOrgCurrencies ? (
+                    <div className="w-full sm:w-56">
+                      <Label className="text-xs uppercase tracking-wide text-slate-500">Currency focus</Label>
+                      <Select value={selectedOrgCurrency ?? undefined} onValueChange={setSelectedOrgCurrency}>
+                        <SelectTrigger className="h-9 mt-1">
+                          <SelectValue placeholder="Select currency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {aggregatedCurrencyDisplay.map((entry) => (
+                            <SelectItem key={entry.currency} value={entry.currency}>
+                              {entry.currency}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -614,14 +720,20 @@ export default function Inventory() {
                   <Card className="border border-slate-200">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium">Total Stock Value</CardTitle>
+                      {hasMultipleOrgCurrencies ? (
+                        <p className="text-xs text-muted-foreground">Showing {selectedCurrencyEntry?.currency}</p>
+                      ) : null}
                     </CardHeader>
                     <CardContent className="space-y-1">
-                      {aggregatedCurrencyDisplay.map((entry) => (
-                        <p key={entry.currency} className="text-base font-semibold text-slate-800">
-                          {entry.display}
-                          <span className="text-xs text-slate-500 ml-2">{entry.currency}</span>
+                      <p className="text-2xl font-semibold text-slate-800">
+                        {selectedCurrencyEntry?.display}
+                        <span className="text-xs text-slate-500 ml-2">{selectedCurrencyEntry?.currency}</span>
+                      </p>
+                      {hasMultipleOrgCurrencies ? (
+                        <p className="text-xs text-muted-foreground">
+                          Switch currencies above to view totals in another denomination.
                         </p>
-                      ))}
+                      ) : null}
                     </CardContent>
                   </Card>
                 </div>
