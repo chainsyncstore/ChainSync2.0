@@ -24,7 +24,6 @@ import {
   type InsertLoyaltyTransaction,
   type InsertProduct,
   type InsertStore,
-  type InsertStockMovement,
   type InsertTransaction,
   type InsertTransactionItem,
   type InsertUser,

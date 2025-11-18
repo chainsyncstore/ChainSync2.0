@@ -315,11 +315,16 @@ export const requestLogger = (req: Request, res: Response, next: () => void): vo
 
 // Utility function to extract context from request
 export const extractLogContext = (req: Request, additionalContext?: Partial<LogContext>): LogContext => {
+  const session = req.session as any;
+  const sessionUser = session?.user;
+  const fallbackUserId = session?.userId;
+  const fallbackStoreId = session?.storeId;
+
   return {
-    userId: (req.session as any)?.user?.id,
-    storeId: (req.session as any)?.user?.storeId,
+    userId: sessionUser?.id ?? fallbackUserId,
+    storeId: sessionUser?.storeId ?? fallbackStoreId,
     ipAddress: req.ip || req.connection.remoteAddress,
     userAgent: req.get('User-Agent'),
-    ...additionalContext
+    ...additionalContext,
   };
 };
