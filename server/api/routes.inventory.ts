@@ -136,6 +136,22 @@ export async function registerInventoryRoutes(app: Express) {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
     }
 
+    const userId = req.session?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const actor = await storage.getUser(userId);
+    if (!actor) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const actorOrgId = (actor as any)?.orgId as string | undefined;
+    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
+    if (!actorOrgId && !actorIsAdmin) {
+      return res.status(400).json({ error: 'Organization not set for user' });
+    }
+
     const data = parsed.data;
     const priceString = data.price.toFixed(2);
     const costString = typeof data.cost === 'number' ? data.cost.toFixed(2) : undefined;
@@ -158,6 +174,10 @@ export async function registerInventoryRoutes(app: Express) {
       isActive: true,
     } as Partial<typeof products.$inferInsert>;
 
+    if (actorOrgId) {
+      normalizedPayload.orgId = actorOrgId;
+    }
+
     try {
       let existing = undefined;
       if (normalizedPayload.sku) {
@@ -165,6 +185,13 @@ export async function registerInventoryRoutes(app: Express) {
       }
       if (!existing && normalizedPayload.barcode) {
         existing = await storage.getProductByBarcode(normalizedPayload.barcode);
+      }
+
+      if (existing && !actorIsAdmin) {
+        const existingOrgId = (existing as any)?.orgId as string | undefined;
+        if (existingOrgId && actorOrgId && existingOrgId !== actorOrgId) {
+          return res.status(403).json({ error: 'Product belongs to a different organization' });
+        }
       }
 
       let product;
