@@ -5,6 +5,8 @@ import { db } from '../db';
 import { getPlan } from '../lib/plans';
 import { storage } from '../storage';
 
+const ipWhitelistEnforced = (process.env.IP_WHITELIST_ENFORCED ?? 'true').toLowerCase() !== 'false';
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
   next();
@@ -121,7 +123,7 @@ export function ipMatchesCidrOrIp(allowed: string, ipAddress: string): boolean {
 }
 
 export async function enforceIpWhitelist(req: Request, res: Response, next: NextFunction) {
-  if (process.env.NODE_ENV === 'test') return next();
+  if (!ipWhitelistEnforced || process.env.NODE_ENV === 'test') return next();
   const userId = req.session?.userId as string | undefined;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
   const rows = await db.select().from(users).where(eq(users.id, userId));

@@ -31,6 +31,7 @@ export const envSchema = z.object({
   OFFLINE_SYNC_INTERVAL: z.string().transform((v) => parseInt(v) || 30000).default('30000' as any),
   SECURITY_AUDIT_ENABLED: z.string().transform((v) => v === 'true').default('true' as any),
   SIGNUPS_ENABLED: z.string().transform((v) => v === 'true').default('false' as any),
+  IP_WHITELIST_ENFORCED: z.string().transform((v) => v === 'true').default('true' as any),
   MONITORING_ALERT_WEBHOOK: z.string().url().optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug', 'trace']).default('info'),
   // Feature flags
@@ -50,6 +51,7 @@ export type Env = z.infer<typeof envSchema> & {
   OFFLINE_SYNC_INTERVAL: number;
   SECURITY_AUDIT_ENABLED: boolean;
   SIGNUPS_ENABLED: boolean;
+  IP_WHITELIST_ENFORCED: boolean;
   BASE_URL?: string;
   FLUTTERWAVE_SECRET_KEY?: string;
   FLUTTERWAVE_PUBLIC_KEY?: string;
