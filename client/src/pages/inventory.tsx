@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon } from "lucide-react";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -97,6 +98,22 @@ const MOVEMENT_ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "delete", label: "Deletions" },
 ];
 
+const formatFlexibleCurrency = (value: number, currencyCode?: string) => {
+  if (!currencyCode) {
+    return formatCurrency(value, "USD");
+  }
+
+  if (currencyCode === "USD" || currencyCode === "NGN") {
+    return formatCurrency(value, currencyCode as "USD" | "NGN");
+  }
+
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(value);
+  } catch {
+    return `${currencyCode} ${value.toLocaleString()}`;
+  }
+};
+
 export default function Inventory() {
   const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
@@ -145,7 +162,11 @@ export default function Inventory() {
 
   const isAllStoresView = isAdmin && selectedStore === ALL_STORES_ID;
   const storeId = isAllStoresView ? "" : selectedStore?.trim() || "";
-  const orgId = (user as any)?.orgId ? String((user as any).orgId) : "";
+  const orgId = useMemo(() => {
+    const authUser = user as any;
+    const derivedOrgId = authUser?.orgId ?? authUser?.org_id;
+    return derivedOrgId ? String(derivedOrgId) : "";
+  }, [user]);
 
   const adminStoreOptions = useMemo(() => {
     if (!isAdmin) return stores;
@@ -302,25 +323,24 @@ export default function Inventory() {
     } satisfies OrganizationInventorySummary["totals"];
   }, [isAllStoresView, orgInventorySummary]);
 
-  const aggregatedCurrencyDisplay = useMemo(() => {
+  const aggregatedCurrencyDisplay = useMemo<Array<{ currency: string; display: string }>>(() => {
     if (isAllStoresView) {
       const totals = aggregatedTotals?.currencyTotals ?? [];
       if (!totals.length) {
-        return formatCurrency(0, "USD");
+        return [{ currency: "USD", display: formatCurrency(0, "USD") }];
       }
-      return totals
-        .map(({ currency: code, totalValue }) => {
-          const safeCode = code === "NGN" ? "NGN" : "USD";
-          return formatCurrency(totalValue, safeCode as "USD" | "NGN");
-        })
-        .join(" · ");
+
+      return totals.map(({ currency: code, totalValue }) => ({
+        currency: code,
+        display: formatFlexibleCurrency(totalValue, code),
+      }));
     }
-    return formatCurrency(totalStockValue, currency as "USD" | "NGN");
+    return [{ currency: currency, display: formatFlexibleCurrency(totalStockValue, currency) }];
   }, [aggregatedTotals, currency, isAllStoresView, totalStockValue]);
 
   const canEditInventory = useMemo(
-    () => (isAdmin && Boolean(storeId)) || (isManager && storeId === managerStoreId && Boolean(storeId)),
-    [isAdmin, isManager, storeId, managerStoreId],
+    () => isManager && storeId === managerStoreId && Boolean(storeId),
+    [isManager, managerStoreId, storeId],
   );
 
   const resetEditState = () => {
@@ -582,7 +602,7 @@ export default function Inventory() {
               <CardHeader className="flex flex-col gap-2">
                 <CardTitle>All stores summary</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Aggregated snapshot across every store. Pick a specific store to inspect and manage items.
+                  Aggregated snapshot across every store. Pick a specific store to inspect detailed stock levels.
                 </p>
               </CardHeader>
               <CardContent>
@@ -591,14 +611,65 @@ export default function Inventory() {
                   <SummaryMetricCard title="Low Stock Items" value={aggregatedTotals?.lowStockCount ?? 0} valueClassName="text-yellow-600" />
                   <SummaryMetricCard title="Out of Stock" value={aggregatedTotals?.outOfStockCount ?? 0} valueClassName="text-red-600" />
                   <SummaryMetricCard title="Overstocked" value={aggregatedTotals?.overstockCount ?? 0} valueClassName="text-blue-600" />
-                  <SummaryMetricCard title="Total Stock Value" value={aggregatedCurrencyDisplay} />
+                  <Card className="border border-slate-200">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Total Stock Value</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1">
+                      {aggregatedCurrencyDisplay.map((entry) => (
+                        <p key={entry.currency} className="text-base font-semibold text-slate-800">
+                          {entry.display}
+                          <span className="text-xs text-slate-500 ml-2">{entry.currency}</span>
+                        </p>
+                      ))}
+                    </CardContent>
+                  </Card>
                 </div>
               </CardContent>
             </Card>
 
+            {orgInventorySummary?.stores?.length ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Store snapshots</CardTitle>
+                  <CardDescription>High-level totals for each store in your organization.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left border-b">
+                          <th className="py-2 pr-4 font-medium">Store</th>
+                          <th className="py-2 pr-4 font-medium">Currency</th>
+                          <th className="py-2 pr-4 font-medium">Products</th>
+                          <th className="py-2 pr-4 font-medium">Low Stock</th>
+                          <th className="py-2 pr-4 font-medium">Out of Stock</th>
+                          <th className="py-2 pr-4 font-medium">Overstocked</th>
+                          <th className="py-2 pr-4 font-medium text-right">Inventory Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orgInventorySummary.stores.map((storeSummary) => (
+                          <tr key={storeSummary.storeId} className="border-b last:border-0">
+                            <td className="py-3 pr-4 font-medium text-slate-800">{storeSummary.storeName}</td>
+                            <td className="py-3 pr-4 text-slate-600">{storeSummary.currency}</td>
+                            <td className="py-3 pr-4">{storeSummary.totalProducts}</td>
+                            <td className="py-3 pr-4 text-yellow-700">{storeSummary.lowStockCount}</td>
+                            <td className="py-3 pr-4 text-red-600">{storeSummary.outOfStockCount}</td>
+                            <td className="py-3 pr-4 text-blue-600">{storeSummary.overstockCount}</td>
+                            <td className="py-3 pr-4 text-right font-semibold">{formatFlexibleCurrency(storeSummary.totalValue, storeSummary.currency)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
             <Card>
               <CardContent className="py-8 text-center text-slate-600">
-                Choose an individual store to review detailed stock levels and perform updates.
+                Choose an individual store to review detailed stock levels.
               </CardContent>
             </Card>
           </div>
@@ -633,7 +704,7 @@ export default function Inventory() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {formatCurrency(totalStockValue, currency as "USD" | "NGN")}
+                    {formatFlexibleCurrency(totalStockValue, currency)}
                   </div>
                 </CardContent>
               </Card>
@@ -658,12 +729,6 @@ export default function Inventory() {
                 </CardContent>
               </Card>
             </div>
-
-            <Card>
-              <CardContent className="py-8 text-center text-slate-600">
-                Alerts will be handled entirely on the dedicated Alerts page (to be refactored later)
-              </CardContent>
-            </Card>
 
             {/* Filters & Stock Levels */}
             <Card>
@@ -790,9 +855,9 @@ export default function Inventory() {
                                 </td>
                                 <td className="p-3 sm:p-4 text-right hidden md:table-cell">
                                   <span className="font-medium text-slate-800">
-                                    {formatCurrency(
+                                    {formatFlexibleCurrency(
                                       item.quantity * (item.product?.price ? parseFloat(String(item.product.price)) : item.formattedPrice ?? 0),
-                                      currency as "USD" | "NGN"
+                                      currency,
                                     )}
                                   </span>
                                 </td>
