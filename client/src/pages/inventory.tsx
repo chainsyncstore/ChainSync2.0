@@ -918,7 +918,7 @@ export default function Inventory() {
                                   </div>
                                 </td>
                                 <td className="p-3 sm:p-4 hidden sm:table-cell">
-                                  <span className="text-sm text-slate-600">{item.product?.barcode ?? ""}</span>
+                                  <span className="text-sm text-slate-600">{item.product?.sku ?? ""}</span>
                                 </td>
                                 <td className="p-3 sm:p-4 text-right">
                                   <span className="font-medium text-slate-800">{item.quantity}</span>
