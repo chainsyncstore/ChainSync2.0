@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfToken } from "@/lib/csrf";
 import { formatCurrency } from "@/lib/pos-utils";
 import type { Store, Inventory as InventoryEntry, Product, LowStockAlert } from "@shared/schema";
 
@@ -394,10 +395,13 @@ export default function Inventory() {
 
   const updateInventoryMutation = useMutation({
     mutationFn: async (payload: { productId: string; storeId: string; quantity: number; minStockLevel: number; maxStockLevel?: number | null }) => {
+      const csrfToken = await getCsrfToken();
       const response = await fetch("/api/inventory", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
         },
         body: JSON.stringify(payload),
       });
@@ -428,10 +432,13 @@ export default function Inventory() {
 
   const deleteInventoryMutation = useMutation({
     mutationFn: async (payload: { productId: string; storeId: string; reason?: string }) => {
+      const csrfToken = await getCsrfToken();
       const response = await fetch(`/api/inventory/${payload.productId}`, {
         method: "DELETE",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
         },
         body: JSON.stringify({ storeId: payload.storeId, reason: payload.reason ?? undefined }),
       });
