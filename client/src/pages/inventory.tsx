@@ -3,8 +3,7 @@ import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, Hi
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -136,8 +135,6 @@ export default function Inventory() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedBrand, setSelectedBrand] = useState<string>("all");
   const [stockFilter, setStockFilter] = useState<string>("all");
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  const [isBulkActionsOpen, setIsBulkActionsOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryWithProduct | null>(null);
   const [editQuantity, setEditQuantity] = useState<string>("");
   const [editMinStock, setEditMinStock] = useState<string>("");
@@ -579,28 +576,6 @@ export default function Inventory() {
 
   const productHistoryMovements = productHistoryResponse?.data ?? [];
 
-  const handleSelectAll = (checked: boolean | "indeterminate") => {
-    if (checked) {
-      setSelectedItems(filteredInventory.map((item) => item.id));
-    } else {
-      setSelectedItems([]);
-    }
-  };
-
-  const handleSelectItem = (itemId: string, checked: boolean) => {
-    if (checked) {
-      setSelectedItems(prev => [...prev, itemId]);
-    } else {
-      setSelectedItems(prev => prev.filter(id => id !== itemId));
-    }
-  };
-
-  const handleBulkUpdate = () => {
-    // In real app, this would open a bulk update modal
-    console.log("Bulk updating selected items:", selectedItems);
-    setIsBulkActionsOpen(false);
-  };
-
   const getStockStatus = (item: InventoryWithProduct): StockStatus => {
     if (item.quantity === 0) return { status: "out", color: "destructive", text: "Out of Stock" };
     if (item.quantity <= (item.minStockLevel ?? 0)) return { status: "low", color: "secondary", text: "Low Stock" };
@@ -779,33 +754,11 @@ export default function Inventory() {
               </CardContent>
             </Card>
 
-            {/* Actions Bar */}
+            {/* Filters & Stock Levels */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    {selectedItems.length > 0 && (
-                      <Dialog open={isBulkActionsOpen} onOpenChange={setIsBulkActionsOpen}>
-                        <DialogTrigger asChild>
-                          <Button variant="outline">
-                            Bulk Actions ({selectedItems.length})
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Bulk Actions</DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-4">
-                            <Button onClick={handleBulkUpdate} variant="outline" className="w-full">
-                              <Edit className="w-4 h-4 mr-2" />
-                              Update Selected
-                            </Button>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                    )}
-                  </div>
-                </div>
+                <CardTitle>Manage Stock Levels</CardTitle>
+                <CardDescription>Filter and review inventory for this store.</CardDescription>
               </CardHeader>
               <CardContent>
                 {/* Filters */}
@@ -881,12 +834,6 @@ export default function Inventory() {
                       <table className="w-full">
                         <thead>
                           <tr className="border-b">
-                            <th className="text-left p-3 sm:p-4 font-medium">
-                              <Checkbox
-                                checked={selectedItems.length === filteredInventory.length && filteredInventory.length > 0}
-                                onCheckedChange={handleSelectAll}
-                              />
-                            </th>
                             <th className="text-left p-3 sm:p-4 font-medium">Product</th>
                             <th className="text-left p-3 sm:p-4 font-medium hidden sm:table-cell">SKU</th>
                             <th className="text-right p-3 sm:p-4 font-medium">Current Stock</th>
@@ -900,19 +847,13 @@ export default function Inventory() {
                         <tbody>
                           {filteredInventory.length === 0 ? (
                             <tr>
-                              <td colSpan={9} className="p-6 text-center text-slate-500">
+                              <td colSpan={8} className="p-6 text-center text-slate-500">
                                 No inventory items match your filters.
                               </td>
                             </tr>
                           ) : (
                             filteredInventory.map((item: InventoryWithProduct) => (
                               <tr key={item.id} className="border-b hover:bg-slate-50">
-                                <td className="p-3 sm:p-4">
-                                  <Checkbox
-                                    checked={selectedItems.includes(item.id)}
-                                    onCheckedChange={(checked) => handleSelectItem(item.id, checked as boolean)}
-                                  />
-                                </td>
                                 <td className="p-3 sm:p-4">
                                   <div className="flex items-center space-x-3">
                                     <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-100 rounded-lg flex items-center justify-center">
