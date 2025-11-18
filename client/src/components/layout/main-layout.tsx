@@ -23,6 +23,15 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
   const [sidebarFooter, setSidebarFooter] = useState<React.ReactNode | null>(null);
 
   const subscription = (user as any)?.subscription;
+
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
   const showTrialBanner = useMemo(() => {
     if (!subscription) return false;
     const status = typeof subscription.status === 'string' ? subscription.status.toUpperCase() : '';
