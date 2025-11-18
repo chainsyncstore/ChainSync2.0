@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon } from "lucide-react";
+
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,7 +14,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
 import { formatCurrency } from "@/lib/pos-utils";
-import type { Store, Inventory as InventoryEntry, Product, LowStockAlert } from "@shared/schema";
+import type { Store, Inventory as InventoryEntry, Product } from "@shared/schema";
 
 type InventoryWithProduct = InventoryEntry & {
   product: Product | null;
@@ -28,13 +29,9 @@ type InventoryApiResponse = {
   items: InventoryWithProduct[];
 };
 
-type StoreLowStockAlert = LowStockAlert & {
-  productName?: string | null;
-  productSku?: string | null;
-};
-
 type StockMovementEntry = {
   id: string;
+
   storeId: string;
   productId: string;
   quantityBefore: number;
@@ -61,18 +58,12 @@ type StockMovementApiResponse = {
   };
 };
 
-type AlertType = "LOW_STOCK" | "OUT_OF_STOCK" | "OVERSTOCKED";
-
-type AlertBreakdown = Record<AlertType, number>;
-
 type OrganizationInventorySummary = {
   totals: {
     totalProducts: number;
     lowStockCount: number;
     outOfStockCount: number;
     overstockCount: number;
-    alertCount: number;
-    alertBreakdown: AlertBreakdown;
     currencyTotals: Array<{ currency: string; totalValue: number }>;
   };
   stores: Array<{
@@ -84,8 +75,6 @@ type OrganizationInventorySummary = {
     outOfStockCount: number;
     overstockCount: number;
     totalValue: number;
-    alertCount: number;
-    alertBreakdown: AlertBreakdown;
   }>;
 };
 
@@ -95,26 +84,6 @@ type StockStatus = {
   color: BadgeVariant;
   text: string;
 };
-
-const ALERT_TYPES: AlertType[] = ["LOW_STOCK", "OUT_OF_STOCK", "OVERSTOCKED"];
-
-const ALERT_LABELS: Record<AlertType, string> = {
-  LOW_STOCK: "Low stock",
-  OUT_OF_STOCK: "Out of stock",
-  OVERSTOCKED: "Overstocked",
-};
-
-const ALERT_BADGE_VARIANTS: Record<AlertType, BadgeVariant> = {
-  LOW_STOCK: "secondary",
-  OUT_OF_STOCK: "destructive",
-  OVERSTOCKED: "outline",
-};
-
-const createEmptyAlertBreakdown = (): AlertBreakdown => ({
-  LOW_STOCK: 0,
-  OUT_OF_STOCK: 0,
-  OVERSTOCKED: 0,
-});
 
 const ALL_STORES_ID = "ALL";
 const ALL_STORES_OPTION = { id: ALL_STORES_ID, name: "All stores" } as const;
@@ -188,11 +157,6 @@ export default function Inventory() {
     enabled: Boolean(storeId),
   });
 
-  const { data: alerts = [] } = useQuery<StoreLowStockAlert[]>({
-    queryKey: ["/api/stores", storeId, "alerts"],
-    enabled: Boolean(storeId),
-  });
-
   const { data: orgInventorySummary } = useQuery<OrganizationInventorySummary | undefined>({
     queryKey: ["/api/orgs", orgId || null, "inventory"],
     enabled: isAllStoresView && Boolean(orgId),
@@ -259,7 +223,7 @@ export default function Inventory() {
 
   const inventoryItems = useMemo<InventoryWithProduct[]>(
     () => (isAllStoresView ? [] : inventoryData?.items ?? []),
-    [inventoryData, isAllStoresView]
+    [inventoryData, isAllStoresView],
   );
 
   const currency = useMemo(
@@ -269,7 +233,7 @@ export default function Inventory() {
       }
       return inventoryData?.currency ?? inventoryItems[0]?.storeCurrency ?? "USD";
     },
-    [inventoryData, inventoryItems, isAllStoresView, orgInventorySummary]
+    [inventoryData, inventoryItems, isAllStoresView, orgInventorySummary],
   );
 
   const filteredInventory = useMemo<InventoryWithProduct[]>(() => {
@@ -334,22 +298,9 @@ export default function Inventory() {
       lowStockCount: 0,
       outOfStockCount: 0,
       overstockCount: 0,
-      alertCount: 0,
-      alertBreakdown: createEmptyAlertBreakdown(),
       currencyTotals: [],
     } satisfies OrganizationInventorySummary["totals"];
   }, [isAllStoresView, orgInventorySummary]);
-
-  const aggregatedAlertBreakdown = useMemo(() => {
-    if (isAllStoresView) {
-      return aggregatedTotals?.alertBreakdown ?? createEmptyAlertBreakdown();
-    }
-    return {
-      LOW_STOCK: lowStockItems.length,
-      OUT_OF_STOCK: outOfStockItems.length,
-      OVERSTOCKED: overstockedItems.length,
-    } satisfies AlertBreakdown;
-  }, [aggregatedTotals, isAllStoresView, lowStockItems.length, outOfStockItems.length, overstockedItems.length]);
 
   const aggregatedCurrencyDisplay = useMemo(() => {
     if (isAllStoresView) {
@@ -646,22 +597,6 @@ export default function Inventory() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Alerts by type</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-3">
-                  {ALERT_TYPES.map((type) => (
-                    <Badge key={type} variant={ALERT_BADGE_VARIANTS[type]} className="flex items-center gap-2">
-                      <span>{ALERT_LABELS[type]}</span>
-                      <span className="font-semibold">{aggregatedAlertBreakdown[type] ?? 0}</span>
-                    </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
               <CardContent className="py-8 text-center text-slate-600">
                 Choose an individual store to review detailed stock levels and perform updates.
               </CardContent>
@@ -725,32 +660,8 @@ export default function Inventory() {
             </div>
 
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <div>
-                  <CardTitle className="text-sm font-medium">Active Alerts</CardTitle>
-                  <p className="text-xs text-muted-foreground">Triggered when stock is at or below the configured minimum.</p>
-                </div>
-                <AlertTriangle className="h-4 w-4 text-amber-600" />
-              </CardHeader>
-              <CardContent>
-                {alerts.length === 0 ? (
-                  <p className="text-sm text-slate-500">No active alerts. Keep an eye on min stock levels to stay ahead.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {alerts.map((alert) => (
-                      <div key={alert.id} className="flex items-center justify-between rounded-md border p-3">
-                        <div>
-                          <p className="font-medium text-slate-800">{alert.productName ?? "Unknown product"}</p>
-                          <p className="text-xs text-slate-500">{alert.productSku ?? alert.productId}</p>
-                        </div>
-                        <div className="text-right text-sm">
-                          <p className="text-amber-600 font-semibold">Qty {alert.currentStock}</p>
-                          <p className="text-slate-500">Min {alert.minStockLevel}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <CardContent className="py-8 text-center text-slate-600">
+                Alerts will be handled entirely on the dedicated Alerts page (to be refactored later)
               </CardContent>
             </Card>
 
