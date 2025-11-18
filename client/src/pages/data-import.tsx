@@ -66,11 +66,30 @@ export default function DataImport() {
   const [inventoryMode, setInventoryMode] = useState<"overwrite" | "regularize" | null>(null);
   const [loyaltyMode, setLoyaltyMode] = useState<"overwrite" | "regularize" | null>(null);
   const [transactionCutoff, setTransactionCutoff] = useState<string>("");
+
   type ImportStats =
     | { type: "inventory"; mode?: string; addedProducts: number; stockAdjusted: number; skipped: number }
     | { type: "loyalty"; mode?: string; imported: number; updated: number; skipped: number }
     | { type: "historical"; cutoffDate: string; imported: number; skipped: number; invalid: number };
+
   const [importStats, setImportStats] = useState<ImportStats | null>(null);
+
+  interface ParsedApiResponse<T = any> {
+    data: T | null;
+    rawText: string;
+  }
+
+  const parseApiResponse = async <T = any>(response: Response): Promise<ParsedApiResponse<T>> => {
+    const rawText = await response.text();
+    if (!rawText) {
+      return { data: null, rawText };
+    }
+    try {
+      return { data: JSON.parse(rawText) as T, rawText };
+    } catch {
+      return { data: null, rawText };
+    }
+  };
 
   const fileEndpoints = useMemo(() => ({
     inventory: "/api/inventory/import",
@@ -146,13 +165,15 @@ export default function DataImport() {
         body: formData,
       });
 
-      const result = await response.json();
+      const parsedResponse = await parseApiResponse<any>(response);
 
-      if (!response.ok) {
+      if (!response.ok || !parsedResponse.data) {
         setImportJobs((prev) => prev.map((job) => job.id === jobId ? { ...job, status: "failed", errorCount: 1 } : job));
-        setImportErrors([{ error: result?.error || "Import failed unexpectedly." }]);
+        setImportErrors([{ error: parsedResponse.data?.error || parsedResponse.rawText || "Import failed unexpectedly." }]);
         return;
       }
+
+      const result = parsedResponse.data;
 
       const imported = Number(result?.imported ?? 0);
       const updated = Number(result?.updated ?? 0);

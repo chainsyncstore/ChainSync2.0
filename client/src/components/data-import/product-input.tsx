@@ -47,6 +47,23 @@ const DEFAULT_FORM: ProductFormData = {
   maxStockLevel: "100",
 };
 
+interface ParsedResponse<T = any> {
+  data: T | null;
+  rawText: string;
+}
+
+async function parseJsonResponse<T = any>(response: Response): Promise<ParsedResponse<T>> {
+  const rawText = await response.text();
+  if (!rawText) {
+    return { data: null, rawText };
+  }
+  try {
+    return { data: JSON.parse(rawText) as T, rawText };
+  } catch {
+    return { data: null, rawText };
+  }
+}
+
 export default function ProductInput({ selectedStore }: ProductInputProps) {
   const [activeTab, setActiveTab] = useState<"existing" | "new">("existing");
   const [existingSearch, setExistingSearch] = useState({ barcode: "", sku: "", name: "" });
@@ -137,11 +154,11 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
         },
         body: JSON.stringify({ quantity, reason: "single_product_import" }),
       });
-      const result = await response.json();
+      const parsed = await parseJsonResponse(response);
       if (!response.ok) {
-        throw new Error(result?.error || "Failed to adjust inventory");
+        throw new Error((parsed.data as any)?.error || parsed.rawText || "Failed to adjust inventory");
       }
-      return result;
+      return parsed.data;
     },
     onSuccess: () => {
       setSuccessMessage("Stock updated successfully.");
@@ -178,10 +195,11 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
         body: JSON.stringify(productPayload),
       });
 
-      const product = await productRes.json();
-      if (!productRes.ok) {
-        throw new Error(product?.error || "Failed to create product");
+      const parsedProduct = await parseJsonResponse(productRes);
+      if (!productRes.ok || !parsedProduct.data) {
+        throw new Error((parsedProduct.data as any)?.error || parsedProduct.rawText || "Failed to create product");
       }
+      const product = parsedProduct.data as any;
 
       const inventoryRes = await fetch("/api/inventory", {
         method: "POST",
@@ -199,12 +217,12 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
         }),
       });
 
-      const inventoryResult = await inventoryRes.json();
-      if (!inventoryRes.ok) {
-        throw new Error(inventoryResult?.error || "Failed to seed inventory");
+      const parsedInventory = await parseJsonResponse(inventoryRes);
+      if (!inventoryRes.ok || !parsedInventory.data) {
+        throw new Error((parsedInventory.data as any)?.error || parsedInventory.rawText || "Failed to seed inventory");
       }
 
-      return { product, inventory: inventoryResult };
+      return { product, inventory: parsedInventory.data };
     },
     onSuccess: () => {
       setSuccessMessage("New product added successfully.");
