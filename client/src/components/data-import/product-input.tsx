@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useBarcodeInput } from "@/hooks/use-barcode-input";
+import { getCsrfToken } from "@/lib/csrf";
 import type { Product, Inventory } from "@shared/schema";
 
 interface ProductInputProps {
@@ -126,9 +127,14 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
 
   const adjustInventoryMutation = useMutation({
     mutationFn: async ({ productId, quantity }: { productId: string; quantity: number }) => {
+      const csrfToken = await getCsrfToken();
       const response = await fetch(`/api/inventory/${productId}/${selectedStore}/adjust`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
         body: JSON.stringify({ quantity, reason: "single_product_import" }),
       });
       const result = await response.json();
@@ -150,6 +156,7 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
 
   const createProductMutation = useMutation({
     mutationFn: async (payload: ProductFormData) => {
+      const csrfToken = await getCsrfToken();
       const productPayload = {
         name: payload.name,
         sku: payload.sku,
@@ -163,7 +170,11 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
 
       const productRes = await fetch("/api/products", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
         body: JSON.stringify(productPayload),
       });
 
@@ -174,7 +185,11 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
 
       const inventoryRes = await fetch("/api/inventory", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
         body: JSON.stringify({
           productId: product.id,
           storeId: selectedStore,

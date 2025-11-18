@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
+import { getCsrfToken } from "@/lib/csrf";
 import { formatDateTime } from "@/lib/pos-utils";
 import type { Store } from "@shared/schema";
 
@@ -135,8 +136,13 @@ export default function DataImport() {
         formData.append("cutoffDate", options.cutoffDate);
       }
 
+      const csrfToken = await getCsrfToken();
       const response = await fetch(endpoint, {
         method: "POST",
+        credentials: "include",
+        headers: {
+          "X-CSRF-Token": csrfToken,
+        },
         body: formData,
       });
 
