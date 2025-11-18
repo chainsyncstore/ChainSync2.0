@@ -6,7 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import type { QueryResult } from 'pg';
 import { z } from 'zod';
-import { products, stores, users } from '@shared/schema';
+import { importJobs, products, stores, users } from '@shared/schema';
 import { db } from '../db';
 import { logger, extractLogContext } from '../lib/logger';
 import { securityAuditService } from '../lib/security-audit';
@@ -28,6 +28,12 @@ const toIsoString = (value: unknown): string | null => {
   } catch {
     return null;
   }
+};
+
+const parseDateString = (value?: string | null): Date | undefined => {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 };
 
 let productColumnsCache: Set<string> | null = null;
@@ -87,6 +93,30 @@ export async function registerInventoryRoutes(app: Express) {
       sku: (product as any).sku ?? null,
       price,
     });
+  });
+
+  app.get('/api/products/sku/:sku', requireAuth, async (req: Request, res: Response) => {
+    const sku = String(req.params?.sku ?? '').trim();
+    if (!sku) {
+      return res.status(400).json({ error: 'sku is required' });
+    }
+
+    const product = await storage.getProductBySku(sku);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    return res.json(product);
+  });
+
+  app.get('/api/products/search', requireAuth, async (req: Request, res: Response) => {
+    const query = String((req.query?.name as string) ?? (req.query?.q as string) ?? '').trim();
+    if (!query || query.length < 2) {
+      return res.json([]);
+    }
+
+    const results = await storage.searchProducts(query);
+    return res.json(results.slice(0, 15));
   });
 
   const ManualProductSchema = z.object({
@@ -171,6 +201,22 @@ export async function registerInventoryRoutes(app: Express) {
     reason: z.string().trim().min(3).max(500),
   });
 
+  const StockMovementQuerySchema = z.object({
+    productId: z.string().uuid().optional(),
+    actionType: z.string().trim().max(32).optional(),
+    userId: z.string().uuid().optional(),
+    startDate: z.string().trim().optional(),
+    endDate: z.string().trim().optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
+  });
+
+  const ProductStockHistoryQuerySchema = z.object({
+    limit: z.coerce.number().int().min(1).max(500).optional(),
+    startDate: z.string().trim().optional(),
+    endDate: z.string().trim().optional(),
+  });
+
   app.post('/api/inventory', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const parsed = ManualInventorySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -212,14 +258,14 @@ export async function registerInventoryRoutes(app: Express) {
       }
 
       const inventoryRecord = existing
-        ? await storage.updateInventory(productId, storeId, payload as any)
+        ? await storage.updateInventory(productId, storeId, payload as any, userId)
         : await storage.createInventory({
             productId,
             storeId,
             quantity,
             minStockLevel,
             maxStockLevel: typeof maxStockLevel === 'number' ? maxStockLevel : undefined,
-          } as any);
+          } as any, userId);
 
       const action = existing ? 'update' : 'create';
       const baseContext = extractLogContext(req, {
@@ -296,7 +342,15 @@ export async function registerInventoryRoutes(app: Express) {
       }
 
       try {
-        const updatedInventory = await storage.adjustInventory(productId, storeId, parsed.data.quantity);
+        const updatedInventory = await storage.adjustInventory(
+          productId, 
+          storeId, 
+          parsed.data.quantity,
+          userId,
+          'manual_adjustment',
+          undefined,
+          parsed.data.reason
+        );
 
         logger.logInventoryEvent('stock_adjusted', {
           productId,
@@ -318,6 +372,134 @@ export async function registerInventoryRoutes(app: Express) {
       }
     }
   );
+
+  app.get('/api/inventory/:productId/:storeId', requireAuth, async (req: Request, res: Response) => {
+    const { productId, storeId } = req.params as { productId?: string; storeId?: string };
+    const normalizedProductId = String(productId ?? '').trim();
+    const normalizedStoreId = String(storeId ?? '').trim();
+    if (!normalizedProductId || !normalizedStoreId) {
+      return res.status(400).json({ error: 'productId and storeId are required' });
+    }
+
+    const userId = (req.session as any)?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const actor = await storage.getUser(userId);
+    if (!actor) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
+    if (!actorIsAdmin) {
+      const actorStoreId = (actor as any)?.storeId as string | undefined;
+      if (!actorStoreId || actorStoreId !== normalizedStoreId) {
+        return res.status(403).json({ error: 'You can only view inventory for your assigned store' });
+      }
+    }
+
+    const item = await storage.getInventoryItem(normalizedProductId, normalizedStoreId);
+    if (!item) {
+      return res.status(404).json({ error: 'Inventory record not found' });
+    }
+
+    return res.json(item);
+  });
+
+  app.get('/api/stores/:storeId/stock-movements', requireAuth, async (req: Request, res: Response) => {
+    const { storeId } = req.params as { storeId?: string };
+    const normalizedStoreId = String(storeId ?? '').trim();
+    if (!normalizedStoreId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
+    const userId = req.session?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const actor = await storage.getUser(userId);
+    if (!actor) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
+    if (!actorIsAdmin) {
+      const actorStoreId = (actor as any)?.storeId as string | undefined;
+      if (!actorStoreId || actorStoreId !== normalizedStoreId) {
+        return res.status(403).json({ error: 'You can only view stock history for your assigned store' });
+      }
+    }
+
+    const parsedQuery = StockMovementQuerySchema.safeParse(req.query ?? {});
+    if (!parsedQuery.success) {
+      return res.status(400).json({ error: 'Invalid query parameters', details: parsedQuery.error.flatten() });
+    }
+
+    const { startDate, endDate, ...rest } = parsedQuery.data;
+    const movements = await storage.getStoreStockMovements(normalizedStoreId, {
+      ...rest,
+      startDate: parseDateString(startDate),
+      endDate: parseDateString(endDate),
+    });
+
+    return res.json({
+      data: movements,
+      meta: {
+        limit: rest.limit ?? 50,
+        offset: rest.offset ?? 0,
+        count: movements.length,
+      },
+    });
+  });
+
+  app.get('/api/inventory/:productId/:storeId/history', requireAuth, async (req: Request, res: Response) => {
+    const { productId, storeId } = req.params as { productId?: string; storeId?: string };
+    const normalizedProductId = String(productId ?? '').trim();
+    const normalizedStoreId = String(storeId ?? '').trim();
+    if (!normalizedProductId || !normalizedStoreId) {
+      return res.status(400).json({ error: 'productId and storeId are required' });
+    }
+
+    const userId = req.session?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const actor = await storage.getUser(userId);
+    if (!actor) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
+    if (!actorIsAdmin) {
+      const actorStoreId = (actor as any)?.storeId as string | undefined;
+      if (!actorStoreId || actorStoreId !== normalizedStoreId) {
+        return res.status(403).json({ error: 'You can only view stock history for your assigned store' });
+      }
+    }
+
+    const parsedQuery = ProductStockHistoryQuerySchema.safeParse(req.query ?? {});
+    if (!parsedQuery.success) {
+      return res.status(400).json({ error: 'Invalid query parameters', details: parsedQuery.error.flatten() });
+    }
+
+    const { limit, startDate, endDate } = parsedQuery.data;
+    const movements = await storage.getProductStockHistory(normalizedStoreId, normalizedProductId, {
+      limit,
+      startDate: parseDateString(startDate),
+      endDate: parseDateString(endDate),
+    });
+
+    return res.json({
+      data: movements,
+      meta: {
+        limit: limit ?? 100,
+        count: movements.length,
+      },
+    });
+  });
 
   app.delete('/api/inventory/:productId', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const productId = String(req.params?.productId ?? '').trim();
@@ -360,7 +542,7 @@ export async function registerInventoryRoutes(app: Express) {
         return res.status(404).json({ error: 'Inventory record not found' });
       }
 
-      await storage.deleteInventory(productId, storeId);
+      await storage.deleteInventory(productId, storeId, userId, reason);
 
       const baseContext = extractLogContext(req, {
         userId,
@@ -506,7 +688,11 @@ export async function registerInventoryRoutes(app: Express) {
       };
     });
 
-    const storeCurrency = normalizedItems[0]?.storeCurrency ?? 'USD';
+    let storeCurrency = normalizedItems[0]?.storeCurrency;
+    if (!storeCurrency) {
+      const storeRecord = await storage.getStore(storeId);
+      storeCurrency = storeRecord?.currency ?? 'USD';
+    }
     const totalValue = normalizedItems.reduce((sum, item) => sum + item.stockValue, 0);
 
     return res.json({
@@ -609,31 +795,6 @@ export async function registerInventoryRoutes(app: Express) {
     const withProduct = await Promise.all(items.map(async i => ({ ...i, product: await storage.getProduct(i.productId) })));
     return res.json(withProduct);
   });
-
-  app.post('/api/stores/:storeId/inventory/bulk-update', requireAuth, async (req: Request, res: Response) => {
-    const { storeId } = req.params as any;
-    const updates = (req.body?.updates as any) || null;
-    if (!Array.isArray(updates)) return res.status(400).json({ message: 'Updates must be an array' });
-    const results = await Promise.all(
-      updates.map(async (u: any) => storage.updateInventory(u.productId, storeId, { quantity: u.quantity } as any))
-    );
-    return res.json(results);
-  });
-
-  app.get('/api/stores/:storeId/inventory/stock-movements', requireAuth, async (req: Request, res: Response) => {
-    const { storeId } = req.params as any;
-    const productId = String((req.query as any)?.productId || '').trim();
-    let movements = await storage.getStockMovements(storeId);
-    if (productId) movements = movements.filter(m => m.productId === productId);
-    return res.json(movements.map(m => ({ ...m, timestamp: new Date(m.timestamp).toISOString() })));
-  });
-
-  app.post('/api/stores/:storeId/inventory/stock-count', requireAuth, async (req: Request, res: Response) => {
-    const { storeId } = req.params as any;
-    const items = (req.body?.items as any[]) || [];
-    const results = await storage.performStockCount(storeId, items);
-    return res.json(results);
-  });
   // List products
   app.get('/api/inventory/products', async (_req: Request, res: Response) => {
     const rows = await db.select().from(products).limit(500);
@@ -676,6 +837,8 @@ export async function registerInventoryRoutes(app: Express) {
     sale_price: z.string().regex(/^\d+(\.\d{1,2})?$/),
     vat_rate: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().default('0'),
     reorder_level: z.string().regex(/^\d+$/).optional().default('0'),
+    min_stock_level: z.string().regex(/^\d+$/).optional().default('0'),
+    max_stock_level: z.string().regex(/^\d+$/).optional().default('0'),
     initial_quantity: z.string().regex(/^\d+$/).optional().default('0'),
     store_id: z.string().uuid().optional(),
     store_code: z.string().optional(),
@@ -691,7 +854,7 @@ export async function registerInventoryRoutes(app: Express) {
     sensitiveEndpointRateLimit,
     uploadSingle,
     async (req: Request, res: Response) => {
-    const uploaded = (req as any).file as { buffer: Buffer } | undefined;
+    const uploaded = (req as any).file as { buffer: Buffer; originalname?: string } | undefined;
     if (!uploaded) return res.status(400).json({ error: 'file is required' });
 
     const modeInput = typeof req.body?.mode === 'string' ? req.body.mode.toLowerCase() : '';
@@ -701,13 +864,29 @@ export async function registerInventoryRoutes(app: Express) {
     }
     const mode = parsedMode.data;
 
-    const invalidRows: Array<{ row: any; error: string }> = [];
-    const results: any[] = [];
-    let addedProducts = 0;
-    let stockAdjusted = 0;
-    let skipped = 0;
+    const bodyStoreId = typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : '';
+    const selectedStoreId = bodyStoreId.length ? bodyStoreId : undefined;
+    const managerStoreId = (req as any).managerStoreId as string | undefined;
+    const managerOrgId = (req as any).managerOrgId as string | undefined;
 
-    const managerStoreId = (req as any).managerStoreId as string;
+    if (selectedStoreId && managerStoreId && selectedStoreId !== managerStoreId) {
+      return res.status(403).json({ error: 'You can only import inventory into your assigned store' });
+    }
+
+    const fallbackStoreId = selectedStoreId ?? managerStoreId;
+    if (!fallbackStoreId) {
+      return res.status(403).json({ error: 'Store assignment required to import inventory' });
+    }
+
+    const userId = (req.session as any)?.userId as string | undefined;
+    let orgId: string | undefined = managerOrgId;
+    if (!orgId && userId) {
+      const r = await db.select({ orgId: users.orgId }).from(users).where(eq(users.id, userId));
+      orgId = r[0]?.orgId as string | undefined;
+    }
+    if (!orgId) {
+      return res.status(400).json({ error: 'Organization could not be resolved for user' });
+    }
 
     const text = uploaded.buffer.toString('utf-8');
     const records: any[] = [];
@@ -719,21 +898,33 @@ export async function registerInventoryRoutes(app: Express) {
       });
     });
 
+    const invalidRows: Array<{ row: any; error: string }> = [];
+    const results: any[] = [];
+    const alertSyncTargets = new Set<string>();
+    let addedProducts = 0;
+    let stockAdjusted = 0;
+    let zeroQuantityRows = 0;
+
+    const fileName = uploaded.originalname || 'inventory_import.csv';
+    const [job] = await db
+      .insert(importJobs)
+      .values({
+        userId: userId ?? managerStoreId ?? 'unknown-user',
+        orgId,
+        storeId: fallbackStoreId,
+        type: 'inventory',
+        status: 'processing',
+        fileName,
+        mode,
+        totalRows: records.length,
+      } as any)
+      .returning();
+    const importBatchId = job?.id as string | undefined;
+
     const client = (db as any).client;
     const pg = await client.connect();
     try {
       await pg.query('BEGIN');
-      // Determine orgId from current user
-      const userId = (req.session as any)?.userId as string | undefined;
-      let orgId: string | undefined;
-      if (userId) {
-        const r = await db.select({ orgId: users.orgId }).from(users).where(eq(users.id, userId));
-        orgId = r[0]?.orgId as string | undefined;
-      }
-      if (!orgId) {
-        await pg.query('ROLLBACK');
-        return res.status(400).json({ error: 'Organization could not be resolved for user' });
-      }
 
       for (const raw of records) {
         const parsed = ImportRowSchema.safeParse({
@@ -744,12 +935,14 @@ export async function registerInventoryRoutes(app: Express) {
           sale_price: raw.sale_price || raw.salePrice,
           vat_rate: raw.vat_rate || raw.vatRate || '0',
           reorder_level: raw.reorder_level || raw.reorderLevel || '0',
+          min_stock_level: raw.min_stock_level || raw.minStockLevel || raw.reorder_level || raw.reorderLevel || '0',
+          max_stock_level: raw.max_stock_level || raw.maxStockLevel || '0',
           initial_quantity: raw.initial_quantity || raw.initialQuantity || '0',
           store_id: raw.store_id || raw.storeId,
           store_code: raw.store_code,
         });
         if (!parsed.success) {
-          invalidRows.push({ row: raw, error: parsed.error.errors.map(e => e.message).join('; ') });
+          invalidRows.push({ row: raw, error: parsed.error.errors.map((e) => e.message).join('; ') });
           continue;
         }
         const r = parsed.data;
@@ -757,37 +950,49 @@ export async function registerInventoryRoutes(app: Express) {
         // Resolve storeId
         let storeId: string | undefined = r.store_id as any;
         if (!storeId && r.store_code) {
-          const sr = await db.select().from(stores).where(eq(stores.name as any, r.store_code)).limit(1);
+          const sr = await db
+            .select()
+            .from(stores)
+            .where(and(eq(stores.orgId as any, orgId as any), eq(stores.name as any, r.store_code)))
+            .limit(1);
           storeId = (sr as any)[0]?.id;
         }
         if (!storeId) {
-          storeId = managerStoreId;
+          storeId = fallbackStoreId;
         }
         if (!storeId) {
           invalidRows.push({ row: raw, error: 'store_id or valid store_code required' });
           continue;
         }
-        if (storeId !== managerStoreId) {
+        if (managerStoreId && storeId !== managerStoreId) {
           invalidRows.push({ row: raw, error: 'Managers can only import inventory into their assigned store' });
           continue;
         }
 
         // Upsert product by (orgId, sku)
-        const existing = await db.select().from(products).where(and(eq(products.orgId as any, orgId as any), eq(products.sku as any, r.sku))).limit(1);
+        const existing = await db
+          .select()
+          .from(products)
+          .where(and(eq(products.orgId as any, orgId as any), eq(products.sku as any, r.sku)))
+          .limit(1);
         let productId: string;
         if ((existing as any)[0]) {
           const p = (existing as any)[0];
-          await db.execute(sql`UPDATE products SET barcode = ${r.barcode}, name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate} WHERE id = ${p.id}`);
+          await db.execute(sql`UPDATE products SET barcode = ${r.barcode}, name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
+            WHERE id = ${p.id}`);
           productId = p.id;
         } else {
-          const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, barcode, name, cost_price, sale_price, vat_rate)
-             VALUES (${orgId}, ${r.sku}, ${r.barcode}, ${r.name}, ${r.cost_price}, ${r.sale_price}, ${r.vat_rate}) RETURNING id`);
+          const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, barcode, name, cost_price, sale_price, vat_rate, price)
+             VALUES (${orgId}, ${r.sku}, ${r.barcode}, ${r.name}, ${r.cost_price}, ${r.sale_price}, ${r.vat_rate}, ${r.sale_price}) RETURNING id`);
           productId = (inserted as any).rows[0].id;
           addedProducts += 1;
         }
 
-        const reorderLevel = Number(r.reorder_level);
         const quantityDelta = Number(r.initial_quantity);
+        const minStockLevel = Number(r.min_stock_level ?? r.reorder_level ?? '0');
+        const maxStockLevel = Number(r.max_stock_level ?? '0');
+        const reorderLevel = Number(r.reorder_level ?? r.min_stock_level ?? '0');
+
         if (!Number.isFinite(quantityDelta)) {
           invalidRows.push({ row: raw, error: 'initial_quantity must be numeric' });
           continue;
@@ -796,19 +1001,61 @@ export async function registerInventoryRoutes(app: Express) {
           invalidRows.push({ row: raw, error: 'initial_quantity cannot be negative' });
           continue;
         }
-        if (quantityDelta === 0) {
-          skipped += 1;
+        if (!Number.isFinite(minStockLevel) || minStockLevel < 0) {
+          invalidRows.push({ row: raw, error: 'min_stock_level must be a non-negative number' });
+          continue;
+        }
+        if (!Number.isFinite(maxStockLevel) || maxStockLevel < 0) {
+          invalidRows.push({ row: raw, error: 'max_stock_level must be a non-negative number' });
+          continue;
+        }
+        if (maxStockLevel > 0 && maxStockLevel < minStockLevel) {
+          invalidRows.push({ row: raw, error: 'max_stock_level must be greater than or equal to min_stock_level' });
           continue;
         }
 
+        if (quantityDelta === 0) {
+          zeroQuantityRows += 1;
+        }
+
         if (mode === 'overwrite') {
-          await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level)
-             VALUES (${storeId}, ${productId}, ${quantityDelta}, ${reorderLevel})
+          // Get existing quantity for movement tracking
+          const existingCheck = await db.execute(
+            sql`SELECT quantity FROM inventory WHERE store_id = ${storeId} AND product_id = ${productId} LIMIT 1`
+          );
+          const existingRow = Array.isArray((existingCheck as any).rows)
+            ? (existingCheck as any).rows[0]
+            : (existingCheck as any)[0];
+          const quantityBefore = existingRow?.quantity ?? 0;
+
+          await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level, min_stock_level, max_stock_level)
+             VALUES (${storeId}, ${productId}, ${quantityDelta}, ${reorderLevel}, ${minStockLevel}, ${maxStockLevel})
              ON CONFLICT (store_id, product_id)
-             DO UPDATE SET quantity = EXCLUDED.quantity, reorder_level = EXCLUDED.reorder_level`);
+             DO UPDATE SET quantity = EXCLUDED.quantity,
+               reorder_level = EXCLUDED.reorder_level,
+               min_stock_level = EXCLUDED.min_stock_level,
+               max_stock_level = EXCLUDED.max_stock_level`);
+
+          // Record stock movement via storage helper
+          if (quantityBefore !== quantityDelta) {
+            await storage.logStockMovement({
+              storeId,
+              productId,
+              quantityBefore,
+              quantityAfter: quantityDelta,
+              actionType: 'import',
+              source: 'csv_import',
+              referenceId: importBatchId,
+              userId,
+              notes: `Import overwrite from ${fileName}`,
+              metadata: { mode, quantityDelta },
+            });
+          }
           stockAdjusted += 1;
         } else {
-          const existingInventory = await db.execute(sql`SELECT quantity FROM inventory WHERE store_id = ${storeId} AND product_id = ${productId} LIMIT 1`);
+          const existingInventory = await db.execute(
+            sql`SELECT quantity FROM inventory WHERE store_id = ${storeId} AND product_id = ${productId} LIMIT 1`
+          );
           const existingRow = Array.isArray((existingInventory as any).rows)
             ? (existingInventory as any).rows[0]
             : (existingInventory as any)[0];
@@ -816,15 +1063,46 @@ export async function registerInventoryRoutes(app: Express) {
           if (existingRow && typeof existingRow.quantity === 'number') {
             const currentQuantity = existingRow.quantity;
             const newQuantity = currentQuantity + quantityDelta;
-            await db.execute(sql`UPDATE inventory SET quantity = ${newQuantity}, reorder_level = ${reorderLevel}
+            await db.execute(sql`UPDATE inventory SET quantity = ${newQuantity}, reorder_level = ${reorderLevel}, min_stock_level = ${minStockLevel}, max_stock_level = ${maxStockLevel}
                WHERE store_id = ${storeId} AND product_id = ${productId}`);
+
+            if (quantityDelta !== 0) {
+              await storage.logStockMovement({
+                storeId,
+                productId,
+                quantityBefore: currentQuantity,
+                quantityAfter: newQuantity,
+                actionType: 'import',
+                source: 'csv_import',
+                referenceId: importBatchId,
+                userId,
+                notes: `Import regularize from ${fileName}`,
+                metadata: { mode, quantityDelta },
+              });
+            }
             stockAdjusted += 1;
           } else {
-            await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level)
-               VALUES (${storeId}, ${productId}, ${quantityDelta}, ${reorderLevel})`);
+            await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level, min_stock_level, max_stock_level)
+               VALUES (${storeId}, ${productId}, ${quantityDelta}, ${reorderLevel}, ${minStockLevel}, ${maxStockLevel})`);
+
+            if (quantityDelta !== 0) {
+              await storage.logStockMovement({
+                storeId,
+                productId,
+                quantityBefore: 0,
+                quantityAfter: quantityDelta,
+                actionType: 'import',
+                source: 'csv_import',
+                referenceId: importBatchId,
+                userId,
+                notes: `Import new from ${fileName}`,
+                metadata: { mode, quantityDelta },
+              });
+            }
             stockAdjusted += 1;
           }
         }
+        alertSyncTargets.add(`${storeId}:${productId}`);
 
         results.push({ sku: r.sku, productId, storeId, mode });
       }
@@ -834,17 +1112,64 @@ export async function registerInventoryRoutes(app: Express) {
         await pg.query('ROLLBACK');
       } catch (rollbackError) {
         logger.warn('Inventory import rollback failed', {
-          error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+          error: rollbackError instanceof Error ? error.message : String(rollbackError),
         });
       }
       logger.error('Failed to import inventory', {
         userId: req.session?.userId,
         invalidRowCount: invalidRows.length,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
+
+      if (importBatchId) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await db
+          .update(importJobs)
+          .set({
+            status: 'failed',
+            errorMessage,
+            processedRows: results.length,
+            errorCount: invalidRows.length,
+            invalidCount: invalidRows.length,
+            skippedCount: zeroQuantityRows,
+            completedAt: new Date(),
+            details: invalidRows.length ? ({ invalidRows: invalidRows.slice(0, 50) } as any) : null,
+          } as any)
+          .where(eq(importJobs.id, importBatchId));
+      }
+
       return res.status(500).json({ error: 'Failed to import inventory' });
     } finally {
       pg.release();
+    }
+
+    for (const key of alertSyncTargets) {
+      const [syncStoreId, syncProductId] = key.split(':');
+      try {
+        await storage.syncLowStockAlertState(syncStoreId, syncProductId);
+      } catch (error) {
+        logger.warn('Failed to sync low stock alert state after import', {
+          storeId: syncStoreId,
+          productId: syncProductId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (importBatchId) {
+      const completionStatus = invalidRows.length ? 'completed_with_errors' : 'completed';
+      await db
+        .update(importJobs)
+        .set({
+          status: completionStatus,
+          processedRows: results.length,
+          errorCount: invalidRows.length,
+          invalidCount: invalidRows.length,
+          skippedCount: zeroQuantityRows,
+          completedAt: new Date(),
+          details: invalidRows.length ? ({ invalidRows: invalidRows.slice(0, 50) } as any) : null,
+        } as any)
+        .where(eq(importJobs.id, importBatchId));
     }
 
     res.status(200).json({
@@ -854,7 +1179,8 @@ export async function registerInventoryRoutes(app: Express) {
       invalidRows,
       addedProducts,
       stockAdjusted,
-      skipped,
+      skipped: zeroQuantityRows,
+      zeroQuantityRows,
     });
   }
   );

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2 } from "lucide-react";
+import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,39 @@ type InventoryApiResponse = {
   totalValue: number;
   totalProducts: number;
   items: InventoryWithProduct[];
+};
+
+type StoreLowStockAlert = LowStockAlert & {
+  productName?: string | null;
+  productSku?: string | null;
+};
+
+type StockMovementEntry = {
+  id: string;
+  storeId: string;
+  productId: string;
+  quantityBefore: number;
+  quantityAfter: number;
+  delta: number;
+  actionType: string;
+  source?: string | null;
+  referenceId?: string | null;
+  userId?: string | null;
+  notes?: string | null;
+  metadata?: Record<string, unknown> | null;
+  occurredAt: string;
+  productName?: string | null;
+  productSku?: string | null;
+  productBarcode?: string | null;
+};
+
+type StockMovementApiResponse = {
+  data: StockMovementEntry[];
+  meta?: {
+    limit?: number;
+    offset?: number;
+    count?: number;
+  };
 };
 
 type AlertType = "LOW_STOCK" | "OUT_OF_STOCK" | "OVERSTOCKED";
@@ -86,6 +119,15 @@ const createEmptyAlertBreakdown = (): AlertBreakdown => ({
 const ALL_STORES_ID = "ALL";
 const ALL_STORES_OPTION = { id: ALL_STORES_ID, name: "All stores" } as const;
 
+const MOVEMENT_ACTION_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "all", label: "All actions" },
+  { value: "create", label: "Initial stock" },
+  { value: "update", label: "Manual updates" },
+  { value: "adjustment", label: "Adjustments" },
+  { value: "import", label: "Imports" },
+  { value: "delete", label: "Deletions" },
+];
+
 export default function Inventory() {
   const { user } = useAuth();
   const [selectedStore, setSelectedStore] = useState<string>("");
@@ -101,6 +143,12 @@ export default function Inventory() {
   const [editMaxStock, setEditMaxStock] = useState<string>("");
   const [deleteNotes, setDeleteNotes] = useState<string>("");
   const [isDeleteMode, setIsDeleteMode] = useState(false);
+  const [historyFilters, setHistoryFilters] = useState<{ actionType: string; startDate: string; endDate: string }>({
+    actionType: "all",
+    startDate: "",
+    endDate: "",
+  });
+  const [historyProduct, setHistoryProduct] = useState<InventoryWithProduct | null>(null);
 
   const userRole = (user?.role ?? (user?.isAdmin ? "admin" : undefined))?.toString().toLowerCase();
   const isAdmin = userRole === "admin";
@@ -142,7 +190,7 @@ export default function Inventory() {
     enabled: Boolean(storeId),
   });
 
-  const { data: alerts = [] } = useQuery<LowStockAlert[]>({
+  const { data: alerts = [] } = useQuery<StoreLowStockAlert[]>({
     queryKey: ["/api/stores", storeId, "alerts"],
     enabled: Boolean(storeId),
   });
@@ -173,6 +221,42 @@ export default function Inventory() {
 
   const { data: brands = [] } = useQuery<string[]>({
     queryKey: ["/api/products/brands"],
+  });
+
+  const shouldFetchHistory = Boolean(storeId) && !isAllStoresView;
+  const historyQueryKey = useMemo(
+    () => ["/api/stores", storeId, "stock-movements", historyFilters],
+    [storeId, historyFilters],
+  );
+
+  const { data: stockMovementsResponse, isLoading: isHistoryLoading } = useQuery<StockMovementApiResponse>({
+    queryKey: historyQueryKey,
+    enabled: shouldFetchHistory,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (historyFilters.actionType !== "all") params.set("actionType", historyFilters.actionType);
+      if (historyFilters.startDate) params.set("startDate", historyFilters.startDate);
+      if (historyFilters.endDate) params.set("endDate", historyFilters.endDate);
+      const query = params.toString();
+      const response = await fetch(`/api/stores/${storeId}/stock-movements${query ? `?${query}` : ""}`);
+      if (!response.ok) {
+        throw new Error("Failed to load stock history");
+      }
+      return (await response.json()) as StockMovementApiResponse;
+    },
+  });
+
+  const selectedHistoryStoreId = historyProduct?.storeId || storeId;
+  const { data: productHistoryResponse, isLoading: isProductHistoryLoading } = useQuery<StockMovementApiResponse>({
+    queryKey: ["/api/inventory", historyProduct?.productId, selectedHistoryStoreId, "history"],
+    enabled: Boolean(historyProduct && selectedHistoryStoreId),
+    queryFn: async () => {
+      const response = await fetch(`/api/inventory/${historyProduct?.productId}/${selectedHistoryStoreId}/history?limit=200`);
+      if (!response.ok) {
+        throw new Error("Failed to load product history");
+      }
+      return (await response.json()) as StockMovementApiResponse;
+    },
   });
 
   const inventoryItems = useMemo<InventoryWithProduct[]>(
@@ -257,11 +341,6 @@ export default function Inventory() {
       currencyTotals: [],
     } satisfies OrganizationInventorySummary["totals"];
   }, [isAllStoresView, orgInventorySummary]);
-
-  const aggregatedAlertCount = useMemo(
-    () => (isAllStoresView ? aggregatedTotals?.alertCount ?? 0 : alerts.length),
-    [aggregatedTotals, alerts.length, isAllStoresView],
-  );
 
   const aggregatedAlertBreakdown = useMemo(() => {
     if (isAllStoresView) {
@@ -440,6 +519,59 @@ export default function Inventory() {
 
   const inventoryActionDisabled = !canEditInventory;
 
+  const stockMovements = stockMovementsResponse?.data ?? [];
+
+  const resetHistoryFilters = () => {
+    setHistoryFilters({ actionType: "all", startDate: "", endDate: "" });
+  };
+
+  const handleExportHistory = () => {
+    if (!stockMovements.length) {
+      toast({ title: "No history to export", description: "Adjust filters or perform inventory updates to generate history." });
+      return;
+    }
+    const header = ["Date", "Product", "Action", "Source", "Delta", "Before", "After", "Notes"];
+    const rows = stockMovements.map((movement) => [
+      new Date(movement.occurredAt).toLocaleString(),
+      movement.productName ?? movement.productSku ?? movement.productId,
+      movement.actionType,
+      movement.source ?? "-",
+      movement.delta,
+      movement.quantityBefore,
+      movement.quantityAfter,
+      movement.notes ?? "",
+    ]);
+    const csv = [header, ...rows]
+      .map((line) => line.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `stock-history-${storeId}-${Date.now()}.csv`);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const formatMovementLabel = (movement: StockMovementEntry) => {
+    switch (movement.actionType) {
+      case "create":
+        return "Initial stock";
+      case "update":
+        return "Manual update";
+      case "adjustment":
+        return movement.delta >= 0 ? "Stock added" : "Stock removed";
+      case "import":
+        return "Import";
+      case "delete":
+        return "Deleted";
+      default:
+        return movement.actionType;
+    }
+  };
+
+  const productHistoryMovements = productHistoryResponse?.data ?? [];
+
   const handleSelectAll = (checked: boolean | "indeterminate") => {
     if (checked) {
       setSelectedItems(filteredInventory.map((item) => item.id));
@@ -608,17 +740,37 @@ export default function Inventory() {
                   <div className="text-2xl font-bold text-blue-600">{overstockedItems.length}</div>
                 </CardContent>
               </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Active Alerts</CardTitle>
-                  <AlertTriangle className="h-4 w-4 text-amber-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-amber-600">{aggregatedAlertCount}</div>
-                </CardContent>
-              </Card>
             </div>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <div>
+                  <CardTitle className="text-sm font-medium">Active Alerts</CardTitle>
+                  <p className="text-xs text-muted-foreground">Triggered when stock is at or below the configured minimum.</p>
+                </div>
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+              </CardHeader>
+              <CardContent>
+                {alerts.length === 0 ? (
+                  <p className="text-sm text-slate-500">No active alerts. Keep an eye on min stock levels to stay ahead.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {alerts.map((alert) => (
+                      <div key={alert.id} className="flex items-center justify-between rounded-md border p-3">
+                        <div>
+                          <p className="font-medium text-slate-800">{alert.productName ?? "Unknown product"}</p>
+                          <p className="text-xs text-slate-500">{alert.productSku ?? alert.productId}</p>
+                        </div>
+                        <div className="text-right text-sm">
+                          <p className="text-amber-600 font-semibold">Qty {alert.currentStock}</p>
+                          <p className="text-slate-500">Min {alert.minStockLevel}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Actions Bar */}
             <Card>
@@ -797,7 +949,13 @@ export default function Inventory() {
                                 </td>
                                 <td className="p-3 sm:p-4 text-center">
                                   <div className="flex items-center justify-center space-x-1 sm:space-x-2">
-                                    <Button size="sm" variant="ghost" className="w-8 h-8 p-0 min-h-[32px]" disabled>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="w-8 h-8 p-0 min-h-[32px]"
+                                      onClick={() => setHistoryProduct(item)}
+                                      disabled={!hasSelectedStore}
+                                    >
                                       <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
                                     </Button>
                                     <Button
@@ -821,6 +979,99 @@ export default function Inventory() {
                 </Card>
               </CardContent>
             </Card>
+
+            {/* Stock History */}
+            {shouldFetchHistory ? (
+              <Card>
+                <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <HistoryIcon className="h-5 w-5" /> Recent Stock History
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">Filter and review the latest inventory movements for this store.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Select
+                      value={historyFilters.actionType}
+                      onValueChange={(value) => setHistoryFilters((prev) => ({ ...prev, actionType: value }))}
+                    >
+                      <SelectTrigger className="w-40 h-9">
+                        <SelectValue placeholder="Action" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MOVEMENT_ACTION_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="date"
+                      value={historyFilters.startDate}
+                      onChange={(event) => setHistoryFilters((prev) => ({ ...prev, startDate: event.target.value }))}
+                      className="w-36 h-9"
+                    />
+                    <Input
+                      type="date"
+                      value={historyFilters.endDate}
+                      onChange={(event) => setHistoryFilters((prev) => ({ ...prev, endDate: event.target.value }))}
+                      className="w-36 h-9"
+                    />
+                    <Button variant="ghost" onClick={resetHistoryFilters} className="h-9">
+                      Clear filters
+                    </Button>
+                    <Button variant="outline" onClick={handleExportHistory} className="h-9">
+                      <Download className="h-4 w-4 mr-2" /> Export CSV
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {isHistoryLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading stock history...</p>
+                  ) : stockMovements.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No stock history found for the selected filters.</p>
+                  ) : (
+                    <div className="overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left border-b">
+                            <th className="p-3 whitespace-nowrap">Date</th>
+                            <th className="p-3 whitespace-nowrap">Product</th>
+                            <th className="p-3 whitespace-nowrap">Action</th>
+                            <th className="p-3 whitespace-nowrap">Source</th>
+                            <th className="p-3 whitespace-nowrap text-right">Δ Qty</th>
+                            <th className="p-3 whitespace-nowrap text-right">Before → After</th>
+                            <th className="p-3 whitespace-nowrap">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stockMovements.map((movement) => (
+                            <tr key={movement.id} className="border-b hover:bg-slate-50">
+                              <td className="p-3 whitespace-nowrap">{new Date(movement.occurredAt).toLocaleString()}</td>
+                              <td className="p-3">
+                                <div className="font-medium text-slate-800">{movement.productName ?? movement.productSku ?? movement.productId}</div>
+                                <div className="text-xs text-muted-foreground">{movement.productSku ?? movement.productBarcode ?? ""}</div>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">{formatMovementLabel(movement)}</td>
+                              <td className="p-3 whitespace-nowrap text-muted-foreground">{movement.source ?? "-"}</td>
+                              <td className={`p-3 text-right font-semibold ${movement.delta >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                {movement.delta > 0 ? "+" : ""}
+                                {movement.delta}
+                              </td>
+                              <td className="p-3 text-right whitespace-nowrap">
+                                {movement.quantityBefore} → {movement.quantityAfter}
+                              </td>
+                              <td className="p-3 text-muted-foreground max-w-xs">
+                                {movement.notes || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -925,6 +1176,52 @@ export default function Inventory() {
               </DialogFooter>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(historyProduct)} onOpenChange={(open) => {
+        if (!open) {
+          setHistoryProduct(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Stock history for {historyProduct?.product?.name ?? "selected product"}</DialogTitle>
+            <DialogDescription>
+              Recent movements showing how this product&rsquo;s stock changed over time.
+            </DialogDescription>
+          </DialogHeader>
+          {isProductHistoryLoading ? (
+            <p className="text-sm text-muted-foreground">Loading history...</p>
+          ) : productHistoryMovements.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No stock movements found for this product.</p>
+          ) : (
+            <div className="space-y-4 max-h-[420px] overflow-auto">
+              {productHistoryMovements.map((movement) => (
+                <div key={movement.id} className="p-4 border rounded-lg">
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <span>{new Date(movement.occurredAt).toLocaleString()}</span>
+                    <span>{movement.source ?? "manual"}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-slate-800">{formatMovementLabel(movement)}</p>
+                      <p className="text-sm text-muted-foreground">{movement.notes || "No additional notes"}</p>
+                    </div>
+                    <div className={`font-semibold ${movement.delta >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {movement.delta > 0 ? "+" : ""}{movement.delta}
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Stock {movement.quantityBefore} → {movement.quantityAfter}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHistoryProduct(null)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -200,6 +200,7 @@ export const inventory = pgTable("inventory", {
 }, (table) => ({
   storeIdIdx: index("inventory_store_id_idx").on(table.storeId),
   productIdIdx: index("inventory_product_id_idx").on(table.productId),
+  storeProductUnique: uniqueIndex("inventory_store_product_unique").on(table.storeId, table.productId),
 }));
 
 export const importJobs = pgTable("import_jobs", {
@@ -398,6 +399,26 @@ export const lowStockAlerts = pgTable("low_stock_alerts", {
   productIdIdx: index("low_stock_alerts_product_id_idx").on(table.productId),
 }));
 
+export const stockMovements = pgTable("stock_movements", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  quantityBefore: integer("quantity_before").notNull().default(0),
+  quantityAfter: integer("quantity_after").notNull().default(0),
+  delta: integer("delta").notNull(),
+  actionType: varchar("action_type", { length: 32 }).notNull(),
+  source: varchar("source", { length: 64 }),
+  referenceId: uuid("reference_id"),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  metadata: jsonb("metadata"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  storeOccurredIdx: index("stock_movements_store_occurred_idx").on(table.storeId, table.occurredAt),
+  productStoreIdx: index("stock_movements_product_store_idx").on(table.productId, table.storeId),
+}));
+
 // User-Store permissions table (many-to-many relationship for managers)
 export const userStorePermissions = pgTable("user_store_permissions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -471,6 +492,7 @@ export const storesRelations = relations(stores, ({ many }) => ({
   inventory: many(inventory),
   transactions: many(transactions),
   lowStockAlerts: many(lowStockAlerts),
+  stockMovements: many(stockMovements),
 }));
 
 export const productsRelations = relations(products, ({ many }) => ({
@@ -769,6 +791,7 @@ export const insertTransactionSchema = createInsertSchema(transactions);
 export const insertTransactionItemSchema = createInsertSchema(transactionItems);
 
 export const insertLowStockAlertSchema = createInsertSchema(lowStockAlerts);
+export const insertStockMovementSchema = createInsertSchema(stockMovements);
 
 // Loyalty Program Insert Schemas
 export const insertLoyaltyTierSchema = createInsertSchema(loyaltyTiers);
@@ -808,6 +831,8 @@ export type InsertWebsocketConnection = typeof websocketConnections.$inferInsert
 
 export type LowStockAlert = typeof lowStockAlerts.$inferSelect;
 export type InsertLowStockAlert = z.infer<typeof insertLowStockAlertSchema>;
+export type StockMovement = typeof stockMovements.$inferSelect;
+export type InsertStockMovement = z.infer<typeof insertStockMovementSchema>;
 
 // Loyalty Program Types
 export type LoyaltyTier = typeof loyaltyTiers.$inferSelect;

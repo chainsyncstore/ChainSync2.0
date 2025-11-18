@@ -12,6 +12,7 @@ import {
   passwordResetTokens,
   products,
   stores,
+  stockMovements,
   subscriptions,
   transactionItems,
   transactions,
@@ -23,6 +24,7 @@ import {
   type InsertLoyaltyTransaction,
   type InsertProduct,
   type InsertStore,
+  type InsertStockMovement,
   type InsertTransaction,
   type InsertTransactionItem,
   type InsertUser,
@@ -35,6 +37,7 @@ import {
   type PasswordResetToken,
   type Product,
   type Store,
+  type StockMovement,
   type Transaction,
   type TransactionItem,
   type User,
@@ -51,6 +54,11 @@ type InventoryAlertBreakdown = {
   LOW_STOCK: number;
   OUT_OF_STOCK: number;
   OVERSTOCKED: number;
+};
+
+type StoreLowStockAlert = LowStockAlert & {
+  productName?: string | null;
+  productSku?: string | null;
 };
 
 type OrganizationInventoryCurrencyTotal = {
@@ -90,6 +98,49 @@ type ProfitLossResult = {
   refundAmount: number;
   refundCount: number;
   profit: number;
+};
+
+type StockMovementLogParams = {
+  storeId: string;
+  productId: string;
+  quantityBefore: number;
+  quantityAfter: number;
+  actionType: string;
+  source?: string;
+  referenceId?: string;
+  userId?: string;
+  notes?: string;
+  metadata?: Record<string, unknown>;
+};
+
+type InventoryCreateOptions = {
+  recordMovement?: boolean;
+  source?: string;
+  referenceId?: string;
+  notes?: string;
+  metadata?: Record<string, unknown>;
+};
+
+type StockMovementWithProduct = StockMovement & {
+  productName?: string | null;
+  productSku?: string | null;
+  productBarcode?: string | null;
+};
+
+type StockMovementQueryParams = {
+  productId?: string;
+  actionType?: string;
+  userId?: string;
+  startDate?: Date;
+  endDate?: Date;
+  limit?: number;
+  offset?: number;
+};
+
+type ProductStockHistoryParams = {
+  limit?: number;
+  startDate?: Date;
+  endDate?: Date;
 };
 
 // Simple in-memory cache for frequently accessed data
@@ -230,11 +281,16 @@ export interface IStorage {
   getInventoryItem(productId: string, storeId: string): Promise<Inventory | undefined>;
   getOrganizationInventorySummary(orgId: string): Promise<OrganizationInventorySummary>;
   // Added for integration tests compatibility
-  createInventory(insertInventory: InsertInventory): Promise<Inventory>;
+  createInventory(insertInventory: InsertInventory, userId?: string, options?: InventoryCreateOptions): Promise<Inventory>;
   getInventory(productId: string, storeId: string): Promise<Inventory>;
-  updateInventory(productId: string, storeId: string, inventory: Partial<InsertInventory>): Promise<Inventory>;
-  adjustInventory(productId: string, storeId: string, quantityChange: number): Promise<Inventory>;
+  updateInventory(productId: string, storeId: string, inventory: Partial<InsertInventory>, userId?: string): Promise<Inventory>;
+  adjustInventory(productId: string, storeId: string, quantityChange: number, userId?: string, source?: string, referenceId?: string, notes?: string, metadata?: Record<string, unknown>): Promise<Inventory>;
+  deleteInventory(productId: string, storeId: string, userId?: string, reason?: string): Promise<void>;
   getLowStockItems(storeId: string): Promise<Inventory[]>;
+  syncLowStockAlertState(storeId: string, productId: string): Promise<void>;
+  logStockMovement(params: StockMovementLogParams): Promise<void>;
+  getStoreStockMovements(storeId: string, params?: StockMovementQueryParams): Promise<StockMovementWithProduct[]>;
+  getProductStockHistory(storeId: string, productId: string, params?: ProductStockHistoryParams): Promise<StockMovementWithProduct[]>;
 
   // Transaction operations
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
@@ -1316,52 +1372,216 @@ export class DatabaseStorage implements IStorage {
     return item || undefined;
   }
 
-  async createInventory(insertInventory: InsertInventory): Promise<Inventory> {
+  private async recordStockMovement(params: StockMovementLogParams): Promise<void> {
+    if (this.isTestEnv) {
+      return;
+    }
+
+    const delta = params.quantityAfter - params.quantityBefore;
+    
+    try {
+      const values = {
+        storeId: params.storeId,
+        productId: params.productId,
+        quantityBefore: params.quantityBefore,
+        quantityAfter: params.quantityAfter,
+        delta,
+        actionType: params.actionType,
+        source: params.source,
+        referenceId: params.referenceId,
+        userId: params.userId,
+        notes: params.notes,
+        metadata: params.metadata ?? null,
+      } as typeof stockMovements.$inferInsert;
+
+      await db.insert(stockMovements).values(values);
+    } catch (error) {
+      logger.warn('Failed to record stock movement', {
+        ...params,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async logStockMovement(params: StockMovementLogParams): Promise<void> {
+    await this.recordStockMovement(params);
+  }
+
+  private buildStockMovementQuery(storeId: string, params?: StockMovementQueryParams) {
+    const filters = [eq(stockMovements.storeId, storeId)];
+
+    if (params?.productId) {
+      filters.push(eq(stockMovements.productId, params.productId));
+    }
+    if (params?.actionType) {
+      filters.push(eq(stockMovements.actionType, params.actionType));
+    }
+    if (params?.userId) {
+      filters.push(eq(stockMovements.userId, params.userId));
+    }
+    if (params?.startDate) {
+      filters.push(gte(stockMovements.occurredAt, params.startDate));
+    }
+    if (params?.endDate) {
+      filters.push(lte(stockMovements.occurredAt, params.endDate));
+    }
+
+    const whereClause = filters.length ? and(...filters) : undefined;
+
+    const baseQuery = db
+      .select({
+        id: stockMovements.id,
+        storeId: stockMovements.storeId,
+        productId: stockMovements.productId,
+        quantityBefore: stockMovements.quantityBefore,
+        quantityAfter: stockMovements.quantityAfter,
+        delta: stockMovements.delta,
+        actionType: stockMovements.actionType,
+        source: stockMovements.source,
+        referenceId: stockMovements.referenceId,
+        userId: stockMovements.userId,
+        notes: stockMovements.notes,
+        metadata: stockMovements.metadata,
+        occurredAt: stockMovements.occurredAt,
+        createdAt: stockMovements.createdAt,
+        productName: products.name,
+        productSku: products.sku,
+        productBarcode: products.barcode,
+      })
+      .from(stockMovements)
+      .leftJoin(products, eq(stockMovements.productId, products.id));
+
+    return whereClause ? baseQuery.where(whereClause) : baseQuery;
+  }
+
+  async getStoreStockMovements(storeId: string, params?: StockMovementQueryParams): Promise<StockMovementWithProduct[]> {
+    const limit = Math.min(Math.max(params?.limit ?? 50, 1), 200);
+    const offset = Math.max(params?.offset ?? 0, 0);
+
+    const query = this.buildStockMovementQuery(storeId, params);
+
+    const results = await query
+      .orderBy(desc(stockMovements.occurredAt))
+      .limit(limit)
+      .offset(offset);
+
+    return results as StockMovementWithProduct[];
+  }
+
+  async getProductStockHistory(
+    storeId: string,
+    productId: string,
+    params?: ProductStockHistoryParams,
+  ): Promise<StockMovementWithProduct[]> {
+    const mergedParams: StockMovementQueryParams = {
+      ...params,
+      productId,
+    };
+
+    const limit = Math.min(Math.max(params?.limit ?? 100, 1), 500);
+
+    const query = this.buildStockMovementQuery(storeId, mergedParams);
+
+    const results = await query
+      .orderBy(desc(stockMovements.occurredAt))
+      .limit(limit);
+
+    return results as StockMovementWithProduct[];
+  }
+
+  async createInventory(insertInventory: InsertInventory, userId?: string, options?: InventoryCreateOptions): Promise<Inventory> {
     if (this.isTestEnv) {
       const item: any = { id: this.generateId(), ...insertInventory, updatedAt: new Date() };
       this.mem.inventory.set(`${(insertInventory as any).storeId}:${(insertInventory as any).productId}`, item);
+      await this.syncLowStockAlertState((insertInventory as any).storeId, (insertInventory as any).productId);
       return item;
     }
     const [item] = await db
       .insert(inventory)
       .values(insertInventory as unknown as typeof inventory.$inferInsert)
       .returning();
+    const recordMovement = options?.recordMovement !== false;
+    if (recordMovement) {
+      await this.recordStockMovement({
+        storeId: item.storeId,
+        productId: item.productId,
+        quantityBefore: 0,
+        quantityAfter: item.quantity || 0,
+        actionType: 'create',
+        source: options?.source ?? 'inventory',
+        referenceId: options?.referenceId,
+        userId,
+        notes: options?.notes ?? 'Initial inventory creation',
+        metadata: options?.metadata,
+      });
+    }
+
+    await this.syncLowStockAlertState(item.storeId, item.productId);
     return item;
   }
 
   async getInventory(productId: string, storeId: string): Promise<Inventory> {
     const item = await this.getInventoryItem(productId, storeId);
     if (!item) {
-      // If not found, create a default zero-quantity record for robustness in tests
-      return await this.createInventory({ productId, storeId, quantity: 0 } as any);
+      // If not found, create a default zero-quantity record for robustness, without logging movements
+      return await this.createInventory({ productId, storeId, quantity: 0 } as any, undefined, { recordMovement: false });
     }
     return item;
   }
 
-  async updateInventory(productId: string, storeId: string, updateInventory: Partial<InsertInventory>): Promise<Inventory> {
+  async updateInventory(productId: string, storeId: string, updateInventory: Partial<InsertInventory>, userId?: string): Promise<Inventory> {
     if (this.isTestEnv) {
       const key = `${storeId}:${productId}`;
       const current = this.mem.inventory.get(key) || { id: this.generateId(), productId, storeId, quantity: 0 };
       const updated: any = { ...current, ...updateInventory, updatedAt: new Date() };
       this.mem.inventory.set(key, updated);
+      await this.syncLowStockAlertState(storeId, productId);
       return updated;
     }
+    
+    // Get current inventory for comparison
+    const current = await this.getInventoryItem(productId, storeId);
+    const quantityBefore = current?.quantity || 0;
+    
     const [item] = await db
       .update(inventory)
       .set({ ...(updateInventory as any), updatedAt: new Date() } as any)
       .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)))
       .returning();
+    
+    // Record stock movement if quantity changed
+    const quantityAfter = item.quantity || 0;
+    if (quantityBefore !== quantityAfter) {
+      await this.recordStockMovement({
+        storeId: item.storeId,
+        productId: item.productId,
+        quantityBefore,
+        quantityAfter,
+        actionType: 'update',
+        source: 'inventory',
+        userId,
+        notes: 'Manual inventory update',
+      });
+    }
+    
+    await this.syncLowStockAlertState(storeId, productId);
     return item;
   }
 
-  async adjustInventory(productId: string, storeId: string, quantityChange: number): Promise<Inventory> {
+  async adjustInventory(productId: string, storeId: string, quantityChange: number, userId?: string, source?: string, referenceId?: string, notes?: string): Promise<Inventory> {
     if (this.isTestEnv) {
       const key = `${storeId}:${productId}`;
       const current = this.mem.inventory.get(key) || { id: this.generateId(), productId, storeId, quantity: 0 };
       const updated: any = { ...current, quantity: (current.quantity || 0) + quantityChange, updatedAt: new Date() };
       this.mem.inventory.set(key, updated);
+      await this.syncLowStockAlertState(storeId, productId);
       return updated;
     }
+    
+    // Get current inventory for comparison
+    const current = await this.getInventoryItem(productId, storeId);
+    const quantityBefore = current?.quantity || 0;
+    
     const [item] = await db
       .update(inventory)
       .set({ 
@@ -1370,18 +1590,93 @@ export class DatabaseStorage implements IStorage {
       } as any)
       .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)))
       .returning();
+    
+    // Record stock movement
+    await this.recordStockMovement({
+      storeId: item.storeId,
+      productId: item.productId,
+      quantityBefore,
+      quantityAfter: item.quantity || 0,
+      actionType: 'adjustment',
+      source: source || 'manual',
+      referenceId,
+      userId,
+      notes: notes || `Stock adjusted by ${quantityChange}`,
+      metadata: { quantityChange },
+    });
+    
+    await this.syncLowStockAlertState(storeId, productId);
     return item;
   }
 
-  async deleteInventory(productId: string, storeId: string): Promise<void> {
+  private async getActiveLowStockAlert(storeId: string, productId: string) {
+    const [existing] = await db
+      .select()
+      .from(lowStockAlerts)
+      .where(and(eq(lowStockAlerts.storeId, storeId), eq(lowStockAlerts.productId, productId), eq(lowStockAlerts.isResolved, false)))
+      .limit(1);
+    return existing;
+  }
+
+  async syncLowStockAlertState(storeId: string, productId: string): Promise<void> {
+    let item = await this.getInventoryItem(productId, storeId);
+    if (!item) {
+      const existing = await this.getActiveLowStockAlert(storeId, productId);
+      if (existing) {
+        await this.resolveLowStockAlert(existing.id);
+      }
+      return;
+    }
+
+    const minStockLevel = item.minStockLevel ?? 0;
+    const quantity = item.quantity ?? 0;
+    const existing = await this.getActiveLowStockAlert(storeId, productId);
+
+    if (minStockLevel > 0 && quantity <= minStockLevel) {
+      if (existing) {
+        await db
+          .update(lowStockAlerts)
+          .set({ currentStock: quantity, minStockLevel } as any)
+          .where(eq(lowStockAlerts.id, existing.id));
+      } else {
+        await this.createLowStockAlert({ storeId, productId, currentStock: quantity, minStockLevel });
+      }
+      return;
+    }
+
+    if (existing) {
+      await this.resolveLowStockAlert(existing.id);
+    }
+  }
+
+  async deleteInventory(productId: string, storeId: string, userId?: string, reason?: string): Promise<void> {
     if (this.isTestEnv) {
       const key = `${storeId}:${productId}`;
       this.mem.inventory.delete(key);
+      await this.syncLowStockAlertState(storeId, productId);
       return;
     }
+    
+    // Get current inventory before deletion for movement record
+    const current = await this.getInventoryItem(productId, storeId);
+    if (current) {
+      // Record stock movement for deletion
+      await this.recordStockMovement({
+        storeId,
+        productId,
+        quantityBefore: current.quantity || 0,
+        quantityAfter: 0,
+        actionType: 'delete',
+        source: 'inventory',
+        userId,
+        notes: reason || 'Inventory record deleted',
+      });
+    }
+    
     await db
       .delete(inventory)
       .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)));
+    await this.syncLowStockAlertState(storeId, productId);
   }
 
   async getLowStockItems(storeId: string): Promise<Inventory[]> {
@@ -1760,12 +2055,23 @@ export class DatabaseStorage implements IStorage {
     return alert;
   }
 
-  async getLowStockAlerts(storeId: string): Promise<LowStockAlert[]> {
-    return await db
-      .select()
+  async getLowStockAlerts(storeId: string): Promise<StoreLowStockAlert[]> {
+    const rows = await db
+      .select({
+        alert: lowStockAlerts,
+        productName: products.name,
+        productSku: products.sku,
+      })
       .from(lowStockAlerts)
+      .leftJoin(products, eq(products.id, lowStockAlerts.productId))
       .where(and(eq(lowStockAlerts.storeId, storeId), eq(lowStockAlerts.isResolved, false)))
       .orderBy(desc(lowStockAlerts.createdAt));
+
+    return rows.map(({ alert, productName, productSku }) => ({
+      ...alert,
+      productName,
+      productSku,
+    }));
   }
 
   async resolveLowStockAlert(id: string): Promise<void> {

@@ -89,8 +89,17 @@ export async function registerPosRoutes(app: Express) {
     if ((inv.quantity || 0) < quantity) {
       return res.status(400).json({ message: 'insufficient inventory' });
     }
+    const userId = req.session?.userId as string | undefined;
     const item = await storage.addTransactionItem({ transactionId, productId, quantity, unitPrice, totalPrice } as any);
-    await storage.adjustInventory(productId, storeId, -quantity);
+    await storage.adjustInventory(
+      productId, 
+      storeId, 
+      -quantity, 
+      userId,
+      'pos_sale',
+      transactionId,
+      `POS sale - ${quantity} units`
+    );
     return res.status(201).json(item);
   });
 
@@ -105,9 +114,18 @@ export async function registerPosRoutes(app: Express) {
   app.put('/api/transactions/:transactionId/void', requireAuth, async (req: Request, res: Response) => {
     const { transactionId } = req.params as any;
     const { storeId } = req.body || {};
+    const userId = req.session?.userId as string | undefined;
     const items = await storage.getTransactionItems(transactionId);
     for (const it of items) {
-      await storage.adjustInventory(it.productId as any, storeId, it.quantity as any);
+      await storage.adjustInventory(
+        it.productId as any, 
+        storeId, 
+        it.quantity as any,
+        userId,
+        'pos_void',
+        transactionId,
+        `POS void/return - ${it.quantity} units returned`
+      );
     }
     await storage.updateTransaction(transactionId, { status: 'voided' } as any);
     return res.json({ status: 'voided' });
