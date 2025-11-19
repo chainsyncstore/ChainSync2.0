@@ -1272,17 +1272,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   private async getOrganizationStoreRecords(orgId: string): Promise<Store[]> {
-    const storesForOrg = await (async () => {
-      if (this.isTestEnv) {
-        return Array.from(this.mem.stores.values()) as Store[];
-      }
-      return await this.getAllStores();
-    })();
+    if (this.isTestEnv) {
+      return Array.from(this.mem.stores.values()).filter((store) => {
+        const candidate = (store as any).orgId ?? (store as any).ownerId ?? null;
+        return typeof candidate === 'string' && candidate === orgId;
+      }) as Store[];
+    }
 
-    return storesForOrg.filter((store) => {
-      const candidate = (store as any).orgId ?? (store as any).ownerId ?? null;
-      return typeof candidate === 'string' && candidate === orgId;
-    });
+    const storeColumns = await this.getStoreColumns();
+    const supportsCurrency = storeColumns.has('currency');
+    const supportsTaxRate = storeColumns.has('tax_rate');
+    const supportsCreatedAt = storeColumns.has('created_at');
+    const supportsUpdatedAt = storeColumns.has('updated_at');
+    const supportsIsActive = storeColumns.has('is_active');
+
+    const selectFields: Record<string, any> = {
+      id: stores.id,
+      orgId: stores.orgId,
+      name: stores.name,
+      ownerId: stores.ownerId,
+      address: stores.address,
+      phone: stores.phone,
+      email: stores.email,
+    };
+
+    if (supportsIsActive) {
+      selectFields.isActive = stores.isActive;
+    }
+    if (supportsCurrency) {
+      selectFields.currency = stores.currency;
+    }
+    if (supportsTaxRate) {
+      selectFields.taxRate = stores.taxRate;
+    }
+    if (supportsCreatedAt) {
+      selectFields.createdAt = stores.createdAt;
+    }
+    if (supportsUpdatedAt) {
+      selectFields.updatedAt = stores.updatedAt;
+    }
+
+    const rows = await db
+      .select(selectFields)
+      .from(stores)
+      .where(eq(stores.orgId, orgId));
+
+    return rows.map((row) => this.normalizeStoreRow(row));
   }
 
   private aggregateStoreInventorySummary(
