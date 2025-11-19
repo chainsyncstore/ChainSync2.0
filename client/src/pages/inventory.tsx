@@ -177,27 +177,6 @@ export default function Inventory() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: stores = [] } = useQuery<Store[]>({
-    queryKey: ["/api/stores"],
-    enabled: isAdmin,
-  });
-
-  // Auto-select scope for admins when page loads
-  useEffect(() => {
-    if (isAdmin && !selectedStore) {
-      setSelectedStore(ALL_STORES_ID);
-    }
-  }, [isAdmin, selectedStore]);
-
-  // Force manager to assigned store
-  useEffect(() => {
-    if (isManager && managerStoreId && selectedStore !== managerStoreId) {
-      setSelectedStore(managerStoreId);
-    }
-  }, [isManager, managerStoreId, selectedStore]);
-
-  const isAllStoresView = isAdmin && selectedStore === ALL_STORES_ID;
-  const storeId = isAllStoresView ? "" : selectedStore?.trim() || "";
   const orgId = useMemo(() => {
     const authUser = user as any;
     const derivedOrgId =
@@ -210,9 +189,52 @@ export default function Inventory() {
     return derivedOrgId ? String(derivedOrgId) : "";
   }, [user]);
 
+  const { data: stores = [] } = useQuery<Store[]>({
+    queryKey: ["/api/stores"],
+    enabled: isAdmin,
+  });
+
+  // Track admin's last selected store
+  const adminStoreStorageKey = useMemo(() => (isAdmin ? `inventory-selected-store-${orgId || "global"}` : null), [isAdmin, orgId]);
+
+  // Auto-select scope for admins when page loads
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (selectedStore) return;
+
+    const stored = adminStoreStorageKey && typeof window !== "undefined" ? window.localStorage.getItem(adminStoreStorageKey) : null;
+    if (stored) {
+      setSelectedStore(stored);
+      return;
+    }
+
+    if (stores.length > 0) {
+      setSelectedStore(stores[0]?.id ?? "");
+    } else {
+      setSelectedStore(ALL_STORES_ID);
+    }
+  }, [adminStoreStorageKey, isAdmin, selectedStore, stores]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (!selectedStore) return;
+    if (!adminStoreStorageKey || typeof window === "undefined") return;
+    window.localStorage.setItem(adminStoreStorageKey, selectedStore);
+  }, [adminStoreStorageKey, isAdmin, selectedStore]);
+
+  // Force manager to assigned store
+  useEffect(() => {
+    if (isManager && managerStoreId && selectedStore !== managerStoreId) {
+      setSelectedStore(managerStoreId);
+    }
+  }, [isManager, managerStoreId, selectedStore]);
+
+  const isAllStoresView = isAdmin && selectedStore === ALL_STORES_ID;
+  const storeId = isAllStoresView ? "" : selectedStore?.trim() || "";
+
   const adminStoreOptions = useMemo(() => {
     if (!isAdmin) return stores;
-    return [ALL_STORES_OPTION, ...stores];
+    return stores.length > 0 ? [ALL_STORES_OPTION, ...stores] : [ALL_STORES_OPTION];
   }, [isAdmin, stores]);
 
   const orgCurrencyStorageKey = useMemo(() => (orgId ? `inventory-org-currency-${orgId}` : null), [orgId]);
