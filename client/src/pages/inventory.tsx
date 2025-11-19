@@ -405,6 +405,19 @@ export default function Inventory() {
   }, [aggregatedTotals, currency, isAllStoresView, totalStockValue]);
 
   useEffect(() => {
+    if (!isAllStoresView || !orgId) return;
+    if (orgInventorySummary) {
+      console.info("[Inventory] Loaded organization summary", {
+        orgId,
+        totals: orgInventorySummary.totals,
+        storeCount: orgInventorySummary.stores?.length ?? 0,
+      });
+    } else if (orgInventorySummary === undefined) {
+      console.warn("[Inventory] Organization summary unavailable", { orgId });
+    }
+  }, [isAllStoresView, orgId, orgInventorySummary]);
+
+  useEffect(() => {
     if (!isAllStoresView) {
       setSelectedOrgCurrency(null);
       return;
@@ -444,6 +457,16 @@ export default function Inventory() {
   }, [aggregatedCurrencyDisplay, selectedOrgCurrency]);
 
   const hasMultipleOrgCurrencies = aggregatedCurrencyDisplay.length > 1;
+
+  const orgSummaryRawJson = useMemo(() => {
+    if (!isAllStoresView) return null;
+    if (!orgInventorySummary) return null;
+    try {
+      return JSON.stringify(orgInventorySummary, null, 2);
+    } catch {
+      return null;
+    }
+  }, [isAllStoresView, orgInventorySummary]);
 
   const canEditInventory = useMemo(
     () => isManager && storeId === managerStoreId && Boolean(storeId),
@@ -705,7 +728,7 @@ export default function Inventory() {
 
         {isAllStoresView ? (
           <div className="space-y-6">
-            <Card>
+            <Card className="border-0 shadow-none bg-muted/30">
               <CardHeader className="flex flex-col gap-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -714,7 +737,7 @@ export default function Inventory() {
                       Aggregated snapshot across every store. Pick a specific store to inspect detailed stock levels.
                     </p>
                   </div>
-                  {hasMultipleOrgCurrencies ? (
+                  {hasMultipleOrgCurrencies && selectedCurrencyEntry && (
                     <div className="w-full sm:w-56">
                       <Label className="text-xs uppercase tracking-wide text-slate-500">Currency focus</Label>
                       <Select value={selectedOrgCurrency ?? undefined} onValueChange={setSelectedOrgCurrency}>
@@ -730,7 +753,7 @@ export default function Inventory() {
                         </SelectContent>
                       </Select>
                     </div>
-                  ) : null}
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -761,6 +784,22 @@ export default function Inventory() {
                 </div>
               </CardContent>
             </Card>
+
+            {orgSummaryRawJson && (
+              <Card className="mt-4 border-dashed">
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium">Debug: Raw organization payload</CardTitle>
+                  <CardDescription>
+                    This block is temporary to verify the backend response powering the all-stores summary.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <pre className="max-h-96 overflow-auto rounded bg-muted p-3 text-xs text-muted-foreground">
+                    {orgSummaryRawJson}
+                  </pre>
+                </CardContent>
+              </Card>
+            )}
 
             {orgInventorySummary?.stores?.length ? (
               <Card>

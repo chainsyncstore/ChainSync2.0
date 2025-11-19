@@ -62,6 +62,7 @@ export default function MultiStore() {
 
   const { data: alerts = [] } = useQuery<LowStockAlert[]>({
     queryKey: ["/api/stores", selectedStore, "alerts"],
+    enabled: Boolean(selectedStore),
   });
   const selectedStoreLowStock = alerts.length;
 
