@@ -928,6 +928,7 @@ export class DatabaseStorage implements IStorage {
       return fallback;
     };
 
+    const orgId = getValue<string | null>(['orgId', 'org_id'], null);
     const currency = getValue(['currency', 'currency'], 'USD');
     const taxRate = getValue<any>(['taxRate', 'tax_rate'], '0.00');
     const createdAt = getValue<Date | null>(['createdAt', 'created_at'], null);
@@ -940,6 +941,7 @@ export class DatabaseStorage implements IStorage {
 
     return {
       id: getValue<string>(['id'], ''),
+      orgId,
       name: getValue<string>(['name'], ''),
       ownerId,
       address,
@@ -966,6 +968,7 @@ export class DatabaseStorage implements IStorage {
 
     const selectFields: Record<string, any> = {
       id: stores.id,
+      orgId: stores.orgId,
       name: stores.name,
       ownerId: stores.ownerId,
       address: stores.address,
