@@ -476,7 +476,7 @@ export default function DataImport() {
                 <div>
                   <h3 className="text-lg font-semibold">Loyalty Program Import</h3>
                   <p className="text-sm text-gray-600">
-                    Import customer profiles, balances, and contact info so staff can look up members quickly. Tiers are no longer required—just provide the points they currently hold.
+                    Import customer profiles, balances, and contact info so staff can look up members quickly.
                   </p>
                 </div>
                 <TemplateDownloader type="loyalty" />
