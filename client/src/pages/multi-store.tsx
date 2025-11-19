@@ -184,6 +184,8 @@ export default function MultiStore() {
         createdAt: now,
         updatedAt: now,
         status: "active",
+        loyaltyEarnRateOverride: null,
+        loyaltyRedeemValueOverride: null,
         ...metrics,
       }));
     }

@@ -155,6 +155,8 @@ export const stores = pgTable("stores", {
   email: varchar("email", { length: 255 }),
   currency: varchar("currency", { length: 3 }).default('USD'),
   taxRate: decimal("tax_rate", { precision: 5, scale: 4 }).default("0.085"),
+  loyaltyEarnRateOverride: decimal("loyalty_earn_rate_override", { precision: 10, scale: 4 }),
+  loyaltyRedeemValueOverride: decimal("loyalty_redeem_value_override", { precision: 10, scale: 4 }),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

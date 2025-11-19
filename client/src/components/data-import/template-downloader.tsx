@@ -107,8 +107,8 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "loyalty_number",
           "current_points",
           "lifetime_points",
-          "tier_name",
-          "member_since"
+          "member_since",
+          "is_active"
         ];
         sampleData = [
           "John",
@@ -118,14 +118,17 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "LOY001",
           "1250",
           "2500",
-          "Silver",
-          "2024-01-15"
+          "2024-01-15",
+          "true"
         ];
         additionalNotes = [
-          "Duplicate handling:",
-          "- Regularize: rows whose phone/email already exist are skipped.",
-          "- Overwrite: rows with matching phone/email update existing records.",
-          "Ensure phone or email is provided for reliable matching."
+          "Required identifiers: provide at least phone or email so staff can find the customer quickly.",
+          "current_points will become the customer's balance; lifetime_points should include all historical earnings.",
+          "is_active accepts true/false (defaults to true when omitted).",
+          "Mode guidance:",
+          "- Regularize: skips rows when email/phone already exists.",
+          "- Overwrite: updates matching rows (email/phone) with new contact info and point balances.",
+          "Loyalty math is centrally defined via the Earn & Redeem rules page; tiers are no longer required."
         ];
         break;
     }
@@ -135,10 +138,10 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
     
     if (type === "loyalty") {
       additionalRows = [
-        "Jane,Smith,jane.smith@email.com,+1-555-0456,LOY002,3200,5000,Gold,2024-01-10",
-        "Bob,Johnson,bob.johnson@email.com,+1-555-0789,LOY003,450,800,Bronze,2024-02-01",
-        "Alice,Brown,alice.brown@email.com,+1-555-0321,LOY004,8500,12000,Gold,2024-01-20",
-        "Charlie,Wilson,charlie.wilson@email.com,+1-555-0654,LOY005,15000,20000,Platinum,2024-01-05"
+        "Jane,Smith,jane.smith@email.com,+1-555-0456,LOY002,3200,5000,2023-11-02,true",
+        "Bob,Johnson,bob.johnson@email.com,+1-555-0789,LOY003,450,800,2023-12-18,true",
+        "Alice,Brown,alice.brown@email.com,+1-555-0321,LOY004,8500,12000,2022-09-01,true",
+        "Charlie,Wilson,charlie.wilson@email.com,+1-555-0654,LOY005,0,0,2024-02-10,false"
       ];
     } else {
       additionalRows = Array(2).fill(null).map((_, i) => {

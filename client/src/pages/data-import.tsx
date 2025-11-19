@@ -94,7 +94,7 @@ export default function DataImport() {
   const fileEndpoints = useMemo(() => ({
     inventory: "/api/inventory/import",
     transactions: "/api/transactions/import",
-    loyalty: "/api/customers/import", // loyalty tab reuses customer import (placeholder until dedicated route)
+    loyalty: "/api/loyalty/import",
     products: "/api/products", // handled via ProductInput component, not CSV uploader
   }), []);
 
@@ -476,7 +476,7 @@ export default function DataImport() {
                 <div>
                   <h3 className="text-lg font-semibold">Loyalty Program Import</h3>
                   <p className="text-sm text-gray-600">
-                    Import customer loyalty data including customer information, points, and tier assignments.
+                    Import customer profiles, balances, and contact info so staff can look up members quickly. Tiers are no longer required—just provide the points they currently hold.
                   </p>
                 </div>
                 <TemplateDownloader type="loyalty" />
@@ -497,14 +497,15 @@ export default function DataImport() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Regularize keeps existing loyalty records when email or phone already exists. Overwrite updates those rows instead.
+                    Regularize skips rows whose email or phone already exists so you can append partial lists. Overwrite updates matching rows with the new contact info and point balances.
                   </p>
                 </div>
                 <div className="rounded-lg border p-3 bg-muted/40 text-sm text-muted-foreground">
                   <p className="font-medium text-foreground">Mode tips</p>
                   <ul className="list-disc list-inside mt-1 space-y-1">
-                    <li>Use Regularize for partial lists—existing members remain untouched.</li>
-                    <li>Use Overwrite to refresh contact info or points en masse.</li>
+                    <li>Include either phone or email (or both); that’s how cashiers search for members.</li>
+                    <li>current_points becomes today’s balance; lifetime_points should reflect everything the member has earned.</li>
+                    <li>Use Regularize for incremental uploads; use Overwrite to refresh contact info or point totals en masse.</li>
                   </ul>
                 </div>
               </div>
