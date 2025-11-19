@@ -56,6 +56,7 @@ export async function registerMeRoutes(app: Express) {
     const isAdmin = Boolean((user as any).isAdmin);
     const role = ((user as any).role || (isAdmin ? 'ADMIN' : '')).toString().toUpperCase() || undefined;
     const storeId = (user as any).storeId ?? null;
+    const orgId = (user as any).orgId ?? null;
     const twofaVerified = Boolean((user as any).twofaVerified);
 
     let subscriptionSummary: Record<string, unknown> | null = null;
@@ -86,6 +87,7 @@ export async function registerMeRoutes(app: Express) {
       isAdmin,
       role,
       storeId,
+      orgId,
       firstName: (user as any).firstName ?? null,
       lastName: (user as any).lastName ?? null,
       phone: (user as any).phone ?? null,
