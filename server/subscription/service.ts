@@ -51,12 +51,18 @@ export class SubscriptionService {
   }
 
   private async countStoresForOrg(orgId: string): Promise<number> {
-    const [{ count }] = await db
-      .select({ count: sql<number>`COUNT(*)` })
+    const rows = await db
+      .select()
       .from(stores)
-      .where(eq(stores.ownerId, orgId as any));
+      .where(eq(stores.orgId as any, orgId as any));
 
-    return Number(count ?? 0);
+    const list = Array.isArray(rows)
+      ? rows
+      : Array.isArray((rows as QueryResult<any>).rows)
+        ? (rows as QueryResult<any>).rows
+        : [];
+
+    return list.length;
   }
 
   private buildBillingImpact(

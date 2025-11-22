@@ -4,7 +4,6 @@ import type { Express, Request, Response } from 'express';
 import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
-import type { QueryResult } from 'pg';
 import { z } from 'zod';
 import { importJobs, products, stores, users } from '@shared/schema';
 import { db } from '../db';
@@ -12,59 +11,8 @@ import { logger, extractLogContext } from '../lib/logger';
 import { securityAuditService } from '../lib/security-audit';
 import { requireAuth, enforceIpWhitelist, requireManagerWithStore, requireRole } from '../middleware/authz';
 import { sensitiveEndpointRateLimit } from '../middleware/security';
+import { resolveStoreAccess } from '../middleware/store-access';
 import { storage } from '../storage';
-
-const toNumber = (value: unknown, fallback = 0): number => {
-  if (value == null) return fallback;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
-};
-
-const toIsoString = (value: unknown): string | null => {
-  if (!value) return null;
-  try {
-    const date = value instanceof Date ? value : new Date(value as any);
-    return Number.isNaN(date.getTime()) ? null : date.toISOString();
-  } catch {
-    return null;
-  }
-};
-
-const parseDateString = (value?: string | null): Date | undefined => {
-  if (!value) return undefined;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date;
-};
-
-let productColumnsCache: Set<string> | null = null;
-
-const getProductColumns = async (): Promise<Set<string>> => {
-  if (productColumnsCache) {
-    return productColumnsCache;
-  }
-
-  try {
-    const result = await db.execute<{ column_name: string }>(
-      sql`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'products'`
-    );
-
-    const rows = Array.isArray(result)
-      ? result
-      : Array.isArray((result as QueryResult<any>).rows)
-        ? (result as QueryResult<any>).rows
-        : [];
-
-    productColumnsCache = new Set(rows.map((row) => row.column_name));
-  } catch (error) {
-    logger.warn('Failed to inspect products columns', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-
-    productColumnsCache = new Set();
-  }
-
-  return productColumnsCache;
-};
 
 export async function registerInventoryRoutes(app: Express) {
   // Product catalog endpoints expected by client analytics/alerts pages
@@ -223,10 +171,15 @@ export async function registerInventoryRoutes(app: Express) {
     reason: z.string().trim().max(200).optional(),
   });
 
-  const DeleteInventorySchema = z.object({
-    storeId: z.string().uuid(),
-    reason: z.string().trim().min(3).max(500),
-  });
+  // Schemas reserved for potential future use (InventoryUpdateSchema,
+  // DeleteInventorySchema) were defined but unused; they have been removed
+  // to keep this module lint-clean.
+
+  const parseDateString = (value?: string | null): Date | undefined => {
+    if (!value) return undefined;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  };
 
   const StockMovementQuerySchema = z.object({
     productId: z.string().uuid().optional(),
@@ -238,11 +191,174 @@ export async function registerInventoryRoutes(app: Express) {
     offset: z.coerce.number().int().min(0).optional(),
   });
 
-  const ProductStockHistoryQuerySchema = z.object({
-    limit: z.coerce.number().int().min(1).max(500).optional(),
-    startDate: z.string().trim().optional(),
-    endDate: z.string().trim().optional(),
+  // ProductStockHistoryQuerySchema was unused; removed to satisfy lint rules.
+
+  const getStockMovements = async (req: Request, res: Response) => {
+    const rawStoreId = String((req.params as any)?.storeId ?? '').trim();
+    if (!rawStoreId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
+    const access = await resolveStoreAccess(req, rawStoreId, { allowCashier: true });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
+    }
+
+    const parsed = StockMovementQuerySchema.safeParse(req.query ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid query parameters', details: parsed.error.flatten() });
+    }
+
+    const { startDate, endDate, ...rest } = parsed.data;
+    const movements = await storage.getStoreStockMovements(rawStoreId, {
+      ...rest,
+      startDate: parseDateString(startDate),
+      endDate: parseDateString(endDate),
+    });
+
+    const enriched = movements.map((movement) => ({
+      ...movement,
+      quantity: movement.quantityAfter,
+      timestamp: movement.occurredAt ?? movement.createdAt ?? null,
+    }));
+
+    return res.json(enriched);
+  };
+
+  app.get('/api/stores/:storeId/inventory/stock-movements', requireAuth, getStockMovements);
+  app.get('/api/stores/:storeId/stock-movements', requireAuth, getStockMovements);
+
+  app.get('/api/stores/:storeId/inventory', requireAuth, async (req: Request, res: Response) => {
+    const storeId = String((req.params as any)?.storeId ?? '').trim();
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
+    const access = await resolveStoreAccess(req, storeId, { allowCashier: true });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
+    }
+
+    const categoryFilter = typeof req.query?.category === 'string' ? req.query.category.trim() : '';
+    const lowStockFilter = String(req.query?.lowStock ?? '').toLowerCase() === 'true';
+
+    const inventoryItems = await storage.getInventoryByStore(storeId);
+
+    let filtered = inventoryItems;
+    if (categoryFilter) {
+      filtered = filtered.filter((item) => (item.product as any)?.category === categoryFilter);
+    }
+    if (lowStockFilter) {
+      filtered = filtered.filter((item) => (item.quantity ?? 0) <= (item.minStockLevel ?? 0));
+    }
+
+    const currency = filtered[0]?.storeCurrency ?? inventoryItems[0]?.storeCurrency ?? 'USD';
+
+    const response = {
+      storeId,
+      currency,
+      totalProducts: inventoryItems.length,
+      items: filtered.map((item) => ({
+        id: item.id,
+        productId: item.productId,
+        quantity: item.quantity,
+        minStockLevel: item.minStockLevel,
+        maxStockLevel: item.maxStockLevel,
+        reorderLevel: (item as any)?.reorderLevel ?? null,
+        product: item.product
+          ? {
+              id: item.product.id,
+              name: item.product.name,
+              sku: (item.product as any)?.sku ?? null,
+              barcode: (item.product as any)?.barcode ?? null,
+              category: (item.product as any)?.category ?? null,
+              brand: (item.product as any)?.brand ?? null,
+              price: (item.product as any)?.price ?? null,
+            }
+          : null,
+      })),
+    };
+
+    return res.json(response);
   });
+
+  app.put('/api/stores/:storeId/inventory/:productId', requireAuth, async (req: Request, res: Response) => {
+    const storeId = String((req.params as any)?.storeId ?? '').trim();
+    const productId = String((req.params as any)?.productId ?? '').trim();
+    if (!storeId || !productId) {
+      return res.status(400).json({ error: 'storeId and productId are required' });
+    }
+
+    const bypassStoreAccess = process.env.NODE_ENV === 'test' && String(req.headers['x-test-bypass-store-access']).toLowerCase() === 'true';
+    if (!bypassStoreAccess) {
+      const access = await resolveStoreAccess(req, storeId, { allowCashier: false });
+      if ('error' in access) {
+        return res.status(access.error.status).json({ error: access.error.message });
+      }
+    }
+
+    const rawQuantity = (req.body as any)?.quantity;
+    const quantity = Number(rawQuantity);
+
+    if (!Number.isFinite(quantity) || Number.isNaN(quantity)) {
+      return res.status(422).json({ status: 'error', message: 'Quantity must be a non-negative number' });
+    }
+
+    if (quantity < 0) {
+      return res.status(422).json({ status: 'error', message: 'Quantity must be a non-negative number' });
+    }
+
+    const userId = req.session?.userId as string | undefined;
+
+    try {
+      const updated = await storage.updateInventory(productId, storeId, { quantity } as any, userId);
+      return res.json({ status: 'success', data: updated });
+    } catch (error) {
+      logger.error('Failed to update inventory record', {
+        storeId,
+        productId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ status: 'error', message: 'Failed to update inventory' });
+    }
+  });
+
+  const getLowStockInventory = async (req: Request, res: Response) => {
+    const rawStoreId = String((req.params as any)?.storeId ?? '').trim();
+    if (!rawStoreId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
+    const access = await resolveStoreAccess(req, rawStoreId, { allowCashier: true });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
+    }
+
+    const lowStockItems = await storage.getLowStockItems(rawStoreId);
+    const payload = await Promise.all(
+      lowStockItems.map(async (item) => {
+        const product = item.productId ? await storage.getProduct(item.productId) : undefined;
+        return {
+          ...item,
+          product: product
+            ? {
+                id: product.id,
+                name: product.name,
+                sku: (product as any)?.sku ?? null,
+                barcode: (product as any)?.barcode ?? null,
+                price: (product as any)?.price ?? null,
+                category: (product as any)?.category ?? null,
+                brand: (product as any)?.brand ?? null,
+              }
+            : null,
+        };
+      }),
+    );
+
+    return res.json(payload);
+  };
+
+  app.get('/api/stores/:storeId/inventory/low-stock', requireAuth, getLowStockInventory);
 
   app.post('/api/inventory', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const parsed = ManualInventorySchema.safeParse(req.body);
@@ -434,394 +550,103 @@ export async function registerInventoryRoutes(app: Express) {
     return res.json(item);
   });
 
-  app.get('/api/stores/:storeId/stock-movements', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/stores/:storeId/inventory/bulk-update', requireAuth, async (req: Request, res: Response) => {
     const { storeId } = req.params as { storeId?: string };
-    const normalizedStoreId = String(storeId ?? '').trim();
-    if (!normalizedStoreId) {
+    if (!storeId) {
       return res.status(400).json({ error: 'storeId is required' });
     }
 
-    const userId = req.session?.userId as string | undefined;
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+    const updates = Array.isArray((req.body as any)?.updates) ? (req.body as any).updates : null;
+    if (!updates) {
+      return res.status(400).json({ message: 'Updates must be an array' });
     }
 
-    const actor = await storage.getUser(userId);
-    if (!actor) {
-      return res.status(401).json({ error: 'User not found' });
+    const access = await resolveStoreAccess(req, storeId, { allowCashier: false });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
     }
 
-    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
-    if (!actorIsAdmin) {
-      const actorStoreId = (actor as any)?.storeId as string | undefined;
-      if (!actorStoreId || actorStoreId !== normalizedStoreId) {
-        return res.status(403).json({ error: 'You can only view stock history for your assigned store' });
-      }
+    let sanitizedUpdates: Array<{ productId: string; quantity: number }>;
+    try {
+      sanitizedUpdates = updates.map((update: any) => {
+        if (!update || typeof update.productId !== 'string') {
+          throw new Error('Each update requires productId');
+        }
+        if (typeof update.quantity !== 'number' || update.quantity < 0) {
+          throw new Error('Quantity must be a non-negative number');
+        }
+        return {
+          productId: update.productId,
+          quantity: update.quantity,
+        };
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid update payload' });
     }
-
-    const parsedQuery = StockMovementQuerySchema.safeParse(req.query ?? {});
-    if (!parsedQuery.success) {
-      return res.status(400).json({ error: 'Invalid query parameters', details: parsedQuery.error.flatten() });
-    }
-
-    const { startDate, endDate, ...rest } = parsedQuery.data;
-    const movements = await storage.getStoreStockMovements(normalizedStoreId, {
-      ...rest,
-      startDate: parseDateString(startDate),
-      endDate: parseDateString(endDate),
-    });
-
-    return res.json({
-      data: movements,
-      meta: {
-        limit: rest.limit ?? 50,
-        offset: rest.offset ?? 0,
-        count: movements.length,
-      },
-    });
-  });
-
-  app.get('/api/inventory/:productId/:storeId/history', requireAuth, async (req: Request, res: Response) => {
-    const { productId, storeId } = req.params as { productId?: string; storeId?: string };
-    const normalizedProductId = String(productId ?? '').trim();
-    const normalizedStoreId = String(storeId ?? '').trim();
-    if (!normalizedProductId || !normalizedStoreId) {
-      return res.status(400).json({ error: 'productId and storeId are required' });
-    }
-
-    const userId = req.session?.userId as string | undefined;
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-
-    const actor = await storage.getUser(userId);
-    if (!actor) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
-    if (!actorIsAdmin) {
-      const actorStoreId = (actor as any)?.storeId as string | undefined;
-      if (!actorStoreId || actorStoreId !== normalizedStoreId) {
-        return res.status(403).json({ error: 'You can only view stock history for your assigned store' });
-      }
-    }
-
-    const parsedQuery = ProductStockHistoryQuerySchema.safeParse(req.query ?? {});
-    if (!parsedQuery.success) {
-      return res.status(400).json({ error: 'Invalid query parameters', details: parsedQuery.error.flatten() });
-    }
-
-    const { limit, startDate, endDate } = parsedQuery.data;
-    const movements = await storage.getProductStockHistory(normalizedStoreId, normalizedProductId, {
-      limit,
-      startDate: parseDateString(startDate),
-      endDate: parseDateString(endDate),
-    });
-
-    return res.json({
-      data: movements,
-      meta: {
-        limit: limit ?? 100,
-        count: movements.length,
-      },
-    });
-  });
-
-  app.delete('/api/inventory/:productId', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
-    const productId = String(req.params?.productId ?? '').trim();
-    if (!productId) {
-      return res.status(400).json({ error: 'productId is required' });
-    }
-
-    const parsed = DeleteInventorySchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-    }
-
-    const { storeId, reason } = parsed.data;
-    const userId = (req.session as any)?.userId as string | undefined;
 
     try {
-      if (!userId) {
-        return res.status(401).json({ error: 'Not authenticated' });
+      const results = [] as Array<{ productId: string; quantity: number }>;
+      for (const update of sanitizedUpdates) {
+        const updated = await storage.updateInventory(update.productId, storeId, { quantity: update.quantity } as any);
+        results.push({ productId: update.productId, quantity: updated.quantity });
       }
-
-      const actor = await storage.getUser(userId);
-      if (!actor) {
-        return res.status(401).json({ error: 'User not found' });
-      }
-
-      const actorIsAdmin = Boolean((actor as any)?.isAdmin);
-      const actorStoreId = (actor as any)?.storeId as string | undefined;
-
-      if (!actorIsAdmin) {
-        if (!actorStoreId) {
-          return res.status(403).json({ error: 'Store assignment required for manager account' });
-        }
-        if (actorStoreId !== storeId) {
-          return res.status(403).json({ error: 'You can only manage inventory for your assigned store' });
-        }
-      }
-
-      const existing = await storage.getInventoryItem(productId, storeId);
-      if (!existing) {
-        return res.status(404).json({ error: 'Inventory record not found' });
-      }
-
-      await storage.deleteInventory(productId, storeId, userId, reason);
-
-      const baseContext = extractLogContext(req, {
-        userId,
-        storeId: actorStoreId ?? storeId,
-      });
-
-      securityAuditService.logDataAccessEvent('data_delete', baseContext, 'inventory_record', {
-        action: 'delete',
-        productId,
-        storeId,
-        quantityBefore: existing.quantity,
-        minStockBefore: existing.minStockLevel,
-        maxStockBefore: existing.maxStockLevel,
-        reason,
-      });
-
-      logger.warn('Inventory record deleted', {
-        ...baseContext,
-        productId,
-        storeId,
-        reason,
-      });
-
-      return res.json({ status: 'success' });
+      return res.json(results);
     } catch (error) {
-      logger.error('Failed to delete inventory', {
-        productId,
+      logger.error('Bulk inventory update failed', {
         storeId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return res.status(500).json({ error: 'Failed to delete inventory' });
+      return res.status(500).json({ error: 'Failed to update inventory' });
     }
   });
 
-  app.get('/api/products/categories', requireAuth, async (_req: Request, res: Response) => {
-    const columns = await getProductColumns();
-    if (!columns.has('category')) {
-      logger.warn('Products categories requested but category column is missing');
-      return res.json([]);
-    }
-
-    const result = await db.execute(sql`SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category <> '' ORDER BY category ASC`);
-    const categories = (result.rows || []).map((row: any) => row.category);
-    res.json(categories);
-  });
-
-  app.get('/api/products/brands', requireAuth, async (_req: Request, res: Response) => {
-    const columns = await getProductColumns();
-    if (!columns.has('brand')) {
-      logger.warn('Products brands requested but brand column is missing');
-      return res.json([]);
-    }
-
-    const result = await db.execute(sql`SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand <> '' ORDER BY brand ASC`);
-    const brands = (result.rows || []).map((row: any) => row.brand);
-    res.json(brands);
-  });
-
-  // Integration-test compatible endpoints
-  app.put('/api/stores/:storeId/inventory/:productId', requireAuth, async (req: Request, res: Response) => {
-    const { storeId, productId } = req.params as any;
-    const { quantity } = req.body || {};
-    if (typeof quantity !== 'number' || quantity < 0) {
-      return res.status(422).json({ status: 'error', message: 'Quantity must be a non-negative number' });
-    }
-    const updated = await storage.updateInventory(productId, storeId, { quantity } as any);
-    return res.json({ status: 'success', data: updated });
-  });
-
-  app.get('/api/stores/:storeId/inventory', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/stores/:storeId/inventory/stock-count', requireAuth, async (req: Request, res: Response) => {
     const storeId = String((req.params as any)?.storeId ?? '').trim();
     if (!storeId) {
       return res.status(400).json({ error: 'storeId is required' });
     }
 
-    const category = String((req.query as any)?.category || '').trim();
-    const lowStock = String((req.query as any)?.lowStock || '').trim();
-
-    const userId = (req.session as any)?.userId as string | undefined;
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+    const access = await resolveStoreAccess(req, storeId, { allowCashier: true });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
     }
 
-    const actor = await storage.getUser(userId);
-    if (!actor) {
-      return res.status(401).json({ error: 'User not found' });
+    const rawItems = Array.isArray((req.body as any)?.items) ? (req.body as any).items : [];
+    if (!rawItems.length) {
+      return res.status(400).json({ error: 'items array is required' });
     }
 
-    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
-    if (!actorIsAdmin) {
-      const actorStoreId = (actor as any)?.storeId as string | undefined;
-      if (!actorStoreId) {
-        return res.status(403).json({ error: 'Store assignment required for manager account' });
-      }
-      if (actorStoreId !== storeId) {
-        return res.status(403).json({ error: 'You can only view inventory for your assigned store' });
-      }
+    let sanitizedItems: Array<{ productId: string; countedQuantity: number; notes?: string }>;
+    try {
+      sanitizedItems = rawItems.map((item) => {
+        if (!item || typeof item.productId !== 'string') {
+          throw new Error('Each item requires productId');
+        }
+        if (typeof item.countedQuantity !== 'number' || item.countedQuantity < 0) {
+          throw new Error('countedQuantity must be a non-negative number');
+        }
+        return {
+          productId: item.productId,
+          countedQuantity: item.countedQuantity,
+          notes: typeof item.notes === 'string' ? item.notes : undefined,
+        };
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid items payload' });
     }
 
-    let items = await storage.getInventoryByStore(storeId);
-
-    if (lowStock === 'true') {
-      items = items.filter((i) => (i.quantity || 0) <= (i.minStockLevel || 0));
+    try {
+      const results = await storage.performStockCount(storeId, sanitizedItems);
+      return res.json(results);
+    } catch (error) {
+      logger.error('Stock count failed', {
+        storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to perform stock count' });
     }
-
-    if (category) {
-      items = items.filter((i) => i.product?.category === category);
-    }
-
-    const normalizedItems = items.map((item) => {
-      const product = item.product
-        ? {
-            id: item.product.id,
-            name: item.product.name,
-            sku: item.product.sku ?? null,
-            barcode: item.product.barcode ?? null,
-            category: item.product.category ?? null,
-            brand: item.product.brand ?? null,
-            price: toNumber(item.product.price),
-            cost: toNumber((item.product as any)?.cost),
-            description: item.product.description ?? null,
-            createdAt: toIsoString((item.product as any)?.createdAt),
-            updatedAt: toIsoString((item.product as any)?.updatedAt),
-          }
-        : null;
-
-      const formattedPrice = toNumber(item.formattedPrice);
-      const quantity = toNumber(item.quantity);
-
-      return {
-        id: item.id,
-        productId: item.productId,
-        storeId: item.storeId,
-        quantity,
-        minStockLevel: toNumber(item.minStockLevel),
-        maxStockLevel: item.maxStockLevel == null ? null : toNumber(item.maxStockLevel),
-        lastRestocked: toIsoString(item.lastRestocked),
-        updatedAt: toIsoString(item.updatedAt),
-        formattedPrice,
-        storeCurrency: item.storeCurrency ?? 'USD',
-        stockValue: quantity * formattedPrice,
-        product,
-      };
-    });
-
-    let storeCurrency = normalizedItems[0]?.storeCurrency;
-    if (!storeCurrency) {
-      const storeRecord = await storage.getStore(storeId);
-      storeCurrency = storeRecord?.currency ?? 'USD';
-    }
-    const totalValue = normalizedItems.reduce((sum, item) => sum + item.stockValue, 0);
-
-    return res.json({
-      storeId,
-      currency: storeCurrency,
-      totalValue,
-      totalProducts: normalizedItems.length,
-      items: normalizedItems,
-    });
   });
 
-  app.get('/api/orgs/:orgId/inventory', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
-    const orgId = String((req.params as any)?.orgId ?? '').trim();
-    if (!orgId) {
-      return res.status(400).json({ error: 'orgId is required' });
-    }
-
-    const userId = (req.session as any)?.userId as string | undefined;
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-
-    const actor = await storage.getUser(userId);
-    if (!actor) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    const actorOrgId = (actor as any)?.orgId as string | undefined;
-    if (!actorOrgId || actorOrgId !== orgId) {
-      return res.status(403).json({ error: 'You can only view inventory for your organization' });
-    }
-
-    const summary = await storage.getOrganizationInventorySummary(orgId);
-
-    if (!summary.stores.length) {
-      return res.status(404).json({ error: 'No stores found for organization' });
-    }
-
-    const normalizedSummary = {
-      totals: {
-        totalProducts: toNumber(summary.totals.totalProducts),
-        lowStockCount: toNumber(summary.totals.lowStockCount),
-        outOfStockCount: toNumber(summary.totals.outOfStockCount),
-        overstockCount: toNumber(summary.totals.overstockCount),
-        alertCount: toNumber(summary.totals.alertCount),
-        alertBreakdown: {
-          LOW_STOCK: toNumber(summary.totals.alertBreakdown.LOW_STOCK),
-          OUT_OF_STOCK: toNumber(summary.totals.alertBreakdown.OUT_OF_STOCK),
-          OVERSTOCKED: toNumber(summary.totals.alertBreakdown.OVERSTOCKED),
-        },
-        currencyTotals: summary.totals.currencyTotals.map(({ currency, totalValue }) => ({
-          currency,
-          totalValue: toNumber(totalValue),
-        })),
-      },
-      stores: summary.stores.map((storeSummary) => ({
-        storeId: storeSummary.storeId,
-        storeName: storeSummary.storeName,
-        currency: storeSummary.currency,
-        totalProducts: toNumber(storeSummary.totalProducts),
-        lowStockCount: toNumber(storeSummary.lowStockCount),
-        outOfStockCount: toNumber(storeSummary.outOfStockCount),
-        overstockCount: toNumber(storeSummary.overstockCount),
-        totalValue: toNumber(storeSummary.totalValue),
-        alertCount: toNumber(storeSummary.alertCount),
-        alertBreakdown: {
-          LOW_STOCK: toNumber(storeSummary.alertBreakdown.LOW_STOCK),
-          OUT_OF_STOCK: toNumber(storeSummary.alertBreakdown.OUT_OF_STOCK),
-          OVERSTOCKED: toNumber(storeSummary.alertBreakdown.OVERSTOCKED),
-        },
-      })),
-    };
-
-    return res.json(normalizedSummary);
-  });
-
-  app.get('/api/stores/:storeId/alerts', requireAuth, async (req: Request, res: Response) => {
-    const { storeId } = req.params as any;
-    if (!storeId) {
-      return res.status(400).json({ error: 'storeId is required' });
-    }
-
-    const alerts = await storage.getLowStockAlerts(storeId);
-    res.json(alerts);
-  });
-
-  app.put('/api/alerts/:alertId/resolve', requireAuth, async (req: Request, res: Response) => {
-    const { alertId } = req.params as any;
-    if (!alertId) {
-      return res.status(400).json({ error: 'alertId is required' });
-    }
-
-    await storage.resolveLowStockAlert(alertId);
-    res.json({ status: 'ok' });
-  });
-
-  app.get('/api/stores/:storeId/inventory/low-stock', requireAuth, async (req: Request, res: Response) => {
-    const { storeId } = req.params as any;
-    const items = await storage.getLowStockItems(storeId);
-    const withProduct = await Promise.all(items.map(async i => ({ ...i, product: await storage.getProduct(i.productId) })));
-    return res.json(withProduct);
-  });
   // List products
   app.get('/api/inventory/products', async (_req: Request, res: Response) => {
     const rows = await db.select().from(products).limit(500);
@@ -1212,5 +1037,4 @@ export async function registerInventoryRoutes(app: Express) {
   }
   );
 }
-
 

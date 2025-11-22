@@ -375,7 +375,7 @@ export async function registerAdminRoutes(app: Express) {
 
     const client = (db as any).client;
     const pg = client ? await client.connect() : null;
-    const exec = async (q: string, p: any[]) => pg ? pg.query(q, p) : (db as any).execute(sql.raw({ sql: q, params: p } as any));
+    const exec = async (q: string, p: any[]) => (pg ? pg.query(q, p) : (db as any).execute({ text: q, values: p }));
     try {
       if (pg) await pg.query('BEGIN');
       const found = await exec(selectSqlParts.join(' '), params);

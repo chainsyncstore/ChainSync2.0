@@ -1,8 +1,13 @@
+import 'dotenv/config';
+import dotenv from 'dotenv';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 // Use full schema for all user fields
 import * as schema from "@shared/schema";
-import 'dotenv/config';
+
+if (process.env.NODE_ENV === 'test') {
+  dotenv.config({ path: '.env.test', override: true });
+}
 
 if (!process.env.DATABASE_URL) {
   console.error("❌ DATABASE_URL environment variable is required");

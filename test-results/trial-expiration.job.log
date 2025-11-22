@@ -1,0 +1,1356 @@
+2025-11-21T08:34:06.935Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_cuixxevw_mi8lszys",
+    "orgId": "org_hrjsz99g_mi8lszys",
+    "userId": "user_37hsxypa_mi8lszys",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:33:06.484Z",
+    "trialStartDate": "2025-11-07T08:34:06.484Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:34:06.484Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:06.484Z",
+    "updatedAt": "2025-11-21T08:34:06.484Z"
+  }
+]
+
+2025-11-21T08:34:07.524Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_cuixxevw_mi8lszys",
+    "orgId": "org_hrjsz99g_mi8lszys",
+    "userId": "user_37hsxypa_mi8lszys",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T08:33:06.484Z",
+    "trialStartDate": "2025-11-07T08:34:06.484Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:34:06.484Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:06.484Z",
+    "updatedAt": "2025-11-21T08:34:06.939Z",
+    "nextBillingDate": "2025-12-21T08:33:06.484Z"
+  },
+  {
+    "id": "sub_17n211bs_mi8lt0d4",
+    "orgId": "org_ka7u9yjj_mi8lt0d4",
+    "userId": "user_nuxx49k3_mi8lt0d4",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:33:07.000Z",
+    "trialStartDate": "2025-11-07T08:34:07.000Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:34:07.000Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:07.000Z",
+    "updatedAt": "2025-11-21T08:34:07.000Z"
+  }
+]
+
+2025-11-21T08:34:07.928Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_cuixxevw_mi8lszys",
+    "orgId": "org_hrjsz99g_mi8lszys",
+    "userId": "user_37hsxypa_mi8lszys",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T08:33:06.484Z",
+    "trialStartDate": "2025-11-07T08:34:06.484Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T08:34:06.484Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:06.484Z",
+    "updatedAt": "2025-11-21T08:34:07.527Z",
+    "nextBillingDate": "2025-12-21T08:33:06.484Z"
+  },
+  {
+    "id": "sub_17n211bs_mi8lt0d4",
+    "orgId": "org_ka7u9yjj_mi8lt0d4",
+    "userId": "user_nuxx49k3_mi8lt0d4",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T08:33:07.000Z",
+    "trialStartDate": "2025-11-07T08:34:07.000Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T08:34:07.000Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:07.000Z",
+    "updatedAt": "2025-11-21T08:34:07.527Z"
+  },
+  {
+    "id": "sub_tbnizuo5_mi8lt0s9",
+    "orgId": "org_8qyc1wji_mi8lt0s9",
+    "userId": "user_hci0cvhg_mi8lt0s9",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T08:34:07.545Z",
+    "trialEndDate": "2025-11-06T08:34:07.545Z",
+    "nextBillingDate": "2025-11-21T08:33:07.545Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:34:07.545Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:07.545Z",
+    "updatedAt": "2025-11-21T08:34:07.545Z"
+  }
+]
+
+2025-11-21T08:39:22.759Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_8rapcira_mi8lzrns",
+    "orgId": "org_rjx2nk5n_mi8lzrns",
+    "userId": "user_nyaxayov_mi8lzrns",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:38:22.312Z",
+    "trialStartDate": "2025-11-07T08:39:22.312Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:39:22.312Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:22.312Z",
+    "updatedAt": "2025-11-21T08:39:22.312Z"
+  }
+]
+
+2025-11-21T08:39:23.194Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_8rapcira_mi8lzrns",
+    "orgId": "org_rjx2nk5n_mi8lzrns",
+    "userId": "user_nyaxayov_mi8lzrns",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T08:38:22.312Z",
+    "trialStartDate": "2025-11-07T08:39:22.312Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:39:22.312Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:22.312Z",
+    "updatedAt": "2025-11-21T08:39:22.761Z",
+    "nextBillingDate": "2025-12-21T08:38:22.312Z"
+  },
+  {
+    "id": "sub_92vr1nya_mi8lzs0p",
+    "orgId": "org_1rvk6dc1_mi8lzs0p",
+    "userId": "user_eh5ibmp0_mi8lzs0p",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:38:22.777Z",
+    "trialStartDate": "2025-11-07T08:39:22.777Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:39:22.777Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:22.777Z",
+    "updatedAt": "2025-11-21T08:39:22.777Z"
+  }
+]
+
+2025-11-21T08:39:23.585Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_8rapcira_mi8lzrns",
+    "orgId": "org_rjx2nk5n_mi8lzrns",
+    "userId": "user_nyaxayov_mi8lzrns",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T08:38:22.312Z",
+    "trialStartDate": "2025-11-07T08:39:22.312Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T08:39:22.312Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:22.312Z",
+    "updatedAt": "2025-11-21T08:39:23.196Z",
+    "nextBillingDate": "2025-12-21T08:38:22.312Z"
+  },
+  {
+    "id": "sub_92vr1nya_mi8lzs0p",
+    "orgId": "org_1rvk6dc1_mi8lzs0p",
+    "userId": "user_eh5ibmp0_mi8lzs0p",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T08:38:22.777Z",
+    "trialStartDate": "2025-11-07T08:39:22.777Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T08:39:22.777Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:22.777Z",
+    "updatedAt": "2025-11-21T08:39:23.196Z"
+  },
+  {
+    "id": "sub_46479noj_mi8lzsd0",
+    "orgId": "org_rmym2jl9_mi8lzsd0",
+    "userId": "user_wmoqqxhg_mi8lzsd0",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T08:39:23.220Z",
+    "trialEndDate": "2025-11-06T08:39:23.220Z",
+    "nextBillingDate": "2025-11-21T08:38:23.220Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:39:23.220Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:23.220Z",
+    "updatedAt": "2025-11-21T08:39:23.220Z"
+  }
+]
+
+2025-11-21T08:44:02.407Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_1nfz7izw_mi8m5rfb",
+    "orgId": "org_ywdsxsfk_mi8m5rfb",
+    "userId": "user_e2kfedln_mi8m5rfb",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:43:01.943Z",
+    "trialStartDate": "2025-11-07T08:44:01.943Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:44:01.943Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:01.943Z",
+    "updatedAt": "2025-11-21T08:44:01.943Z"
+  }
+]
+
+2025-11-21T08:44:02.896Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_1nfz7izw_mi8m5rfb",
+    "orgId": "org_ywdsxsfk_mi8m5rfb",
+    "userId": "user_e2kfedln_mi8m5rfb",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T08:43:01.943Z",
+    "trialStartDate": "2025-11-07T08:44:01.943Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:44:01.943Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:01.943Z",
+    "updatedAt": "2025-11-21T08:44:02.410Z",
+    "nextBillingDate": "2025-12-21T08:43:01.943Z"
+  },
+  {
+    "id": "sub_7ulikvbl_mi8m5rsy",
+    "orgId": "org_18kj1bv2_mi8m5rsy",
+    "userId": "user_96mcgbbv_mi8m5rsy",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:43:02.434Z",
+    "trialStartDate": "2025-11-07T08:44:02.434Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:44:02.434Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:02.434Z",
+    "updatedAt": "2025-11-21T08:44:02.434Z"
+  }
+]
+
+2025-11-21T08:44:03.288Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_1nfz7izw_mi8m5rfb",
+    "orgId": "org_ywdsxsfk_mi8m5rfb",
+    "userId": "user_e2kfedln_mi8m5rfb",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T08:43:01.943Z",
+    "trialStartDate": "2025-11-07T08:44:01.943Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T08:44:01.943Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:01.943Z",
+    "updatedAt": "2025-11-21T08:44:02.897Z",
+    "nextBillingDate": "2025-12-21T08:43:01.943Z"
+  },
+  {
+    "id": "sub_7ulikvbl_mi8m5rsy",
+    "orgId": "org_18kj1bv2_mi8m5rsy",
+    "userId": "user_96mcgbbv_mi8m5rsy",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T08:43:02.434Z",
+    "trialStartDate": "2025-11-07T08:44:02.434Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T08:44:02.434Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:02.434Z",
+    "updatedAt": "2025-11-21T08:44:02.897Z"
+  },
+  {
+    "id": "sub_gsitqm03_mi8m5s6b",
+    "orgId": "org_2ywv7i46_mi8m5s6b",
+    "userId": "user_34bupegt_mi8m5s6b",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T08:44:02.915Z",
+    "trialEndDate": "2025-11-06T08:44:02.915Z",
+    "nextBillingDate": "2025-11-21T08:43:02.915Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:44:02.915Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:02.915Z",
+    "updatedAt": "2025-11-21T08:44:02.915Z"
+  }
+]
+
+2025-11-21T08:54:44.337Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_4ifo6ih9_mi8mjiqg",
+    "orgId": "org_h4j4s5ph_mi8mjiqg",
+    "userId": "user_vlyy2dsu_mi8mjiqg",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:53:43.864Z",
+    "trialStartDate": "2025-11-07T08:54:43.864Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:54:43.864Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:43.864Z",
+    "updatedAt": "2025-11-21T08:54:43.864Z"
+  }
+]
+
+2025-11-21T08:54:44.879Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_4ifo6ih9_mi8mjiqg",
+    "orgId": "org_h4j4s5ph_mi8mjiqg",
+    "userId": "user_vlyy2dsu_mi8mjiqg",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T08:53:43.864Z",
+    "trialStartDate": "2025-11-07T08:54:43.864Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:54:43.864Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:43.864Z",
+    "updatedAt": "2025-11-21T08:54:44.339Z",
+    "nextBillingDate": "2025-12-21T08:53:43.864Z"
+  },
+  {
+    "id": "sub_0xowhxos_mi8mjj4d",
+    "orgId": "org_8om59xp5_mi8mjj4d",
+    "userId": "user_hcstydnn_mi8mjj4d",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:53:44.365Z",
+    "trialStartDate": "2025-11-07T08:54:44.365Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:54:44.365Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:44.365Z",
+    "updatedAt": "2025-11-21T08:54:44.365Z"
+  }
+]
+
+2025-11-21T08:54:45.316Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_4ifo6ih9_mi8mjiqg",
+    "orgId": "org_h4j4s5ph_mi8mjiqg",
+    "userId": "user_vlyy2dsu_mi8mjiqg",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T08:53:43.864Z",
+    "trialStartDate": "2025-11-07T08:54:43.864Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T08:54:43.864Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:43.864Z",
+    "updatedAt": "2025-11-21T08:54:44.881Z",
+    "nextBillingDate": "2025-12-21T08:53:43.864Z"
+  },
+  {
+    "id": "sub_0xowhxos_mi8mjj4d",
+    "orgId": "org_8om59xp5_mi8mjj4d",
+    "userId": "user_hcstydnn_mi8mjj4d",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T08:53:44.365Z",
+    "trialStartDate": "2025-11-07T08:54:44.365Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T08:54:44.365Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:44.365Z",
+    "updatedAt": "2025-11-21T08:54:44.881Z"
+  },
+  {
+    "id": "sub_rdxpa6ek_mi8mjjjb",
+    "orgId": "org_yl9ogmsc_mi8mjjjb",
+    "userId": "user_pw0ud1c8_mi8mjjjb",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T08:54:44.903Z",
+    "trialEndDate": "2025-11-06T08:54:44.903Z",
+    "nextBillingDate": "2025-11-21T08:53:44.903Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:54:44.903Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:44.903Z",
+    "updatedAt": "2025-11-21T08:54:44.903Z"
+  }
+]
+
+2025-11-21T10:41:58.756Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_rhpql46y_mi8qdfln",
+    "orgId": "org_m3my511b_mi8qdfln",
+    "userId": "user_2qmk9wm9_mi8qdfln",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T10:40:58.331Z",
+    "trialStartDate": "2025-11-07T10:41:58.331Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T10:41:58.331Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:58.331Z",
+    "updatedAt": "2025-11-21T10:41:58.331Z"
+  }
+]
+
+2025-11-21T10:41:59.252Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_rhpql46y_mi8qdfln",
+    "orgId": "org_m3my511b_mi8qdfln",
+    "userId": "user_2qmk9wm9_mi8qdfln",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T10:40:58.331Z",
+    "trialStartDate": "2025-11-07T10:41:58.331Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T10:41:58.331Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:58.331Z",
+    "updatedAt": "2025-11-21T10:41:58.758Z",
+    "nextBillingDate": "2025-12-21T10:40:58.331Z"
+  },
+  {
+    "id": "sub_i1cawb0w_mi8qdfy6",
+    "orgId": "org_d74y8vcy_mi8qdfy6",
+    "userId": "user_gahec7ed_mi8qdfy6",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T10:40:58.782Z",
+    "trialStartDate": "2025-11-07T10:41:58.782Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T10:41:58.782Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:58.782Z",
+    "updatedAt": "2025-11-21T10:41:58.782Z"
+  }
+]
+
+2025-11-21T10:41:59.650Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_rhpql46y_mi8qdfln",
+    "orgId": "org_m3my511b_mi8qdfln",
+    "userId": "user_2qmk9wm9_mi8qdfln",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T10:40:58.331Z",
+    "trialStartDate": "2025-11-07T10:41:58.331Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T10:41:58.331Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:58.331Z",
+    "updatedAt": "2025-11-21T10:41:59.254Z",
+    "nextBillingDate": "2025-12-21T10:40:58.331Z"
+  },
+  {
+    "id": "sub_i1cawb0w_mi8qdfy6",
+    "orgId": "org_d74y8vcy_mi8qdfy6",
+    "userId": "user_gahec7ed_mi8qdfy6",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T10:40:58.782Z",
+    "trialStartDate": "2025-11-07T10:41:58.782Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T10:41:58.782Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:58.782Z",
+    "updatedAt": "2025-11-21T10:41:59.254Z"
+  },
+  {
+    "id": "sub_h1k1qd8f_mi8qdgbx",
+    "orgId": "org_5a9mx4gy_mi8qdgbx",
+    "userId": "user_7x9q6sbq_mi8qdgbx",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T10:41:59.277Z",
+    "trialEndDate": "2025-11-06T10:41:59.277Z",
+    "nextBillingDate": "2025-11-21T10:40:59.277Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T10:41:59.277Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:59.277Z",
+    "updatedAt": "2025-11-21T10:41:59.277Z"
+  }
+]
+
+2025-11-21T13:40:06.858Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_ygh2af9f_mi8wqhzk",
+    "orgId": "org_f094fpmm_mi8wqhzk",
+    "userId": "user_uwkg85dw_mi8wqhzk",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T13:39:05.648Z",
+    "trialStartDate": "2025-11-07T13:40:05.648Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T13:40:05.648Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:05.648Z",
+    "updatedAt": "2025-11-21T13:40:05.648Z"
+  }
+]
+
+2025-11-21T13:40:08.182Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_ygh2af9f_mi8wqhzk",
+    "orgId": "org_f094fpmm_mi8wqhzk",
+    "userId": "user_uwkg85dw_mi8wqhzk",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T13:39:05.648Z",
+    "trialStartDate": "2025-11-07T13:40:05.648Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T13:40:05.648Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:05.648Z",
+    "updatedAt": "2025-11-21T13:40:06.875Z",
+    "nextBillingDate": "2025-12-21T13:39:05.648Z"
+  },
+  {
+    "id": "sub_l024rn25_mi8wqj0a",
+    "orgId": "org_1viz2gdh_mi8wqj0a",
+    "userId": "user_jhjm3adq_mi8wqj0a",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T13:39:06.970Z",
+    "trialStartDate": "2025-11-07T13:40:06.970Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T13:40:06.970Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:06.970Z",
+    "updatedAt": "2025-11-21T13:40:06.970Z"
+  }
+]
+
+2025-11-21T13:40:09.307Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_ygh2af9f_mi8wqhzk",
+    "orgId": "org_f094fpmm_mi8wqhzk",
+    "userId": "user_uwkg85dw_mi8wqhzk",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T13:39:05.648Z",
+    "trialStartDate": "2025-11-07T13:40:05.648Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T13:40:05.648Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:05.648Z",
+    "updatedAt": "2025-11-21T13:40:08.184Z",
+    "nextBillingDate": "2025-12-21T13:39:05.648Z"
+  },
+  {
+    "id": "sub_l024rn25_mi8wqj0a",
+    "orgId": "org_1viz2gdh_mi8wqj0a",
+    "userId": "user_jhjm3adq_mi8wqj0a",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "PAST_DUE",
+    "trialEndDate": "2025-11-21T13:39:06.970Z",
+    "trialStartDate": "2025-11-07T13:40:06.970Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "failed",
+    "autopayConfiguredAt": "2025-11-21T13:40:06.970Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:06.970Z",
+    "updatedAt": "2025-11-21T13:40:08.184Z"
+  },
+  {
+    "id": "sub_o8fobeuf_mi8wqk0f",
+    "orgId": "org_jewliqlt_mi8wqk0f",
+    "userId": "user_dscjh5e3_mi8wqk0f",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T13:40:08.271Z",
+    "trialEndDate": "2025-11-06T13:40:08.271Z",
+    "nextBillingDate": "2025-11-21T13:39:08.271Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T13:40:08.271Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:08.271Z",
+    "updatedAt": "2025-11-21T13:40:08.271Z"
+  }
+]
+
+2025-11-21T17:00:51.645Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_6ilnatdj_mi93wogn",
+    "orgId": "org_it7u1o4k_mi93wogn",
+    "userId": "user_a9sz9ru1_mi93wogn",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T16:59:51.287Z",
+    "trialStartDate": "2025-11-07T17:00:51.287Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T17:00:51.287Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T17:00:51.287Z",
+    "updatedAt": "2025-11-21T17:00:51.287Z"
+  }
+]
+
+2025-11-21T17:00:52.006Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_37ahiw3p_mi93wor2",
+    "orgId": "org_melqn082_mi93wor2",
+    "userId": "user_jdoq2ded_mi93wor2",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T16:59:51.662Z",
+    "trialStartDate": "2025-11-07T17:00:51.662Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T17:00:51.662Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T17:00:51.662Z",
+    "updatedAt": "2025-11-21T17:00:51.662Z"
+  }
+]
+
+2025-11-21T17:00:52.503Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_2gw31odo_mi93wp16",
+    "orgId": "org_zbksijma_mi93wp16",
+    "userId": "user_eal0twhw_mi93wp16",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T17:00:52.026Z",
+    "trialEndDate": "2025-11-06T17:00:52.026Z",
+    "nextBillingDate": "2025-11-21T16:59:52.026Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T17:00:52.026Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T17:00:52.026Z",
+    "updatedAt": "2025-11-21T17:00:52.026Z"
+  }
+]
+
+2025-11-21T20:55:51.248Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_ovp3j639_mi9cavrh",
+    "orgId": "org_y37a9w8p_mi9cavrh",
+    "userId": "user_3bl66v1s_mi9cavrh",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T20:54:50.861Z",
+    "trialStartDate": "2025-11-07T20:55:50.861Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T20:55:50.861Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T20:55:50.861Z",
+    "updatedAt": "2025-11-21T20:55:50.861Z"
+  }
+]
+
+2025-11-21T20:55:51.755Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_xc3645ld_mi9caw2r",
+    "orgId": "org_qd2pgk3a_mi9caw2r",
+    "userId": "user_rw674wce_mi9caw2r",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T20:54:51.267Z",
+    "trialStartDate": "2025-11-07T20:55:51.267Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T20:55:51.267Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T20:55:51.267Z",
+    "updatedAt": "2025-11-21T20:55:51.267Z"
+  }
+]
+
+2025-11-21T20:55:52.162Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_5w4bw25d_mi9cawgw",
+    "orgId": "org_afexbnio_mi9cawgw",
+    "userId": "user_a4eswe6o_mi9cawgw",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T20:55:51.776Z",
+    "trialEndDate": "2025-11-06T20:55:51.776Z",
+    "nextBillingDate": "2025-11-21T20:54:51.776Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T20:55:51.776Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T20:55:51.776Z",
+    "updatedAt": "2025-11-21T20:55:51.776Z"
+  }
+]
+
+2025-11-21T21:54:14.976Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_kdbspdwz_mi9edzaw",
+    "orgId": "org_dtbl79er_mi9edzaw",
+    "userId": "user_3bfn6fnz_mi9edzaw",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T21:53:14.648Z",
+    "trialStartDate": "2025-11-07T21:54:14.648Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T21:54:14.648Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T21:54:14.648Z",
+    "updatedAt": "2025-11-21T21:54:14.648Z"
+  }
+]
+
+2025-11-21T21:54:15.312Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_tsnkc5t9_mi9edzka",
+    "orgId": "org_dx20ieup_mi9edzka",
+    "userId": "user_qcrwezwt_mi9edzka",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T21:53:14.986Z",
+    "trialStartDate": "2025-11-07T21:54:14.986Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T21:54:14.986Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T21:54:14.986Z",
+    "updatedAt": "2025-11-21T21:54:14.986Z"
+  }
+]
+
+2025-11-21T21:54:15.644Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_gyvkabol_mi9edztm",
+    "orgId": "org_16b9f6gm_mi9edztm",
+    "userId": "user_p07b6kgh_mi9edztm",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T21:54:15.322Z",
+    "trialEndDate": "2025-11-06T21:54:15.322Z",
+    "nextBillingDate": "2025-11-21T21:53:15.322Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T21:54:15.322Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T21:54:15.322Z",
+    "updatedAt": "2025-11-21T21:54:15.322Z"
+  }
+]
+
+2025-11-21T22:05:00.016Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_gexzio99_mi9ersza",
+    "orgId": "org_scds3ud4_mi9ersza",
+    "userId": "user_59pez12b_mi9ersza",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T22:03:59.638Z",
+    "trialStartDate": "2025-11-07T22:04:59.638Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T22:04:59.638Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:04:59.638Z",
+    "updatedAt": "2025-11-21T22:04:59.638Z"
+  }
+]
+
+2025-11-21T22:05:00.378Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_0cj3hy6j_mi9ertac",
+    "orgId": "org_ekg5zfd5_mi9ertac",
+    "userId": "user_jqsffqj0_mi9ertac",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T22:04:00.036Z",
+    "trialStartDate": "2025-11-07T22:05:00.036Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T22:05:00.036Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:05:00.036Z",
+    "updatedAt": "2025-11-21T22:05:00.036Z"
+  }
+]
+
+2025-11-21T22:05:00.765Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_gntm7m82_mi9ertkx",
+    "orgId": "org_yr7ikiuc_mi9ertkx",
+    "userId": "user_nyutp1j4_mi9ertkx",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T22:05:00.417Z",
+    "trialEndDate": "2025-11-06T22:05:00.417Z",
+    "nextBillingDate": "2025-11-21T22:04:00.417Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T22:05:00.417Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:05:00.417Z",
+    "updatedAt": "2025-11-21T22:05:00.417Z"
+  }
+]
+
+2025-11-21T22:10:28.361Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_ov62uw4d_mi9eyuc3",
+    "orgId": "org_lv3k53i8_mi9eyuc3",
+    "userId": "user_z4ke1wbu_mi9eyuc3",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T22:09:27.987Z",
+    "trialStartDate": "2025-11-07T22:10:27.987Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T22:10:27.987Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:10:27.987Z",
+    "updatedAt": "2025-11-21T22:10:27.987Z"
+  }
+]
+
+2025-11-21T22:10:28.711Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_pqtwpjp1_mi9eyumr",
+    "orgId": "org_npuerljz_mi9eyumr",
+    "userId": "user_pa0cli2g_mi9eyumr",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T22:09:28.371Z",
+    "trialStartDate": "2025-11-07T22:10:28.371Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T22:10:28.371Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:10:28.371Z",
+    "updatedAt": "2025-11-21T22:10:28.371Z"
+  }
+]
+
+2025-11-21T22:10:29.055Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_hnlmuv4d_mi9eyuwj",
+    "orgId": "org_h20jv8i5_mi9eyuwj",
+    "userId": "user_xb6r0obi_mi9eyuwj",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-07T22:10:28.723Z",
+    "trialEndDate": "2025-11-06T22:10:28.723Z",
+    "nextBillingDate": "2025-11-21T22:09:28.723Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T22:10:28.723Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:10:28.723Z",
+    "updatedAt": "2025-11-21T22:10:28.723Z"
+  }
+]
+
+2025-11-22T08:01:09.183Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_ya9vrvqj_mia02goj",
+    "orgId": "org_i38ddzbc_mia02goj",
+    "userId": "user_g6jixndv_mia02goj",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-22T08:00:08.851Z",
+    "trialStartDate": "2025-11-08T08:01:08.851Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-22T08:01:08.851Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-22T08:01:08.851Z",
+    "updatedAt": "2025-11-22T08:01:08.851Z"
+  }
+]
+
+2025-11-22T08:01:09.520Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_rghavbko_mia02gy5",
+    "orgId": "org_gny4i9ei_mia02gy5",
+    "userId": "user_bt4hh56r_mia02gy5",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-22T08:00:09.197Z",
+    "trialStartDate": "2025-11-08T08:01:09.197Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-22T08:01:09.197Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-22T08:01:09.197Z",
+    "updatedAt": "2025-11-22T08:01:09.197Z"
+  }
+]
+
+2025-11-22T08:01:09.860Z [dueSubscriptions snapshot]
+[
+  {
+    "id": "sub_tgfto024_mia02h7k",
+    "orgId": "org_w1xkgdu5_mia02h7k",
+    "userId": "user_s1qyhxu1_mia02h7k",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialStartDate": "2025-10-08T08:01:09.536Z",
+    "trialEndDate": "2025-11-07T08:01:09.536Z",
+    "nextBillingDate": "2025-11-22T08:00:09.536Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_ACTIVE_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-22T08:01:09.536Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-22T08:01:09.536Z",
+    "updatedAt": "2025-11-22T08:01:09.536Z"
+  }
+]
+

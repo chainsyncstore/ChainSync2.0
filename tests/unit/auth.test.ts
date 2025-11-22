@@ -9,34 +9,40 @@ const trackedCryptoMock = cryptoModuleMock as unknown as {
   };
 };
 
-// Mock the database module
-vi.mock('../../server/db', () => {
-  let callCount = 0;
-  return {
-    db: {
-      select: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      update: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      set: vi.fn().mockReturnThis(),
-      values: vi.fn().mockReturnThis(),
-      returning: vi.fn().mockImplementation(() => {
-        callCount++;
-        return [{
-          id: `mock-token-id-${callCount}`,
-          userId: 'test-user-id',
-          token: `mock-generated-token-${callCount}`,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-          isUsed: false,
-          createdAt: new Date(),
-          usedAt: null
-        }];
-      })
-    }
-  };
-});
+const useRealDb = process.env.LOYALTY_REALDB === '1';
+
+if (useRealDb) {
+  console.info('[unit auth] LOYALTY_REALDB=1, using real database (no db mock)');
+} else {
+  // Mock the database module
+  vi.mock('../../server/db', () => {
+    let callCount = 0;
+    return {
+      db: {
+        select: vi.fn().mockReturnThis(),
+        insert: vi.fn().mockReturnThis(),
+        update: vi.fn().mockReturnThis(),
+        delete: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        set: vi.fn().mockReturnThis(),
+        values: vi.fn().mockReturnThis(),
+        returning: vi.fn().mockImplementation(() => {
+          callCount++;
+          return [{
+            id: `mock-token-id-${callCount}`,
+            userId: 'test-user-id',
+            token: `mock-generated-token-${callCount}`,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            isUsed: false,
+            createdAt: new Date(),
+            usedAt: null
+          }];
+        })
+      }
+    };
+  });
+}
 
 // Mock the schema tables
 vi.mock('@shared/schema', () => ({

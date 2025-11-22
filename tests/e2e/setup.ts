@@ -13,21 +13,28 @@ dotenv.config({ path: '.env.test' });
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'error';
 
-// Mock the database module
-vi.mock('../../server/db', () => ({
-  db: {
-    select: vi.fn().mockReturnThis(),
-    insert: vi.fn().mockReturnThis(),
-    update: vi.fn().mockReturnThis(),
-    delete: vi.fn().mockReturnThis(),
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    set: vi.fn().mockReturnThis(),
-    values: vi.fn().mockReturnThis(),
-    returning: vi.fn().mockReturnThis(),
-    execute: vi.fn().mockResolvedValue([])
-  }
-}));
+const useRealDb = process.env.LOYALTY_REALDB === '1';
+
+if (useRealDb) {
+  console.info('[e2e setup] LOYALTY_REALDB=1, using real database (no mocks)');
+} else {
+  // Mock the database module when not explicitly running against the real DB
+  process.stdout.write('[e2e setup] using mock @server/db (LOYALTY_REALDB != 1)\n');
+  vi.mock('../../server/db', () => ({
+    db: {
+      select: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      set: vi.fn().mockReturnThis(),
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn().mockReturnThis(),
+      execute: vi.fn().mockResolvedValue([])
+    }
+  }));
+}
 
 // Mock crypto module for E2E tests
 vi.mock('crypto', () => cryptoModuleMock);

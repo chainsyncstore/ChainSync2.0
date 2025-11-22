@@ -20,6 +20,7 @@ function makeId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
 }
 
+const useRealDb = process.env.LOYALTY_REALDB === '1';
 const debugLogPath = path.join(process.cwd(), 'test-results', 'trial-expiration.debug.log');
 
 async function appendDebugLog(label: string, payload: unknown) {
@@ -66,8 +67,10 @@ describe('Trial expiration billing job', () => {
   });
 
   afterEach(async () => {
-    await storage.clear();
-    await clearDatabase();
+    if (!useRealDb) {
+      await storage.clear();
+      await clearDatabase();
+    }
   });
 
   it('activates the subscription when autopay charge succeeds', async () => {

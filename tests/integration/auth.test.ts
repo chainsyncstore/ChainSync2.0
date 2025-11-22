@@ -31,19 +31,25 @@ describe('Authentication Integration Tests', () => {
 
   afterAll(async () => {
     // Clear the users and subscription tables after all tests
-    const { users, subscriptions, emailVerificationTokens } = await import('@shared/schema');
+    const { users, subscriptions, emailVerificationTokens, accountLockoutLogs } = await import('@shared/schema');
     const { db } = await import('@server/db');
+    await db.delete(accountLockoutLogs);
     await db.delete(emailVerificationTokens);
     await db.delete(subscriptions);
     await db.delete(users);
     vi.restoreAllMocks();
   });
 
+  const useRealDb = process.env.LOYALTY_REALDB === '1';
+
   beforeEach(async () => {
     // Clear storage and tables after each test
-    await storage.clear();
-    const { users, subscriptions, subscriptionPayments, emailVerificationTokens } = await import('@shared/schema');
+    if (!useRealDb) {
+      await storage.clear();
+    }
+    const { users, subscriptions, subscriptionPayments, emailVerificationTokens, accountLockoutLogs } = await import('@shared/schema');
     const { db } = await import('@server/db');
+    await db.delete(accountLockoutLogs);
     await db.delete(subscriptionPayments);
     await db.delete(subscriptions);
     await db.delete(emailVerificationTokens);
@@ -51,9 +57,12 @@ describe('Authentication Integration Tests', () => {
   });
 
   afterEach(async () => {
-    await storage.clear();
-    const { users, subscriptions, subscriptionPayments, emailVerificationTokens } = await import('@shared/schema');
+    if (!useRealDb) {
+      await storage.clear();
+    }
+    const { users, subscriptions, subscriptionPayments, emailVerificationTokens, accountLockoutLogs } = await import('@shared/schema');
     const { db } = await import('@server/db');
+    await db.delete(accountLockoutLogs);
     await db.delete(subscriptionPayments);
     await db.delete(subscriptions);
     await db.delete(emailVerificationTokens);

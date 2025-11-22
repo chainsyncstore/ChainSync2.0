@@ -11,21 +11,28 @@ dotenv.config({ path: '.env.test' });
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'error'; // Reduce log noise during tests
 
-// Mock the database module
-vi.mock('./server/db', () => ({
-  db: {
-    select: vi.fn().mockReturnThis(),
-    insert: vi.fn().mockReturnThis(),
-    update: vi.fn().mockReturnThis(),
-    delete: vi.fn().mockReturnThis(),
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    set: vi.fn().mockReturnThis(),
-    values: vi.fn().mockReturnThis(),
-    returning: vi.fn().mockReturnThis(),
-    execute: vi.fn().mockResolvedValue([])
-  }
-}));
+const useRealDb = process.env.LOYALTY_REALDB === '1';
+
+if (useRealDb) {
+  console.info('[tests setup] LOYALTY_REALDB=1, using real database (no mocks)');
+} else {
+  // Mock the database module for unit tests when not explicitly using the real DB
+  process.stdout.write('[tests setup] using mock @server/db (LOYALTY_REALDB != 1)\n');
+  vi.mock('./server/db', () => ({
+    db: {
+      select: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      set: vi.fn().mockReturnThis(),
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn().mockReturnThis(),
+      execute: vi.fn().mockResolvedValue([])
+    }
+  }));
+}
 
 // Provide no-op DB setup/teardown for E2E tests that import from tests/setup
 export async function setupTestDatabase() {
@@ -47,8 +54,8 @@ vi.mock('bcrypt', () => ({
       return Promise.resolve('mocked-hash-' + password);
     }),
     compare: vi.fn((password, hash) => {
-      void hash;
-      return Promise.resolve(password === 'correct-password');
+      // Check if the hash matches the mocked pattern
+      return Promise.resolve(hash === 'mocked-hash-' + password);
     })
   },
   hash: vi.fn((password, rounds) => {
@@ -56,8 +63,8 @@ vi.mock('bcrypt', () => ({
     return Promise.resolve('mocked-hash-' + password);
   }),
   compare: vi.fn((password, hash) => {
-    void hash;
-    return Promise.resolve(password === 'correct-password');
+    // Check if the hash matches the mocked pattern
+    return Promise.resolve(hash === 'mocked-hash-' + password);
   })
 }));
 

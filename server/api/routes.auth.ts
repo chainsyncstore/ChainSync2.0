@@ -689,6 +689,26 @@ export async function registerAuthRoutes(app: Express) {
         return res.status(400).json({ message: 'Invalid email or password' });
       }
 
+      const isAdmin = Boolean((user as any)?.isAdmin);
+      if (!isAdmin && user.isActive === false) {
+        return res.status(423).json({ message: 'Account disabled. Contact an administrator.' });
+      }
+
+      if (!isAdmin && user.storeId) {
+        try {
+          const store = await storage.getStore(user.storeId);
+          if (store?.isActive === false) {
+            return res.status(423).json({ message: 'Store is inactive. Contact an administrator.' });
+          }
+        } catch (storeCheckError) {
+          logger.warn('Failed to verify store status during login', {
+            userId: user.id,
+            storeId: user.storeId,
+            error: storeCheckError instanceof Error ? storeCheckError.message : String(storeCheckError),
+          });
+        }
+      }
+
       // Check if password matches
       let isPasswordValid = false;
       try {

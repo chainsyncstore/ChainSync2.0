@@ -1,0 +1,1896 @@
+2025-11-21T08:34:06.894Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_cuixxevw_mi8lszys",
+    "orgId": "org_hrjsz99g_mi8lszys",
+    "userId": "user_37hsxypa_mi8lszys",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:33:06.484Z",
+    "trialStartDate": "2025-11-07T08:34:06.484Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:34:06.484Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:06.484Z",
+    "updatedAt": "2025-11-21T08:34:06.484Z"
+  }
+]
+
+2025-11-21T08:34:06.930Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org_hrjsz99g_mi8lszys",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:34:06.484Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_37hsxypa_mi8lszys",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_hrjsz99g_mi8lszys",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:34:06.892Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$yyBwDrxqAtspfKY2CEjTIu5.6cTDVOOJCQ/VTmYlYvOIlRmGhHPvu",
+      "password_hash": "$2b$12$yyBwDrxqAtspfKY2CEjTIu5.6cTDVOOJCQ/VTmYlYvOIlRmGhHPvu"
+    },
+    {
+      "id": "user_37hsxypa_mi8lszys",
+      "orgId": "org_hrjsz99g_mi8lszys",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T08:34:07.519Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_cuixxevw_mi8lszys",
+    "orgId": "org_hrjsz99g_mi8lszys",
+    "userId": "user_37hsxypa_mi8lszys",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T08:33:06.484Z",
+    "trialStartDate": "2025-11-07T08:34:06.484Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:34:06.484Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:06.484Z",
+    "updatedAt": "2025-11-21T08:34:06.939Z",
+    "nextBillingDate": "2025-12-21T08:33:06.484Z"
+  },
+  {
+    "id": "sub_17n211bs_mi8lt0d4",
+    "orgId": "org_ka7u9yjj_mi8lt0d4",
+    "userId": "user_nuxx49k3_mi8lt0d4",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:33:07.000Z",
+    "trialStartDate": "2025-11-07T08:34:07.000Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:34:07.000Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:34:07.000Z",
+    "updatedAt": "2025-11-21T08:34:07.000Z"
+  }
+]
+
+2025-11-21T08:34:07.520Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org_hrjsz99g_mi8lszys",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:34:06.484Z",
+      "lockedUntil": null
+    },
+    {
+      "id": "org_ka7u9yjj_mi8lt0d4",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:34:07.000Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_37hsxypa_mi8lszys",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_hrjsz99g_mi8lszys",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:34:06.892Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$yyBwDrxqAtspfKY2CEjTIu5.6cTDVOOJCQ/VTmYlYvOIlRmGhHPvu",
+      "password_hash": "$2b$12$yyBwDrxqAtspfKY2CEjTIu5.6cTDVOOJCQ/VTmYlYvOIlRmGhHPvu"
+    },
+    {
+      "id": "user_37hsxypa_mi8lszys",
+      "orgId": "org_hrjsz99g_mi8lszys",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    },
+    {
+      "id": "user_nuxx49k3_mi8lt0d4",
+      "username": "failure.admin@example.com",
+      "email": "failure.admin@example.com",
+      "firstName": "Failure",
+      "lastName": "Admin",
+      "companyName": "Failure Co",
+      "phone": "+10987654321",
+      "role": "ADMIN",
+      "orgId": "org_ka7u9yjj_mi8lt0d4",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:34:07.518Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$pOi6IzNYJL2B/hihZsZ9W.gpVpp3gcqd..hljaXbCxD3lnFXPnSEK",
+      "password_hash": "$2b$12$pOi6IzNYJL2B/hihZsZ9W.gpVpp3gcqd..hljaXbCxD3lnFXPnSEK"
+    },
+    {
+      "id": "user_nuxx49k3_mi8lt0d4",
+      "orgId": "org_ka7u9yjj_mi8lt0d4",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T08:39:22.752Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_8rapcira_mi8lzrns",
+    "orgId": "org_rjx2nk5n_mi8lzrns",
+    "userId": "user_nyaxayov_mi8lzrns",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:38:22.312Z",
+    "trialStartDate": "2025-11-07T08:39:22.312Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:39:22.312Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:22.312Z",
+    "updatedAt": "2025-11-21T08:39:22.312Z"
+  }
+]
+
+2025-11-21T08:39:22.756Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org_rjx2nk5n_mi8lzrns",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:39:22.312Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_nyaxayov_mi8lzrns",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_rjx2nk5n_mi8lzrns",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:39:22.749Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$PB1TLXZEr7AA2fCoXrRGZ.Dta5eEq0KHBkoyTiLMqSmfOI7uYI4uO",
+      "password_hash": "$2b$12$PB1TLXZEr7AA2fCoXrRGZ.Dta5eEq0KHBkoyTiLMqSmfOI7uYI4uO"
+    },
+    {
+      "id": "user_nyaxayov_mi8lzrns",
+      "orgId": "org_rjx2nk5n_mi8lzrns",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T08:39:23.191Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_8rapcira_mi8lzrns",
+    "orgId": "org_rjx2nk5n_mi8lzrns",
+    "userId": "user_nyaxayov_mi8lzrns",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T08:38:22.312Z",
+    "trialStartDate": "2025-11-07T08:39:22.312Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:39:22.312Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:22.312Z",
+    "updatedAt": "2025-11-21T08:39:22.761Z",
+    "nextBillingDate": "2025-12-21T08:38:22.312Z"
+  },
+  {
+    "id": "sub_92vr1nya_mi8lzs0p",
+    "orgId": "org_1rvk6dc1_mi8lzs0p",
+    "userId": "user_eh5ibmp0_mi8lzs0p",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:38:22.777Z",
+    "trialStartDate": "2025-11-07T08:39:22.777Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:39:22.777Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:39:22.777Z",
+    "updatedAt": "2025-11-21T08:39:22.777Z"
+  }
+]
+
+2025-11-21T08:39:23.192Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org_rjx2nk5n_mi8lzrns",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:39:22.312Z",
+      "lockedUntil": null
+    },
+    {
+      "id": "org_1rvk6dc1_mi8lzs0p",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:39:22.777Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_nyaxayov_mi8lzrns",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_rjx2nk5n_mi8lzrns",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:39:22.749Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$PB1TLXZEr7AA2fCoXrRGZ.Dta5eEq0KHBkoyTiLMqSmfOI7uYI4uO",
+      "password_hash": "$2b$12$PB1TLXZEr7AA2fCoXrRGZ.Dta5eEq0KHBkoyTiLMqSmfOI7uYI4uO"
+    },
+    {
+      "id": "user_nyaxayov_mi8lzrns",
+      "orgId": "org_rjx2nk5n_mi8lzrns",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    },
+    {
+      "id": "user_eh5ibmp0_mi8lzs0p",
+      "username": "failure.admin@example.com",
+      "email": "failure.admin@example.com",
+      "firstName": "Failure",
+      "lastName": "Admin",
+      "companyName": "Failure Co",
+      "phone": "+10987654321",
+      "role": "ADMIN",
+      "orgId": "org_1rvk6dc1_mi8lzs0p",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:39:23.190Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$ra6cE/KJ5QWRUnJH3ed0i.Mm/8/PB/5c.XSW6AFK89RaJVWhaTYw2",
+      "password_hash": "$2b$12$ra6cE/KJ5QWRUnJH3ed0i.Mm/8/PB/5c.XSW6AFK89RaJVWhaTYw2"
+    },
+    {
+      "id": "user_eh5ibmp0_mi8lzs0p",
+      "orgId": "org_1rvk6dc1_mi8lzs0p",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T08:44:02.398Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_1nfz7izw_mi8m5rfb",
+    "orgId": "org_ywdsxsfk_mi8m5rfb",
+    "userId": "user_e2kfedln_mi8m5rfb",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:43:01.943Z",
+    "trialStartDate": "2025-11-07T08:44:01.943Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:44:01.943Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:01.943Z",
+    "updatedAt": "2025-11-21T08:44:01.943Z"
+  }
+]
+
+2025-11-21T08:44:02.403Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org_ywdsxsfk_mi8m5rfb",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:44:01.943Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_e2kfedln_mi8m5rfb",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_ywdsxsfk_mi8m5rfb",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:44:02.397Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$dkkU7jOPqTK3l4.1MtkkQOszqgYwl6vv9C4/B9yKDM5XOsmfVF.c6",
+      "password_hash": "$2b$12$dkkU7jOPqTK3l4.1MtkkQOszqgYwl6vv9C4/B9yKDM5XOsmfVF.c6"
+    },
+    {
+      "id": "user_e2kfedln_mi8m5rfb",
+      "orgId": "org_ywdsxsfk_mi8m5rfb",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T08:44:02.894Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_1nfz7izw_mi8m5rfb",
+    "orgId": "org_ywdsxsfk_mi8m5rfb",
+    "userId": "user_e2kfedln_mi8m5rfb",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T08:43:01.943Z",
+    "trialStartDate": "2025-11-07T08:44:01.943Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:44:01.943Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:01.943Z",
+    "updatedAt": "2025-11-21T08:44:02.410Z",
+    "nextBillingDate": "2025-12-21T08:43:01.943Z"
+  },
+  {
+    "id": "sub_7ulikvbl_mi8m5rsy",
+    "orgId": "org_18kj1bv2_mi8m5rsy",
+    "userId": "user_96mcgbbv_mi8m5rsy",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:43:02.434Z",
+    "trialStartDate": "2025-11-07T08:44:02.434Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:44:02.434Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:44:02.434Z",
+    "updatedAt": "2025-11-21T08:44:02.434Z"
+  }
+]
+
+2025-11-21T08:44:02.894Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org_ywdsxsfk_mi8m5rfb",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:44:01.943Z",
+      "lockedUntil": null
+    },
+    {
+      "id": "org_18kj1bv2_mi8m5rsy",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:44:02.434Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_e2kfedln_mi8m5rfb",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_ywdsxsfk_mi8m5rfb",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:44:02.397Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$dkkU7jOPqTK3l4.1MtkkQOszqgYwl6vv9C4/B9yKDM5XOsmfVF.c6",
+      "password_hash": "$2b$12$dkkU7jOPqTK3l4.1MtkkQOszqgYwl6vv9C4/B9yKDM5XOsmfVF.c6"
+    },
+    {
+      "id": "user_e2kfedln_mi8m5rfb",
+      "orgId": "org_ywdsxsfk_mi8m5rfb",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    },
+    {
+      "id": "user_96mcgbbv_mi8m5rsy",
+      "username": "failure.admin@example.com",
+      "email": "failure.admin@example.com",
+      "firstName": "Failure",
+      "lastName": "Admin",
+      "companyName": "Failure Co",
+      "phone": "+10987654321",
+      "role": "ADMIN",
+      "orgId": "org_18kj1bv2_mi8m5rsy",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:44:02.893Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$1os7G3XeFXgWid07dMkfNOgm.kdDPfK1KwhUHu5Lysv/WOBSnaV4i",
+      "password_hash": "$2b$12$1os7G3XeFXgWid07dMkfNOgm.kdDPfK1KwhUHu5Lysv/WOBSnaV4i"
+    },
+    {
+      "id": "user_96mcgbbv_mi8m5rsy",
+      "orgId": "org_18kj1bv2_mi8m5rsy",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T08:54:44.304Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_4ifo6ih9_mi8mjiqg",
+    "orgId": "org_h4j4s5ph_mi8mjiqg",
+    "userId": "user_vlyy2dsu_mi8mjiqg",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:53:43.864Z",
+    "trialStartDate": "2025-11-07T08:54:43.864Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:54:43.864Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:43.864Z",
+    "updatedAt": "2025-11-21T08:54:43.864Z"
+  }
+]
+
+2025-11-21T08:54:44.334Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org_h4j4s5ph_mi8mjiqg",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:54:43.864Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_vlyy2dsu_mi8mjiqg",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_h4j4s5ph_mi8mjiqg",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:54:44.302Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$myIDIMIUurxPKNNO2tJQCe6YhGBcCcjteG4isCNJhDHVAP4HedH8e",
+      "password_hash": "$2b$12$myIDIMIUurxPKNNO2tJQCe6YhGBcCcjteG4isCNJhDHVAP4HedH8e"
+    },
+    {
+      "id": "user_vlyy2dsu_mi8mjiqg",
+      "orgId": "org_h4j4s5ph_mi8mjiqg",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T08:54:44.872Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_4ifo6ih9_mi8mjiqg",
+    "orgId": "org_h4j4s5ph_mi8mjiqg",
+    "userId": "user_vlyy2dsu_mi8mjiqg",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T08:53:43.864Z",
+    "trialStartDate": "2025-11-07T08:54:43.864Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T08:54:43.864Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:43.864Z",
+    "updatedAt": "2025-11-21T08:54:44.339Z",
+    "nextBillingDate": "2025-12-21T08:53:43.864Z"
+  },
+  {
+    "id": "sub_0xowhxos_mi8mjj4d",
+    "orgId": "org_8om59xp5_mi8mjj4d",
+    "userId": "user_hcstydnn_mi8mjj4d",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T08:53:44.365Z",
+    "trialStartDate": "2025-11-07T08:54:44.365Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T08:54:44.365Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T08:54:44.365Z",
+    "updatedAt": "2025-11-21T08:54:44.365Z"
+  }
+]
+
+2025-11-21T08:54:44.876Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org_h4j4s5ph_mi8mjiqg",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:54:43.864Z",
+      "lockedUntil": null
+    },
+    {
+      "id": "org_8om59xp5_mi8mjj4d",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T08:54:44.365Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_vlyy2dsu_mi8mjiqg",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_h4j4s5ph_mi8mjiqg",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:54:44.302Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$myIDIMIUurxPKNNO2tJQCe6YhGBcCcjteG4isCNJhDHVAP4HedH8e",
+      "password_hash": "$2b$12$myIDIMIUurxPKNNO2tJQCe6YhGBcCcjteG4isCNJhDHVAP4HedH8e"
+    },
+    {
+      "id": "user_vlyy2dsu_mi8mjiqg",
+      "orgId": "org_h4j4s5ph_mi8mjiqg",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    },
+    {
+      "id": "user_hcstydnn_mi8mjj4d",
+      "username": "failure.admin@example.com",
+      "email": "failure.admin@example.com",
+      "firstName": "Failure",
+      "lastName": "Admin",
+      "companyName": "Failure Co",
+      "phone": "+10987654321",
+      "role": "ADMIN",
+      "orgId": "org_8om59xp5_mi8mjj4d",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T08:54:44.872Z",
+      "signupCompleted": false,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$DN2KKwvr6ktX69m81Qvlpe7drhaM/IvbGZOa5DIyK/rn74kaW0PU6",
+      "password_hash": "$2b$12$DN2KKwvr6ktX69m81Qvlpe7drhaM/IvbGZOa5DIyK/rn74kaW0PU6"
+    },
+    {
+      "id": "user_hcstydnn_mi8mjj4d",
+      "orgId": "org_8om59xp5_mi8mjj4d",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T10:41:58.749Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_rhpql46y_mi8qdfln",
+    "orgId": "org_m3my511b_mi8qdfln",
+    "userId": "user_2qmk9wm9_mi8qdfln",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T10:40:58.331Z",
+    "trialStartDate": "2025-11-07T10:41:58.331Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T10:41:58.331Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:58.331Z",
+    "updatedAt": "2025-11-21T10:41:58.331Z"
+  }
+]
+
+2025-11-21T10:41:58.751Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org_m3my511b_mi8qdfln",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T10:41:58.331Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_2qmk9wm9_mi8qdfln",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_m3my511b_mi8qdfln",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T10:41:58.747Z",
+      "signupCompleted": true,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$QCVJqHVFgLQtZZj9LXQlsuS8UkTDPwALTu9Hov3UiZ.i5bPufsWWu",
+      "password_hash": "$2b$12$QCVJqHVFgLQtZZj9LXQlsuS8UkTDPwALTu9Hov3UiZ.i5bPufsWWu"
+    },
+    {
+      "id": "user_2qmk9wm9_mi8qdfln",
+      "orgId": "org_m3my511b_mi8qdfln",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T10:41:59.248Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_rhpql46y_mi8qdfln",
+    "orgId": "org_m3my511b_mi8qdfln",
+    "userId": "user_2qmk9wm9_mi8qdfln",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T10:40:58.331Z",
+    "trialStartDate": "2025-11-07T10:41:58.331Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T10:41:58.331Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:58.331Z",
+    "updatedAt": "2025-11-21T10:41:58.758Z",
+    "nextBillingDate": "2025-12-21T10:40:58.331Z"
+  },
+  {
+    "id": "sub_i1cawb0w_mi8qdfy6",
+    "orgId": "org_d74y8vcy_mi8qdfy6",
+    "userId": "user_gahec7ed_mi8qdfy6",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T10:40:58.782Z",
+    "trialStartDate": "2025-11-07T10:41:58.782Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T10:41:58.782Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T10:41:58.782Z",
+    "updatedAt": "2025-11-21T10:41:58.782Z"
+  }
+]
+
+2025-11-21T10:41:59.249Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org_m3my511b_mi8qdfln",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T10:41:58.331Z",
+      "lockedUntil": null
+    },
+    {
+      "id": "org_d74y8vcy_mi8qdfy6",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T10:41:58.782Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_2qmk9wm9_mi8qdfln",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_m3my511b_mi8qdfln",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T10:41:58.747Z",
+      "signupCompleted": true,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$QCVJqHVFgLQtZZj9LXQlsuS8UkTDPwALTu9Hov3UiZ.i5bPufsWWu",
+      "password_hash": "$2b$12$QCVJqHVFgLQtZZj9LXQlsuS8UkTDPwALTu9Hov3UiZ.i5bPufsWWu"
+    },
+    {
+      "id": "user_2qmk9wm9_mi8qdfln",
+      "orgId": "org_m3my511b_mi8qdfln",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    },
+    {
+      "id": "user_gahec7ed_mi8qdfy6",
+      "username": "failure.admin@example.com",
+      "email": "failure.admin@example.com",
+      "firstName": "Failure",
+      "lastName": "Admin",
+      "companyName": "Failure Co",
+      "phone": "+10987654321",
+      "role": "ADMIN",
+      "orgId": "org_d74y8vcy_mi8qdfy6",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T10:41:59.246Z",
+      "signupCompleted": true,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$XoGxWPnALVSxdhYsDD2Cb.OGlp6IDvcuTlO8dzKoguA1tbmM84CPq",
+      "password_hash": "$2b$12$XoGxWPnALVSxdhYsDD2Cb.OGlp6IDvcuTlO8dzKoguA1tbmM84CPq"
+    },
+    {
+      "id": "user_gahec7ed_mi8qdfy6",
+      "orgId": "org_d74y8vcy_mi8qdfy6",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T13:40:06.799Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_ygh2af9f_mi8wqhzk",
+    "orgId": "org_f094fpmm_mi8wqhzk",
+    "userId": "user_uwkg85dw_mi8wqhzk",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T13:39:05.648Z",
+    "trialStartDate": "2025-11-07T13:40:05.648Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T13:40:05.648Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:05.648Z",
+    "updatedAt": "2025-11-21T13:40:05.648Z"
+  }
+]
+
+2025-11-21T13:40:06.852Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org_f094fpmm_mi8wqhzk",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T13:40:05.648Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_uwkg85dw_mi8wqhzk",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_f094fpmm_mi8wqhzk",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T13:40:06.797Z",
+      "signupCompleted": true,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$D.8ScTI5vX7079RbHoGVh.7bmGwBiv3GXae7bOI4DwpBw8MzvuzuS",
+      "password_hash": "$2b$12$D.8ScTI5vX7079RbHoGVh.7bmGwBiv3GXae7bOI4DwpBw8MzvuzuS"
+    },
+    {
+      "id": "user_uwkg85dw_mi8wqhzk",
+      "orgId": "org_f094fpmm_mi8wqhzk",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T13:40:08.171Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_ygh2af9f_mi8wqhzk",
+    "orgId": "org_f094fpmm_mi8wqhzk",
+    "userId": "user_uwkg85dw_mi8wqhzk",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "ACTIVE",
+    "trialEndDate": "2025-11-21T13:39:05.648Z",
+    "trialStartDate": "2025-11-07T13:40:05.648Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "charged",
+    "autopayConfiguredAt": "2025-11-21T13:40:05.648Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:05.648Z",
+    "updatedAt": "2025-11-21T13:40:06.875Z",
+    "nextBillingDate": "2025-12-21T13:39:05.648Z"
+  },
+  {
+    "id": "sub_l024rn25_mi8wqj0a",
+    "orgId": "org_1viz2gdh_mi8wqj0a",
+    "userId": "user_jhjm3adq_mi8wqj0a",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T13:39:06.970Z",
+    "trialStartDate": "2025-11-07T13:40:06.970Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T13:40:06.970Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T13:40:06.970Z",
+    "updatedAt": "2025-11-21T13:40:06.970Z"
+  }
+]
+
+2025-11-21T13:40:08.179Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org_f094fpmm_mi8wqhzk",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T13:40:05.648Z",
+      "lockedUntil": null
+    },
+    {
+      "id": "org_1viz2gdh_mi8wqj0a",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T13:40:06.970Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "user_uwkg85dw_mi8wqhzk",
+      "username": "success.admin@example.com",
+      "email": "success.admin@example.com",
+      "firstName": "Success",
+      "lastName": "Admin",
+      "companyName": "Success Co",
+      "phone": "+1234567890",
+      "role": "ADMIN",
+      "orgId": "org_f094fpmm_mi8wqhzk",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T13:40:06.797Z",
+      "signupCompleted": true,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$D.8ScTI5vX7079RbHoGVh.7bmGwBiv3GXae7bOI4DwpBw8MzvuzuS",
+      "password_hash": "$2b$12$D.8ScTI5vX7079RbHoGVh.7bmGwBiv3GXae7bOI4DwpBw8MzvuzuS"
+    },
+    {
+      "id": "user_uwkg85dw_mi8wqhzk",
+      "orgId": "org_f094fpmm_mi8wqhzk",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    },
+    {
+      "id": "user_jhjm3adq_mi8wqj0a",
+      "username": "failure.admin@example.com",
+      "email": "failure.admin@example.com",
+      "firstName": "Failure",
+      "lastName": "Admin",
+      "companyName": "Failure Co",
+      "phone": "+10987654321",
+      "role": "ADMIN",
+      "orgId": "org_1viz2gdh_mi8wqj0a",
+      "isAdmin": true,
+      "isActive": true,
+      "emailVerified": true,
+      "signupStartedAt": "2025-11-21T13:40:08.169Z",
+      "signupCompleted": true,
+      "signupAttempts": 1,
+      "passwordHash": "$2b$12$OgfQm9FzXZHCwPClEtSWXOxXV7LroTgoYwoO8QUete0uhrSSIZXEi",
+      "password_hash": "$2b$12$OgfQm9FzXZHCwPClEtSWXOxXV7LroTgoYwoO8QUete0uhrSSIZXEi"
+    },
+    {
+      "id": "user_jhjm3adq_mi8wqj0a",
+      "orgId": "org_1viz2gdh_mi8wqj0a",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T17:00:51.638Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_6ilnatdj_mi93wogn",
+    "orgId": "org_it7u1o4k_mi93wogn",
+    "userId": "user_a9sz9ru1_mi93wogn",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T16:59:51.287Z",
+    "trialStartDate": "2025-11-07T17:00:51.287Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T17:00:51.287Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T17:00:51.287Z",
+    "updatedAt": "2025-11-21T17:00:51.287Z"
+  }
+]
+
+2025-11-21T17:00:51.642Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_it7u1o4k_mi93wogn",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T17:00:51.287Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_a9sz9ru1_mi93wogn",
+      "orgId": "org_it7u1o4k_mi93wogn",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T17:00:52.003Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_37ahiw3p_mi93wor2",
+    "orgId": "org_melqn082_mi93wor2",
+    "userId": "user_jdoq2ded_mi93wor2",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T16:59:51.662Z",
+    "trialStartDate": "2025-11-07T17:00:51.662Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T17:00:51.662Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T17:00:51.662Z",
+    "updatedAt": "2025-11-21T17:00:51.662Z"
+  }
+]
+
+2025-11-21T17:00:52.004Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_melqn082_mi93wor2",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T17:00:51.662Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_jdoq2ded_mi93wor2",
+      "orgId": "org_melqn082_mi93wor2",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T20:55:51.214Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_ovp3j639_mi9cavrh",
+    "orgId": "org_y37a9w8p_mi9cavrh",
+    "userId": "user_3bl66v1s_mi9cavrh",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T20:54:50.861Z",
+    "trialStartDate": "2025-11-07T20:55:50.861Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T20:55:50.861Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T20:55:50.861Z",
+    "updatedAt": "2025-11-21T20:55:50.861Z"
+  }
+]
+
+2025-11-21T20:55:51.245Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_y37a9w8p_mi9cavrh",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T20:55:50.861Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_3bl66v1s_mi9cavrh",
+      "orgId": "org_y37a9w8p_mi9cavrh",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T20:55:51.751Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_xc3645ld_mi9caw2r",
+    "orgId": "org_qd2pgk3a_mi9caw2r",
+    "userId": "user_rw674wce_mi9caw2r",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T20:54:51.267Z",
+    "trialStartDate": "2025-11-07T20:55:51.267Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T20:55:51.267Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T20:55:51.267Z",
+    "updatedAt": "2025-11-21T20:55:51.267Z"
+  }
+]
+
+2025-11-21T20:55:51.752Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_qd2pgk3a_mi9caw2r",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T20:55:51.267Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_rw674wce_mi9caw2r",
+      "orgId": "org_qd2pgk3a_mi9caw2r",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T21:54:14.968Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_kdbspdwz_mi9edzaw",
+    "orgId": "org_dtbl79er_mi9edzaw",
+    "userId": "user_3bfn6fnz_mi9edzaw",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T21:53:14.648Z",
+    "trialStartDate": "2025-11-07T21:54:14.648Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T21:54:14.648Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T21:54:14.648Z",
+    "updatedAt": "2025-11-21T21:54:14.648Z"
+  }
+]
+
+2025-11-21T21:54:14.972Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_dtbl79er_mi9edzaw",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T21:54:14.648Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_3bfn6fnz_mi9edzaw",
+      "orgId": "org_dtbl79er_mi9edzaw",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T21:54:15.309Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_tsnkc5t9_mi9edzka",
+    "orgId": "org_dx20ieup_mi9edzka",
+    "userId": "user_qcrwezwt_mi9edzka",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T21:53:14.986Z",
+    "trialStartDate": "2025-11-07T21:54:14.986Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T21:54:14.986Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T21:54:14.986Z",
+    "updatedAt": "2025-11-21T21:54:14.986Z"
+  }
+]
+
+2025-11-21T21:54:15.310Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_dx20ieup_mi9edzka",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T21:54:14.986Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_qcrwezwt_mi9edzka",
+      "orgId": "org_dx20ieup_mi9edzka",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T22:04:59.974Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_gexzio99_mi9ersza",
+    "orgId": "org_scds3ud4_mi9ersza",
+    "userId": "user_59pez12b_mi9ersza",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T22:03:59.638Z",
+    "trialStartDate": "2025-11-07T22:04:59.638Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T22:04:59.638Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:04:59.638Z",
+    "updatedAt": "2025-11-21T22:04:59.638Z"
+  }
+]
+
+2025-11-21T22:04:59.977Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_scds3ud4_mi9ersza",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T22:04:59.638Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_59pez12b_mi9ersza",
+      "orgId": "org_scds3ud4_mi9ersza",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T22:05:00.376Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_0cj3hy6j_mi9ertac",
+    "orgId": "org_ekg5zfd5_mi9ertac",
+    "userId": "user_jqsffqj0_mi9ertac",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T22:04:00.036Z",
+    "trialStartDate": "2025-11-07T22:05:00.036Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T22:05:00.036Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:05:00.036Z",
+    "updatedAt": "2025-11-21T22:05:00.036Z"
+  }
+]
+
+2025-11-21T22:05:00.377Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_ekg5zfd5_mi9ertac",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T22:05:00.036Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_jqsffqj0_mi9ertac",
+      "orgId": "org_ekg5zfd5_mi9ertac",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T22:10:28.355Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_ov62uw4d_mi9eyuc3",
+    "orgId": "org_lv3k53i8_mi9eyuc3",
+    "userId": "user_z4ke1wbu_mi9eyuc3",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T22:09:27.987Z",
+    "trialStartDate": "2025-11-07T22:10:27.987Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T22:10:27.987Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:10:27.987Z",
+    "updatedAt": "2025-11-21T22:10:27.987Z"
+  }
+]
+
+2025-11-21T22:10:28.358Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_lv3k53i8_mi9eyuc3",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T22:10:27.987Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_z4ke1wbu_mi9eyuc3",
+      "orgId": "org_lv3k53i8_mi9eyuc3",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-21T22:10:28.708Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_pqtwpjp1_mi9eyumr",
+    "orgId": "org_npuerljz_mi9eyumr",
+    "userId": "user_pa0cli2g_mi9eyumr",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-21T22:09:28.371Z",
+    "trialStartDate": "2025-11-07T22:10:28.371Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-21T22:10:28.371Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-21T22:10:28.371Z",
+    "updatedAt": "2025-11-21T22:10:28.371Z"
+  }
+]
+
+2025-11-21T22:10:28.710Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_npuerljz_mi9eyumr",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-21T22:10:28.371Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_pa0cli2g_mi9eyumr",
+      "orgId": "org_npuerljz_mi9eyumr",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-22T08:01:09.178Z [pre-run success due subscriptions]
+[
+  {
+    "id": "sub_ya9vrvqj_mia02goj",
+    "orgId": "org_i38ddzbc_mia02goj",
+    "userId": "user_g6jixndv_mia02goj",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-22T08:00:08.851Z",
+    "trialStartDate": "2025-11-08T08:01:08.851Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_SUCCESS_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-22T08:01:08.851Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-22T08:01:08.851Z",
+    "updatedAt": "2025-11-22T08:01:08.851Z"
+  }
+]
+
+2025-11-22T08:01:09.181Z [pre-run success context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_i38ddzbc_mia02goj",
+      "name": "Trial Success Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-22T08:01:08.851Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_g6jixndv_mia02goj",
+      "orgId": "org_i38ddzbc_mia02goj",
+      "email": "success.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+
+2025-11-22T08:01:09.518Z [pre-run failure due subscriptions]
+[
+  {
+    "id": "sub_rghavbko_mia02gy5",
+    "orgId": "org_gny4i9ei_mia02gy5",
+    "userId": "user_bt4hh56r_mia02gy5",
+    "provider": "PAYSTACK",
+    "planCode": "basic",
+    "tier": "basic",
+    "status": "TRIAL",
+    "trialEndDate": "2025-11-22T08:00:09.197Z",
+    "trialStartDate": "2025-11-08T08:01:09.197Z",
+    "autopayEnabled": true,
+    "autopayProvider": "PAYSTACK",
+    "autopayReference": "AUTH_FAIL_123",
+    "autopayLastStatus": "configured",
+    "autopayConfiguredAt": "2025-11-22T08:01:09.197Z",
+    "upfrontFeePaid": "1000.00",
+    "upfrontFeeCurrency": "NGN",
+    "monthlyAmount": "30000.00",
+    "monthlyCurrency": "NGN",
+    "createdAt": "2025-11-22T08:01:09.197Z",
+    "updatedAt": "2025-11-22T08:01:09.197Z"
+  }
+]
+
+2025-11-22T08:01:09.519Z [pre-run failure context]
+{
+  "orgRow": [
+    {
+      "id": "org-test",
+      "name": "Test Org",
+      "currency": "NGN",
+      "isActive": true
+    },
+    {
+      "id": "org_gny4i9ei_mia02gy5",
+      "name": "Trial Failure Org",
+      "currency": "NGN",
+      "isActive": true,
+      "createdAt": "2025-11-22T08:01:09.197Z"
+    }
+  ],
+  "userRow": [
+    {
+      "id": "u-test",
+      "orgId": "org-test",
+      "email": "user@test",
+      "isAdmin": true
+    },
+    {
+      "id": "user_bt4hh56r_mia02gy5",
+      "orgId": "org_gny4i9ei_mia02gy5",
+      "email": "failure.admin@example.com",
+      "passwordHash": "test-hash",
+      "isAdmin": true,
+      "emailVerified": true
+    }
+  ]
+}
+

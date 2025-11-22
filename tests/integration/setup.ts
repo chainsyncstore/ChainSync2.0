@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 
+import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
 import {
@@ -27,14 +28,26 @@ import {
 import { cryptoModuleMock } from '../utils/crypto-mocks';
 
 // Load test environment variables
-dotenv.config({ path: '.env.test' });
+dotenv.config({ path: '.env.test', override: true });
 
 // Set test environment
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'error';
 
-// Mock database with deterministic in-memory fixtures compatible with our API routes
-if (process.env.LOYALTY_REALDB !== '1') {
+// Allow integration tests to toggle between real DB and lightweight mock
+// via the LOYALTY_REALDB environment variable, consistent with unit tests.
+const useRealDb = process.env.LOYALTY_REALDB === '1';
+process.stdout.write(`[integration setup] LOYALTY_REALDB=${process.env.LOYALTY_REALDB ?? 'undefined'} useRealDb=${useRealDb}\n`);
+
+if (useRealDb) {
+  console.info('[integration setup] LOYALTY_REALDB=1, using real database (no mocks)');
+}
+
+// When useRealDb is false (older local workflows), we can fall back to a
+// deterministic in-memory mock for @server/db. In the current setup this
+// branch is disabled so integration tests always hit the real DB.
+if (!useRealDb) {
+  process.stdout.write('[integration setup] using mock @server/db (LOYALTY_REALDB != 1)\n');
   vi.mock('../../server/db', () => {
     type Row = Record<string, any>;
     const store: Record<string, Row[]> = {
@@ -460,21 +473,19 @@ const originalConsoleMethods = {
 };
 
 async function clearTestData() {
-  if (!testDb) {
-    return;
-  }
-
-  const db = testDb;
   const tables = [
+    'account_lockout_logs',
     'ip_whitelist_logs',
     'ip_whitelists',
     'password_reset_tokens',
+    'email_verification_tokens',
     'loyalty_transactions',
     'transaction_items',
     'transactions',
     'subscription_payments',
     'subscriptions',
     'low_stock_alerts',
+    'stock_movements',
     'inventory',
     'products',
     'loyalty_tiers',
@@ -486,6 +497,34 @@ async function clearTestData() {
   ];
 
   try {
+    if (useRealDb) {
+      const { pool } = await import('../../server/db');
+      const statement = `TRUNCATE TABLE ${tables.map((table) => `"${table}"`).join(', ')} RESTART IDENTITY CASCADE`;
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        console.error('Failed to truncate tables, falling back to per-table deletes', error);
+        for (const table of tables) {
+          try {
+            await pool.query(`DELETE FROM "${table}"`);
+          } catch (innerError) {
+            console.error(`Failed to clear table ${table}`, innerError);
+          }
+        }
+      }
+
+      const { rows: [inventoryCount] } = await pool.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM inventory');
+      const { rows: [movementCount] } = await pool.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM stock_movements');
+      const { rows: [lowStockCount] } = await pool.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM low_stock_alerts');
+      process.stdout.write(`clearTestData real-db counts -> inventory=${inventoryCount?.count ?? 0}, stock_movements=${movementCount?.count ?? 0}, low_stock_alerts=${lowStockCount?.count ?? 0}\n`);
+      return;
+    }
+
+    if (!testDb) {
+      return;
+    }
+
+    const db = testDb;
     for (const table of tables) {
       try {
         await db.execute(`DELETE FROM ${table}`);
@@ -497,7 +536,7 @@ async function clearTestData() {
     console.warn('Error clearing test data:', error);
   }
 
-  if (process.env.LOYALTY_REALDB !== '1') {
+  if (!useRealDb) {
     try {
       const dbmod: any = await import('../../server/db');
       const reset = dbmod.__reset as () => void;
@@ -515,40 +554,59 @@ beforeAll(async () => {
     console.warn('Warning: Integration tests should use a test database');
   }
 
-  try {
-    testDb = {
-      select: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      update: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      set: vi.fn().mockReturnThis(),
-      values: vi.fn().mockReturnThis(),
-      returning: vi.fn().mockReturnThis(),
-      execute: vi.fn(async (query: string) => {
-        void query;
-        return [];
-      }),
-      end: vi.fn(async () => undefined),
-    };
+  if (!useRealDb) {
+    try {
+      testDb = {
+        select: vi.fn().mockReturnThis(),
+        insert: vi.fn().mockReturnThis(),
+        update: vi.fn().mockReturnThis(),
+        delete: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        set: vi.fn().mockReturnThis(),
+        values: vi.fn().mockReturnThis(),
+        returning: vi.fn().mockReturnThis(),
+        execute: vi.fn(async (query: string) => {
+          void query;
+          return [];
+        }),
+        end: vi.fn(async () => undefined),
+      };
 
-    await (testDb as any).execute('SELECT 1');
-    console.log('Database connection established successfully');
-  } catch (error) {
-    console.error('Failed to connect to test database:', error);
-    throw new Error('Integration tests require a working database connection');
+      await (testDb as any).execute('SELECT 1');
+      console.log('Database connection established successfully');
+    } catch (error) {
+      console.error('Failed to connect to test database:', error);
+      throw new Error('Integration tests require a working database connection');
+    }
+  } else {
+    const { db } = await import('../../server/db');
+    try {
+      await db.execute(sql`SELECT 1`);
+      console.log('Connected to real database for integration tests');
+    } catch (error) {
+      console.error('Failed to connect to real database:', error);
+      throw error;
+    }
   }
 
   console.log = vi.fn();
   console.error = vi.fn();
   console.warn = vi.fn();
+
+  if (useRealDb) {
+    await clearTestData();
+  }
 });
 
 afterAll(async () => {
   console.log('Cleaning up integration test environment...');
 
-  if (testDb && typeof testDb.end === 'function') {
+  if (useRealDb) {
+    await clearTestData();
+  }
+
+  if (!useRealDb && testDb && typeof testDb.end === 'function') {
     try {
       await testDb.end();
     } catch (error) {
@@ -567,7 +625,7 @@ beforeEach(async () => {
   await clearTestData();
 
   try {
-    if (process.env.LOYALTY_REALDB !== '1') {
+    if (!useRealDb) {
       const dbmod: any = await import('../../server/db');
       const seed = dbmod.__seed as typeof dbmod.__seed;
       seed({

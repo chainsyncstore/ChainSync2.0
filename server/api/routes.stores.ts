@@ -21,6 +21,7 @@ const UpdateStoreSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional(),
   taxRate: taxRateSchema.optional(),
+  isActive: z.boolean().optional(),
 });
 
 export async function registerStoreRoutes(app: Express) {
@@ -157,6 +158,13 @@ export async function registerStoreRoutes(app: Express) {
       .set(updateData)
       .where(eq(stores.id, storeId))
       .returning();
+
+    if (typeof parsed.data.isActive === 'boolean' && parsed.data.isActive !== store.isActive) {
+      await db
+        .update(users)
+        .set({ isActive: parsed.data.isActive } as any)
+        .where(and(eq(users.storeId, storeId), eq(users.isAdmin, false)));
+    }
 
     res.json(updatedStore);
   });

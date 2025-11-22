@@ -154,77 +154,83 @@ const makeQueryResult = <T>(rowsFactory: () => T) => {
   return result;
 };
 
-// Mock DB: avoid real Postgres and always report healthy
-vi.mock('../../server/db', () => {
-  const select = vi.fn((selection?: any) => ({
-    from(table: any) {
-      return makeQueryResult(() => {
-        if (table === usersTable) {
-          if (selection && Object.prototype.hasOwnProperty.call(selection, 'count')) {
-            return [{ count: users.length }];
-          }
-          return users.map((user) => ({ ...user }));
-        }
-        if (table === organizationsTable) {
-          return organizationsStore.map((org) => ({ ...org }));
-        }
-        return [];
-      });
-    },
-  }));
+const useRealDb = process.env.LOYALTY_REALDB === '1';
 
-  const insert = vi.fn((table: any) => ({
-    values(values: any) {
-      if (table === organizationsTable) {
-        const row = {
-          id: values?.id ?? `org_${Math.random().toString(36).slice(2, 10)}`,
-          ...values,
-        };
-        organizationsStore.push(row);
-        lastOrganizationId = row.id;
-        return makeQueryResult(() => [row]);
-      }
-      return makeQueryResult(() => [{ ...values }]);
-    },
-  }));
-
-  const update = vi.fn((table: any) => ({
-    set(updateValues: any) {
-      return {
-        where(condition?: any) {
-          const value = resolveConditionValue(condition);
+if (useRealDb) {
+  console.info('[e2e prod-auth-payment] LOYALTY_REALDB=1, using real database (no db mock)');
+} else {
+  // Mock DB: avoid real Postgres and always report healthy
+  vi.mock('../../server/db', () => {
+    const select = vi.fn((selection?: any) => ({
+      from(table: any) {
+        return makeQueryResult(() => {
           if (table === usersTable) {
-            const targetId = String(value ?? lastCreatedUserId ?? '');
-            const user = users.find((u) => String(u.id) === targetId);
-            if (user) {
-              Object.assign(user, updateValues);
+            if (selection && Object.prototype.hasOwnProperty.call(selection, 'count')) {
+              return [{ count: users.length }];
             }
-          } else if (table === organizationsTable) {
-            const targetId = String(value ?? lastOrganizationId ?? '');
-            const org = organizationsStore.find((o) => String(o.id) === targetId);
-            if (org) {
-              Object.assign(org, updateValues);
-            }
+            return users.map((user) => ({ ...user }));
           }
-          return makeQueryResult(() => []);
-        },
-      };
-    },
-  }));
+          if (table === organizationsTable) {
+            return organizationsStore.map((org) => ({ ...org }));
+          }
+          return [];
+        });
+      },
+    }));
 
-  const db = {
-    select,
-    insert,
-    update,
-    delete: vi.fn(() => ({ where: () => makeQueryResult(() => []) })),
-    execute: vi.fn().mockResolvedValue([]),
-  };
+    const insert = vi.fn((table: any) => ({
+      values(values: any) {
+        if (table === organizationsTable) {
+          const row = {
+            id: values?.id ?? `org_${Math.random().toString(36).slice(2, 10)}`,
+            ...values,
+          };
+          organizationsStore.push(row);
+          lastOrganizationId = row.id;
+          return makeQueryResult(() => [row]);
+        }
+        return makeQueryResult(() => [{ ...values }]);
+      },
+    }));
 
-  return {
-    db,
-    checkDatabaseHealth: vi.fn().mockResolvedValue(true),
-  };
-});
+    const update = vi.fn((table: any) => ({
+      set(updateValues: any) {
+        return {
+          where(condition?: any) {
+            const value = resolveConditionValue(condition);
+            if (table === usersTable) {
+              const targetId = String(value ?? lastCreatedUserId ?? '');
+              const user = users.find((u) => String(u.id) === targetId);
+              if (user) {
+                Object.assign(user, updateValues);
+              }
+            } else if (table === organizationsTable) {
+              const targetId = String(value ?? lastOrganizationId ?? '');
+              const org = organizationsStore.find((o) => String(o.id) === targetId);
+              if (org) {
+                Object.assign(org, updateValues);
+              }
+            }
+            return makeQueryResult(() => []);
+          },
+        };
+      },
+    }));
+
+    const db = {
+      select,
+      insert,
+      update,
+      delete: vi.fn(() => ({ where: () => makeQueryResult(() => []) })),
+      execute: vi.fn().mockResolvedValue([]),
+    };
+
+    return {
+      db,
+      checkDatabaseHealth: vi.fn().mockResolvedValue(true),
+    };
+  });
+}
 
 // Mock storage to avoid DB
 vi.mock('../../server/storage', () => ({
@@ -418,7 +424,13 @@ describe('Production-like auth/payment flows (CSRF, email verification, payment)
 
   beforeEach(async () => {
     const { storage } = await import('../../server/storage');
-    await storage.clear();
+    if (process.env.LOYALTY_REALDB !== '1') {
+      await storage.clear();
+    }
+
+    // Recreate a fresh agent for each test to avoid leaking cookies/session
+    // state between scenarios while reusing the same Express app instance.
+    agent = request.agent(app);
   });
 
   it('CSRF → signup (201) → verification email stubbed → verify → login allowed', async () => {

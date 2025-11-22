@@ -1,5 +1,5 @@
 import express, { type Express } from 'express';
-import session from 'express-session';
+
 import request from 'supertest';
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -19,14 +19,6 @@ describe('POS Transaction Integration Tests', () => {
     app = express();
     app.use(express.json());
     app.use(express.urlencoded({ extended: false }));
-
-    // Setup session middleware
-    app.use(session({
-      secret: 'test-secret',
-      resave: false,
-      saveUninitialized: false,
-      cookie: { secure: false }
-    }));
 
     // Register routes
     await registerRoutes(app);
@@ -86,10 +78,15 @@ describe('POS Transaction Integration Tests', () => {
     const loginResponse = await request(app)
       .post('/api/auth/login')
       .send({
-        username: 'posuser@example.com',
+        email: 'posuser@example.com',
         password: 'StrongPass123!'
       });
 
+    // Debug: Log login response
+    if (loginResponse.status !== 200) {
+      console.error('Login failed:', loginResponse.status, loginResponse.body);
+    }
+    
     sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';
   });
 

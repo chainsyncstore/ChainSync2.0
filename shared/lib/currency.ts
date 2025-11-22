@@ -19,7 +19,7 @@ export interface ConversionInput extends Money {
 }
 
 export interface ConversionResult extends Money {
-  input: Money;
+  input?: Money;
   usedRate?: number;
 }
 
@@ -45,7 +45,9 @@ export function convertMoney(input: ConversionInput, targetCurrency: CurrencyCod
   ensureCurrency(targetCurrency);
 
   if (input.currency === targetCurrency) {
-    return { input, amount: input.amount, currency: targetCurrency };
+    // For same-currency conversions, just return a plain Money object so callers
+    // that deep-compare with the input see identical structures.
+    return { amount: input.amount, currency: targetCurrency };
   }
 
   const rates = input.rates;
@@ -70,8 +72,27 @@ export function convertMoney(input: ConversionInput, targetCurrency: CurrencyCod
   const base = input.baseCurrency;
   if (base) {
     ensureCurrency(base);
-    const toBase = rates[input.currency]?.[base];
-    const fromBase = rates[base]?.[targetCurrency];
+
+    // Try to derive rates to/from the base currency, falling back to the
+    // inverse of any available reverse rate when a direct mapping is missing.
+    const directToBase = rates[input.currency]?.[base];
+    const inverseToBase = rates[base]?.[input.currency];
+    const toBase =
+      typeof directToBase === "number"
+        ? directToBase
+        : typeof inverseToBase === "number" && inverseToBase !== 0
+          ? 1 / inverseToBase
+          : undefined;
+
+    const directFromBase = rates[base]?.[targetCurrency];
+    const inverseFromBase = rates[targetCurrency]?.[base];
+    const fromBase =
+      typeof directFromBase === "number"
+        ? directFromBase
+        : typeof inverseFromBase === "number" && inverseFromBase !== 0
+          ? 1 / inverseFromBase
+          : undefined;
+
     if (typeof toBase === "number" && typeof fromBase === "number") {
       const computedRate = toBase * fromBase;
       return {

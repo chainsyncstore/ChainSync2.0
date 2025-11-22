@@ -37,6 +37,8 @@ async function clearDatabase() {
   await db.delete(organizations);
 }
 
+const useRealDb = process.env.LOYALTY_REALDB === '1';
+
 describe('Billing Autopay Integration Tests', () => {
   let app: Express;
   let agent: ReturnType<typeof supertest.agent>;
@@ -59,8 +61,10 @@ describe('Billing Autopay Integration Tests', () => {
     mockPaymentService.chargePaystackAuthorization.mockReset();
     mockPaymentService.chargeFlutterwaveToken.mockReset();
 
-    await storage.clear();
-    await clearDatabase();
+    if (!useRealDb) {
+      await storage.clear();
+      await clearDatabase();
+    }
 
     app = express();
     app.use(express.json());
@@ -131,8 +135,10 @@ describe('Billing Autopay Integration Tests', () => {
   });
 
   afterEach(async () => {
-    await storage.clear();
-    await clearDatabase();
+    if (!useRealDb) {
+      await storage.clear();
+      await clearDatabase();
+    }
     vi.clearAllMocks();
   });
 

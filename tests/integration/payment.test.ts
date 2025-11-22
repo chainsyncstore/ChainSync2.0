@@ -57,7 +57,7 @@ describe('Payment Integration Tests', () => {
     await storage.updateUser(testUser.id, { storeId: testStore.id });
 
     const loginResponse = await request(app).post('/api/auth/login').send({
-      username: 'paymentuser@example.com',
+      email: 'paymentuser@example.com',
       password: 'StrongPass123!',
     });
     sessionCookie = loginResponse.headers['set-cookie']?.[0] || '';

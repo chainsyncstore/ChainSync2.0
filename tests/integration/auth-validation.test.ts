@@ -49,8 +49,12 @@ describe('Auth Validation Integration Tests', () => {
     }
   });
 
+  const useRealDb = process.env.LOYALTY_REALDB === '1';
+
   beforeEach(async () => {
-    await storage.clear();
+    if (!useRealDb) {
+      await storage.clear();
+    }
   });
 
   describe('POST /api/auth/signup', () => {

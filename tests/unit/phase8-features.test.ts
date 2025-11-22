@@ -4,19 +4,25 @@ import { AdvancedAnalyticsService } from '../../server/ai/advanced-analytics';
 import { securityAuditService } from '../../server/lib/security-audit';
 import { loadEnv } from '../../shared/env';
 
-// Mock dependencies
-vi.mock('../../server/db', () => ({
-  db: {
-    select: vi.fn().mockReturnThis(),
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    innerJoin: vi.fn().mockReturnThis(),
-    leftJoin: vi.fn().mockReturnThis(),
-    orderBy: vi.fn().mockReturnThis(),
-    groupBy: vi.fn().mockReturnThis(),
-    execute: vi.fn().mockResolvedValue([])
-  }
-}));
+const useRealDb = process.env.LOYALTY_REALDB === '1';
+
+if (useRealDb) {
+  console.info('[phase8 unit] LOYALTY_REALDB=1, using real database (no db mock)');
+} else {
+  // Mock dependencies
+  vi.mock('../../server/db', () => ({
+    db: {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      leftJoin: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      groupBy: vi.fn().mockReturnThis(),
+      execute: vi.fn().mockResolvedValue([])
+    }
+  }));
+}
 
 vi.mock('@shared/prd-schema', () => ({
   sales: { id: 'sales.id', storeId: 'sales.storeId', occurredAt: 'sales.occurredAt' },

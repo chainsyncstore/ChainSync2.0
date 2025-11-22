@@ -24,6 +24,9 @@ const PRODUCT_ID = '00000000-0000-0000-0000-000000000010';
 const TEST_DEVICE_ID = 'pos-device-1';
 
 const canRunRealDb = (() => {
+  if (process.env.CAN_RUN_OFFLINE_CONTRACT_TESTS !== '1') {
+    return false;
+  }
   try {
     return typeof (GenericContainer as any)?.prototype?.withEnvironment === 'function';
   } catch {

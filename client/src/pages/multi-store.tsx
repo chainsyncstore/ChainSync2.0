@@ -75,6 +75,9 @@ export default function MultiStore() {
   const [newStoreTaxRate, setNewStoreTaxRate] = useState("8.5");
   const [taxRateEdits, setTaxRateEdits] = useState<Record<string, string>>({});
   const [savingTaxRateId, setSavingTaxRateId] = useState<string | null>(null);
+  const [storeNameEdits, setStoreNameEdits] = useState<Record<string, string>>({});
+  const [updatingNameId, setUpdatingNameId] = useState<string | null>(null);
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [comparisonDates, setComparisonDates] = useState(() => {
     const start = startOfCurrentMonth();
     const end = endOfCurrentMonth();
@@ -96,6 +99,7 @@ export default function MultiStore() {
 
   useEffect(() => {
     setTaxRateEdits({});
+    setStoreNameEdits({});
   }, [stores]);
 
   const createStore = useCallback(async () => {
@@ -282,7 +286,10 @@ export default function MultiStore() {
     },
   });
 
-  const comparisonRows = comparisonQuery.data ?? [];
+  const comparisonRows = useMemo(
+    () => comparisonQuery.data ?? [],
+    [comparisonQuery.data],
+  );
 
   const aggregatedTotals = useMemo(() => {
     const totals = new Map<Money["currency"], { revenue: number; refunds: number; net: number; transactions: number }>();
@@ -335,6 +342,95 @@ export default function MultiStore() {
       toast({ title: "Failed to update", description: "Network error", variant: "destructive" });
     } finally {
       setSavingTaxRateId(null);
+    }
+  }, [queryClient, toast]);
+
+  const handleSaveStoreName = useCallback(async (store: Store, nextValue: string) => {
+    const trimmed = nextValue.trim();
+    if (!trimmed) {
+      toast({ title: "Store name required", variant: "destructive" });
+      return;
+    }
+
+    setUpdatingNameId(store.id);
+    try {
+      const csrfToken = await getCsrfToken();
+      const res = await fetch(`/api/stores/${store.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        credentials: "include",
+        body: JSON.stringify({ name: trimmed }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        const message = payload?.error || payload?.message || "Failed to update store";
+        toast({ title: "Failed to update store", description: message, variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Store updated", description: `Name saved as "${trimmed}"` });
+      setStoreNameEdits((prev) => {
+        const next = { ...prev };
+        delete next[store.id];
+        return next;
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+    } catch (error) {
+      console.error("Failed to update store name", error);
+      toast({ title: "Failed to update store", description: "Network error", variant: "destructive" });
+    } finally {
+      setUpdatingNameId(null);
+    }
+  }, [queryClient, toast]);
+
+  const handleToggleStoreActive = useCallback(async (store: Store) => {
+    const currentlyActive = store.isActive !== false;
+
+    if (currentlyActive) {
+      const confirmed = window.confirm(
+        `Deactivate ${store.name}? This will disable store access for linked staff until reactivated.`
+      );
+      if (!confirmed) return;
+    }
+
+    const nextActive = !currentlyActive;
+    setUpdatingStatusId(store.id);
+
+    try {
+      const csrfToken = await getCsrfToken();
+      const res = await fetch(`/api/stores/${store.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        credentials: "include",
+        body: JSON.stringify({ isActive: nextActive }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        const message = payload?.error || payload?.message || "Failed to update store status";
+        toast({ title: "Failed to update status", description: message, variant: "destructive" });
+        return;
+      }
+
+      toast({
+        title: nextActive ? "Store activated" : "Store deactivated",
+        description: nextActive
+          ? `${store.name} is now active.`
+          : `${store.name} is now inactive. Linked staff have been updated.`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+    } catch (error) {
+      console.error("Failed to toggle store status", error);
+      toast({ title: "Failed to update status", description: "Network error", variant: "destructive" });
+    } finally {
+      setUpdatingStatusId(null);
     }
   }, [queryClient, toast]);
 
@@ -500,8 +596,11 @@ export default function MultiStore() {
                 const taxDecimal = parseTaxRate(store.taxRate);
                 const defaultPercent = (taxDecimal * 100).toFixed(2);
                 const taxInputValue = taxRateEdits[store.id] ?? defaultPercent;
-                const isSaving = savingTaxRateId === store.id;
+                const isSavingTax = savingTaxRateId === store.id;
                 const isDeleting = deletingStoreId === store.id;
+                const nameInputValue = storeNameEdits[store.id] ?? store.name;
+                const isSavingName = updatingNameId === store.id;
+                const isTogglingStatus = updatingStatusId === store.id;
 
                 return (
                   <Card key={store.id} className="flex flex-col border-muted/60 shadow-none">
@@ -520,6 +619,28 @@ export default function MultiStore() {
                       </div>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col gap-4">
+                      <div>
+                        <Label htmlFor={`store-name-${store.id}`}>Store name</Label>
+                        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <Input
+                            id={`store-name-${store.id}`}
+                            value={nameInputValue}
+                            onChange={(e) => setStoreNameEdits((prev) => ({ ...prev, [store.id]: e.target.value }))}
+                            disabled={isSavingName}
+                            className="sm:max-w-[220px]"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={isSavingName || nameInputValue.trim() === store.name}
+                            onClick={() => handleSaveStoreName(store, nameInputValue)}
+                          >
+                            {isSavingName ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Save name
+                          </Button>
+                        </div>
+                      </div>
+
                       <dl className="grid grid-cols-2 gap-4 text-sm">
                         <div>
                           <dt className="text-muted-foreground">Currency</dt>
@@ -553,11 +674,11 @@ export default function MultiStore() {
                             min="0"
                             value={taxInputValue}
                             onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [store.id]: e.target.value }))}
-                            disabled={isSaving}
+                            disabled={isSavingTax}
                             className="sm:max-w-[160px]"
                           />
-                          <Button onClick={() => handleSaveTaxRate(store, taxInputValue)} disabled={isSaving}>
-                            {isSaving ? (
+                          <Button type="button" onClick={() => handleSaveTaxRate(store, taxInputValue)} disabled={isSavingTax}>
+                            {isSavingTax ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               'Save'
@@ -569,9 +690,20 @@ export default function MultiStore() {
                         </p>
                       </div>
 
-                      <div className="mt-auto grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div className="mt-auto grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <Button variant="outline" onClick={() => navigate(`/stores/${store.id}/staff`)}>
                           Manage staff
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={isTogglingStatus}
+                          onClick={() => handleToggleStoreActive(store)}
+                        >
+                          {isTogglingStatus ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : null}
+                          {store.isActive === false ? 'Activate' : 'Deactivate'}
                         </Button>
                         <Button
                           variant="destructive"
