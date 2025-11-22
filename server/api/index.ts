@@ -119,12 +119,10 @@ export async function registerRoutes(app: Express) {
     });
   }
 
-  // Phase 8: AI Analytics Routes (guarded by feature flag)
+  // Phase 8: AI Analytics Routes (feature flag handled inside module)
   try {
-    if (process.env.AI_ANALYTICS_ENABLED === 'true') {
-      const { registerAIAnalyticsRoutes } = await import('./routes.ai-analytics');
-      await registerAIAnalyticsRoutes(app);
-    }
+    const { registerAIAnalyticsRoutes } = await import('./routes.ai-analytics');
+    await registerAIAnalyticsRoutes(app);
   } catch (error) {
     logger.warn('AI analytics routes unavailable or failed to register', {
       error: error instanceof Error ? error.message : String(error)

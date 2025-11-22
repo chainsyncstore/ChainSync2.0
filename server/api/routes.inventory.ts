@@ -5,7 +5,7 @@ import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
 import { z } from 'zod';
-import { importJobs, products, stores, users } from '@shared/schema';
+import { importJobs, products, stores, users, lowStockAlerts } from '@shared/schema';
 import { db } from '../db';
 import { logger, extractLogContext } from '../lib/logger';
 import { securityAuditService } from '../lib/security-audit';
@@ -19,6 +19,30 @@ export async function registerInventoryRoutes(app: Express) {
   app.get('/api/products', requireAuth, async (_req: Request, res: Response) => {
     const rows = await db.select().from(products).limit(1000);
     res.json(rows);
+  });
+
+  app.get('/api/products/categories', requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const categories = await storage.getProductCategories();
+      return res.json(categories);
+    } catch (error) {
+      logger.error('Failed to load product categories', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to load product categories' });
+    }
+  });
+
+  app.get('/api/products/brands', requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const brands = await storage.getProductBrands();
+      return res.json(brands);
+    } catch (error) {
+      logger.error('Failed to load product brands', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to load product brands' });
+    }
   });
 
   app.get('/api/products/barcode/:barcode', requireAuth, async (req: Request, res: Response) => {
@@ -228,6 +252,42 @@ export async function registerInventoryRoutes(app: Express) {
   app.get('/api/stores/:storeId/inventory/stock-movements', requireAuth, getStockMovements);
   app.get('/api/stores/:storeId/stock-movements', requireAuth, getStockMovements);
 
+  app.get('/api/orgs/:orgId/inventory', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+    const orgId = String((req.params as any)?.orgId ?? '').trim();
+    if (!orgId) {
+      return res.status(400).json({ error: 'orgId is required' });
+    }
+
+    const userId = req.session?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    if (!user.orgId) {
+      return res.status(400).json({ error: 'Organization not set' });
+    }
+    if (user.orgId !== orgId) {
+      return res.status(403).json({ error: 'Forbidden: org scope' });
+    }
+
+    try {
+      const summary = await storage.getOrganizationInventorySummary(orgId);
+      return res.json(summary);
+    } catch (error) {
+      logger.error('Failed to load organization inventory summary', {
+        orgId,
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to load organization inventory summary' });
+    }
+  });
+
   app.get('/api/stores/:storeId/inventory', requireAuth, async (req: Request, res: Response) => {
     const storeId = String((req.params as any)?.storeId ?? '').trim();
     if (!storeId) {
@@ -359,6 +419,63 @@ export async function registerInventoryRoutes(app: Express) {
   };
 
   app.get('/api/stores/:storeId/inventory/low-stock', requireAuth, getLowStockInventory);
+
+  app.get('/api/stores/:storeId/alerts', requireAuth, async (req: Request, res: Response) => {
+    const storeId = String((req.params as any)?.storeId ?? '').trim();
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
+    const access = await resolveStoreAccess(req, storeId, { allowCashier: true });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
+    }
+
+    try {
+      const alerts = await storage.getLowStockAlerts(storeId);
+      return res.json(alerts);
+    } catch (error) {
+      logger.error('Failed to load low stock alerts', {
+        storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to load alerts' });
+    }
+  });
+
+  app.put('/api/alerts/:alertId/resolve', requireAuth, async (req: Request, res: Response) => {
+    const alertId = String((req.params as any)?.alertId ?? '').trim();
+    if (!alertId) {
+      return res.status(400).json({ error: 'alertId is required' });
+    }
+
+    const [alert] = await db
+      .select({ id: lowStockAlerts.id, storeId: lowStockAlerts.storeId })
+      .from(lowStockAlerts)
+      .where(eq(lowStockAlerts.id, alertId))
+      .limit(1);
+
+    if (!alert) {
+      return res.status(404).json({ error: 'Alert not found' });
+    }
+
+    const access = await resolveStoreAccess(req, alert.storeId, { allowCashier: false });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
+    }
+
+    try {
+      await storage.resolveLowStockAlert(alertId);
+      return res.json({ status: 'resolved' });
+    } catch (error) {
+      logger.error('Failed to resolve low stock alert', {
+        alertId,
+        storeId: alert.storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to resolve alert' });
+    }
+  });
 
   app.post('/api/inventory', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const parsed = ManualInventorySchema.safeParse(req.body);
