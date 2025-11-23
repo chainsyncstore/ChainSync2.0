@@ -12,6 +12,7 @@ import { configureSession } from '../session';
 import { NotificationService } from '../websocket/notification-service';
 import { registerAdminRoutes } from './routes.admin';
 import { registerAnalyticsRoutes } from './routes.analytics';
+import { registerAlertsRoutes } from './routes.alerts';
 import { registerAuthRoutes } from './routes.auth';
 import { registerBillingRoutes } from './routes.billing';
 import { registerCustomerRoutes } from './routes.customers';
@@ -56,6 +57,7 @@ export async function registerRoutes(app: Express) {
   // API routes
   await registerAdminRoutes(app);
   await registerAnalyticsRoutes(app);
+  await registerAlertsRoutes(app);
   await registerAuthRoutes(app);
   await registerBillingRoutes(app);
   await registerCustomerRoutes(app);
