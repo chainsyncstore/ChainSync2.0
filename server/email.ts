@@ -742,34 +742,6 @@ export function generatePaymentConfirmationEmail(userEmail: string, userName: st
   };
 }
 
-export function generateLowStockAlertEmail(userEmail: string, userName: string, productName: string, quantity: number, minStockLevel: number): EmailOptions {
-  return {
-    to: userEmail,
-    subject: 'Low Stock Alert - ChainSync',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
-          <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
-        </div>
-        <div style="padding: 30px; background: #f9f9f9;">
-          <h2 style="color: #333; margin-bottom: 20px;">Low Stock Alert</h2>
-          <p style="color: #666;">Hello ${userName},</p>
-          <p style="color: #666;">The following product is low on stock:</p>
-          <table style="width:100%;border-collapse:collapse;margin:20px 0;">
-            <thead><tr><th>Product</th><th>Current Qty</th><th>Min Level</th></tr></thead>
-            <tbody>
-              <tr><td style='padding:4px 8px;'>${productName}</td><td style='padding:4px 8px;color:#e67e22;'>${quantity}</td><td style='padding:4px 8px;color:#c0392b;'>${minStockLevel}</td></tr>
-            </tbody>
-          </table>
-          <p style="color: #666;">Please restock soon to avoid running out.</p>
-          <p style="color: #999; font-size: 12px; text-align: center;">This is an automated message from ChainSync. Please do not reply to this email.</p>
-        </div>
-      </div>
-    `,
-    text: `Hello ${userName},\n\nThe product '${productName}' is low on stock. Current quantity: ${quantity}, Minimum level: ${minStockLevel}. Please restock soon.\n\nThis is an automated message from ChainSync. Please do not reply to this email.`
-  };
-}
-
 export function generatePasswordChangeAlertEmail(userEmail: string, userName: string): EmailOptions {
   return {
     to: userEmail,

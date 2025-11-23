@@ -45,6 +45,13 @@ import {
   userStorePermissions,
   users
 } from "@shared/schema";
+import type {
+  AlertSeverity,
+  AlertStatus,
+  AlertsOverviewResponse,
+  StoreAlertDetail,
+  StoreAlertsResponse,
+} from '@shared/types/alerts';
 import { AuthService } from "./auth";
 import { db } from "./db";
 import { logger } from "./lib/logger";
@@ -53,11 +60,6 @@ type InventoryAlertBreakdown = {
   LOW_STOCK: number;
   OUT_OF_STOCK: number;
   OVERSTOCKED: number;
-};
-
-type StoreLowStockAlert = LowStockAlert & {
-  productName?: string | null;
-  productSku?: string | null;
 };
 
 type OrganizationInventoryCurrencyTotal = {
@@ -141,6 +143,13 @@ type ProductStockHistoryParams = {
   limit?: number;
   startDate?: Date;
   endDate?: Date;
+};
+
+type StoreLowStockAlert = LowStockAlert & {
+  product?: Product | null;
+  maxStockLevel?: number | null;
+  currentStock?: number | null;
+  updatedAt?: Date | string | null;
 };
 
 // Simple in-memory cache for frequently accessed data
@@ -280,6 +289,7 @@ export interface IStorage {
   getInventoryByStore(storeId: string): Promise<Inventory[]>;
   getInventoryItem(productId: string, storeId: string): Promise<Inventory | undefined>;
   getOrganizationInventorySummary(orgId: string): Promise<OrganizationInventorySummary>;
+  getOrganizationAlertsOverview(orgId: string): Promise<AlertsOverviewResponse>;
   // Added for integration tests compatibility
   createInventory(insertInventory: InsertInventory, userId?: string, options?: InventoryCreateOptions): Promise<Inventory>;
   getInventory(productId: string, storeId: string): Promise<Inventory>;
@@ -312,6 +322,7 @@ export interface IStorage {
   createLowStockAlert(alert: InsertLowStockAlert): Promise<LowStockAlert>;
   getLowStockAlerts(storeId: string): Promise<LowStockAlert[]>;
   resolveLowStockAlert(id: string): Promise<void>;
+  getStoreAlertDetails(storeId: string): Promise<StoreAlertsResponse>;
 
   // Loyalty Program operations
   getLoyaltyTiers(storeId: string): Promise<LoyaltyTier[]>;
@@ -1441,6 +1452,55 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  async getOrganizationAlertsOverview(orgId: string): Promise<AlertsOverviewResponse> {
+    const storesForOrg = await this.getOrganizationStoreRecords(orgId);
+    const overview: AlertsOverviewResponse = {
+      totals: {
+        storesWithAlerts: 0,
+        lowStock: 0,
+        outOfStock: 0,
+        overstocked: 0,
+        total: 0,
+      },
+      stores: [],
+    };
+
+    for (const store of storesForOrg) {
+      let storeDetails: StoreAlertsResponse | null = null;
+      try {
+        storeDetails = await this.getStoreAlertDetails(store.id);
+      } catch (error) {
+        logger.warn('Failed to load store alert details', {
+          storeId: store.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+
+      if (!storeDetails || storeDetails.stats.total === 0) {
+        continue;
+      }
+
+      overview.stores.push({
+        storeId: storeDetails.storeId,
+        storeName: storeDetails.storeName,
+        currency: storeDetails.currency,
+        lowStock: storeDetails.stats.lowStock,
+        outOfStock: storeDetails.stats.outOfStock,
+        overstocked: storeDetails.stats.overstocked,
+        total: storeDetails.stats.total,
+      });
+
+      overview.totals.storesWithAlerts += 1;
+      overview.totals.lowStock += storeDetails.stats.lowStock;
+      overview.totals.outOfStock += storeDetails.stats.outOfStock;
+      overview.totals.overstocked += storeDetails.stats.overstocked;
+      overview.totals.total += storeDetails.stats.total;
+    }
+
+    return overview;
+  }
+
   async getInventoryItem(productId: string, storeId: string): Promise<Inventory | undefined> {
     if (this.isTestEnv) {
       return this.mem.inventory.get(`${storeId}:${productId}`);
@@ -2223,55 +2283,141 @@ export class DatabaseStorage implements IStorage {
   // Alert operations
   async createLowStockAlert(insertAlert: InsertLowStockAlert): Promise<LowStockAlert> {
     const [alert] = await db.insert(lowStockAlerts).values(insertAlert as unknown as typeof lowStockAlerts.$inferInsert).returning();
-    // Send low stock alert email to all users in the store's org
-    try {
-      const store = await db.select().from(stores).where(eq(stores.id, alert.storeId)).limit(1);
-      if (store && store[0]) {
-        // Find users for this store who have not opted out
-        const usersInStore = await db.select().from(users).where(
-          and(
-            eq(users.storeId, store[0].id),
-            or(eq(users.lowStockEmailOptOut, false), sql`${users.lowStockEmailOptOut} IS NULL`)
-          )
-        );
-        const product = await db.select().from(products).where(eq(products.id, alert.productId)).limit(1);
-        for (const user of usersInStore) {
-          if (user.email) {
-            const { generateLowStockAlertEmail, sendEmail } = await import('./email');
-            await sendEmail(generateLowStockAlertEmail(
-              user.email,
-              user.email,
-              product && product[0] ? product[0].name : 'Product',
-              alert.currentStock,
-              alert.minStockLevel
-            ));
-          }
-        }
-      }
-    } catch (_error) {
-      void _error;
-      /* log error if needed */
-    }
     return alert;
+  }
+
+  private resolveAlertStatus(quantity: number, min?: number | null, max?: number | null): AlertStatus {
+    if (quantity <= 0) return 'out_of_stock';
+    if (typeof max === 'number' && quantity > max) return 'overstocked';
+    if (typeof min === 'number' && quantity <= min) return 'low_stock';
+    return 'low_stock';
+  }
+
+  private resolveAlertSeverity(status: AlertStatus): AlertSeverity {
+    if (status === 'out_of_stock') return 'critical';
+    if (status === 'low_stock') return 'warning';
+    return 'info';
+  }
+
+  private async buildStoreAlertDetail(
+    raw: StoreLowStockAlert,
+    context?: {
+      quantity?: number | null;
+      minStockLevel?: number | null;
+      maxStockLevel?: number | null;
+      product?: Product | null;
+      updatedAt?: Date | string | null;
+    }
+  ): Promise<StoreAlertDetail> {
+    const quantity = context?.quantity ?? raw.currentStock ?? 0;
+    const minStockLevel = context?.minStockLevel ?? raw.minStockLevel ?? null;
+    const maxStockLevel = context?.maxStockLevel ?? (raw as any).maxStockLevel ?? null;
+
+    const status = this.resolveAlertStatus(quantity, minStockLevel, maxStockLevel);
+    const severity = this.resolveAlertSeverity(status);
+
+    return {
+      id: `${raw.storeId}:${raw.productId}`,
+      storeId: raw.storeId,
+      productId: raw.productId,
+      status,
+      severity,
+      quantity,
+      minStockLevel,
+      maxStockLevel,
+      price: (context?.product as any)?.price ?? (raw.product as any)?.price ?? null,
+      alertId: raw.id,
+      alertCreatedAt: raw.createdAt?.toISOString?.() ?? (raw.createdAt as any) ?? null,
+      updatedAt: context?.updatedAt ?? (raw as any).updatedAt ?? null,
+      product: {
+        id: raw.productId,
+        name: context?.product?.name ?? raw.product?.name ?? null,
+        sku: (context?.product as any)?.sku ?? (raw.product as any)?.sku ?? null,
+        barcode: (context?.product as any)?.barcode ?? (raw.product as any)?.barcode ?? null,
+        category: (context?.product as any)?.category ?? (raw.product as any)?.category ?? null,
+        price: (context?.product as any)?.price ?? (raw.product as any)?.price ?? null,
+      },
+    } satisfies StoreAlertDetail;
   }
 
   async getLowStockAlerts(storeId: string): Promise<StoreLowStockAlert[]> {
     const rows = await db
       .select({
         alert: lowStockAlerts,
-        productName: products.name,
-        productSku: products.sku,
+        product: products,
       })
       .from(lowStockAlerts)
       .leftJoin(products, eq(products.id, lowStockAlerts.productId))
       .where(and(eq(lowStockAlerts.storeId, storeId), eq(lowStockAlerts.isResolved, false)))
       .orderBy(desc(lowStockAlerts.createdAt));
 
-    return rows.map(({ alert, productName, productSku }) => ({
+    return rows.map(({ alert, product }) => ({
       ...alert,
-      productName,
-      productSku,
+      product: product ?? null,
     }));
+  }
+
+  async getStoreAlertDetails(storeId: string): Promise<StoreAlertsResponse> {
+    const storeRecord = await this.getStore(storeId);
+    if (!storeRecord) {
+      throw new Error('Store not found');
+    }
+
+    const inventoryItems = await this.getInventoryByStore(storeId);
+    const alertCandidates = inventoryItems.filter((item) => {
+      const quantity = item.quantity ?? 0;
+      if (quantity <= 0) return true;
+      if ((item.minStockLevel ?? 0) > 0 && quantity <= (item.minStockLevel ?? 0)) return true;
+      if ((item.maxStockLevel ?? null) != null && quantity > (item.maxStockLevel ?? 0)) return true;
+      return false;
+    });
+
+    const activeAlerts = await this.getLowStockAlerts(storeId);
+    const alertsByProduct = new Map(activeAlerts.map((alert) => [alert.productId, alert]));
+
+    const alertDetails: StoreAlertDetail[] = [];
+    for (const item of alertCandidates) {
+      const matchingAlert = alertsByProduct.get(item.productId);
+      const detail = await this.buildStoreAlertDetail(
+        matchingAlert ?? ({
+          ...item,
+          id: matchingAlert?.id ?? `virtual-${item.productId}`,
+          storeId,
+          product: item.product as any,
+          currentStock: item.quantity ?? 0,
+          minStockLevel: item.minStockLevel ?? null,
+          maxStockLevel: item.maxStockLevel ?? null,
+          createdAt: matchingAlert?.createdAt ?? item.updatedAt ?? new Date(),
+          updatedAt: item.updatedAt ?? new Date(),
+          isResolved: false,
+          resolvedAt: null,
+        } as StoreLowStockAlert),
+        {
+          quantity: item.quantity ?? null,
+          minStockLevel: item.minStockLevel ?? null,
+          maxStockLevel: item.maxStockLevel ?? null,
+          product: item.product as any,
+          updatedAt: item.updatedAt ?? null,
+        }
+      );
+      alertDetails.push(detail);
+    }
+
+    const stats = alertDetails.reduce<StoreAlertsResponse['stats']>((acc, alert) => {
+      if (alert.status === 'out_of_stock') acc.outOfStock += 1;
+      else if (alert.status === 'low_stock') acc.lowStock += 1;
+      else acc.overstocked += 1;
+      acc.total += 1;
+      return acc;
+    }, { lowStock: 0, outOfStock: 0, overstocked: 0, total: 0 });
+
+    return {
+      storeId,
+      storeName: storeRecord.name,
+      currency: (storeRecord as any).currency ?? 'USD',
+      stats,
+      alerts: alertDetails,
+    } satisfies StoreAlertsResponse;
   }
 
   async resolveLowStockAlert(id: string): Promise<void> {

@@ -1203,22 +1203,6 @@ export async function registerAuthRoutes(app: Express) {
     }
   });
 
-  // Update low stock alert email opt-out preference
-  app.post('/api/auth/low-stock-email-opt-out', async (req: Request, res: Response) => {
-    const { userId } = req.session!;
-    const { optOut } = req.body;
-    if (!userId || typeof optOut !== 'boolean') {
-      return res.status(400).json({ message: 'Invalid request' });
-    }
-    try {
-      await storage.updateUser(userId, { lowStockEmailOptOut: optOut } as Record<string, unknown>);
-      res.json({ message: `Low stock alert emails have been ${optOut ? 'disabled' : 'enabled'}.` });
-    } catch (error) {
-      logger.error('Failed to update lowStockEmailOptOut', { error, req: extractLogContext(req) });
-      res.status(500).json({ message: 'Internal server error' });
-    }
-  });
-
   // Password change (not reset)
   app.post('/api/auth/change-password', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
     const { userId } = req.session!;

@@ -63,7 +63,6 @@ export const users = pgTable("users", {
   location: varchar("location", { length: 64 }),
   role: varchar("role", { length: 32 }),
   storeId: uuid("store_id"),
-  lowStockEmailOptOut: boolean("low_stock_email_opt_out"),
   signupCompleted: boolean("signup_completed"),
   signupAttempts: integer("signup_attempts"),
   signupStartedAt: timestamp("signup_started_at", { withTimezone: true }),

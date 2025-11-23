@@ -1,37 +1,64 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, Package, Clock } from "lucide-react";
+import { AlertTriangle, CheckCircle, Loader2, Store } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/hooks/use-auth";
 import { formatDateTime } from "@/lib/pos-utils";
 import { apiRequest } from "@/lib/queryClient";
-import type { Store, LowStockAlert, Product } from "@shared/schema";
+import type { AlertsOverviewResponse, StoreAlertDetail, StoreAlertsResponse } from "@shared/types/alerts";
 
-import LowStockEmailOptOutToggle from "../../components/LowStockEmailOptOutToggle";
+const severityStyles = {
+  critical: {
+    badge: "bg-red-100 text-red-800 border-red-200",
+    pill: "bg-red-50 text-red-700",
+  },
+  warning: {
+    badge: "bg-amber-100 text-amber-800 border-amber-200",
+    pill: "bg-amber-50 text-amber-700",
+  },
+  info: {
+    badge: "bg-slate-100 text-slate-800 border-slate-200",
+    pill: "bg-slate-50 text-slate-600",
+  },
+} as const;
+
+const summaryDefaults = { lowStock: 0, outOfStock: 0, overstocked: 0, total: 0 };
 
 export default function Alerts() {
-  const [selectedStore, setSelectedStore] = useState<string>("");
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const isAdmin = Boolean(user?.isAdmin);
+  const managerStoreId = !isAdmin ? user?.storeId ?? null : null;
 
-  const { data: stores = [] } = useQuery<Store[]>({
-    queryKey: ["/api/stores"],
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+
+  const overviewQuery = useQuery<AlertsOverviewResponse>({
+    queryKey: ["/api/alerts/overview"],
+    enabled: isAdmin,
+    queryFn: async () => {
+      const res = await fetch("/api/alerts/overview", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load alerts overview");
+      return res.json();
+    },
   });
 
-  // Auto-select first store when stores are loaded
-  useEffect(() => {
-    if (stores.length > 0 && !selectedStore) {
-      setSelectedStore(stores[0].id);
-    }
-  }, [stores, selectedStore]);
+  const storeIdForDetail = isAdmin ? selectedStoreId : managerStoreId;
 
-  const { data: alerts = [] } = useQuery<LowStockAlert[]>({
-    queryKey: ["/api/stores", selectedStore, "alerts"],
-    enabled: Boolean(selectedStore),
-  });
-
-  const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+  const detailQuery = useQuery<StoreAlertsResponse>({
+    queryKey: ["/api/alerts/stores", storeIdForDetail],
+    enabled: Boolean(storeIdForDetail),
+    queryFn: async () => {
+      if (!storeIdForDetail) throw new Error("Missing store context");
+      const res = await fetch(`/api/alerts/stores/${storeIdForDetail}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load store alerts");
+      return res.json();
+    },
   });
 
   const resolveAlertMutation = useMutation({
@@ -39,201 +66,294 @@ export default function Alerts() {
       await apiRequest("PUT", `/api/alerts/${alertId}/resolve`);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "alerts"] });
-    },
-    onError: (error) => {
-      console.error("Failed to resolve alert", error);
+      if (storeIdForDetail) {
+        await queryClient.invalidateQueries({ queryKey: ["/api/alerts/stores", storeIdForDetail] });
+      }
+      if (isAdmin) {
+        await queryClient.invalidateQueries({ queryKey: ["/api/alerts/overview"] });
+      }
     },
   });
 
+  const storeOptions = useMemo(() => (isAdmin ? overviewQuery.data?.stores ?? [] : []), [isAdmin, overviewQuery.data]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (!storeOptions.length) {
+      setSelectedStoreId(null);
+      return;
+    }
+    const exists = storeOptions.some((store) => store.storeId === selectedStoreId);
+    if (!exists) {
+      setSelectedStoreId(storeOptions[0].storeId);
+    }
+  }, [isAdmin, storeOptions, selectedStoreId]);
 
-  const alertsWithProducts = useMemo(
-    () =>
-      alerts
-        .map((alert) => {
-          const product = products.find((productItem) => productItem.id === alert.productId);
-          return product ? { ...alert, product } : null;
-        })
-        .filter((item): item is LowStockAlert & { product: Product } => Boolean(item)),
-    [alerts, products],
-  );
+  const detail = detailQuery.data ?? null;
+  const stats = detail?.stats ?? summaryDefaults;
+  const alerts = detail?.alerts ?? [];
+  const storeName = detail?.storeName ?? (isAdmin ? "Select a store" : "Assigned store");
 
-  const criticalAlerts = useMemo(
-    () => alertsWithProducts.filter((alert) => alert.currentStock === 0),
-    [alertsWithProducts],
-  );
+  const handleResolve = (alert: StoreAlertDetail) => {
+    if (!alert.alertId || alert.alertId.startsWith("virtual")) {
+      return;
+    }
+    resolveAlertMutation.mutate(alert.alertId);
+  };
 
-  const warningAlerts = useMemo(
-    () => alertsWithProducts.filter((alert) => alert.currentStock > 0),
-    [alertsWithProducts],
-  );
+  const renderStoreSnapshot = () => {
+    if (!isAdmin) return null;
+    return (
+      <Card>
+        <CardHeader className="space-y-2">
+          <CardTitle>Organization Alerts Snapshot</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            {overviewQuery.isLoading
+              ? "Loading snapshot..."
+              : overviewQuery.data?.totals.total
+                ? `${overviewQuery.data.totals.total.toLocaleString()} active alerts across ${overviewQuery.data.totals.storesWithAlerts} store(s).`
+                : "No active alerts across your organization."}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm font-medium text-muted-foreground">Select a store</div>
+            <Select
+              value={selectedStoreId ?? undefined}
+              onValueChange={(value) => setSelectedStoreId(value)}
+              disabled={!storeOptions.length}
+            >
+              <SelectTrigger className="w-full sm:w-60">
+                <SelectValue placeholder={storeOptions.length ? "Choose store" : "No stores with alerts"} />
+              </SelectTrigger>
+              <SelectContent>
+                {storeOptions.map((store) => (
+                  <SelectItem key={store.storeId} value={store.storeId}>
+                    {store.storeName} ({store.total})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {overviewQuery.isLoading && !storeOptions.length ? (
+              <div className="col-span-full flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading stores...
+              </div>
+            ) : storeOptions.length ? (
+              storeOptions.map((store) => {
+                const isActive = store.storeId === selectedStoreId;
+                return (
+                  <button
+                    key={store.storeId}
+                    type="button"
+                    onClick={() => setSelectedStoreId(store.storeId)}
+                    className={`rounded-lg border p-4 text-left transition hover:border-primary ${
+                      isActive ? 'border-primary bg-primary/5' : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">{store.storeName}</p>
+                        <p className="text-xs text-muted-foreground">{store.currency}</p>
+                      </div>
+                      <Badge variant={isActive ? 'default' : 'secondary'}>{store.total}</Badge>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[0.65rem]">
+                      <div>
+                        <p className="font-semibold text-red-600">{store.outOfStock}</p>
+                        <p className="text-muted-foreground">Out</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-amber-600">{store.lowStock}</p>
+                        <p className="text-muted-foreground">Low</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-slate-600">{store.overstocked}</p>
+                        <p className="text-muted-foreground">Over</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="col-span-full rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                All stores are healthy.
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderStoreAlerts = () => {
+    if (!storeIdForDetail) {
+      return (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            {isAdmin ? "Select a store to view its alerts." : "Your account is not assigned to a store."}
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (detailQuery.isLoading) {
+      return (
+        <Card>
+          <CardContent className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading alerts…
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (detailQuery.isError) {
+      return (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-destructive">
+            Failed to load alerts. Please retry.
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card>
+        <CardHeader className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Store className="h-5 w-5 text-primary" />
+            <CardTitle>{storeName}</CardTitle>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {stats.total ? `${stats.total.toLocaleString()} active alert${stats.total === 1 ? '' : 's'}` : 'All clear'}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <SummaryCard label="Total" value={stats.total} description="Active alerts" icon={<AlertTriangle className="h-4 w-4" />} />
+            <SummaryCard label="Out of Stock" value={stats.outOfStock} description="Need immediate restock" accent="text-red-600" />
+            <SummaryCard label="Low Stock" value={stats.lowStock} description="Below threshold" accent="text-amber-600" />
+            <SummaryCard label="Overstocked" value={stats.overstocked} description="Above max" accent="text-slate-600" />
+          </div>
+
+          {alerts.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+              <CheckCircle className="h-10 w-10 text-emerald-500" />
+              Inventory levels look healthy.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {alerts.map((storeAlert) => (
+                <AlertListItem
+                  key={`${storeAlert.productId}-${storeAlert.alertId}`}
+                  alertItem={storeAlert}
+                  onResolve={() => handleResolve(storeAlert)}
+                  resolvingId={resolveAlertMutation.variables}
+                  isResolving={resolveAlertMutation.isPending}
+                />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-6">
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">Preferences</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <LowStockEmailOptOutToggle />
-              </CardContent>
-            </Card>
-            {/* Alert Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Alerts</CardTitle>
-                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{alertsWithProducts.length}</div>
-                  <p className="text-xs text-muted-foreground">
-                    Active stock alerts
-                  </p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Critical</CardTitle>
-                  <AlertTriangle className="h-4 w-4 text-red-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-red-600">{criticalAlerts.length}</div>
-                  <p className="text-xs text-muted-foreground">
-                    Out of stock items
-                  </p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Warning</CardTitle>
-                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-yellow-600">{warningAlerts.length}</div>
-                  <p className="text-xs text-muted-foreground">
-                    Low stock items
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
+      {renderStoreSnapshot()}
+      {renderStoreAlerts()}
+    </div>
+  );
+}
 
-            {/* Critical Alerts */}
-            {criticalAlerts.length > 0 && (
-              <Card className="border-red-200">
-                <CardHeader>
-                  <CardTitle className="text-red-700 flex items-center">
-                    <AlertTriangle className="w-5 h-5 mr-2" />
-                    Critical Alerts - Out of Stock
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {criticalAlerts.map((alert: any) => (
-                      <div key={alert.id} className="flex items-center justify-between p-4 bg-red-50 rounded-lg border border-red-200">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                            <Package className="w-6 h-6 text-red-600" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-red-900">{alert.product.name}</p>
-                            <p className="text-sm text-red-700">SKU: {alert.product.barcode}</p>
-                            <p className="text-xs text-red-600">
-                              <Clock className="w-3 h-3 inline mr-1" />
-                              {formatDateTime(new Date(alert.createdAt))}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                          <div className="text-right">
-                            <Badge variant="destructive">OUT OF STOCK</Badge>
-                            <p className="text-sm text-red-700 mt-1">
-                              Min level: {alert.minStockLevel}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            onClick={() => resolveAlertMutation.mutate(alert.id)}
-                            disabled={resolveAlertMutation.isPending}
-                          >
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Resolve
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Warning Alerts */}
-            {warningAlerts.length > 0 && (
-              <Card className="border-yellow-200">
-                <CardHeader>
-                  <CardTitle className="text-yellow-700 flex items-center">
-                    <AlertTriangle className="w-5 h-5 mr-2" />
-                    Warning Alerts - Low Stock
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {warningAlerts.map((alert: any) => (
-                      <div key={alert.id} className="flex items-center justify-between p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                            <Package className="w-6 h-6 text-yellow-600" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-yellow-900">{alert.product.name}</p>
-                            <p className="text-sm text-yellow-700">SKU: {alert.product.barcode}</p>
-                            <p className="text-xs text-yellow-600">
-                              <Clock className="w-3 h-3 inline mr-1" />
-                              {formatDateTime(new Date(alert.createdAt))}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                          <div className="text-right">
-                            <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                              {alert.currentStock} remaining
-                            </Badge>
-                            <p className="text-sm text-yellow-700 mt-1">
-                              Min level: {alert.minStockLevel}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => resolveAlertMutation.mutate(alert.id)}
-                            disabled={resolveAlertMutation.isPending}
-                          >
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Resolve
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* No Alerts State */}
-            {alertsWithProducts.length === 0 && (
-              <Card>
-                <CardContent className="text-center py-12">
-                  <CheckCircle className="w-16 h-16 mx-auto mb-4 text-green-500" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">All Clear!</h3>
-                  <p className="text-gray-600">No active stock alerts. All inventory levels are healthy.</p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+function SummaryCard({
+  label,
+  value,
+  description,
+  accent,
+  icon,
+}: {
+  label: string;
+  value: number;
+  description: string;
+  accent?: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-4">
+      <div className="flex items-center justify-between text-sm font-medium text-muted-foreground">
+        {label}
+        {icon}
       </div>
-    );
+      <div className={`mt-2 text-2xl font-semibold ${accent ?? 'text-slate-900'}`}>{value}</div>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function AlertListItem({
+  alertItem,
+  onResolve,
+  resolvingId,
+  isResolving,
+}: {
+  alertItem: StoreAlertDetail;
+  onResolve: () => void;
+  resolvingId: string | undefined;
+  isResolving: boolean;
+}) {
+  const severity = severityStyles[alertItem.severity] ?? severityStyles.info;
+  const canResolve = Boolean(alertItem.alertId && !alertItem.alertId.startsWith("virtual"));
+  const resolving = isResolving && alertItem.alertId === resolvingId;
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-base font-semibold">{alertItem.product?.name ?? "Unnamed product"}</p>
+            <Badge className={severity.badge} variant="outline">
+              {alertItem.status.replace(/_/g, " ")}
+            </Badge>
+            <Badge className={severity.pill} variant="outline">
+              {alertItem.severity}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">SKU/Barcode: {alertItem.product?.barcode ?? "N/A"}</p>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-muted-foreground sm:grid-cols-4">
+            <div>
+              <p className="font-medium text-slate-900">{alertItem.quantity}</p>
+              <p>On hand</p>
+            </div>
+            <div>
+              <p className="font-medium text-slate-900">{alertItem.minStockLevel ?? '—'}</p>
+              <p>Min level</p>
+            </div>
+            <div>
+              <p className="font-medium text-slate-900">{alertItem.maxStockLevel ?? '—'}</p>
+              <p>Max level</p>
+            </div>
+            <div>
+              <p className="font-medium text-slate-900">
+                {alertItem.alertCreatedAt ? formatDateTime(new Date(alertItem.alertCreatedAt)) : '—'}
+              </p>
+              <p>Created</p>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canResolve || isResolving}
+            onClick={onResolve}
+          >
+            {resolving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />} Resolve
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }

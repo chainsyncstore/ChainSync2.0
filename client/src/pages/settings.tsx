@@ -26,7 +26,7 @@ export default function Settings() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Notification settings state
-  const [notificationSettings, setNotificationSettings] = useState({ lowStockAlerts: false, salesReports: false, systemUpdates: false });
+  const [notificationSettings, setNotificationSettings] = useState({ salesReports: false, systemUpdates: false });
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
 
   // Profile form state
@@ -86,7 +86,11 @@ export default function Settings() {
           const response = await fetch('/api/settings');
           if (response.ok) {
             const settings = await response.json();
-            setNotificationSettings(settings.notifications || { lowStockAlerts: false, salesReports: false, systemUpdates: false });
+            const notifications = settings.notifications || {};
+            setNotificationSettings({
+              salesReports: Boolean(notifications.salesReports),
+              systemUpdates: Boolean(notifications.systemUpdates),
+            });
           }
         } catch (error) {
           console.error('Failed to fetch settings:', error);
@@ -622,14 +626,6 @@ export default function Settings() {
                   <CardDescription>Choose how you want to be notified</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Low Stock Alerts</p>
-                      <p className="text-sm text-gray-600">Get notified when inventory is running low</p>
-                    </div>
-                    <Switch checked={notificationSettings.lowStockAlerts} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, lowStockAlerts: checked })} />
-                  </div>
-                  
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium">Sales Reports</p>
