@@ -28,7 +28,7 @@ export async function registerAlertsRoutes(app: Express) {
     }
   });
 
-  app.get('/api/stores/:storeId/alerts', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/alerts/stores/:storeId', requireAuth, async (req: Request, res: Response) => {
     const storeId = String((req.params as any)?.storeId ?? '').trim();
     if (!storeId) {
       return res.status(400).json({ error: 'storeId is required' });
