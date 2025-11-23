@@ -8,7 +8,6 @@ import {
 	Settings,
 	Link as LinkIcon,
 	Crown,
-	ListChecks,
 	CreditCard,
 	Users,
 	Undo2,
@@ -76,7 +75,6 @@ const getNavigationItems = (
 
 	if (userRole === "admin") {
 		items.splice(-1, 0, { path: "/multi-store", icon: Building2, label: "Multi-Store" });
-		items.splice(-1, 0, { path: "/admin/audit", icon: ListChecks, label: "Audit" });
 		items.splice(-1, 0, { path: "/admin/billing", icon: CreditCard, label: "Billing" });
 	}
 

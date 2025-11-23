@@ -1,11 +1,8 @@
-import { eq } from "drizzle-orm";
 import { Request, Response, NextFunction, RequestHandler } from "express";
 import { z, ZodError } from "zod";
-import { auditLogs, users } from "@shared/schema";
-import { db } from "../db";
 import { sendErrorResponse } from "../lib/errors";
 import { ValidationError } from "../lib/errors";
-import { LogContext, logger } from "../lib/logger";
+import type { LogContext } from "../lib/logger";
 
 /**
  * Middleware to validate request body against a Zod schema
@@ -201,75 +198,4 @@ export function extractLogContext(req: Request, additional?: Partial<LogContext>
     storeId: (req.session as any)?.user?.storeId,
     ...(additional || {})
   } as LogContext;
-}
-
-// Audit middleware: write a row for all non-GET requests
-export function auditMiddleware() {
-  return async (req: Request, _res: Response, next: NextFunction) => {
-    if (req.method === 'GET') return next();
-    const started = Date.now();
-    const userId: string | undefined = (req.session as any)?.userId || (req.session as any)?.user?.id;
-    let orgId: string | undefined = (req as any).orgId || (req.session as any)?.orgId;
-
-    if (!orgId && userId) {
-      try {
-        const [userRow] = await db
-          .select({ orgId: users.orgId })
-          .from(users)
-          .where(eq(users.id, userId))
-          .limit(1);
-
-        orgId = userRow?.orgId as string | undefined;
-        if (orgId) {
-          (req as any).orgId = orgId;
-          if (req.session) {
-            (req.session as any).orgId = orgId;
-          }
-        }
-      } catch (error) {
-        logger.warn("Failed to resolve orgId for audit log", {
-          userId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    const ip = req.ip || (req as any).connection?.remoteAddress;
-    const userAgent = req.get('User-Agent');
-
-    // Defer insert until response finished to attach status
-    _res.on('finish', async () => {
-      try {
-        if (!orgId) {
-          logger.warn("Skipping audit log due to missing orgId", {
-            userId,
-            path: req.path,
-          });
-          return;
-        }
-        const entity = req.path.split('/').filter(Boolean)[1] || 'unknown';
-        const action = `${req.method}`;
-        await db.insert(auditLogs).values({
-          orgId: orgId as any,
-          userId: userId as any,
-          action,
-          entity,
-          entityId: undefined as any,
-          meta: {
-            path: req.path,
-            status: _res.statusCode,
-            durationMs: Date.now() - started,
-            bodyKeys: Object.keys(req.body || {}),
-            query: req.query || {},
-          } as any,
-          ip: ip as any,
-          userAgent: userAgent as any,
-        } as any);
-      } catch (error) {
-        logger.warn("Failed to write audit log", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    });
-    next();
-  };
 }

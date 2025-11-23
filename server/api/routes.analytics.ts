@@ -8,7 +8,7 @@ import { sendEmail } from '../email';
 import { getDefaultRates, convertAmount, StaticCurrencyRateProvider } from '../lib/currency';
 import { logger } from '../lib/logger';
 import { getTodayRollupForStore } from '../lib/redis';
-import { requireAuth, requireRole } from '../middleware/authz';
+import { requireAuth } from '../middleware/authz';
 import { requireActiveSubscription } from '../middleware/subscription';
 import { storage } from '../storage';
 
@@ -1335,26 +1335,4 @@ export async function registerAnalyticsRoutes(app: Express) {
       res.status(500).json({ error: 'Failed to deactivate report schedule' });
     }
   });
-
-  // Minimal admin audit logs feed
-  app.get('/api/admin/audit', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
-    const limit = Math.min(parseInt(String(req.query.limit || '50'), 10) || 50, 200);
-    const rows = await db.execute(sql`SELECT id, org_id, user_id, action, entity, entity_id, meta, ip, user_agent, created_at
-      FROM audit_logs ORDER BY created_at DESC LIMIT ${limit}`);
-    const logs = (rows as any).rows.map((r: any) => ({
-      id: r.id,
-      orgId: r.org_id,
-      userId: r.user_id,
-      action: r.action,
-      entity: r.entity,
-      entityId: r.entity_id,
-      meta: r.meta,
-      ip: r.ip,
-      userAgent: r.user_agent,
-      createdAt: r.created_at,
-    }));
-    res.json({ logs });
-  });
 }
-
-

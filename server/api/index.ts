@@ -6,7 +6,6 @@ import { loadEnv } from '../../shared/env';
 import { getEmailHealth } from '../email';
 import { logger } from '../lib/logger';
 import { csrfProtection, globalRateLimit, sensitiveEndpointRateLimit } from '../middleware/security';
-import { auditMiddleware } from '../middleware/validation';
 import { OpenAIService } from '../openai/service';
 import { configureSession } from '../session';
 import { NotificationService } from '../websocket/notification-service';
@@ -45,8 +44,6 @@ export async function registerRoutes(app: Express) {
   app.use(['/api/export', '/api/**/export'], sensitiveEndpointRateLimit);
   // Global API rate limit after CSRF, before routes
   app.use('/api', globalRateLimit);
-  // Global audit for non-GET
-  app.use(auditMiddleware());
 
   // Healthcheck
   app.get('/healthz', (_req, res) => {
