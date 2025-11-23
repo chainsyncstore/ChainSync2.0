@@ -3,13 +3,13 @@ import type { Store } from '@shared/schema';
 import { useAuth } from '../../hooks/use-auth';
 import { useIpWhitelist, type WhitelistRole } from '../../hooks/use-ip-whitelist';
 import { useToast } from '../../hooks/use-toast';
-import { Alert, AlertDescription } from '../ui/alert';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Alert, AlertDescription } from '../ui/notice';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 
