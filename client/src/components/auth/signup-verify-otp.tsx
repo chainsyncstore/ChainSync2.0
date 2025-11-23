@@ -3,10 +3,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 
 import { ErrorBoundary } from "@/components/error-boundary";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/notice";
 import { apiClient } from "@/lib/api-client";
 
 function SignupVerifyOtpForm() {

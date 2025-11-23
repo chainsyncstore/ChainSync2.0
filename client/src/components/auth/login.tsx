@@ -1,10 +1,10 @@
 import { AlertCircle, LogIn } from "lucide-react";
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/notice";
 
 // eslint-disable-next-line no-unused-vars
 type LoginHandler = (username: string, password: string) => Promise<void>;

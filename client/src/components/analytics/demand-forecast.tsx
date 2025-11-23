@@ -3,10 +3,10 @@ import { Brain, Zap, AlertTriangle, CheckCircle, Clock, Target, BarChart3, LineC
 import { useState, useEffect } from "react";
 
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/notice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiClient } from "@/lib/api-client";
 import { formatDate } from "@/lib/pos-utils";

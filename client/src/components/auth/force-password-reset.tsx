@@ -1,9 +1,9 @@
 import { AlertCircle, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/notice";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";

@@ -2,10 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Brain, AlertTriangle, CheckCircle, Clock, TrendingUp, Lightbulb, BarChart3 } from "lucide-react";
 
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/notice";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiClient } from "@/lib/api-client";
