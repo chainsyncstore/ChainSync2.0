@@ -246,11 +246,66 @@ export async function registerInventoryRoutes(app: Express) {
       timestamp: movement.occurredAt ?? movement.createdAt ?? null,
     }));
 
-    return res.json(enriched);
+    return res.json({
+      data: enriched,
+      meta: {
+        limit: rest.limit,
+        offset: rest.offset,
+        count: enriched.length,
+      },
+    });
   };
 
   app.get('/api/stores/:storeId/inventory/stock-movements', requireAuth, getStockMovements);
   app.get('/api/stores/:storeId/stock-movements', requireAuth, getStockMovements);
+
+  app.get('/api/inventory/:productId/:storeId/history', requireAuth, async (req: Request, res: Response) => {
+    const { productId, storeId } = req.params as { productId?: string; storeId?: string };
+    const normalizedProductId = String(productId ?? '').trim();
+    const normalizedStoreId = String(storeId ?? '').trim();
+
+    if (!normalizedProductId || !normalizedStoreId) {
+      return res.status(400).json({ error: 'productId and storeId are required' });
+    }
+
+    const access = await resolveStoreAccess(req, normalizedStoreId, { allowCashier: true });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
+    }
+
+    const rawLimit = typeof req.query?.limit === 'string' ? req.query.limit.trim() : '';
+    const rawStartDate = typeof req.query?.startDate === 'string' ? req.query.startDate : undefined;
+    const rawEndDate = typeof req.query?.endDate === 'string' ? req.query.endDate : undefined;
+
+    let limit: number | undefined;
+    if (rawLimit) {
+      const parsedLimit = Number(rawLimit);
+      if (!Number.isFinite(parsedLimit) || Number.isNaN(parsedLimit) || parsedLimit <= 0) {
+        return res.status(400).json({ error: 'limit must be a positive number' });
+      }
+      limit = parsedLimit;
+    }
+
+    const movements = await storage.getProductStockHistory(normalizedStoreId, normalizedProductId, {
+      limit,
+      startDate: parseDateString(rawStartDate),
+      endDate: parseDateString(rawEndDate),
+    });
+
+    const enriched = movements.map((movement) => ({
+      ...movement,
+      quantity: movement.quantityAfter,
+      timestamp: movement.occurredAt ?? movement.createdAt ?? null,
+    }));
+
+    return res.json({
+      data: enriched,
+      meta: {
+        limit: limit ?? undefined,
+        count: enriched.length,
+      },
+    });
+  });
 
   app.get('/api/orgs/:orgId/inventory', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
     const orgId = String((req.params as any)?.orgId ?? '').trim();
