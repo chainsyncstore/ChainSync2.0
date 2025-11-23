@@ -36,6 +36,12 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Give the admin users page a stable, explicit chunk name so its
+          // generated asset appears as admin-users-[hash].js rather than users-[hash].js
+          if (id.includes(`${path.sep}client${path.sep}src${path.sep}pages${path.sep}admin${path.sep}users`)) {
+            return 'admin-users';
+          }
+
           // Preserve explicit groups first
           const map: Record<string, string> = {
             'recharts': 'charts',
