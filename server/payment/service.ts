@@ -31,6 +31,12 @@ interface PaymentChargeResult {
   message?: string;
 }
 
+interface PaymentRefundResult {
+  success: boolean;
+  message?: string;
+  raw?: any;
+}
+
 export interface AutopayDetails {
   autopayReference: string;
   email?: string;
@@ -71,6 +77,146 @@ export class PaymentService {
       if (!this.paystackSecretKey && !this.flutterwaveSecretKey) {
         throw new Error('At least one payment service key is required. Please set PAYSTACK_SECRET_KEY or FLUTTERWAVE_SECRET_KEY in environment variables.');
       }
+    }
+  }
+
+  async fetchPaystackTransaction(reference: string): Promise<any> {
+    if (!reference) {
+      throw new Error('Paystack transaction reference is required');
+    }
+
+    if (!this.paystackSecretKey) {
+      throw new Error('Paystack secret key is not configured');
+    }
+
+    const response = await axios.get(
+      `${this.paystackBaseUrl}/transaction/verify/${reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${this.paystackSecretKey}`,
+        },
+      },
+    );
+
+    return response.data?.data;
+  }
+
+  async fetchFlutterwaveTransaction(reference: string): Promise<any> {
+    if (!reference) {
+      throw new Error('Flutterwave transaction reference is required');
+    }
+
+    if (!this.flutterwaveSecretKey) {
+      throw new Error('Flutterwave secret key is not configured');
+    }
+
+    const response = await axios.get(
+      `${this.flutterwaveBaseUrl}/transactions/verify_by_reference`,
+      {
+        headers: {
+          Authorization: `Bearer ${this.flutterwaveSecretKey}`,
+        },
+        params: {
+          tx_ref: reference,
+        },
+      },
+    );
+
+    return response.data?.data;
+  }
+
+  async refundPaystackTransaction(
+    transaction: string | number,
+    amountMinor?: number,
+  ): Promise<PaymentRefundResult> {
+    if (!this.paystackSecretKey) {
+      throw new Error('Paystack secret key is not configured');
+    }
+
+    if (!transaction) {
+      throw new Error('Paystack refund requires a transaction reference or id');
+    }
+
+    try {
+      const payload: Record<string, string | number> = {
+        transaction,
+      };
+
+      if (typeof amountMinor === 'number' && Number.isFinite(amountMinor) && amountMinor > 0) {
+        payload.amount = Math.trunc(amountMinor);
+      }
+
+      const response = await axios.post(
+        `${this.paystackBaseUrl}/refund`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${this.paystackSecretKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      return {
+        success: response.data?.status === true,
+        message: response.data?.message,
+        raw: response.data,
+      } satisfies PaymentRefundResult;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      return {
+        success: false,
+        message: (axiosError.response?.data as { message?: string } | undefined)?.message || axiosError.message,
+        raw: axiosError.response?.data,
+      } satisfies PaymentRefundResult;
+    }
+  }
+
+  async refundFlutterwaveTransaction(
+    transactionId: string | number,
+    amountMajor?: number,
+    currency?: string,
+  ): Promise<PaymentRefundResult> {
+    if (!this.flutterwaveSecretKey) {
+      throw new Error('Flutterwave secret key is not configured');
+    }
+
+    if (!transactionId) {
+      throw new Error('Flutterwave refund requires a transaction id');
+    }
+
+    try {
+      const payload: Record<string, string | number> = {};
+      if (typeof amountMajor === 'number' && Number.isFinite(amountMajor) && amountMajor > 0) {
+        payload.amount = Number(amountMajor.toFixed(2));
+      }
+      if (currency) {
+        payload.currency = currency;
+      }
+
+      const response = await axios.post(
+        `${this.flutterwaveBaseUrl}/transactions/${transactionId}/refund`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${this.flutterwaveSecretKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      return {
+        success: response.data?.status === 'success',
+        message: response.data?.message,
+        raw: response.data,
+      } satisfies PaymentRefundResult;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      return {
+        success: false,
+        message: (axiosError.response?.data as { message?: string } | undefined)?.message || axiosError.message,
+        raw: axiosError.response?.data,
+      } satisfies PaymentRefundResult;
     }
   }
 

@@ -15,6 +15,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/lib/api-client';
 import { getCsrfToken } from '@/lib/csrf';
 
 import type { Store as StoreRecord } from '@shared/schema';
@@ -145,6 +146,50 @@ export default function AdminBillingPage() {
     }
   }, [fetchOverview]);
 
+  const handleAutopayConfirmIfNeeded = useCallback(async () => {
+    if (!overview?.organization?.id) return;
+    const params = new URLSearchParams(window.location.search);
+    const autopayStatus = params.get('autopay');
+    const autopayReference = params.get('reference');
+    const autopayProvider = params.get('provider');
+    const autopayMessage = params.get('autopayMessage');
+
+    if (!autopayStatus) return;
+
+    if (autopayStatus !== 'success') {
+      toast({
+        title: 'Autopay setup failed',
+        description: autopayMessage || 'Unable to verify payment method. Please try again.',
+        variant: 'destructive',
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    if (autopayStatus === 'success' && autopayReference && autopayProvider) {
+      try {
+        await apiClient.post('/billing/autopay/confirm', {
+          provider: autopayProvider,
+          reference: autopayReference,
+        });
+        toast({ title: 'Payment method saved', description: 'Autopay has been configured successfully.' });
+        window.history.replaceState({}, document.title, window.location.pathname);
+        await fetchOverview();
+      } catch (error) {
+        console.error('Autopay confirm failed', error);
+        toast({
+          title: 'Autopay confirmation failed',
+          description: error instanceof Error ? error.message : 'Unable to confirm autopay. Please try again.',
+          variant: 'destructive',
+        });
+      }
+    }
+  }, [fetchOverview, overview?.organization?.id, toast]);
+
+  useEffect(() => {
+    void handleAutopayConfirmIfNeeded();
+  }, [handleAutopayConfirmIfNeeded]);
+
   useEffect(() => {
     void fetchOverview();
   }, [fetchOverview]);
@@ -206,14 +251,19 @@ export default function AdminBillingPage() {
         throw new Error(payload?.error || 'Unable to start autopay setup');
       }
 
+      if (payload?.reference) {
+        localStorage.setItem('chainsync_autopay_reference', payload.reference);
+      }
+
       if (payload?.redirectUrl) {
         window.location.href = payload.redirectUrl;
-      } else {
-        toast({
-          title: 'Autopay initialized',
-          description: 'Complete the provider flow in the newly opened window.',
-        });
+        return;
       }
+
+      toast({
+        title: 'Autopay initialized',
+        description: 'Complete the provider flow in the newly opened window.',
+      });
     } catch (err) {
       toast({
         title: 'Autopay setup failed',

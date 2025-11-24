@@ -114,6 +114,13 @@ describe('Payment Integration Tests', () => {
       const response = await request(app).post('/api/payment/initialize').send(paymentData).expect(200);
 
       expect(response.body.link).toBeDefined();
+      expect(mockPaymentService.initializeFlutterwavePayment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: paymentData.email,
+          currency: 'USD',
+          amount: 1,
+        })
+      );
     });
 
     it('should reject missing required parameters', async () => {

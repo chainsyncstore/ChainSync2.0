@@ -21,6 +21,10 @@ const mockPaymentService = {
   getAutopayDetails: vi.fn(),
   chargePaystackAuthorization: vi.fn(),
   chargeFlutterwaveToken: vi.fn(),
+  fetchPaystackTransaction: vi.fn(),
+  fetchFlutterwaveTransaction: vi.fn(),
+  refundPaystackTransaction: vi.fn(),
+  refundFlutterwaveTransaction: vi.fn(),
 };
 
 vi.mock('@server/payment/service', () => ({
@@ -43,6 +47,7 @@ describe('Billing Autopay Integration Tests', () => {
   let app: Express;
   let agent: ReturnType<typeof supertest.agent>;
   let subscriptionId: string;
+  let orgId: string;
   const password = 'StrongPass123!';
 
   beforeEach(async () => {
@@ -60,6 +65,10 @@ describe('Billing Autopay Integration Tests', () => {
     mockPaymentService.getAutopayDetails.mockReset();
     mockPaymentService.chargePaystackAuthorization.mockReset();
     mockPaymentService.chargeFlutterwaveToken.mockReset();
+    mockPaymentService.fetchPaystackTransaction.mockReset();
+    mockPaymentService.fetchFlutterwaveTransaction.mockReset();
+    mockPaymentService.refundPaystackTransaction.mockReset();
+    mockPaymentService.refundFlutterwaveTransaction.mockReset();
 
     if (!useRealDb) {
       await storage.clear();
@@ -73,7 +82,7 @@ describe('Billing Autopay Integration Tests', () => {
 
     agent = supertest.agent(app);
 
-    const orgId = makeId('org');
+    orgId = makeId('org');
     const now = new Date();
 
     await db.insert(organizations).values({
@@ -229,5 +238,47 @@ describe('Billing Autopay Integration Tests', () => {
     expect(afterDisable?.autopayProvider).toBeNull();
     expect(afterDisable?.autopayReference).toBeNull();
     expect(afterDisable?.autopayLastStatus).toBe('disabled');
+  });
+
+  it('handles autopay callback success and refunds verification charge', async () => {
+    const reference = 'PAYSTACK_AUTOPAY_REF_123';
+
+    mockPaymentService.fetchPaystackTransaction.mockResolvedValue({
+      id: 'paystack_tx_1',
+      metadata: { orgId, planCode: 'basic' },
+    });
+    mockPaymentService.getAutopayDetails.mockResolvedValue({
+      autopayReference: 'AUTH_CODE_CALLBACK',
+      email: 'autopay.admin@example.com',
+    });
+    mockPaymentService.refundPaystackTransaction.mockResolvedValue({ success: true });
+
+    const response = await agent
+      .get(`/api/billing/autopay/callback?reference=${reference}&provider=PAYSTACK&orgId=${orgId}&planCode=basic`)
+      .expect((res) => {
+        if (res.status !== 302 && res.status !== 200) {
+          throw new Error(`Unexpected status ${res.status}`);
+        }
+      });
+
+    if (response.status === 302) {
+      expect(response.headers.location).toContain('/admin/billing?');
+    } else {
+      expect(response.text).toContain('Payment method saved');
+    }
+
+    expect(mockPaymentService.fetchPaystackTransaction).toHaveBeenCalledWith(reference);
+    expect(mockPaymentService.getAutopayDetails).toHaveBeenCalledWith('PAYSTACK', reference);
+    expect(mockPaymentService.refundPaystackTransaction).toHaveBeenCalledWith('paystack_tx_1', expect.any(Number));
+
+    const [updated] = await db
+      .select()
+      .from(prdSubscriptions)
+      .where(eq(prdSubscriptions.id, subscriptionId));
+
+    expect(updated?.autopayEnabled).toBe(true);
+    expect(updated?.autopayProvider).toBe('PAYSTACK');
+    expect(updated?.autopayReference).toBe('AUTH_CODE_CALLBACK');
+    expect(updated?.autopayLastStatus).toBe('configured');
   });
 });

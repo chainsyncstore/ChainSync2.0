@@ -93,6 +93,9 @@ export async function registerPaymentRoutes(app: Express) {
       return res.status(400).json({ message: 'Invalid subscription tier' });
     }
     const amountSmallestUnit = currency === 'NGN' ? upfront.NGN : upfront.USD;
+    const amountForProvider = providerLower === 'paystack'
+      ? amountSmallestUnit
+      : Number((amountSmallestUnit / 100).toFixed(2));
 
     try {
       // Prefer real provider initialization when keys are configured; fall back to mocks otherwise
@@ -150,7 +153,7 @@ export async function registerPaymentRoutes(app: Express) {
         if (hasKey && typeof service.initializeFlutterwavePayment === 'function') {
           const resp = await service.initializeFlutterwavePayment({
             email,
-            amount: amountSmallestUnit,
+            amount: amountForProvider,
             currency,
             reference,
             callback_url: callbackUrl,
@@ -168,7 +171,7 @@ export async function registerPaymentRoutes(app: Express) {
         if (typeof service.mockFlutterwavePayment === 'function') {
           const resp = await service.mockFlutterwavePayment({
             email,
-            amount: amountSmallestUnit,
+            amount: amountForProvider,
             currency,
             reference,
             callback_url: callbackUrl,

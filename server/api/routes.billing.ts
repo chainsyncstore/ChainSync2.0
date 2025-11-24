@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { organizations, stores, subscriptions, users } from '@shared/schema';
 
 import { db } from '../db';
-import { PRICING_TIERS, VALID_TIERS, type ValidTier } from '../lib/constants';
+import { getAutopayVerificationAmountMinor, getTierAmountMinor, resolveClientBillingRedirectBase } from '../lib/billing';
+import { VALID_TIERS, type ValidTier } from '../lib/constants';
 import { logger } from '../lib/logger';
 import { getPlan } from '../lib/plans';
 import { requireAuth, requireRole } from '../middleware/authz';
@@ -53,9 +54,85 @@ function resolveCurrencyFromProvider(provider?: string | null) {
   return normalized === 'FLW' || normalized.startsWith('FLUTTERWAVE') ? 'USD' : 'NGN';
 }
 
-function getTierAmountMinor(tier: ValidTier, currency: 'NGN' | 'USD') {
-  const config = PRICING_TIERS[tier];
-  return currency === 'USD' ? config.usd : config.ngn;
+function getQueryString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function extractAutopayReference(query: Request['query']): string | null {
+  const keys = ['reference', 'trxref', 'trx_ref', 'tx_ref', 'ref', 'paymentReference'];
+  for (const key of keys) {
+    const candidate = getQueryString((query as Record<string, unknown>)[key]);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+function detectProvider(
+  providerValue: string | null,
+  reference: string | null,
+): 'PAYSTACK' | 'FLW' {
+  const normalized = providerValue?.toUpperCase() ?? '';
+  if (normalized.startsWith('FLW') || normalized.includes('FLUTTER')) {
+    return 'FLW';
+  }
+  if (reference?.toUpperCase().includes('FLW') || reference?.toUpperCase().includes('FLUTTER')) {
+    return 'FLW';
+  }
+  return 'PAYSTACK';
+}
+
+function renderAutopayResultHtml(title: string, message: string, success: boolean) {
+  const accent = success ? '#16a34a' : '#dc2626';
+  return `<!DOCTYPE html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>${title}</title>
+      <style>
+        body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #0f172a; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .card { background: #ffffff; border-radius: 12px; padding: 32px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); max-width: 420px; text-align: center; }
+        .status { font-size: 18px; font-weight: 600; color: ${accent}; margin-bottom: 12px; }
+        p { line-height: 1.5; margin: 0; color: #475569; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="status">${title}</div>
+        <p>${message}</p>
+      </div>
+    </body>
+  </html>`;
+}
+
+function redirectAutopayResult(
+  res: Response,
+  params: Record<string, string | undefined>,
+  fallbackHtml: { title: string; message: string; success: boolean; statusCode?: number },
+) {
+  const enrichedParams: Record<string, string | undefined> = { ...params };
+  if (!enrichedParams.autopay) {
+    enrichedParams.autopay = fallbackHtml.success ? 'success' : 'error';
+  }
+  if (!enrichedParams.autopayMessage && fallbackHtml.message) {
+    enrichedParams.autopayMessage = fallbackHtml.message;
+  }
+
+  const clientBase = resolveClientBillingRedirectBase();
+  if (clientBase) {
+    const query = new URLSearchParams();
+    Object.entries(enrichedParams).forEach(([key, value]) => {
+      if (typeof value === 'string' && value.length > 0) {
+        query.set(key, value);
+      }
+    });
+    const url = `${clientBase}/admin/billing?${query.toString()}`;
+    return res.redirect(302, url);
+  }
+
+  return res
+    .status(fallbackHtml.statusCode ?? (fallbackHtml.success ? 200 : 400))
+    .send(renderAutopayResultHtml(fallbackHtml.title, fallbackHtml.message, fallbackHtml.success));
 }
 
 async function buildAutopaySummary(subscription: typeof subscriptions.$inferSelect) {
@@ -84,6 +161,311 @@ async function buildAutopaySummary(subscription: typeof subscriptions.$inferSele
 }
 
 export async function registerBillingRoutes(app: Express) {
+  app.get('/api/billing/autopay/callback', async (req: Request, res: Response) => {
+    const intent = getQueryString(req.query.intent);
+    if (intent && intent !== 'autopay_verification') {
+      return redirectAutopayResult(res, {}, {
+        title: 'Unsupported intent',
+        message: 'This callback is reserved for autopay verification.',
+        success: false,
+        statusCode: 400,
+      });
+    }
+
+    const reference = extractAutopayReference(req.query);
+    if (!reference) {
+      return redirectAutopayResult(res, {}, {
+        title: 'Missing reference',
+        message: 'Payment reference was not provided in the callback.',
+        success: false,
+        statusCode: 400,
+      });
+    }
+
+    const orgIdQuery = getQueryString(req.query.orgId);
+    const planCodeQuery = getQueryString(req.query.planCode);
+    const providerHint = getQueryString(req.query.provider);
+    const provider = detectProvider(providerHint, reference);
+
+    const paymentService = new PaymentService();
+    let transaction: any;
+    try {
+      transaction = provider === 'PAYSTACK'
+        ? await paymentService.fetchPaystackTransaction(reference)
+        : await paymentService.fetchFlutterwaveTransaction(reference);
+    } catch (error) {
+      logger.error('Autopay callback failed to fetch transaction', {
+        provider,
+        reference,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return redirectAutopayResult(res, {}, {
+        title: 'Verification failed',
+        message: 'Unable to verify the payment with the provider. Please try again.',
+        success: false,
+      });
+    }
+
+    const metadata = transaction?.metadata || transaction?.meta || {};
+    const resolvedOrgId = orgIdQuery || metadata.orgId || metadata.org_id;
+    const resolvedPlanCode = planCodeQuery || metadata.planCode || metadata.plan_code || transaction?.plan || undefined;
+    if (!resolvedOrgId) {
+      return redirectAutopayResult(res, {}, {
+        title: 'Missing organization',
+        message: 'Unable to determine which organization this payment belongs to.',
+        success: false,
+      });
+    }
+
+    const [subscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.orgId, resolvedOrgId))
+      .limit(1);
+
+    if (!subscription) {
+      return redirectAutopayResult(res, {}, {
+        title: 'Subscription not found',
+        message: 'We could not find a subscription for this organization.',
+        success: false,
+      });
+    }
+
+    let autopayDetails: AutopayDetails | null = null;
+    try {
+      autopayDetails = await paymentService.getAutopayDetails(provider, reference);
+    } catch (error) {
+      logger.error('Autopay callback failed to resolve authorization', {
+        provider,
+        reference,
+        subscriptionId: subscription.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return redirectAutopayResult(res, {}, {
+        title: 'Authorization failed',
+        message: 'Unable to capture the payment authorization. Please try again.',
+        success: false,
+      });
+    }
+
+    if (!autopayDetails?.autopayReference) {
+      return redirectAutopayResult(res, {}, {
+        title: 'Missing authorization',
+        message: 'The payment was verified but no reusable authorization was returned.',
+        success: false,
+      });
+    }
+
+    try {
+      await subscriptionService.configureAutopay(
+        subscription.id as string,
+        provider,
+        autopayDetails.autopayReference,
+      );
+    } catch (error) {
+      logger.error('Failed to configure autopay after callback', {
+        subscriptionId: subscription.id,
+        provider,
+        reference,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return redirectAutopayResult(res, {}, {
+        title: 'Autopay setup failed',
+        message: 'We verified the payment but could not save the payment method. Please contact support.',
+        success: false,
+      });
+    }
+
+    const verificationCurrency = resolveCurrencyFromProvider(provider);
+    const verificationAmountMinor = getAutopayVerificationAmountMinor(verificationCurrency);
+    const refundAmountMajor = verificationAmountMinor / 100;
+
+    try {
+      if (provider === 'PAYSTACK') {
+        const transactionId = transaction?.id || reference;
+        await paymentService.refundPaystackTransaction(transactionId, verificationAmountMinor);
+      } else {
+        const transactionId = transaction?.id || transaction?.flw_ref || reference;
+        await paymentService.refundFlutterwaveTransaction(transactionId, refundAmountMajor, verificationCurrency);
+      }
+    } catch (error) {
+      logger.warn('Autopay verification refund failed', {
+        provider,
+        reference,
+        transactionId: transaction?.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return redirectAutopayResult(
+      res,
+      {
+        autopay: 'success',
+        orgId: resolvedOrgId,
+        planCode: resolvedPlanCode,
+        provider,
+        reference,
+      },
+      {
+        title: 'Payment method saved',
+        message: 'Your payment method has been verified and saved successfully.',
+        success: true,
+      },
+    );
+  });
+
+  app.get('/api/billing/autopay/callback', async (req: Request, res: Response) => {
+    const intent = getQueryString(req.query.intent);
+    if (intent && intent !== 'autopay_verification') {
+      return redirectAutopayResult(res, {}, {
+        title: 'Unsupported intent',
+        message: 'This callback is reserved for autopay verification.',
+        success: false,
+        statusCode: 400,
+      });
+    }
+
+    const reference = extractAutopayReference(req.query);
+    if (!reference) {
+      return redirectAutopayResult(res, {}, {
+        title: 'Missing reference',
+        message: 'Payment reference was not provided in the callback.',
+        success: false,
+        statusCode: 400,
+      });
+    }
+
+    const orgIdQuery = getQueryString(req.query.orgId);
+    const planCodeQuery = getQueryString(req.query.planCode);
+    const providerHint = getQueryString(req.query.provider);
+    const provider = detectProvider(providerHint, reference);
+
+    const paymentService = new PaymentService();
+    let transaction: any;
+    try {
+      transaction = provider === 'PAYSTACK'
+        ? await paymentService.fetchPaystackTransaction(reference)
+        : await paymentService.fetchFlutterwaveTransaction(reference);
+    } catch (error) {
+      logger.error('Autopay callback failed to fetch transaction', {
+        provider,
+        reference,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return redirectAutopayResult(res, {}, {
+        title: 'Verification failed',
+        message: 'Unable to verify the payment with the provider. Please try again.',
+        success: false,
+      });
+    }
+
+    const metadata = transaction?.metadata || transaction?.meta || {};
+    const resolvedOrgId = orgIdQuery || metadata.orgId || metadata.org_id;
+    const resolvedPlanCode = planCodeQuery || metadata.planCode || metadata.plan_code || transaction?.plan || undefined;
+    if (!resolvedOrgId) {
+      return redirectAutopayResult(res, {}, {
+        title: 'Missing organization',
+        message: 'Unable to determine which organization this payment belongs to.',
+        success: false,
+      });
+    }
+
+    const [subscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.orgId, resolvedOrgId))
+      .limit(1);
+
+    if (!subscription) {
+      return redirectAutopayResult(res, {}, {
+        title: 'Subscription not found',
+        message: 'We could not find a subscription for this organization.',
+        success: false,
+      });
+    }
+
+    let autopayDetails: AutopayDetails | null = null;
+    try {
+      autopayDetails = await paymentService.getAutopayDetails(provider, reference);
+    } catch (error) {
+      logger.error('Autopay callback failed to resolve authorization', {
+        provider,
+        reference,
+        subscriptionId: subscription.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return redirectAutopayResult(res, {}, {
+        title: 'Authorization failed',
+        message: 'Unable to capture the payment authorization. Please try again.',
+        success: false,
+      });
+    }
+
+    if (!autopayDetails?.autopayReference) {
+      return redirectAutopayResult(res, {}, {
+        title: 'Missing authorization',
+        message: 'The payment was verified but no reusable authorization was returned.',
+        success: false,
+      });
+    }
+
+    try {
+      await subscriptionService.configureAutopay(
+        subscription.id as string,
+        provider,
+        autopayDetails.autopayReference,
+      );
+    } catch (error) {
+      logger.error('Failed to configure autopay after callback', {
+        subscriptionId: subscription.id,
+        provider,
+        reference,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return redirectAutopayResult(res, {}, {
+        title: 'Autopay setup failed',
+        message: 'We verified the payment but could not save the payment method. Please contact support.',
+        success: false,
+      });
+    }
+
+    const verificationCurrency = resolveCurrencyFromProvider(provider);
+    const verificationAmountMinor = getAutopayVerificationAmountMinor(verificationCurrency);
+    const refundAmountMajor = verificationAmountMinor / 100;
+
+    try {
+      if (provider === 'PAYSTACK') {
+        const transactionId = transaction?.id || reference;
+        await paymentService.refundPaystackTransaction(transactionId, verificationAmountMinor);
+      } else {
+        const transactionId = transaction?.id || transaction?.flw_ref || reference;
+        await paymentService.refundFlutterwaveTransaction(transactionId, refundAmountMajor, verificationCurrency);
+      }
+    } catch (error) {
+      logger.warn('Autopay verification refund failed', {
+        provider,
+        reference,
+        transactionId: transaction?.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return redirectAutopayResult(
+      res,
+      {
+        autopay: 'success',
+        orgId: resolvedOrgId,
+        planCode: resolvedPlanCode,
+        provider,
+      },
+      {
+        title: 'Payment method saved',
+        message: 'Your payment method has been verified and saved successfully.',
+        success: true,
+      },
+    );
+  });
+
   app.post('/api/billing/subscribe', requireAuth, async (req: Request, res: Response) => {
     const currentUserId = (req.session as any)?.userId as string | undefined;
     if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
@@ -114,30 +496,46 @@ export async function registerBillingRoutes(app: Express) {
 
     const service = new PaymentService();
     const reference = service.generateReference(provider === 'PAYSTACK' ? 'paystack' : 'flutterwave');
-    const callbackUrl = `${process.env.BASE_URL || process.env.APP_URL}/payment/callback?orgId=${orgId}&planCode=${plan.code}`;
+    const callbackBase = process.env.BASE_URL || process.env.APP_URL;
+    if (!callbackBase) {
+      return res.status(500).json({ error: 'Payment callback URL is not configured' });
+    }
+
+    const callbackParams = new URLSearchParams({
+      orgId,
+      planCode: plan.code,
+      provider,
+      intent: 'autopay_verification',
+    });
+    const callbackUrl = `${callbackBase.replace(/\/$/, '')}/api/billing/autopay/callback?${callbackParams.toString()}`;
+
+    const metadata = { orgId, planCode: plan.code, intent: 'autopay_verification' } as Record<string, any>;
+
+    const verificationAmountMinor = getAutopayVerificationAmountMinor(currency);
+    const amountForProvider = provider === 'PAYSTACK'
+      ? verificationAmountMinor
+      : Number((verificationAmountMinor / 100).toFixed(2));
 
     const providerPlanEnvKey = `${provider === 'PAYSTACK' ? 'PAYSTACK' : 'FLW'}_PLAN_ID_${plan.code.toUpperCase()}`;
     const providerPlanId = process.env[providerPlanEnvKey] || process.env[`PROVIDER_PLAN_ID_${plan.code.toUpperCase()}`];
 
-    const amountMinor = getTierAmountMinor(plan.code as ValidTier, currency);
-
     const resp = provider === 'PAYSTACK'
       ? await service.initializePaystackPayment({
           email,
-          amount: amountMinor,
+          amount: amountForProvider,
           currency: 'NGN',
           reference,
           callback_url: callbackUrl,
-          metadata: { orgId, planCode: plan.code },
+          metadata,
           providerPlanId,
         })
       : await service.initializeFlutterwavePayment({
           email,
-          amount: amountMinor,
+          amount: amountForProvider,
           currency: 'USD',
           reference,
           callback_url: callbackUrl,
-          metadata: { orgId, planCode: plan.code },
+          metadata,
           providerPlanId,
         });
 
