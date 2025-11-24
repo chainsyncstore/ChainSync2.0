@@ -312,8 +312,10 @@ async function runTrialExpirationBillingOnce(paymentService?: PaymentService): P
 			const tierCandidate = String(subscription.planCode ?? 'basic').toLowerCase();
 			const tierKey = (['basic', 'pro', 'enterprise'].includes(tierCandidate) ? tierCandidate : 'basic') as keyof typeof PRICING_TIERS;
 			const tierPricing = PRICING_TIERS[tierKey];
-			const currency = String(organization.currency ?? 'NGN').toUpperCase();
 			const autopayProvider = String(subscription.autopayProvider ?? subscription.provider ?? 'PAYSTACK').toUpperCase() as 'PAYSTACK' | 'FLW';
+			const providerCurrency: 'NGN' | 'USD' = autopayProvider === 'PAYSTACK' ? 'NGN' : 'USD';
+			const tierAmountMinor = providerCurrency === 'NGN' ? tierPricing.ngn : tierPricing.usd;
+			const tierAmountMajor = tierAmountMinor / 100;
 			const autopayReference = subscription.autopayReference as string | null;
 			let email: string | undefined;
 			const subscriptionUserId = subscription.userId as string | null | undefined;
@@ -372,13 +374,12 @@ async function runTrialExpirationBillingOnce(paymentService?: PaymentService): P
 
 			try {
 				if (autopayProvider === 'PAYSTACK') {
-					const amountMinor = currency === 'NGN' ? tierPricing.ngn : tierPricing.usd;
 					const reference = service.generateReference('paystack');
 					const chargeResult = await service.chargePaystackAuthorization(
 						autopayReference,
 						email,
-						amountMinor,
-						currency,
+						tierAmountMinor,
+						providerCurrency,
 						reference,
 						{ subscriptionId, orgId }
 					);
@@ -387,13 +388,12 @@ async function runTrialExpirationBillingOnce(paymentService?: PaymentService): P
 					chargeRaw = chargeResult.raw;
 					chargeMessage = chargeResult.message;
 				} else {
-					const amountMajor = currency === 'NGN' ? tierPricing.ngn / 100 : tierPricing.usd / 100;
 					const reference = service.generateReference('flutterwave');
 					const chargeResult = await service.chargeFlutterwaveToken(
 						autopayReference,
 						email,
-						amountMajor,
-						currency,
+						tierAmountMajor,
+						providerCurrency,
 						reference,
 						{ subscriptionId, orgId }
 					);
@@ -412,9 +412,7 @@ async function runTrialExpirationBillingOnce(paymentService?: PaymentService): P
 				});
 			}
 
-			const amountDecimal = currency === 'NGN'
-				? (tierPricing.ngn / 100).toFixed(2)
-				: (tierPricing.usd / 100).toFixed(2);
+			const amountDecimal = tierAmountMajor.toFixed(2);
 
 			try {
 				await db.insert(subscriptionPayments).values({
@@ -425,7 +423,7 @@ async function runTrialExpirationBillingOnce(paymentService?: PaymentService): P
 					externalInvoiceId: chargeReference as any,
 					reference: chargeReference as any,
 					amount: amountDecimal as any,
-					currency,
+					currency: providerCurrency,
 					status: (chargeSuccess ? 'completed' : 'failed') as any,
 					eventType: 'auto_renew' as any,
 					occurredAt: new Date() as any,

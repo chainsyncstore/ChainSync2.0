@@ -18,6 +18,7 @@ const SubscribeSchema = z.object({
   orgId: z.string().uuid(),
   planCode: z.string(),
   email: z.string().email(),
+  paymentMethod: z.enum(['card', 'bank']).optional(),
 });
 
 const AutopayConfirmSchema = z.object({
@@ -473,7 +474,7 @@ export async function registerBillingRoutes(app: Express) {
     const parsed = SubscribeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
 
-    const { orgId, planCode, email } = parsed.data;
+    const { orgId, planCode, email, paymentMethod: requestedPaymentMethod } = parsed.data;
     const plan = getPlan(planCode);
     if (!plan) return res.status(400).json({ error: 'Invalid plan code' });
 
@@ -494,6 +495,9 @@ export async function registerBillingRoutes(app: Express) {
     const provider: 'PAYSTACK' | 'FLW' = resolvedProvider.startsWith('FLW') ? 'FLW' : 'PAYSTACK';
     const currency: 'NGN' | 'USD' = resolveCurrencyFromProvider(provider) as 'NGN' | 'USD';
 
+    const paymentMethod = provider === 'PAYSTACK' && requestedPaymentMethod === 'bank'
+      ? 'bank'
+      : 'card';
     const service = new PaymentService();
     const reference = service.generateReference(provider === 'PAYSTACK' ? 'paystack' : 'flutterwave');
     const callbackBase = process.env.BASE_URL || process.env.APP_URL;
@@ -528,6 +532,7 @@ export async function registerBillingRoutes(app: Express) {
           callback_url: callbackUrl,
           metadata,
           providerPlanId,
+          channels: paymentMethod === 'bank' ? ['bank'] : ['card'],
         })
       : await service.initializeFlutterwavePayment({
           email,
@@ -537,6 +542,7 @@ export async function registerBillingRoutes(app: Express) {
           callback_url: callbackUrl,
           metadata,
           providerPlanId,
+          paymentOptions: paymentMethod === 'bank' ? 'account,card' : 'card',
         });
 
     res.json({

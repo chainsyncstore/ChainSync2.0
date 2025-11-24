@@ -66,6 +66,132 @@ describe('Trial expiration billing job', () => {
     await registerRoutes(app);
   });
 
+  it('activates the subscription when Flutterwave autopay succeeds after trial', async () => {
+    const orgId = makeId('org');
+    const userId = makeId('user');
+    const subscriptionId = makeId('sub');
+    const now = new Date();
+    const trialEnded = new Date(now.getTime() - 60 * 1000);
+
+    await db.insert(organizations).values({
+      id: orgId,
+      name: 'Flutterwave Success Org',
+      currency: 'USD',
+      isActive: true,
+      createdAt: now,
+    } as any);
+
+    await storage.createUser({
+      id: userId,
+      username: 'flutterwave.admin@example.com',
+      email: 'flutterwave.admin@example.com',
+      password: 'StrongPass123!',
+      firstName: 'Flutter',
+      lastName: 'Wave',
+      companyName: 'Flutterwave Co',
+      phone: '+1234000000',
+      role: 'admin',
+      orgId,
+      isAdmin: true,
+      isActive: true,
+      emailVerified: true,
+    } as any);
+
+    await db.insert(prdUsers).values({
+      id: userId,
+      orgId,
+      email: 'flutterwave.admin@example.com',
+      passwordHash: 'test-hash',
+      isAdmin: true,
+      emailVerified: true,
+    } as any);
+
+    await db.insert(prdSubscriptions).values({
+      id: subscriptionId,
+      orgId,
+      userId,
+      provider: 'FLW',
+      planCode: 'basic',
+      tier: 'basic',
+      status: 'TRIAL',
+      trialEndDate: trialEnded,
+      trialStartDate: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000),
+      autopayEnabled: true,
+      autopayProvider: 'FLW',
+      autopayReference: 'FLW_AUTH_123',
+      autopayLastStatus: 'configured',
+      autopayConfiguredAt: now,
+      upfrontFeePaid: '1.00',
+      upfrontFeeCurrency: 'USD',
+      monthlyAmount: '30.00',
+      monthlyCurrency: 'USD',
+      createdAt: now,
+      updatedAt: now,
+    } as any);
+
+    const paymentService = {
+      generateReference: vi.fn().mockReturnValue('FLW_GEN_REF'),
+      chargePaystackAuthorization: vi.fn(),
+      chargeFlutterwaveToken: vi.fn().mockResolvedValue({
+        success: true,
+        reference: 'FLW_CHARGE_REF',
+        raw: { status: 'successful' },
+      }),
+    };
+
+    await runTrialExpirationBillingNow(paymentService as any);
+
+    const [updatedSub] = await db
+      .select()
+      .from(prdSubscriptions)
+      .where(eq(prdSubscriptions.id, subscriptionId));
+
+    const [updatedOrg] = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, orgId));
+
+    const payments = await db
+      .select()
+      .from(subscriptionPayments)
+      .where(eq(subscriptionPayments.orgId, orgId as any));
+
+    try {
+      expect(updatedSub?.status).toBe('ACTIVE');
+      expect(updatedSub?.autopayLastStatus).toBe('charged');
+      expect(updatedSub?.nextBillingDate).not.toBeNull();
+
+      expect(updatedOrg?.isActive).toBe(true);
+      expect(updatedOrg?.lockedUntil).toBeNull();
+
+      expect(payments).toHaveLength(1);
+      expect(payments[0].status).toBe('completed');
+      expect(payments[0].provider).toBe('FLW');
+      expect(payments[0].reference).toBe('FLW_CHARGE_REF');
+      expect(payments[0].amount).toBe('30.00');
+
+      expect(paymentService.chargeFlutterwaveToken).toHaveBeenCalledWith(
+        'FLW_AUTH_123',
+        'flutterwave.admin@example.com',
+        30,
+        'USD',
+        'FLW_GEN_REF',
+        { subscriptionId, orgId },
+      );
+    } catch (error) {
+      await appendDebugLog('flutterwave success assertion failure', {
+        subscription: updatedSub,
+        organization: updatedOrg,
+        payments,
+        paymentServiceCalls: {
+          generateReference: paymentService.generateReference.mock.calls,
+          chargeFlutterwaveToken: paymentService.chargeFlutterwaveToken.mock.calls,
+        },
+      });
+      throw error;
+    }
+  });
+
   afterEach(async () => {
     if (!useRealDb) {
       await storage.clear();

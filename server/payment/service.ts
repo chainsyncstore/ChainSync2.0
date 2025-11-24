@@ -11,6 +11,8 @@ export interface PaymentRequest {
   metadata?: Record<string, any>;
   // Optional: provider-managed plan identifier to create a subscription on first charge
   providerPlanId?: string;
+  channels?: string[];
+  paymentOptions?: string;
 }
 
 export interface PaymentResponse {
@@ -293,7 +295,8 @@ export class PaymentService {
           callback_url: request.callback_url || `${process.env.BASE_URL || 'http://localhost:3000'}/payment/callback`,
           metadata: request.metadata,
           // If provided, attach Paystack plan code (creates/associates subscription on success)
-          plan: request.providerPlanId
+          plan: request.providerPlanId,
+          channels: request.channels,
         },
         {
           headers: {
@@ -341,6 +344,7 @@ export class PaymentService {
           meta: request.metadata,
           // Flutterwave: payment plans are specified with payment_plan
           payment_plan: request.providerPlanId,
+          payment_options: request.paymentOptions,
           customizations: {
             title: 'ChainSync Subscription',
             description: 'Complete your subscription payment',

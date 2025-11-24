@@ -1,5 +1,4 @@
 import {
-  BadgeCheck,
   CreditCard,
   RefreshCcw,
   ShieldAlert,
@@ -110,6 +109,7 @@ export default function AdminBillingPage() {
   const [planSubmitting, setPlanSubmitting] = useState<string | null>(null);
   const [autopayLoading, setAutopayLoading] = useState(false);
   const [autopayDisabling, setAutopayDisabling] = useState(false);
+  const [autopayMethod, setAutopayMethod] = useState<'card' | 'bank'>('card');
 
   const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
   const [downgradeTarget, setDowngradeTarget] = useState<PricingTier | null>(null);
@@ -145,6 +145,15 @@ export default function AdminBillingPage() {
       setRefreshing(false);
     }
   }, [fetchOverview]);
+
+  const autopayProvider = overview?.subscription.provider?.toUpperCase() ?? null;
+  const bankMandateSupported = autopayProvider?.startsWith('PAYSTACK') ?? false;
+
+  useEffect(() => {
+    if (!bankMandateSupported && autopayMethod !== 'card') {
+      setAutopayMethod('card');
+    }
+  }, [autopayMethod, bankMandateSupported]);
 
   const handleAutopayConfirmIfNeeded = useCallback(async () => {
     if (!overview?.organization?.id) return;
@@ -243,6 +252,7 @@ export default function AdminBillingPage() {
           orgId: overview.organization.id,
           planCode: overview.subscription.planCode,
           email: contactEmail,
+          paymentMethod: bankMandateSupported ? autopayMethod : 'card',
         }),
       });
 
@@ -273,7 +283,7 @@ export default function AdminBillingPage() {
     } finally {
       setAutopayLoading(false);
     }
-  }, [overview, toast]);
+  }, [autopayMethod, bankMandateSupported, overview, toast]);
 
   const handleDisableAutopay = useCallback(async () => {
     setAutopayDisabling(true);
@@ -507,9 +517,34 @@ export default function AdminBillingPage() {
                 <Badge variant="outline">3-day reminder sent</Badge>
               )}
             </div>
-            <Button onClick={handleSetupAutopay} disabled={autopayLoading}>
-              {autopayLoading ? 'Launching…' : 'Add payment method'}
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {bankMandateSupported && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-700">Pay with</span>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant={autopayMethod === 'card' ? 'default' : 'outline'}
+                      onClick={() => setAutopayMethod('card')}
+                      disabled={autopayLoading}
+                    >
+                      Card
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={autopayMethod === 'bank' ? 'default' : 'outline'}
+                      onClick={() => setAutopayMethod('bank')}
+                      disabled={autopayLoading}
+                    >
+                      Direct debit (bank)
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <Button onClick={handleSetupAutopay} disabled={autopayLoading}>
+                {autopayLoading ? 'Launching…' : 'Add payment method'}
+              </Button>
+            </div>
           </CardFooter>
         </Card>
       )}
@@ -557,26 +592,51 @@ export default function AdminBillingPage() {
                   ? `Linked via ${overview.autopay.provider || overview.subscription.provider}`
                   : 'Save a card or mandate so we can renew automatically.'}
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" onClick={handleSetupAutopay} disabled={autopayLoading}>
-                  {autopayLoading ? 'Working…' : autopayCtaLabel}
-                </Button>
-                {overview.autopay.enabled && (
-                  <Button size="sm" variant="outline" onClick={handleUpdatePaymentMethod}>
-                    Refresh payment method
-                  </Button>
+              <div className="mt-3 space-y-3">
+                {bankMandateSupported && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
+                    <span className="font-medium">Pay with</span>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant={autopayMethod === 'card' ? 'default' : 'outline'}
+                        onClick={() => setAutopayMethod('card')}
+                        disabled={autopayLoading}
+                      >
+                        Card
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={autopayMethod === 'bank' ? 'default' : 'outline'}
+                        onClick={() => setAutopayMethod('bank')}
+                        disabled={autopayLoading}
+                      >
+                        Direct debit (bank)
+                      </Button>
+                    </div>
+                  </div>
                 )}
-                {overview.autopay.enabled && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive"
-                    onClick={handleDisableAutopay}
-                    disabled={autopayDisabling}
-                  >
-                    {autopayDisabling ? 'Removing…' : 'Disable'}
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={handleSetupAutopay} disabled={autopayLoading}>
+                    {autopayLoading ? 'Working…' : autopayCtaLabel}
                   </Button>
-                )}
+                  {overview.autopay.enabled && (
+                    <Button size="sm" variant="outline" onClick={handleUpdatePaymentMethod}>
+                      Refresh payment method
+                    </Button>
+                  )}
+                  {overview.autopay.enabled && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive"
+                      onClick={handleDisableAutopay}
+                      disabled={autopayDisabling}
+                    >
+                      {autopayDisabling ? 'Removing…' : 'Disable'}
+                    </Button>
+                  )}
+                </div>
               </div>
               {overview.autopay.details && overview.autopay.enabled && (
                 <div className="mt-4 rounded-md bg-muted p-3 text-sm">
@@ -586,35 +646,6 @@ export default function AdminBillingPage() {
                   </div>
                 </div>
               )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Trial timeline</CardTitle>
-            <CardDescription>Track reminders and lockout schedule.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span>Status</span>
-              <Badge variant={isTrial ? 'default' : 'outline'}>{overview.trial.status}</Badge>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span>Ends on</span>
-              <span>{overview.trial.endsAt ? new Date(overview.trial.endsAt).toLocaleDateString() : '—'}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span>Days remaining</span>
-              <span>{typeof trialDaysRemaining === 'number' ? trialDaysRemaining : '—'}</span>
-            </div>
-            <div className="flex flex-col gap-2 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <BadgeCheck className="h-4 w-4" /> 7-day reminder {overview.trial.reminders.sent7Day ? 'sent' : 'pending'}
-              </div>
-              <div className="flex items-center gap-2">
-                <BadgeCheck className="h-4 w-4" /> 3-day reminder {overview.trial.reminders.sent3Day ? 'sent' : 'pending'}
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -755,5 +786,4 @@ export default function AdminBillingPage() {
     </div>
   );
 }
-
 
