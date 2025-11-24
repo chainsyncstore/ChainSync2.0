@@ -15,6 +15,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
+import { getCsrfToken } from '@/lib/csrf';
 
 import type { Store as StoreRecord } from '@shared/schema';
 
@@ -185,10 +186,14 @@ export default function AdminBillingPage() {
 
     setAutopayLoading(true);
     try {
+      const token = await getCsrfToken();
       const res = await fetch('/api/billing/subscribe', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': token,
+        },
         body: JSON.stringify({
           orgId: overview.organization.id,
           planCode: overview.subscription.planCode,
@@ -223,9 +228,13 @@ export default function AdminBillingPage() {
   const handleDisableAutopay = useCallback(async () => {
     setAutopayDisabling(true);
     try {
+      const token = await getCsrfToken();
       const res = await fetch('/api/billing/autopay', {
         method: 'DELETE',
         credentials: 'include',
+        headers: {
+          'X-CSRF-Token': token,
+        },
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -247,9 +256,13 @@ export default function AdminBillingPage() {
   const handleUpdatePaymentMethod = useCallback(async () => {
     if (!overview) return;
     try {
+      const token = await getCsrfToken();
       const res = await fetch(`/api/admin/subscriptions/${encodeURIComponent(overview.subscription.id)}/update-payment`, {
         method: 'POST',
         credentials: 'include',
+        headers: {
+          'X-CSRF-Token': token,
+        },
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -271,10 +284,14 @@ export default function AdminBillingPage() {
     if (!overview) return;
     setPlanSubmitting(tier);
     try {
+      const token = await getCsrfToken();
       const res = await fetch(`/api/admin/subscriptions/${overview.subscription.id}/plan`, {
         method: 'PATCH',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': token,
+        },
         body: JSON.stringify({ targetPlan: tier }),
       });
       const payload = await res.json().catch(() => ({}));
@@ -329,12 +346,16 @@ export default function AdminBillingPage() {
     if (!selectedStoreIds.length) return;
     setStoreSubmitting(true);
     try {
+      const token = await getCsrfToken();
       await Promise.all(
         selectedStoreIds.map((storeId) =>
           fetch(`/api/stores/${storeId}`, {
             method: 'PATCH',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': token,
+            },
             body: JSON.stringify({ isActive: false }),
           }).then(async (res) => {
             if (!res.ok) {
