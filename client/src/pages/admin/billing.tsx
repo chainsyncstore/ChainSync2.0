@@ -220,7 +220,7 @@ export default function AdminBillingPage() {
   }, [fetchOverview]);
 
   const trialDaysRemaining = overview?.trial.daysRemaining;
-  const isTrial = overview?.trial.status?.toUpperCase() === 'TRIAL';
+  const isTrial = (overview?.subscription.status ?? overview?.trial.status ?? '').toUpperCase() === 'TRIAL';
 
   const currentTierPricing = useMemo(() => {
     if (!overview) return null;
@@ -233,13 +233,13 @@ export default function AdminBillingPage() {
     }
 
     const { subscription } = overview;
-    const trialStart = subscription.trialStartAt ?? subscription.startedAt ?? subscription.nextBillingDate;
-    const trialEnd = subscription.trialEndsAt ?? subscription.nextBillingDate;
+    const trialStart = subscription.trialStartAt ?? subscription.trialEndsAt ?? subscription.nextBillingDate;
+    const trialEnd = subscription.trialEndsAt ?? subscription.nextBillingDate ?? subscription.currentPeriodEnd;
+    const nextChargeDuringTrial = subscription.nextBillingDate ?? subscription.trialEndsAt;
+
     const billingStart = subscription.startedAt ?? subscription.currentPeriodEnd ?? subscription.trialEndsAt;
     const billingEnd = subscription.currentPeriodEnd ?? subscription.nextBillingDate ?? subscription.trialEndsAt;
-    const nextCharge = isTrial
-      ? trialEnd ?? subscription.nextBillingDate
-      : subscription.nextBillingDate ?? subscription.currentPeriodEnd ?? subscription.trialEndsAt;
+    const nextChargeActive = subscription.nextBillingDate ?? subscription.currentPeriodEnd ?? subscription.trialEndsAt;
 
     const start = isTrial ? trialStart : billingStart;
     const end = isTrial ? trialEnd : billingEnd;
@@ -247,7 +247,7 @@ export default function AdminBillingPage() {
     return {
       start,
       end,
-      nextCharge,
+      nextCharge: isTrial ? nextChargeDuringTrial : nextChargeActive,
       progress: calculateProgress(start, end),
     };
   }, [isTrial, overview]);
@@ -588,9 +588,11 @@ export default function AdminBillingPage() {
             <Progress value={displayPeriod.progress} />
             <p className="mt-2 text-xs text-slate-700">
               {isTrial
-                ? (typeof trialDaysRemaining === 'number'
+                ? displayPeriod.end
+                  ? typeof trialDaysRemaining === 'number'
                     ? `${Math.max(trialDaysRemaining, 0)} day${trialDaysRemaining === 1 ? '' : 's'} remaining`
-                    : 'Trial in progress')
+                    : `Trial wraps on ${formatDate(displayPeriod.end)}`
+                  : 'Trial schedule pending'
                 : displayPeriod.nextCharge
                 ? `Renews on ${formatDate(displayPeriod.nextCharge)}`
                 : 'Billing schedule updating'}
