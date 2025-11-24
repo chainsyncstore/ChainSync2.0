@@ -525,9 +525,6 @@ export async function registerBillingRoutes(app: Express) {
       ? verificationAmountMinor
       : Number((verificationAmountMinor / 100).toFixed(2));
 
-    const providerPlanEnvKey = `${provider === 'PAYSTACK' ? 'PAYSTACK' : 'FLW'}_PLAN_ID_${plan.code.toUpperCase()}`;
-    const providerPlanId = process.env[providerPlanEnvKey] || process.env[`PROVIDER_PLAN_ID_${plan.code.toUpperCase()}`];
-
     const paystackChannels = paymentMethod === 'bank'
       ? ['bank', 'card']
       : ['card'];
@@ -540,7 +537,6 @@ export async function registerBillingRoutes(app: Express) {
           reference,
           callback_url: callbackUrl,
           metadata,
-          providerPlanId,
           channels: paystackChannels,
         })
       : await service.initializeFlutterwavePayment({
@@ -550,7 +546,6 @@ export async function registerBillingRoutes(app: Express) {
           reference,
           callback_url: callbackUrl,
           metadata,
-          providerPlanId,
           paymentOptions: paymentMethod === 'bank' ? 'account,card' : 'card',
         });
 

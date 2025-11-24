@@ -109,7 +109,6 @@ export default function AdminBillingPage() {
   const [planSubmitting, setPlanSubmitting] = useState<string | null>(null);
   const [autopayLoading, setAutopayLoading] = useState(false);
   const [autopayDisabling, setAutopayDisabling] = useState(false);
-  const [autopayMethod, setAutopayMethod] = useState<'card' | 'bank'>('card');
 
   const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
   const [downgradeTarget, setDowngradeTarget] = useState<PricingTier | null>(null);
@@ -145,15 +144,6 @@ export default function AdminBillingPage() {
       setRefreshing(false);
     }
   }, [fetchOverview]);
-
-  const autopayProvider = overview?.subscription.provider?.toUpperCase() ?? null;
-  const bankMandateSupported = autopayProvider?.startsWith('PAYSTACK') ?? false;
-
-  useEffect(() => {
-    if (!bankMandateSupported && autopayMethod !== 'card') {
-      setAutopayMethod('card');
-    }
-  }, [autopayMethod, bankMandateSupported]);
 
   const handleAutopayConfirmIfNeeded = useCallback(async () => {
     if (!overview?.organization?.id) return;
@@ -252,7 +242,7 @@ export default function AdminBillingPage() {
           orgId: overview.organization.id,
           planCode: overview.subscription.planCode,
           email: contactEmail,
-          paymentMethod: bankMandateSupported ? autopayMethod : 'card',
+          paymentMethod: 'card',
         }),
       });
 
@@ -283,7 +273,7 @@ export default function AdminBillingPage() {
     } finally {
       setAutopayLoading(false);
     }
-  }, [autopayMethod, bankMandateSupported, overview, toast]);
+  }, [overview, toast]);
 
   const handleDisableAutopay = useCallback(async () => {
     setAutopayDisabling(true);
@@ -518,29 +508,6 @@ export default function AdminBillingPage() {
               )}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              {bankMandateSupported && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-slate-700">Pay with</span>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant={autopayMethod === 'card' ? 'default' : 'outline'}
-                      onClick={() => setAutopayMethod('card')}
-                      disabled={autopayLoading}
-                    >
-                      Card
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={autopayMethod === 'bank' ? 'default' : 'outline'}
-                      onClick={() => setAutopayMethod('bank')}
-                      disabled={autopayLoading}
-                    >
-                      Direct debit (bank)
-                    </Button>
-                  </div>
-                </div>
-              )}
               <Button onClick={handleSetupAutopay} disabled={autopayLoading}>
                 {autopayLoading ? 'Launching…' : 'Add payment method'}
               </Button>
@@ -593,29 +560,6 @@ export default function AdminBillingPage() {
                   : 'Save a card or mandate so we can renew automatically.'}
               </p>
               <div className="mt-3 space-y-3">
-                {bankMandateSupported && (
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
-                    <span className="font-medium">Pay with</span>
-                    <div className="flex gap-1">
-                      <Button
-                        size="sm"
-                        variant={autopayMethod === 'card' ? 'default' : 'outline'}
-                        onClick={() => setAutopayMethod('card')}
-                        disabled={autopayLoading}
-                      >
-                        Card
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={autopayMethod === 'bank' ? 'default' : 'outline'}
-                        onClick={() => setAutopayMethod('bank')}
-                        disabled={autopayLoading}
-                      >
-                        Direct debit (bank)
-                      </Button>
-                    </div>
-                  </div>
-                )}
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" onClick={handleSetupAutopay} disabled={autopayLoading}>
                     {autopayLoading ? 'Working…' : autopayCtaLabel}
