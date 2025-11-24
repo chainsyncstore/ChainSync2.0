@@ -1,7 +1,7 @@
 import { PRICING_TIERS, type ValidTier } from './constants';
 
 export const DEFAULT_AUTOPAY_VERIFICATION_AMOUNTS: Record<'NGN' | 'USD', number> = {
-  NGN: 5000, // ₦50 in kobo
+  NGN: 10000, // ₦100 in kobo (Paystack minimum)
   USD: 100, // $1 in cents
 };
 

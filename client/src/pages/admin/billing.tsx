@@ -198,6 +198,22 @@ export default function AdminBillingPage() {
 
   const autopayCtaLabel = overview?.autopay.enabled ? 'Manage autopay' : 'Add payment method';
 
+  const currentTierPricing = useMemo(() => {
+    if (!overview) return null;
+    const normalized = overview.subscription.tier?.toLowerCase();
+    if (!normalized) return null;
+    return overview.pricing.tiers.find((tier) => tier.tier.toLowerCase() === normalized) ?? null;
+  }, [overview]);
+
+  const currentPlanCurrencySymbol = currentTierPricing?.currencySymbol
+    ?? overview?.pricing.currencySymbol
+    ?? overview?.subscription.currencySymbol
+    ?? '';
+
+  const currentPlanAmount = currentTierPricing?.monthlyAmount
+    ?? overview?.subscription.monthlyAmount
+    ?? 0;
+
   const loadStores = useCallback(async () => {
     setStoreLoading(true);
     setStoreError(null);
@@ -521,8 +537,8 @@ export default function AdminBillingPage() {
           <CardHeader>
             <CardTitle>Current plan</CardTitle>
             <CardDescription>
-              {overview.subscription.tier?.toUpperCase()} • {overview.pricing.currencySymbol}
-              {overview.subscription.monthlyAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}/mo via {overview.subscription.provider}
+              {overview.subscription.tier?.toUpperCase()} • {currentPlanCurrencySymbol}
+              {currentPlanAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}/mo via {overview.subscription.provider}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
