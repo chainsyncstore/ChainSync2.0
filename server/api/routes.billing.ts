@@ -513,7 +513,12 @@ export async function registerBillingRoutes(app: Express) {
     });
     const callbackUrl = `${callbackBase.replace(/\/$/, '')}/api/billing/autopay/callback?${callbackParams.toString()}`;
 
-    const metadata = { orgId, planCode: plan.code, intent: 'autopay_verification' } as Record<string, any>;
+    const metadata = {
+      orgId,
+      planCode: plan.code,
+      intent: 'autopay_verification',
+      preferredChannel: paymentMethod,
+    } as Record<string, any>;
 
     const verificationAmountMinor = getAutopayVerificationAmountMinor(currency);
     const amountForProvider = provider === 'PAYSTACK'
@@ -522,6 +527,10 @@ export async function registerBillingRoutes(app: Express) {
 
     const providerPlanEnvKey = `${provider === 'PAYSTACK' ? 'PAYSTACK' : 'FLW'}_PLAN_ID_${plan.code.toUpperCase()}`;
     const providerPlanId = process.env[providerPlanEnvKey] || process.env[`PROVIDER_PLAN_ID_${plan.code.toUpperCase()}`];
+
+    const paystackChannels = paymentMethod === 'bank'
+      ? ['bank', 'card']
+      : ['card'];
 
     const resp = provider === 'PAYSTACK'
       ? await service.initializePaystackPayment({
@@ -532,7 +541,7 @@ export async function registerBillingRoutes(app: Express) {
           callback_url: callbackUrl,
           metadata,
           providerPlanId,
-          channels: paymentMethod === 'bank' ? ['bank'] : ['card'],
+          channels: paystackChannels,
         })
       : await service.initializeFlutterwavePayment({
           email,
