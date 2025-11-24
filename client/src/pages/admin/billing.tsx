@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
@@ -38,7 +38,10 @@ interface BillingOverviewResponse {
     monthlyAmount: number;
     monthlyCurrency: string;
     nextBillingDate: string | null;
+    trialStartAt: string | null;
     trialEndsAt: string | null;
+    startedAt: string | null;
+    currentPeriodEnd: string | null;
     autopayEnabled: boolean;
     autopayProvider: string | null;
     autopayLastStatus: string | null;
@@ -97,6 +100,29 @@ interface BillingOverviewResponse {
 }
 
 type PricingTier = BillingOverviewResponse['pricing']['tiers'][number];
+
+const formatDate = (value?: string | Date | null) => {
+  if (!value) return '—';
+  const date = typeof value === 'string' ? new Date(value) : value;
+  if (!date || Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const calculateProgress = (start?: string | Date | null, end?: string | Date | null) => {
+  if (!start || !end) return 0;
+  const startDate = typeof start === 'string' ? new Date(start) : start;
+  const endDate = typeof end === 'string' ? new Date(end) : end;
+  if (!startDate || !endDate) return 0;
+  const startMs = startDate.getTime();
+  const endMs = endDate.getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
+    return 0;
+  }
+  const now = Date.now();
+  if (now <= startMs) return 0;
+  const elapsed = Math.min(endMs - startMs, now - startMs);
+  return Math.round((elapsed / (endMs - startMs)) * 100);
+};
 
 export default function AdminBillingPage() {
   const { toast } = useToast();
@@ -196,14 +222,35 @@ export default function AdminBillingPage() {
   const trialDaysRemaining = overview?.trial.daysRemaining;
   const isTrial = overview?.trial.status?.toUpperCase() === 'TRIAL';
 
-  const autopayCtaLabel = overview?.autopay.enabled ? 'Manage autopay' : 'Add payment method';
-
   const currentTierPricing = useMemo(() => {
     if (!overview) return null;
-    const normalized = overview.subscription.tier?.toLowerCase();
-    if (!normalized) return null;
-    return overview.pricing.tiers.find((tier) => tier.tier.toLowerCase() === normalized) ?? null;
+    return overview.pricing.tiers.find((tier) => tier.isCurrent) ?? null;
   }, [overview]);
+
+  const displayPeriod = useMemo(() => {
+    if (!overview) {
+      return { start: null, end: null, nextCharge: null, progress: 0 };
+    }
+
+    const { subscription } = overview;
+    const trialStart = subscription.trialStartAt ?? subscription.startedAt ?? subscription.nextBillingDate;
+    const trialEnd = subscription.trialEndsAt ?? subscription.nextBillingDate;
+    const billingStart = subscription.startedAt ?? subscription.currentPeriodEnd ?? subscription.trialEndsAt;
+    const billingEnd = subscription.currentPeriodEnd ?? subscription.nextBillingDate ?? subscription.trialEndsAt;
+    const nextCharge = isTrial
+      ? trialEnd ?? subscription.nextBillingDate
+      : subscription.nextBillingDate ?? subscription.currentPeriodEnd ?? subscription.trialEndsAt;
+
+    const start = isTrial ? trialStart : billingStart;
+    const end = isTrial ? trialEnd : billingEnd;
+
+    return {
+      start,
+      end,
+      nextCharge,
+      progress: calculateProgress(start, end),
+    };
+  }, [isTrial, overview]);
 
   const currentPlanCurrencySymbol = currentTierPricing?.currencySymbol
     ?? overview?.pricing.currencySymbol
@@ -339,12 +386,21 @@ export default function AdminBillingPage() {
       }
     } catch (err) {
       toast({
-        title: 'Unable to refresh payment method',
+        title: 'Unable to manage autopay',
         description: err instanceof Error ? err.message : 'Please try again.',
         variant: 'destructive',
       });
     }
   }, [overview, toast]);
+
+  const handleManageAutopay = useCallback(() => {
+    if (!overview) return;
+    if (overview.autopay.enabled) {
+      void handleUpdatePaymentMethod();
+      return;
+    }
+    void handleSetupAutopay();
+  }, [handleSetupAutopay, handleUpdatePaymentMethod, overview]);
 
   const submitPlanChange = useCallback(async (tier: string) => {
     if (!overview) return;
@@ -497,40 +553,51 @@ export default function AdminBillingPage() {
         </div>
       </div>
 
-      {overview.recommendations.needsAutopay && (
-        <Card className="border-blue-200 bg-blue-50 text-slate-900">
-          <CardHeader className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 text-blue-700">
-              <CreditCard className="h-4 w-4" />
-              <CardTitle className="text-base">Add a payment method to secure your workspace</CardTitle>
+      <Card className="border-blue-200 bg-blue-50 text-slate-900">
+        <CardHeader className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-blue-700">
+            <Timer className="h-4 w-4" />
+            <CardTitle className="text-base">{isTrial ? 'Trial timeline' : 'Billing timeline'}</CardTitle>
+          </div>
+          <CardDescription className="text-sm text-slate-700">
+            {isTrial ? 'Track your trial access window.' : 'Current billing cycle details.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase text-slate-600">Start date</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {displayPeriod.start ? formatDate(displayPeriod.start) : 'Pending schedule'}
+              </p>
             </div>
-            <CardDescription className="text-sm text-slate-700">
-              Your trial ends {overview.trial.endsAt ? new Date(overview.trial.endsAt).toLocaleDateString() : 'soon'}. Save a payment method now so we can automatically continue your plan without interruption.
-            </CardDescription>
-          </CardHeader>
-          <CardFooter className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-              {typeof trialDaysRemaining === 'number' && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 font-medium text-blue-700">
-                  <Timer className="h-3 w-3" />
-                  {trialDaysRemaining === 0 ? 'Trial ends today' : `${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} left`}
-                </span>
-              )}
-              {overview.trial.reminders.sent7Day && (
-                <Badge variant="outline">7-day reminder sent</Badge>
-              )}
-              {overview.trial.reminders.sent3Day && (
-                <Badge variant="outline">3-day reminder sent</Badge>
-              )}
+            <div>
+              <p className="text-xs uppercase text-slate-600">End date</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {displayPeriod.end ? formatDate(displayPeriod.end) : 'Pending schedule'}
+              </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Button onClick={handleSetupAutopay} disabled={autopayLoading}>
-                {autopayLoading ? 'Launching…' : 'Add payment method'}
-              </Button>
+            <div>
+              <p className="text-xs uppercase text-slate-600">Next payment</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {displayPeriod.nextCharge ? formatDate(displayPeriod.nextCharge) : 'To be determined'}
+              </p>
             </div>
-          </CardFooter>
-        </Card>
-      )}
+          </div>
+          <div>
+            <Progress value={displayPeriod.progress} />
+            <p className="mt-2 text-xs text-slate-700">
+              {isTrial
+                ? (typeof trialDaysRemaining === 'number'
+                    ? `${Math.max(trialDaysRemaining, 0)} day${trialDaysRemaining === 1 ? '' : 's'} remaining`
+                    : 'Trial in progress')
+                : displayPeriod.nextCharge
+                ? `Renews on ${formatDate(displayPeriod.nextCharge)}`
+                : 'Billing schedule updating'}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -577,14 +644,13 @@ export default function AdminBillingPage() {
               </p>
               <div className="mt-3 space-y-3">
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={handleSetupAutopay} disabled={autopayLoading}>
-                    {autopayLoading ? 'Working…' : autopayCtaLabel}
+                  <Button size="sm" onClick={() => void handleManageAutopay()} disabled={autopayLoading && !overview.autopay.enabled}>
+                    {overview.autopay.enabled
+                      ? 'Manage autopay'
+                      : autopayLoading
+                      ? 'Working…'
+                      : 'Add payment method'}
                   </Button>
-                  {overview.autopay.enabled && (
-                    <Button size="sm" variant="outline" onClick={handleUpdatePaymentMethod}>
-                      Refresh payment method
-                    </Button>
-                  )}
                   {overview.autopay.enabled && (
                     <Button
                       size="sm"
