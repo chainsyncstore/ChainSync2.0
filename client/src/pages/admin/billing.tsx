@@ -42,6 +42,7 @@ interface BillingOverviewResponse {
     trialEndsAt: string | null;
     startedAt: string | null;
     currentPeriodEnd: string | null;
+    createdAt: string | null;
     autopayEnabled: boolean;
     autopayProvider: string | null;
     autopayLastStatus: string | null;
@@ -220,7 +221,20 @@ export default function AdminBillingPage() {
   }, [fetchOverview]);
 
   const trialDaysRemaining = overview?.trial.daysRemaining;
-  const isTrial = (overview?.subscription.status ?? overview?.trial.status ?? '').toUpperCase() === 'TRIAL';
+  const trialEndsAt = overview?.trial.endsAt ?? overview?.subscription.trialEndsAt;
+  const subscriptionStatus = overview?.subscription.status?.toUpperCase();
+  const isTrial = useMemo(() => {
+    if (!overview) return false;
+    if (subscriptionStatus === 'TRIAL') return true;
+    if (typeof trialDaysRemaining === 'number' && trialDaysRemaining > 0) return true;
+    if (trialEndsAt) {
+      const end = new Date(trialEndsAt);
+      if (!Number.isNaN(end.getTime()) && end.getTime() > Date.now()) {
+        return true;
+      }
+    }
+    return false;
+  }, [overview, subscriptionStatus, trialDaysRemaining, trialEndsAt]);
 
   const currentTierPricing = useMemo(() => {
     if (!overview) return null;
@@ -233,21 +247,21 @@ export default function AdminBillingPage() {
     }
 
     const { subscription } = overview;
-    const trialStart = subscription.trialStartAt ?? subscription.trialEndsAt ?? subscription.nextBillingDate;
-    const trialEnd = subscription.trialEndsAt ?? subscription.nextBillingDate ?? subscription.currentPeriodEnd;
-    const nextChargeDuringTrial = subscription.nextBillingDate ?? subscription.trialEndsAt;
 
-    const billingStart = subscription.startedAt ?? subscription.currentPeriodEnd ?? subscription.trialEndsAt;
-    const billingEnd = subscription.currentPeriodEnd ?? subscription.nextBillingDate ?? subscription.trialEndsAt;
-    const nextChargeActive = subscription.nextBillingDate ?? subscription.currentPeriodEnd ?? subscription.trialEndsAt;
+    const normalizedTrialStart = subscription.trialStartAt ?? subscription.createdAt ?? subscription.nextBillingDate ?? null;
+    const normalizedTrialEnd = subscription.trialEndsAt ?? subscription.nextBillingDate ?? null;
+    const normalizedBillingStart = subscription.startedAt ?? subscription.currentPeriodEnd ?? subscription.trialEndsAt ?? subscription.nextBillingDate ?? null;
+    const normalizedBillingEnd = subscription.currentPeriodEnd ?? subscription.nextBillingDate ?? subscription.startedAt ?? null;
+    const normalizedNextChargeTrial = subscription.nextBillingDate ?? subscription.trialEndsAt ?? subscription.currentPeriodEnd ?? null;
+    const normalizedNextChargeActive = subscription.nextBillingDate ?? subscription.currentPeriodEnd ?? null;
 
-    const start = isTrial ? trialStart : billingStart;
-    const end = isTrial ? trialEnd : billingEnd;
+    const start = isTrial ? normalizedTrialStart : normalizedBillingStart;
+    const end = isTrial ? normalizedTrialEnd : normalizedBillingEnd;
 
     return {
       start,
       end,
-      nextCharge: isTrial ? nextChargeDuringTrial : nextChargeActive,
+      nextCharge: isTrial ? normalizedNextChargeTrial : normalizedNextChargeActive,
       progress: calculateProgress(start, end),
     };
   }, [isTrial, overview]);
@@ -593,6 +607,8 @@ export default function AdminBillingPage() {
                     ? `${Math.max(trialDaysRemaining, 0)} day${trialDaysRemaining === 1 ? '' : 's'} remaining`
                     : `Trial wraps on ${formatDate(displayPeriod.end)}`
                   : 'Trial schedule pending'
+                : displayPeriod.start && displayPeriod.end
+                ? `Billing cycle ${formatDate(displayPeriod.start)} – ${formatDate(displayPeriod.end)}`
                 : displayPeriod.nextCharge
                 ? `Renews on ${formatDate(displayPeriod.nextCharge)}`
                 : 'Billing schedule updating'}

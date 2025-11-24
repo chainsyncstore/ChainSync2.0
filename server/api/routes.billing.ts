@@ -836,6 +836,7 @@ export async function registerBillingRoutes(app: Express) {
         currencySymbol: currentCurrencySymbol,
         startedAt: toIsoString(subscription.startedAt as any),
         currentPeriodEnd: toIsoString(subscription.currentPeriodEnd as any),
+        createdAt: toIsoString(subscription.createdAt as any),
       },
       autopay,
       stores: {
