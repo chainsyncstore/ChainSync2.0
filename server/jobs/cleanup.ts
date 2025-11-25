@@ -1,5 +1,5 @@
 import axios from "axios";
-import { and, eq, isNull, isNotNull, lt, lte, or, sql as dsql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, isNotNull, lt, lte, or, sql } from "drizzle-orm";
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -7,22 +7,334 @@ import {
   dunningEvents,
   inventory,
   organizations,
-  subscriptionPayments,
-  stockAlerts,
-  subscriptions,
-  users,
+  products,
   scheduledReports,
-  userRoles,
+  stockAlerts,
+  storePerformanceAlerts,
   stores,
+  subscriptionPayments,
+  subscriptions,
+  transactionItems,
+  transactions,
+  userRoles,
+  users,
 } from "@shared/schema";
 import { db } from "../db";
 import { pool } from "../db";
-import { generateTrialPaymentReminderEmail, sendEmail } from "../email";
+import { generateStorePerformanceAlertEmail, generateTrialPaymentReminderEmail, sendEmail } from "../email";
 import { PRICING_TIERS } from "../lib/constants";
 import { logger } from "../lib/logger";
+import { getNotificationService } from "../lib/notification-bus";
 import { PaymentService } from "../payment/service";
 
+const dsql = sql;
+
 const ABANDONED_SIGNUP_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+type StorePerformanceSnapshot = {
+	orgId: string;
+	storeId: string;
+	storeName: string;
+	grossRevenue: number;
+	netRevenue: number;
+	transactionsCount: number;
+	averageOrderValue: number;
+	baselineRevenue?: number;
+	baselineTransactions?: number;
+	revenueDeltaPct?: number | null;
+	transactionsDeltaPct?: number | null;
+	refundRatio?: number | null;
+	severity: 'low' | 'medium' | 'high' | 'critical';
+	topProduct?: { name: string; revenue: number; quantity: number } | null;
+};
+
+const STORE_ALERT_DEFAULT_CURRENCY = process.env.DEFAULT_CURRENCY || 'USD';
+const STORE_ALERT_BASELINE_DAYS = Number(process.env.STORE_ALERT_BASELINE_DAYS ?? 7);
+const STORE_ALERT_DROP_HIGH_THRESHOLD = Number(process.env.STORE_ALERT_DROP_HIGH_THRESHOLD ?? -20);
+const STORE_ALERT_DROP_CRITICAL_THRESHOLD = Number(process.env.STORE_ALERT_DROP_CRITICAL_THRESHOLD ?? -35);
+const STORE_ALERT_REFUND_HIGH_THRESHOLD = Number(process.env.STORE_ALERT_REFUND_HIGH_THRESHOLD ?? 0.25);
+const STORE_ALERT_REFUND_CRITICAL_THRESHOLD = Number(process.env.STORE_ALERT_REFUND_CRITICAL_THRESHOLD ?? 0.4);
+
+function startOfDay(date: Date) {
+	const result = new Date(date);
+	result.setHours(0, 0, 0, 0);
+	return result;
+}
+
+function addDays(date: Date, days: number) {
+	const result = new Date(date);
+	result.setDate(result.getDate() + days);
+	return result;
+}
+
+function determineSeverity(snapshot: StorePerformanceSnapshot) {
+	const revenueDelta = snapshot.revenueDeltaPct ?? 0;
+	const refundRatio = snapshot.refundRatio ?? 0;
+	if (revenueDelta <= STORE_ALERT_DROP_CRITICAL_THRESHOLD || refundRatio >= STORE_ALERT_REFUND_CRITICAL_THRESHOLD) {
+		return 'critical';
+	}
+	if (revenueDelta <= STORE_ALERT_DROP_HIGH_THRESHOLD || refundRatio >= STORE_ALERT_REFUND_HIGH_THRESHOLD) {
+		return 'high';
+	}
+	if (Math.abs(revenueDelta) >= 10) {
+		return 'medium';
+	}
+	return 'low';
+}
+
+async function fetchStorePerformanceSnapshot(storeId: string, orgId: string, storeName: string, snapshotDate: Date): Promise<StorePerformanceSnapshot> {
+	const dayStart = startOfDay(snapshotDate);
+	const dayEnd = addDays(dayStart, 1);
+	const baselineStart = addDays(dayStart, -STORE_ALERT_BASELINE_DAYS);
+	const baselineEnd = dayStart;
+
+	const [daySalesRow] = await db
+		.select({
+			revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+			transactions: sql`COUNT(*)`
+		})
+		.from(transactions)
+		.where(
+			and(
+				eq(transactions.storeId, storeId),
+				eq(transactions.status, 'completed'),
+				eq(transactions.kind, 'SALE'),
+				gte(transactions.createdAt, dayStart),
+				lt(transactions.createdAt, dayEnd)
+			)
+		);
+
+	const [dayRefundRow] = await db
+		.select({ revenue: sql`COALESCE(SUM(${transactions.total}), 0)` })
+		.from(transactions)
+		.where(
+			and(
+				eq(transactions.storeId, storeId),
+				eq(transactions.status, 'completed'),
+				eq(transactions.kind, 'REFUND'),
+				gte(transactions.createdAt, dayStart),
+				lt(transactions.createdAt, dayEnd)
+			)
+		);
+
+	const grossRevenue = parseFloat(String(daySalesRow?.revenue || '0'));
+	const refundTotal = parseFloat(String(dayRefundRow?.revenue || '0'));
+	const netRevenue = grossRevenue - refundTotal;
+	const transactionsCount = parseInt(String(daySalesRow?.transactions || '0'));
+	const averageOrderValue = transactionsCount > 0 ? netRevenue / transactionsCount : 0;
+
+	const [baselineRow] = await db
+		.select({
+			revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+			transactions: sql`COUNT(*)`
+		})
+		.from(transactions)
+		.where(
+			and(
+				eq(transactions.storeId, storeId),
+				eq(transactions.status, 'completed'),
+				eq(transactions.kind, 'SALE'),
+				gte(transactions.createdAt, baselineStart),
+				lt(transactions.createdAt, baselineEnd)
+			)
+		);
+
+	const baselineRevenue = parseFloat(String(baselineRow?.revenue || '0')) / Math.max(STORE_ALERT_BASELINE_DAYS, 1);
+	const baselineTransactions = parseFloat(String(baselineRow?.transactions || '0')) / Math.max(STORE_ALERT_BASELINE_DAYS, 1);
+
+	const revenueDeltaPct = baselineRevenue > 0 ? ((netRevenue - baselineRevenue) / baselineRevenue) * 100 : null;
+	const transactionsDeltaPct = baselineTransactions > 0 ? ((transactionsCount - baselineTransactions) / baselineTransactions) * 100 : null;
+	const refundRatio = grossRevenue > 0 ? refundTotal / grossRevenue : null;
+
+	const [topProductRow] = await db
+		.select({
+			name: products.name,
+			revenue: sql`COALESCE(SUM(${transactionItems.totalPrice}), 0)`,
+			quantity: sql`COALESCE(SUM(${transactionItems.quantity}), 0)`
+		})
+		.from(transactionItems)
+		.innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
+		.innerJoin(products, eq(transactionItems.productId, products.id))
+		.where(
+			and(
+				eq(transactions.storeId, storeId),
+				eq(transactions.status, 'completed'),
+				gte(transactions.createdAt, dayStart),
+				lt(transactions.createdAt, dayEnd)
+			)
+		)
+		.groupBy(products.id)
+		.orderBy(desc(sql`COALESCE(SUM(${transactionItems.totalPrice}), 0)`))
+		.limit(1);
+
+	const topProduct = topProductRow && topProductRow.quantity
+		? {
+			name: topProductRow.name || 'Top product',
+			revenue: parseFloat(String(topProductRow.revenue || '0')),
+			quantity: parseInt(String(topProductRow.quantity || '0')),
+		}
+		: null;
+
+	const snapshot: StorePerformanceSnapshot = {
+		orgId,
+		storeId,
+		storeName,
+		grossRevenue,
+		netRevenue,
+		transactionsCount,
+		averageOrderValue,
+		baselineRevenue,
+		baselineTransactions,
+		revenueDeltaPct,
+		transactionsDeltaPct,
+		refundRatio,
+		severity: 'low',
+		topProduct,
+	};
+	return { ...snapshot, severity: determineSeverity(snapshot) };
+}
+
+async function persistStorePerformanceSnapshot(snapshot: StorePerformanceSnapshot, snapshotDate: Date, comparisonWindow = `previous_${STORE_ALERT_BASELINE_DAYS}_days`) {
+	const insertable = {
+		orgId: snapshot.orgId,
+		storeId: snapshot.storeId,
+		snapshotDate: startOfDay(snapshotDate),
+		timeframe: 'daily' as const,
+		comparisonWindow,
+		grossRevenue: snapshot.grossRevenue,
+		netRevenue: snapshot.netRevenue,
+		transactionsCount: snapshot.transactionsCount,
+		averageOrderValue: snapshot.averageOrderValue,
+		baselineRevenue: snapshot.baselineRevenue ?? null,
+		baselineTransactions: snapshot.baselineTransactions ?? null,
+		revenueDeltaPct: snapshot.revenueDeltaPct ?? null,
+		transactionsDeltaPct: snapshot.transactionsDeltaPct ?? null,
+		refundRatio: snapshot.refundRatio ?? null,
+		topProduct: snapshot.topProduct ? JSON.stringify(snapshot.topProduct) : null,
+		severity: snapshot.severity,
+	};
+
+	await db
+		.insert(storePerformanceAlerts)
+		.values(insertable as unknown as typeof storePerformanceAlerts.$inferInsert)
+		.onConflictDoUpdate({
+			target: [storePerformanceAlerts.storeId, storePerformanceAlerts.snapshotDate, storePerformanceAlerts.timeframe],
+			set: insertable as any,
+		});
+}
+
+async function notifyStorePerformance(snapshot: StorePerformanceSnapshot, snapshotDate: Date) {
+	const ws = getNotificationService();
+	const priority = snapshot.severity === 'critical' || snapshot.severity === 'high' ? 'high' : snapshot.severity === 'medium' ? 'medium' : 'low';
+	const title = `Store ${snapshot.severity === 'low' ? 'update' : 'alert'} – ${snapshot.storeName}`;
+	const message = `Net revenue ${snapshot.revenueDeltaPct?.toFixed(1) ?? 0}% vs baseline. Refund ratio ${(snapshot.refundRatio ?? 0).toFixed(2)}.`;
+	const dataPayload = {
+		severity: snapshot.severity,
+		netRevenue: snapshot.netRevenue,
+		revenueDeltaPct: snapshot.revenueDeltaPct,
+		transactionsDeltaPct: snapshot.transactionsDeltaPct,
+		refundRatio: snapshot.refundRatio,
+		snapshotDate: snapshotDate.toISOString(),
+		comparisonWindow: `previous_${STORE_ALERT_BASELINE_DAYS}_days`,
+		topProduct: snapshot.topProduct,
+	};
+
+	if (ws) {
+		await ws.broadcastNotification({
+			type: 'store_performance',
+			storeId: snapshot.storeId,
+			title,
+			message,
+			priority,
+			data: dataPayload,
+		});
+	}
+
+	try {
+		const adminRecipients = await db
+			.select({ email: users.email })
+			.from(users)
+			.where(and(eq(users.orgId, snapshot.orgId), eq(users.isAdmin, true)));
+		const uniqueEmails = Array.from(new Set(adminRecipients.map((row) => row.email).filter(Boolean)));
+		await Promise.all(
+			uniqueEmails.map((email) =>
+				sendEmail(
+					generateStorePerformanceAlertEmail({
+						to: email!,
+						storeName: snapshot.storeName,
+						snapshotDate,
+						severity: snapshot.severity,
+						grossRevenue: snapshot.grossRevenue,
+						netRevenue: snapshot.netRevenue,
+						transactionsCount: snapshot.transactionsCount,
+						averageOrderValue: snapshot.averageOrderValue,
+						revenueDeltaPct: snapshot.revenueDeltaPct,
+						transactionsDeltaPct: snapshot.transactionsDeltaPct,
+						refundRatio: snapshot.refundRatio,
+						comparisonWindowLabel: `previous ${STORE_ALERT_BASELINE_DAYS} days`,
+						topProduct: snapshot.topProduct ?? undefined,
+						currency: STORE_ALERT_DEFAULT_CURRENCY,
+					})
+				)
+			)
+		);
+	} catch (error) {
+		logger.warn('Failed to send store performance alert email', {
+			error: error instanceof Error ? error.message : String(error),
+			storeId: snapshot.storeId,
+		});
+	}
+}
+
+async function runStorePerformanceAlertsOnce(snapshotDate = new Date()): Promise<void> {
+	try {
+		const storesList = await db
+			.select({
+				id: stores.id,
+				name: stores.name,
+				orgId: stores.orgId,
+				isActive: stores.isActive,
+			})
+			.from(stores);
+
+		for (const store of storesList) {
+			if (!store.isActive || !store.orgId) continue;
+			const snapshot = await fetchStorePerformanceSnapshot(store.id, store.orgId, store.name || 'Store', snapshotDate);
+			await persistStorePerformanceSnapshot(snapshot, snapshotDate);
+			if (snapshot.severity !== 'low') {
+				await notifyStorePerformance(snapshot, snapshotDate);
+			}
+		}
+		logger.info('Store performance alerts processed', {
+			snapshotDate: startOfDay(snapshotDate).toISOString(),
+			storeCount: storesList.length,
+		});
+	} catch (error) {
+		logger.error('Store performance alerts job failed', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+export function scheduleStorePerformanceAlerts(): void {
+	const enabled = (process.env.STORE_PERFORMANCE_ALERTS_SCHEDULE ?? 'true').toLowerCase() !== 'false';
+	if (!enabled) {
+		logger.info('Store performance alerts scheduler disabled via env');
+		return;
+	}
+	const hourUtc = Number(process.env.STORE_PERFORMANCE_ALERTS_HOUR_UTC ?? 7);
+	const scheduleNext = () => {
+		const delay = msUntilNextHourUtc(hourUtc);
+		logger.info('Scheduling store performance alert scan', { runInMs: delay });
+		setTimeout(async () => {
+			await runStorePerformanceAlertsOnce();
+			setInterval(() => {
+				void runStorePerformanceAlertsOnce();
+			}, ONE_DAY_MS);
+		}, delay);
+	};
+	scheduleNext();
+}
 
 async function cleanupAbandonedSignupsOlderThanOneHour(): Promise<number> {
 	const cutoff = new Date(Date.now() - ABANDONED_SIGNUP_MAX_AGE_MS);

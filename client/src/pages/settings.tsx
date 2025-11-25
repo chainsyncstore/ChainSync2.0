@@ -1,5 +1,5 @@
 import { Download, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import QRCode from 'react-qr-code';
 import type { Store } from '@shared/schema';
 import { IpWhitelistManager } from '../components/ip-whitelist/ip-whitelist-manager';
@@ -15,7 +15,17 @@ import { useAuth } from '../hooks/use-auth';
 import { useToast } from '../hooks/use-toast';
 
 export default function Settings() {
-  const { user, logout, twoFactorEnabled, setupTwoFactor, verifyTwoFactor, disableTwoFactor } = useAuth();
+  const {
+    user,
+    logout,
+    twoFactorEnabled,
+    setupTwoFactor,
+    verifyTwoFactor,
+    disableTwoFactor,
+    requestProfileOtp,
+    verifyProfileOtp,
+    refreshUser,
+  } = useAuth();
   const { toast } = useToast();
   const [exporting, setExporting] = useState<string | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
@@ -40,6 +50,13 @@ export default function Settings() {
     password: '', // for re-auth if email changes
   });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileOtpCode, setProfileOtpCode] = useState('');
+  const [profileOtpStatus, setProfileOtpStatus] = useState<'idle' | 'sent' | 'verified'>('idle');
+  const [profileOtpExpiresAt, setProfileOtpExpiresAt] = useState<Date | null>(null);
+  const [profileOtpEmail, setProfileOtpEmail] = useState('');
+  const [isRequestingProfileOtp, setIsRequestingProfileOtp] = useState(false);
+  const [isVerifyingProfileOtp, setIsVerifyingProfileOtp] = useState(false);
+  const [profileOtpTick, setProfileOtpTick] = useState(0);
 
   const [deleteConfirm, setDeleteConfirm] = useState<string>('');
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
@@ -206,6 +223,21 @@ export default function Settings() {
     }
   };
 
+  const resetProfileOtpState = useCallback(() => {
+    setProfileOtpStatus('idle');
+    setProfileOtpCode('');
+    setProfileOtpExpiresAt(null);
+    setProfileOtpEmail('');
+    setIsRequestingProfileOtp(false);
+    setIsVerifyingProfileOtp(false);
+  }, []);
+
+  const normalizedCurrentEmail = useMemo(() => (user?.email ?? '').trim().toLowerCase(), [user?.email]);
+  const normalizedPendingEmail = profileForm.email.trim().toLowerCase();
+  const emailChanged = Boolean(profileForm.email && normalizedPendingEmail !== normalizedCurrentEmail);
+  const otpVerified = profileOtpStatus === 'verified';
+  const saveProfileDisabled = isSavingProfile || (emailChanged && !otpVerified);
+
   useEffect(() => {
     setProfileForm({
       firstName: user?.firstName || '',
@@ -216,7 +248,88 @@ export default function Settings() {
       location: user?.location || '',
       password: '',
     });
-  }, [user]);
+    resetProfileOtpState();
+  }, [user, resetProfileOtpState]);
+
+  useEffect(() => {
+    if (!emailChanged) {
+      resetProfileOtpState();
+    }
+  }, [emailChanged, resetProfileOtpState]);
+
+  useEffect(() => {
+    if (!profileOtpExpiresAt) {
+      setProfileOtpTick(0);
+      return;
+    }
+    const interval = window.setInterval(() => {
+      setProfileOtpTick((tick) => tick + 1);
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [profileOtpExpiresAt]);
+
+  const profileOtpSecondsRemaining = useMemo(() => {
+    if (!profileOtpExpiresAt) return null;
+    // dependency tick ensures this recalculates once per second
+    void profileOtpTick;
+    return Math.max(0, Math.ceil((profileOtpExpiresAt.getTime() - Date.now()) / 1000));
+  }, [profileOtpExpiresAt, profileOtpTick]);
+
+  const profileOtpCountdownLabel = useMemo(() => {
+    if (profileOtpSecondsRemaining === null) return null;
+    const minutes = Math.floor(profileOtpSecondsRemaining / 60);
+    const seconds = profileOtpSecondsRemaining % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }, [profileOtpSecondsRemaining]);
+
+  const profileOtpExpired = Boolean(profileOtpExpiresAt && profileOtpSecondsRemaining === 0 && !otpVerified);
+  const sendProfileOtpLabel = profileOtpStatus === 'idle' ? 'Send code' : profileOtpStatus === 'verified' ? 'Send new code' : 'Resend code';
+
+  const handleRequestProfileOtp = async () => {
+    if (!profileForm.email || !emailChanged) {
+      toast({ title: 'Email required', description: 'Enter the new email before requesting a code.', variant: 'destructive' });
+      return;
+    }
+    setIsRequestingProfileOtp(true);
+    try {
+      resetProfileOtpState();
+      const response = await requestProfileOtp(profileForm.email);
+      if (response?.expiresAt) {
+        setProfileOtpExpiresAt(new Date(response.expiresAt));
+      } else {
+        setProfileOtpExpiresAt(null);
+      }
+      setProfileOtpEmail(profileForm.email.trim().toLowerCase());
+      setProfileOtpStatus('sent');
+      toast({ title: 'Code sent', description: 'Check your new email inbox for the verification code.' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: error?.message || 'Could not send verification code.', variant: 'destructive' });
+    } finally {
+      setIsRequestingProfileOtp(false);
+    }
+  };
+
+  const handleVerifyProfileOtp = async () => {
+    if (!profileOtpCode.trim()) {
+      toast({ title: 'Verification required', description: 'Enter the code that was emailed to you.', variant: 'destructive' });
+      return;
+    }
+    if (profileOtpExpired) {
+      toast({ title: 'Code expired', description: 'Please request a new verification code.', variant: 'destructive' });
+      resetProfileOtpState();
+      return;
+    }
+    setIsVerifyingProfileOtp(true);
+    try {
+      await verifyProfileOtp({ email: profileForm.email, code: profileOtpCode });
+      setProfileOtpStatus('verified');
+      toast({ title: 'Code verified', description: 'You can now save your new email.' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: error?.message || 'Invalid or expired verification code.', variant: 'destructive' });
+    } finally {
+      setIsVerifyingProfileOtp(false);
+    }
+  };
 
   if (!user) {
     return <div>Loading...</div>;
@@ -343,17 +456,20 @@ export default function Settings() {
   const handleSaveProfile = async () => {
     setIsSavingProfile(true);
     try {
-      const response = await fetch('/api/me/profile', {
+      const response = await fetch('/api/auth/me/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(profileForm),
       });
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update profile');
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || errorData?.message || 'Failed to update profile');
       }
       toast({ title: 'Success', description: 'Profile updated successfully.' });
       setProfileForm(f => ({ ...f, password: '' }));
+      resetProfileOtpState();
+      await refreshUser();
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     } finally {
@@ -723,39 +839,120 @@ export default function Settings() {
                     <CardDescription>Update your personal details</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div>
-                      <Label htmlFor="firstName">First Name</Label>
-                      <Input id="firstName" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label htmlFor="lastName">Last Name</Label>
-                      <Input id="lastName" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label htmlFor="email">Email</Label>
-                      <Input id="email" type="email" value={profileForm.email} onChange={e => setProfileForm({ ...profileForm, email: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label htmlFor="phone">Phone</Label>
-                      <Input id="phone" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label htmlFor="companyName">Company</Label>
-                      <Input id="companyName" value={profileForm.companyName} onChange={e => setProfileForm({ ...profileForm, companyName: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label htmlFor="location">Location</Label>
-                      <Input id="location" value={profileForm.location} onChange={e => setProfileForm({ ...profileForm, location: e.target.value })} />
-                    </div>
-                    {profileForm.email !== user.email && (
+                    <div className="grid gap-4 md:grid-cols-2">
                       <div>
-                        <Label htmlFor="password">Current Password (required to change email)</Label>
-                        <Input id="password" type="password" value={profileForm.password} onChange={e => setProfileForm({ ...profileForm, password: e.target.value })} />
+                        <Label htmlFor="firstName">First Name</Label>
+                        <Input id="firstName" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label htmlFor="lastName">Last Name</Label>
+                        <Input id="lastName" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} />
+                      </div>
+                      <div className="md:col-span-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input id="email" type="email" value={profileForm.email} onChange={e => setProfileForm({ ...profileForm, email: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label htmlFor="phone">Phone</Label>
+                        <Input id="phone" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label htmlFor="location">Location</Label>
+                        <Input id="location" value={profileForm.location} onChange={e => setProfileForm({ ...profileForm, location: e.target.value })} />
+                      </div>
+                      <div className="md:col-span-2">
+                        <Label htmlFor="companyName">Company</Label>
+                        <Input id="companyName" value={profileForm.companyName} onChange={e => setProfileForm({ ...profileForm, companyName: e.target.value })} />
+                      </div>
+                    </div>
+                    {emailChanged && (
+                      <div className="space-y-4 rounded-md border border-amber-200 bg-amber-50/60 p-4">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-amber-800">
+                          <span>Current email: <strong>{user.email}</strong></span>
+                          <span>New email: <strong>{profileForm.email}</strong></span>
+                        </div>
+                        <div>
+                          <Label htmlFor="password">Current Password (required to change email)</Label>
+                          <Input
+                            id="password"
+                            type="password"
+                            value={profileForm.password}
+                            onChange={e => setProfileForm({ ...profileForm, password: e.target.value })}
+                          />
+                          <p className="mt-1 text-xs text-amber-700">
+                            We require your password plus a verification code when changing the account email.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="profileOtpCode">Verification code</Label>
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <Input
+                              id="profileOtpCode"
+                              inputMode="numeric"
+                              maxLength={6}
+                              placeholder="123456"
+                              value={profileOtpCode}
+                              onChange={(e) => setProfileOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                              disabled={otpVerified}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={handleRequestProfileOtp}
+                              disabled={isRequestingProfileOtp || !emailChanged}
+                            >
+                              {isRequestingProfileOtp ? 'Sending…' : sendProfileOtpLabel}
+                            </Button>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            {profileOtpStatus === 'sent' && !profileOtpExpired && (
+                              <p>
+                                Code sent to <strong>{profileOtpEmail}</strong>
+                                {profileOtpCountdownLabel && ` · Expires in ${profileOtpCountdownLabel}`}
+                              </p>
+                            )}
+                            {profileOtpExpired && (
+                              <p className="font-medium text-red-600">Code expired. Request a new one.</p>
+                            )}
+                            {profileOtpStatus === 'verified' && (
+                              <p className="font-medium text-green-600">Verification complete for this email.</p>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              onClick={handleVerifyProfileOtp}
+                              disabled={otpVerified || isVerifyingProfileOtp || profileOtpExpired}
+                            >
+                              {otpVerified
+                                ? 'Code verified'
+                                : isVerifyingProfileOtp
+                                  ? 'Verifying…'
+                                  : 'Verify code'}
+                            </Button>
+                            {otpVerified && (
+                              <Badge variant="secondary" className="bg-green-100 text-green-800">OTP verified</Badge>
+                            )}
+                            {(profileOtpStatus === 'sent' || otpVerified) && (
+                              <Button type="button" variant="ghost" onClick={resetProfileOtpState}>
+                                Reset verification
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
-                    <Button onClick={handleSaveProfile} disabled={isSavingProfile}>
-                      {isSavingProfile ? 'Saving...' : 'Save Profile'}
-                    </Button>
+                    <div className="space-y-2">
+                      <Button onClick={handleSaveProfile} disabled={saveProfileDisabled}>
+                        {isSavingProfile ? 'Saving...' : 'Save Profile'}
+                      </Button>
+                      {emailChanged && !otpVerified && (
+                        <p className="text-sm text-amber-700">
+                          Verify the new email address above to enable saving.
+                        </p>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>

@@ -33,6 +33,7 @@ export const envSchema = z.object({
   SIGNUPS_ENABLED: z.string().transform((v) => v === 'true').default('false' as any),
   IP_WHITELIST_ENFORCED: z.string().transform((v) => v === 'true').default('true' as any),
   MONITORING_ALERT_WEBHOOK: z.string().url().optional(),
+  SENTRY_WEBHOOK_SECRET: z.string().min(8).optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug', 'trace']).default('info'),
   // Feature flags
   ENABLE_OFFLINE_POS: z.string().transform((v) => v === 'true').default('true' as any),

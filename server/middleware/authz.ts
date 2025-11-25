@@ -5,7 +5,7 @@ import { db } from '../db';
 import { getPlan } from '../lib/plans';
 import { storage } from '../storage';
 
-const ipWhitelistEnforced = (process.env.IP_WHITELIST_ENFORCED ?? 'true').toLowerCase() !== 'false';
+const defaultIpWhitelistEnforced = (process.env.IP_WHITELIST_ENFORCED ?? 'true').toLowerCase() !== 'false';
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
@@ -192,13 +192,24 @@ export function ipMatchesCidrOrIp(allowed: string, ipAddress: string): boolean {
 }
 
 export async function enforceIpWhitelist(req: Request, res: Response, next: NextFunction) {
-  if (!ipWhitelistEnforced || process.env.NODE_ENV === 'test') return next();
+  if (process.env.NODE_ENV === 'test') return next();
   const userId = req.session?.userId as string | undefined;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
   const rows = await db.select().from(users).where(eq(users.id, userId));
   const user = rows[0];
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   if (user.isAdmin) return next();
+
+  const orgRow = user.orgId
+    ? (await db.select({ ipWhitelistEnforced: organizations.ipWhitelistEnforced }).from(organizations).where(eq(organizations.id, user.orgId)).limit(1))[0]
+    : undefined;
+  const enforcementEnabled = typeof orgRow?.ipWhitelistEnforced === 'boolean'
+    ? orgRow.ipWhitelistEnforced
+    : defaultIpWhitelistEnforced;
+
+  if (!enforcementEnabled) {
+    return next();
+  }
 
   const clientIp = getClientIp(req);
   const allowed = await storage.checkIpWhitelisted(clientIp, userId);

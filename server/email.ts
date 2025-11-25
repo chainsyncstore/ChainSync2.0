@@ -34,7 +34,166 @@ const loadLogoDataUri = (fileName: string, fallback: string): string => {
   }
 };
 
-const inlineFallbackLogo = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'><rect width='120' height='60' rx='8' fill='%232196F3'/><rect x='15' y='12' width='90' height='8' rx='4' fill='white'/><rect x='15' y='26' width='90' height='8' rx='4' fill='white'/><rect x='15' y='40' width='90' height='8' rx='4' fill='white'/></svg>`;
+export interface ProfileChangeOtpEmailParams {
+  to: string;
+  userName?: string | null;
+  code: string;
+  expiresAt: Date;
+}
+
+export function generateProfileChangeOtpEmail(params: ProfileChangeOtpEmailParams): EmailOptions {
+  const { to, userName, code, expiresAt } = params;
+  const friendlyName = userName?.trim()?.length ? userName.trim() : 'there';
+  const formattedExpiry = expiresAt.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const html = `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Inter', Arial, sans-serif; background-color: #f2f6fb; padding: 0; margin: 0;">
+      <tr>
+        <td align="center" style="padding: 32px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);">
+            <tr>
+              <td style="background: linear-gradient(135deg, #0EA5E9 0%, #2563EB 100%); padding: 28px 24px; text-align: center;">
+                <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin: 0 auto 12px;" />
+                <p style="color: #ffffff; font-size: 20px; font-weight: 600; margin: 0; letter-spacing: 0.5px;">Confirm your profile update</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 32px 36px;">
+                <p style="color: #0F172A; font-size: 16px; font-weight: 600; margin: 0 0 12px;">Hi ${friendlyName},</p>
+                <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+                  Use the one-time code below to confirm the email change you requested for your ChainSync account.
+                </p>
+                <div style="background: #EFF6FF; border-radius: 14px; padding: 24px; text-align: center; margin-bottom: 20px;">
+                  <span style="display: inline-block; font-size: 34px; letter-spacing: 14px; font-weight: 700; color: #0F172A;">${code}</span>
+                  <p style="color: #1D4ED8; font-size: 14px; font-weight: 500; margin: 16px 0 0;">
+                    This code expires at ${formattedExpiry}.
+                  </p>
+                </div>
+                <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 12px;">
+                  If you didn’t request this change, you can safely ignore this email.
+                </p>
+                <p style="color: #94A3B8; font-size: 12px; line-height: 1.6; margin: 0;">
+                  Need help? Contact us anytime at <a href="mailto:support@chainsync.com" style="color: #2563EB; font-weight: 600; text-decoration: none;">support@chainsync.com</a>.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const text = `Hi ${friendlyName},
+
+Use this code to confirm your ChainSync email change: ${code}
+
+This code expires at ${formattedExpiry}.
+If you didn’t request this change, you can ignore this email.
+
+The ChainSync Team`;
+
+  return {
+    to,
+    subject: 'Confirm your ChainSync email change',
+    html,
+    text,
+  };
+}
+
+export interface MonitoringAlertEmailParams {
+  to: string;
+  title: string;
+  message: string;
+  level?: string;
+  project?: string;
+  environment?: string;
+  url?: string;
+  timestamp?: Date | string;
+  tags?: Record<string, string | number | undefined>;
+}
+
+const monitoringSeverityColors: Record<string, { bg: string; text: string }> = {
+  fatal: { bg: '#FEE2E2', text: '#B91C1C' },
+  error: { bg: '#FEE2E2', text: '#B91C1C' },
+  warning: { bg: '#FEF3C7', text: '#B45309' },
+  info: { bg: '#DBEAFE', text: '#1D4ED8' },
+  default: { bg: '#E2E8F0', text: '#475569' },
+};
+
+export function generateMonitoringAlertEmail(params: MonitoringAlertEmailParams): EmailOptions {
+  const { to, title, message, level, project, environment, url, timestamp, tags } = params;
+  const normalizedLevel = (level || 'error').toLowerCase();
+  const color = monitoringSeverityColors[normalizedLevel] ?? monitoringSeverityColors.default;
+  const formattedTimestamp = timestamp
+    ? new Date(timestamp).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const tagEntries = tags ? Object.entries(tags).filter(([, value]) => value !== undefined && value !== null && value !== '') : [];
+
+  const html = `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Inter', Arial, sans-serif; background-color: #F8FAFC; padding: 0; margin: 0;">
+      <tr>
+        <td align="center" style="padding: 32px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 620px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 15px 40px rgba(15, 23, 42, 0.08); overflow: hidden;">
+            <tr>
+              <td style="padding: 28px 32px; background: linear-gradient(135deg, #0EA5E9 0%, #2563EB 100%); color: white;">
+                <img src="${LOGO_OUTLINE}" alt="ChainSync" width="72" height="72" style="display:block; margin-bottom: 12px;" />
+                <p style="margin: 0 0 8px; letter-spacing: 0.08em; font-size: 12px; text-transform: uppercase; opacity: 0.85;">Monitoring alert</p>
+                <h1 style="margin: 0; font-size: 22px; font-weight: 600;">${title}</h1>
+                <span style="display:inline-block; margin-top: 12px; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background:${color.bg}; color:${color.text}; text-transform: uppercase;">${normalizedLevel}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 28px 32px; color: #0F172A;">
+                <p style="margin: 0 0 16px; color: #475569; line-height: 1.5;">${message}</p>
+                <div style="margin-bottom: 16px;">
+                  ${project ? `<p style="margin:4px 0; color:#475569;"><strong>Project:</strong> ${project}</p>` : ''}
+                  ${environment ? `<p style="margin:4px 0; color:#475569;"><strong>Environment:</strong> ${environment}</p>` : ''}
+                  <p style="margin:4px 0; color:#475569;"><strong>Timestamp:</strong> ${formattedTimestamp}</p>
+                </div>
+                ${tagEntries.length ? `<div style="margin-bottom: 16px;">
+                  <p style="margin:0 0 8px; font-weight:600;">Tags</p>
+                  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+                    ${tagEntries
+                      .map(([k, v]) => `<tr>
+                          <td style="padding:6px 8px; background:#F8FAFC; border:1px solid #E2E8F0; font-size:13px; width:35%;">${k}</td>
+                          <td style="padding:6px 8px; border:1px solid #E2E8F0; font-size:13px;">${String(v)}</td>
+                        </tr>`)
+                      .join('')}
+                  </table>
+                </div>` : ''}
+                ${url ? `<div style="margin-top: 12px;"><a href="${url}" style="display:inline-block; padding: 10px 18px; border-radius: 999px; background:#2563EB; color:#fff; text-decoration:none; font-weight:600;">View in Sentry</a></div>` : ''}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const textLines = [
+    `Monitoring alert: ${title}`,
+    `Level: ${normalizedLevel}`,
+    message,
+    project ? `Project: ${project}` : null,
+    environment ? `Environment: ${environment}` : null,
+    `Timestamp: ${formattedTimestamp}`,
+    ...(tagEntries.map(([k, v]) => `${k}: ${v}`)),
+    url ? `View event: ${url}` : null,
+  ].filter(Boolean) as string[];
+
+  return {
+    to,
+    subject: `[${normalizedLevel.toUpperCase()}] ${title}`,
+    html,
+    text: textLines.join('\n'),
+  };
+}
+
+const inlineFallbackLogo = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'><rect width='120' height='60' rx='8' fill='%232196F3'/><rect x='15' y='12' width='90' height='8' rx='4' fill='white'/><rect x='15' y='26' width='90' height='8' rx='4' fill='white'/><rect x='15' y='40' width='90' height='8' rx='4' fill='white'/></svg>";
 
 const LOGO_OUTLINE = loadLogoDataUri('chainsync-logo-outline.svg', inlineFallbackLogo.replace('%232196F3', 'white').replace('white', '%232196F3'));
 
@@ -374,6 +533,171 @@ The ChainSync Team`;
     subject: 'Your ChainSync verification code',
     html,
     text,
+  };
+}
+
+export interface StorePerformanceEmailParams {
+  to: string;
+  storeName: string;
+  snapshotDate: Date;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  grossRevenue: number;
+  netRevenue: number;
+  transactionsCount: number;
+  averageOrderValue: number;
+  revenueDeltaPct?: number | null;
+  transactionsDeltaPct?: number | null;
+  refundRatio?: number | null;
+  comparisonWindowLabel: string;
+  topProduct?: { name: string; revenue: number; quantity: number } | null;
+  currency?: string;
+}
+
+const severityPillColors: Record<StorePerformanceEmailParams['severity'], { bg: string; text: string }> = {
+  critical: { bg: '#FEE2E2', text: '#B91C1C' },
+  high: { bg: '#FEF3C7', text: '#B45309' },
+  medium: { bg: '#E0F2FE', text: '#075985' },
+  low: { bg: '#E2E8F0', text: '#475569' },
+};
+
+export function generateStorePerformanceAlertEmail(params: StorePerformanceEmailParams): EmailOptions {
+  const {
+    to,
+    storeName,
+    snapshotDate,
+    severity,
+    grossRevenue,
+    netRevenue,
+    transactionsCount,
+    averageOrderValue,
+    revenueDeltaPct,
+    transactionsDeltaPct,
+    refundRatio,
+    comparisonWindowLabel,
+    topProduct,
+    currency,
+  } = params;
+
+  const currencyCode = currency || process.env.DEFAULT_CURRENCY || 'USD';
+  const moneyFormatter = new Intl.NumberFormat('en', { style: 'currency', currency: currencyCode });
+  const percentFormatter = new Intl.NumberFormat('en', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const severityCopy: Record<typeof severity, { title: string; body: string }> = {
+    critical: {
+      title: 'Critical performance decline detected',
+      body: 'Immediate attention is required to investigate and stabilize this store\'s sales performance.',
+    },
+    high: {
+      title: 'Significant performance change',
+      body: 'This store is experiencing a notable shift in revenue or refunds that may need intervention.',
+    },
+    medium: {
+      title: 'Performance update',
+      body: 'Sales performance moved materially compared to the recent baseline.',
+    },
+    low: {
+      title: 'Performance highlight',
+      body: 'Here is the latest snapshot compared to the recent baseline.',
+    },
+  };
+
+  const pillColors = severityPillColors[severity];
+  const formattedDate = snapshotDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  const metricsRows = [
+    { label: 'Gross revenue', value: moneyFormatter.format(grossRevenue) },
+    { label: 'Net revenue', value: moneyFormatter.format(netRevenue) },
+    { label: 'Transactions', value: transactionsCount.toLocaleString() },
+    { label: 'Average order value', value: moneyFormatter.format(averageOrderValue) },
+  ];
+
+  const deltasRows = [
+    typeof revenueDeltaPct === 'number' ? { label: 'Revenue delta vs baseline', value: percentFormatter.format(revenueDeltaPct / 100) } : null,
+    typeof transactionsDeltaPct === 'number' ? { label: 'Transaction delta vs baseline', value: percentFormatter.format(transactionsDeltaPct / 100) } : null,
+    typeof refundRatio === 'number' ? { label: 'Refund ratio', value: percentFormatter.format(refundRatio) } : null,
+  ].filter(Boolean) as Array<{ label: string; value: string }>;
+
+  const topProductBlock = topProduct
+    ? `<div style="margin-top: 16px; padding: 16px; border: 1px solid #E2E8F0; border-radius: 12px;">
+        <p style="margin: 0 0 4px; font-weight: 600; color: #0F172A;">Top product driver</p>
+        <p style="margin: 0; color: #475569;">${topProduct.name} — ${moneyFormatter.format(topProduct.revenue)} from ${topProduct.quantity.toLocaleString()} units</p>
+      </div>`
+    : '';
+
+  const html = `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-family: 'Inter', Arial, sans-serif; background-color: #F8FAFC; padding: 0; margin: 0;">
+      <tr>
+        <td align="center" style="padding: 40px 16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 640px; background-color: #ffffff; border-radius: 18px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08); overflow: hidden;">
+            <tr>
+              <td style="padding: 32px 40px; background: linear-gradient(135deg, #0EA5E9 0%, #2563EB 100%); color: white;">
+                <img src="${LOGO_OUTLINE}" alt="ChainSync" width="80" height="80" style="display: block; margin-bottom: 12px;" />
+                <p style="margin: 0 0 12px; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; opacity: 0.8;">Store performance alert</p>
+                <h1 style="margin: 0; font-size: 26px; font-weight: 600;">${storeName}</h1>
+                <p style="margin: 8px 0 0; opacity: 0.85;">Snapshot for ${formattedDate}</p>
+                <span style="display: inline-block; margin-top: 16px; padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 600; background: ${pillColors.bg}; color: ${pillColors.text};">
+                  ${severity.toUpperCase()}
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 32px 40px;">
+                <h2 style="margin: 0 0 12px; font-size: 20px; color: #0F172A;">${severityCopy[severity].title}</h2>
+                <p style="margin: 0 0 20px; color: #475569;">${severityCopy[severity].body}</p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+                  ${metricsRows
+                    .map(
+                      (row) => `
+                        <div style="padding: 16px; border: 1px solid #E2E8F0; border-radius: 12px;">
+                          <p style="margin: 0; color: #94A3B8; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em;">${row.label}</p>
+                          <p style="margin: 6px 0 0; color: #0F172A; font-size: 20px; font-weight: 600;">${row.value}</p>
+                        </div>`
+                    )
+                    .join('')}
+                </div>
+                ${
+                  deltasRows.length
+                    ? `<div style="margin-top: 24px; padding: 16px; border: 1px solid #E2E8F0; border-radius: 12px;">
+                        <p style="margin: 0 0 8px; color: #0F172A; font-weight: 600;">Vs ${comparisonWindowLabel}</p>
+                        ${deltasRows
+                          .map((row) => `<p style="margin: 4px 0; color: #475569;"><strong>${row.label}:</strong> ${row.value}</p>`)
+                          .join('')}
+                      </div>`
+                    : ''
+                }
+                ${topProductBlock}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const textLines = [
+    `${storeName} performance alert for ${formattedDate}.`,
+    severityCopy[severity].title,
+    `Gross revenue: ${moneyFormatter.format(grossRevenue)}`,
+    `Net revenue: ${moneyFormatter.format(netRevenue)}`,
+    `Transactions: ${transactionsCount.toLocaleString()}`,
+    `Average order value: ${moneyFormatter.format(averageOrderValue)}`,
+  ];
+  if (typeof revenueDeltaPct === 'number') {
+    textLines.push(`Revenue delta vs ${comparisonWindowLabel}: ${percentFormatter.format(revenueDeltaPct / 100)}`);
+  }
+  if (typeof transactionsDeltaPct === 'number') {
+    textLines.push(`Transaction delta vs ${comparisonWindowLabel}: ${percentFormatter.format(transactionsDeltaPct / 100)}`);
+  }
+  if (typeof refundRatio === 'number') {
+    textLines.push(`Refund ratio: ${percentFormatter.format(refundRatio)}`);
+  }
+  if (topProduct) {
+    textLines.push(`Top product: ${topProduct.name} (${moneyFormatter.format(topProduct.revenue)})`);
+  }
+
+  return {
+    to,
+    subject: `${storeName} performance alert – ${severityCopy[severity].title}`,
+    html,
+    text: textLines.join('\n'),
   };
 }
 

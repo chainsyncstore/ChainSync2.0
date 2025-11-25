@@ -33,12 +33,36 @@ export interface StoreAlertStats {
   total: number;
 }
 
+export interface StorePerformanceAlertSummary {
+  id: string;
+  storeId: string;
+  storeName?: string | null;
+  snapshotDate: string;
+  timeframe: string;
+  comparisonWindow: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  grossRevenue: number;
+  netRevenue: number;
+  transactionsCount: number;
+  averageOrderValue: number;
+  revenueDeltaPct?: number | null;
+  transactionsDeltaPct?: number | null;
+  refundRatio?: number | null;
+  topProduct?: {
+    name?: string | null;
+    revenue?: number | null;
+    quantity?: number | null;
+    [key: string]: unknown;
+  } | null;
+}
+
 export interface StoreAlertsResponse {
   storeId: string;
   storeName: string;
   currency: string;
   stats: StoreAlertStats;
   alerts: StoreAlertDetail[];
+  performanceAlerts: StorePerformanceAlertSummary[];
 }
 
 export interface AlertsOverviewStore {
@@ -60,4 +84,5 @@ export interface AlertsOverviewResponse {
     total: number;
   };
   stores: AlertsOverviewStore[];
+  performanceAlerts: StorePerformanceAlertSummary[];
 }

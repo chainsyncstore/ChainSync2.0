@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { loadEnv } from '../../shared/env';
 import { getEmailHealth } from '../email';
 import { logger } from '../lib/logger';
+import { registerNotificationService } from '../lib/notification-bus';
 import { csrfProtection, globalRateLimit, sensitiveEndpointRateLimit } from '../middleware/security';
 import { OpenAIService } from '../openai/service';
 import { configureSession } from '../session';
@@ -146,6 +147,7 @@ export async function registerRoutes(app: Express) {
   try {
     const wsService = new NotificationService(server);
     (app as any).wsService = wsService;
+    registerNotificationService(wsService);
   } catch (error) {
     logger.warn('Failed to initialize websocket notification service', {
       error: error instanceof Error ? error.message : String(error)

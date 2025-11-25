@@ -20,6 +20,8 @@ interface AuthActions {
   setupTwoFactor(): Promise<{ otpauth: string } | null>;
   verifyTwoFactor(token: string): Promise<boolean>;
   disableTwoFactor(password: string): Promise<boolean>;
+  requestProfileOtp(email: string): Promise<{ status: string; expiresAt?: string | Date } | null>;
+  verifyProfileOtp(params: { email: string; code: string }): Promise<boolean>;
 }
 /* eslint-enable no-unused-vars */
 
@@ -395,6 +397,65 @@ export function useAuth(): AuthState & AuthActions {
     }
   };
 
+  const requestProfileOtp = async (email: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      throw new Error('Enter the new email before requesting a code.');
+    }
+
+    try {
+      const response = await fetch('/api/auth/me/profile-otp/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+
+      const payload = await response
+        .json()
+        .catch(() => ({ status: 'error', message: 'Failed to send code' }));
+
+      if (!response.ok) {
+        throw new Error(payload?.error || payload?.message || 'Failed to send verification code');
+      }
+
+      return payload as { status: string; expiresAt?: string };
+    } catch (error) {
+      console.error('requestProfileOtp error', error);
+      throw error instanceof Error ? error : new Error('Failed to send verification code');
+    }
+  };
+
+  const verifyProfileOtp = async ({ email, code }: { email: string; code: string }) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanCode = code.trim();
+    if (!cleanEmail || !cleanCode) {
+      throw new Error('Enter the email and verification code.');
+    }
+
+    try {
+      const response = await fetch('/api/auth/me/profile-otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: cleanEmail, code: cleanCode }),
+      });
+
+      const payload = await response
+        .json()
+        .catch(() => ({ status: 'error', message: 'Verification failed' }));
+
+      if (!response.ok || payload?.status !== 'verified') {
+        throw new Error(payload?.error || payload?.message || 'Invalid or expired verification code');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('verifyProfileOtp error', error);
+      throw error instanceof Error ? error : new Error('Invalid or expired verification code');
+    }
+  };
+
   return {
     user: user as any,
     isLoading,
@@ -408,5 +469,7 @@ export function useAuth(): AuthState & AuthActions {
     setupTwoFactor,
     verifyTwoFactor,
     disableTwoFactor,
+    requestProfileOtp,
+    verifyProfileOtp,
   } as any;
 }

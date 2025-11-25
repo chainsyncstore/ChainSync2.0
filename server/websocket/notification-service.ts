@@ -11,8 +11,8 @@ import { securityAuditService } from '../lib/security-audit';
 
 
 export interface NotificationEvent {
-  type: 'inventory_alert' | 'sales_update' | 'system_alert' | 'ai_insight' | 'low_stock' | 'payment_alert' | 'user_activity';
-  storeId: string;
+  type: 'inventory_alert' | 'sales_update' | 'system_alert' | 'ai_insight' | 'low_stock' | 'payment_alert' | 'user_activity' | 'store_performance' | 'monitoring_alert';
+  storeId?: string;
   userId?: string;
   title: string;
   message: string;
@@ -312,7 +312,7 @@ export class NotificationService {
       // Store notification in database
       const notification = await db.insert(notifications).values({
         type: event.type,
-        storeId: event.storeId,
+        storeId: event.storeId ?? null,
         userId: event.userId,
         title: event.title,
         message: event.message,
@@ -324,7 +324,9 @@ export class NotificationService {
       const channels = new Set<string>();
       
       // Store channel
-      channels.add(`store:${event.storeId}`);
+      if (event.storeId) {
+        channels.add(`store:${event.storeId}`);
+      }
       
       // User-specific channel if specified
       if (event.userId) {

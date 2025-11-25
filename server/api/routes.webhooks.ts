@@ -1,9 +1,11 @@
 import crypto from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import express, { type Express, type Request, type Response } from 'express';
-import { subscriptions, subscriptionPayments, organizations, webhookEvents } from '@shared/schema';
+import { subscriptions, subscriptionPayments, organizations, webhookEvents, users } from '@shared/schema';
 import { db } from '../db';
+import { generateMonitoringAlertEmail, sendEmail } from '../email';
 import { logger } from '../lib/logger';
+import { getNotificationService } from '../lib/notification-bus';
 
 function verifyPaystackSignature(rawBody: string, signature: string | undefined): boolean {
   const secret = process.env.WEBHOOK_SECRET_PAYSTACK || process.env.PAYSTACK_SECRET_KEY || '';
@@ -55,6 +57,7 @@ export async function registerWebhookRoutes(app: Express) {
   // Allowed event types (minimal for tests)
   const allowedPaystackEvents = new Set(['charge.success']);
   const allowedFlutterwaveEvents = new Set(['charge.completed']);
+  const allowedSentryResources = new Set(['error', 'issue_alert', 'metric_alert']);
 
   // Common header validation
   function parseAndValidateTimestamp(req: Request): { ok: boolean; error?: string } {
@@ -381,6 +384,128 @@ export async function registerWebhookRoutes(app: Express) {
     }
   };
 
+  const sentryHandler = async (req: Request, res: Response) => {
+    const secret = process.env.SENTRY_WEBHOOK_SECRET;
+    if (!secret || secret.length < 8) {
+      logger.warn('Sentry webhook received but SENTRY_WEBHOOK_SECRET is not configured');
+      return res.status(501).json({ error: 'Sentry webhook not configured' });
+    }
+
+    let raw = (req as any).body instanceof Buffer ? (req as any).body.toString('utf8') : '';
+    if (!raw || raw.length === 0) {
+      try { raw = JSON.stringify((req as any).body || {}); } catch { raw = ''; }
+    }
+
+    const signatureHeader = req.headers['sentry-hook-signature'] as string | undefined;
+    if (!signatureHeader) {
+      return res.status(401).json({ error: 'Missing Sentry signature header' });
+    }
+
+    const expectedSignature = crypto.createHmac('sha256', secret).update(raw).digest('hex');
+    const signaturesMatch = (() => {
+      const provided = Buffer.from(signatureHeader, 'hex');
+      const expected = Buffer.from(expectedSignature, 'hex');
+      if (provided.length !== expected.length) return false;
+      return crypto.timingSafeEqual(provided, expected);
+    })();
+
+    if (!signaturesMatch) {
+      return res.status(401).json({ error: 'Invalid Sentry signature' });
+    }
+
+    try {
+      const payload = JSON.parse(raw);
+      const resource = String(payload?.resource || '').toLowerCase();
+      if (!allowedSentryResources.has(resource)) {
+        return res.status(400).json({ error: 'Unsupported Sentry resource' });
+      }
+
+      const eventId = payload?.data?.event?.event_id || payload?.data?.id || payload?.data?.issue_id || payload?.data?.metric_id || payload?.id || signatureHeader;
+      const providerEventId = `SENTRY#${eventId}`;
+
+      try {
+        await db.insert(webhookEvents).values({ provider: 'SENTRY' as any, eventId: providerEventId } as any);
+      } catch (error) {
+        logger.debug('Sentry webhook already processed', {
+          providerEventId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return res.json({ status: 'success', received: true, idempotent: true });
+      }
+
+      const event = payload?.data?.event;
+      const projectSlug = payload?.project_slug || event?.project_slug || payload?.data?.project || 'Sentry';
+      const level = event?.level || payload?.data?.level || 'error';
+      const environment = event?.environment || payload?.environment || 'production';
+      const title = event?.title || payload?.data?.issue?.title || payload?.data?.description || `Sentry ${resource} alert`;
+      const description = event?.metadata?.value || event?.message || payload?.data?.description || 'A monitoring alert was received from Sentry.';
+      const url = event?.web_url || event?.url || payload?.url || payload?.data?.issue?.url;
+      const timestamp = event?.datetime || event?.timestamp || payload?.data?.issue?.lastSeen || payload?.sent_at || payload?.triggered_at;
+
+      const tagsArray: Array<[string, string]> = Array.isArray(event?.tags)
+        ? event.tags
+        : Array.isArray(payload?.data?.tags)
+          ? payload.data.tags
+          : [];
+      const tags: Record<string, string> = {};
+      tagsArray.forEach(([key, value]) => {
+        if (key) tags[key] = String(value ?? '');
+      });
+      if (resource) tags.resource = resource;
+
+      const ws = getNotificationService();
+      await ws?.broadcastNotification({
+        type: 'monitoring_alert',
+        title,
+        message: description,
+        priority: level === 'fatal' || level === 'error' ? 'high' : level === 'warning' ? 'medium' : 'low',
+        data: {
+          project: projectSlug,
+          environment,
+          url,
+          timestamp,
+          level,
+          tags,
+        },
+      });
+
+      const adminRecipients = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.isAdmin as any, true as any));
+      const uniqueEmails = Array.from(new Set(adminRecipients.map((row) => row.email).filter(Boolean)));
+      await Promise.all(
+        uniqueEmails.map((email) =>
+          sendEmail(
+            generateMonitoringAlertEmail({
+              to: email!,
+              title,
+              message: description,
+              level,
+              project: projectSlug,
+              environment,
+              url,
+              timestamp,
+              tags,
+            })
+          ).catch((error) => {
+            logger.warn('Failed to send monitoring alert email', {
+              email,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+        )
+      );
+
+      return res.json({ status: 'success', received: true });
+    } catch (error) {
+      logger.warn('Sentry webhook handling failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+  };
+
   // Paystack: mount both primary and legacy paths
   app.post('/webhooks/paystack', express.raw({ type: '*/*' }), paystackHandler);
   app.post('/api/payment/paystack-webhook', express.raw({ type: '*/*' }), paystackHandler);
@@ -394,6 +519,10 @@ export async function registerWebhookRoutes(app: Express) {
   app.post('/api/payment/flutterwave-webhook', express.raw({ type: '*/*' }), flutterwaveHandler);
   // Alias expected by some tests
   app.post('/api/webhook/flutterwave', express.raw({ type: '*/*' }), flutterwaveHandler);
+
+  // Sentry monitoring alerts
+  app.post('/webhooks/sentry', express.raw({ type: '*/*' }), sentryHandler);
+  app.post('/api/webhook/sentry', express.raw({ type: '*/*' }), sentryHandler);
 }
 
 

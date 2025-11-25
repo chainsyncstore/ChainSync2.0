@@ -11,7 +11,8 @@ import {
   pgEnum,
   index,
   jsonb,
-  uniqueIndex
+  uniqueIndex,
+  date,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -35,6 +36,7 @@ export const organizations = pgTable("organizations", {
   isActive: boolean("is_active").notNull().default(false),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   billingEmail: varchar("billing_email", { length: 255 }),
+  ipWhitelistEnforced: boolean("ip_whitelist_enforced").notNull().default(false),
   loyaltyEarnRate: decimal("loyalty_earn_rate", { precision: 10, scale: 4 }).notNull().default("1.0000"),
   loyaltyRedeemValue: decimal("loyalty_redeem_value", { precision: 10, scale: 4 }).notNull().default("0.0100"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -345,7 +347,7 @@ export const legacyLoyaltyTransactions = pgTable("loyalty_transactions", {
 // Realtime notifications table for websocket broadcasting
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: uuid("store_id").notNull(),
+  storeId: uuid("store_id"),
   userId: uuid("user_id"),
   type: varchar("type", { length: 100 }).notNull(),
   title: varchar("title", { length: 255 }).notNull(),
@@ -354,6 +356,44 @@ export const notifications = pgTable("notifications", {
   priority: varchar("priority", { length: 16 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+export const storePerformanceAlerts = pgTable("store_performance_alerts", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  storeId: uuid("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  snapshotDate: date("snapshot_date").notNull(),
+  timeframe: varchar("timeframe", { length: 32 }).notNull().default("daily"),
+  comparisonWindow: varchar("comparison_window", { length: 64 }).notNull().default("previous_7_days"),
+  grossRevenue: decimal("gross_revenue", { precision: 14, scale: 2 }).notNull().default("0"),
+  netRevenue: decimal("net_revenue", { precision: 14, scale: 2 }).notNull().default("0"),
+  transactionsCount: integer("transactions_count").notNull().default(0),
+  averageOrderValue: decimal("average_order_value", { precision: 14, scale: 2 }).notNull().default("0"),
+  baselineRevenue: decimal("baseline_revenue", { precision: 14, scale: 2 }),
+  baselineTransactions: decimal("baseline_transactions", { precision: 14, scale: 2 }),
+  revenueDeltaPct: decimal("revenue_delta_pct", { precision: 6, scale: 2 }),
+  transactionsDeltaPct: decimal("transactions_delta_pct", { precision: 6, scale: 2 }),
+  refundRatio: decimal("refund_ratio", { precision: 6, scale: 2 }),
+  topProduct: jsonb("top_product"),
+  severity: varchar("severity", { length: 16 }).notNull().default("low"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  storeSnapshotUnique: uniqueIndex("store_performance_alerts_unique").on(table.storeId, table.snapshotDate, table.timeframe),
+  orgSnapshotIdx: index("store_performance_alerts_org_idx").on(table.orgId, table.snapshotDate),
+  storeIdx: index("store_performance_alerts_store_idx").on(table.storeId, table.snapshotDate),
+  severityIdx: index("store_performance_alerts_severity_idx").on(table.severity),
+}));
+
+export const profileUpdateOtps = pgTable("profile_update_otps", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  code: varchar("code", { length: 10 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  userExpiryIdx: index("profile_update_otps_user_idx").on(table.userId, table.expiresAt),
+}));
 
 // Active websocket connections for tracking
 export const websocketConnections = pgTable("websocket_connections", {

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { loadEnv } from "../shared/env";
 import { registerRoutes } from "./api";
-import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, scheduleAnalyticsReports, scheduleSubscriptionReconciliation, scheduleDunning, scheduleTrialReminders } from "./jobs/cleanup";
+import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, scheduleAnalyticsReports, scheduleSubscriptionReconciliation, scheduleDunning, scheduleTrialReminders, scheduleStorePerformanceAlerts } from "./jobs/cleanup";
 import { sendErrorResponse, isOperationalError } from "./lib/errors";
 import { logger, requestLogger, pinoHttpMiddleware } from "./lib/logger";
 import { monitoringMiddleware } from "./lib/monitoring";
@@ -162,6 +162,7 @@ void (async () => {
     // Schedule nightly low stock alerts generation
     scheduleNightlyLowStockAlerts();
     scheduleAnalyticsReports();
+    scheduleStorePerformanceAlerts();
     // Schedule daily subscription reconciliation
     scheduleSubscriptionReconciliation();
     // Schedule daily dunning notices

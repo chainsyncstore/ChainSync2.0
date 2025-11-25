@@ -41,6 +41,10 @@ const BulkPricingSchema = z.object({
   dryRun: z.boolean().optional().default(false),
 });
 
+const OrgSecuritySchema = z.object({
+  ipWhitelistEnforced: z.boolean(),
+});
+
 const appliedIdempotency = new Set<string>();
 
 export async function registerAdminRoutes(app: Express) {
@@ -60,6 +64,40 @@ export async function registerAdminRoutes(app: Express) {
     }
     const list = await db.select().from(users).where(eq(users.orgId as any, me.orgId as any)).limit(200);
     res.json({ users: list });
+  });
+
+  app.get('/api/admin/org/security', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+    let me = (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any;
+    if (!me && process.env.NODE_ENV === 'test') {
+      me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
+    }
+    if (!me?.orgId) return res.status(400).json({ error: 'Organization not set' });
+    const org = (await db.select({ ipWhitelistEnforced: organizations.ipWhitelistEnforced }).from(organizations).where(eq(organizations.id as any, me.orgId as any)))[0];
+    res.json({ ipWhitelistEnforced: Boolean(org?.ipWhitelistEnforced) });
+  });
+
+  app.patch('/api/admin/org/security', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+    const parsed = OrgSecuritySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    }
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+    let me = (await db.select().from(users).where(eq(users.id, currentUserId as any)))[0] as any;
+    if (!me && process.env.NODE_ENV === 'test') {
+      me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
+    }
+    if (!me?.orgId) return res.status(400).json({ error: 'Organization not set' });
+
+    const [updated] = await db
+      .update(organizations as any)
+      .set({ ipWhitelistEnforced: parsed.data.ipWhitelistEnforced } as any)
+      .where(eq(organizations.id, me.orgId))
+      .returning({ ipWhitelistEnforced: organizations.ipWhitelistEnforced });
+
+    res.json({ ipWhitelistEnforced: Boolean(updated?.ipWhitelistEnforced) });
   });
 
   // Create user

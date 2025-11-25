@@ -17,7 +17,8 @@ export async function registerAlertsRoutes(app: Express) {
         return res.status(400).json({ error: 'Organization not set for user' });
       }
 
-      const overview = await storage.getOrganizationAlertsOverview(user.orgId);
+      const performanceLimit = Number((req.query?.performanceLimit as string) ?? 3) || undefined;
+      const overview = await storage.getOrganizationAlertsOverview(user.orgId, { performanceLimit });
       return res.json(overview);
     } catch (error) {
       logger.error('Failed to load alerts overview', {
@@ -40,7 +41,8 @@ export async function registerAlertsRoutes(app: Express) {
     }
 
     try {
-      const details = await storage.getStoreAlertDetails(storeId);
+      const performanceLimit = Number((req.query?.performanceLimit as string) ?? 3) || undefined;
+      const details = await storage.getStoreAlertDetails(storeId, { performanceLimit });
       return res.json(details);
     } catch (error) {
       logger.error('Failed to load store alert details', {

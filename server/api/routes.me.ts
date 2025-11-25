@@ -1,10 +1,10 @@
 import bcrypt from 'bcrypt';
-import { eq } from 'drizzle-orm';
+import { and, eq, gte, isNull } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { users, userRoles } from '@shared/schema';
+import { users, userRoles, profileUpdateOtps } from '@shared/schema';
 import { db } from '../db';
-import { sendEmail, generateProfileUpdateEmail } from '../email';
+import { sendEmail, generateProfileUpdateEmail, generateProfileChangeOtpEmail } from '../email';
 import { logger } from '../lib/logger';
 import { securityAuditService } from '../lib/security-audit';
 import { requireAuth } from '../middleware/authz';
@@ -30,9 +30,22 @@ const ProfileUpdateSchema = z.object({
   password: z.string().min(8).optional(), // for re-auth if email changes
 });
 
+const ProfileOtpRequestSchema = z.object({
+  email: z.string().email().max(255),
+});
+
+const ProfileOtpVerifySchema = z.object({
+  email: z.string().email().max(255),
+  code: z.string().min(4).max(10),
+});
+
 declare module 'express-session' {
   interface SessionData {
     userId?: string;
+    profileOtp?: {
+      email: string;
+      verifiedAt: number;
+    };
   }
 }
 
@@ -79,6 +92,110 @@ export async function registerMeRoutes(app: Express) {
         userId,
         error: subscriptionError instanceof Error ? subscriptionError.message : String(subscriptionError),
       });
+
+  app.post('/api/auth/me/profile-otp/request', requireAuth, async (req: Request, res: Response) => {
+    const userId = req.session.userId as string;
+    const parsed = ProfileOtpRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    }
+
+    try {
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const newEmail = parsed.data.email.trim().toLowerCase();
+      if (newEmail === (user.email || '').toLowerCase()) {
+        return res.status(400).json({ error: 'New email must differ from current email' });
+      }
+
+      const existing = await storage.getUserByEmail(newEmail);
+      if (existing) {
+        return res.status(409).json({ error: 'Email already in use' });
+      }
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+      await db.delete(profileUpdateOtps).where(eq(profileUpdateOtps.userId, userId));
+      await db.insert(profileUpdateOtps).values({
+        userId,
+        email: newEmail,
+        code,
+        expiresAt,
+        consumedAt: null,
+      } as unknown as typeof profileUpdateOtps.$inferInsert);
+
+      await sendEmail(
+        generateProfileChangeOtpEmail({
+          to: newEmail,
+          userName: (user as any)?.firstName ?? user.email,
+          code,
+          expiresAt,
+        })
+      );
+
+      return res.json({ status: 'sent', expiresAt });
+    } catch (error) {
+      logger.error('Failed to issue profile OTP', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to send verification code' });
+    }
+  });
+
+  app.post('/api/auth/me/profile-otp/verify', requireAuth, async (req: Request, res: Response) => {
+    const userId = req.session.userId as string;
+    const parsed = ProfileOtpVerifySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    }
+
+    try {
+      const now = new Date();
+      const [record] = await db
+        .select()
+        .from(profileUpdateOtps)
+        .where(
+          and(
+            eq(profileUpdateOtps.userId, userId),
+            eq(profileUpdateOtps.email, parsed.data.email.trim().toLowerCase()),
+            eq(profileUpdateOtps.code, parsed.data.code.trim()),
+            isNull(profileUpdateOtps.consumedAt),
+            gte(profileUpdateOtps.expiresAt, now)
+          )
+        )
+        .limit(1);
+
+      if (!record) {
+        return res.status(401).json({ error: 'Invalid or expired verification code' });
+      }
+
+      await db
+        .update(profileUpdateOtps)
+        .set({ consumedAt: now } as any)
+        .where(eq(profileUpdateOtps.id, record.id));
+
+      if (req.session) {
+        (req.session as any).profileOtp = {
+          email: record.email,
+          verifiedAt: Date.now(),
+        };
+        req.session.save(() => undefined);
+      }
+
+      return res.json({ status: 'verified' });
+    } catch (error) {
+      logger.error('Failed to verify profile OTP', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Could not verify code' });
+    }
+  });
     }
 
     res.json({
@@ -181,6 +298,13 @@ export async function registerMeRoutes(app: Express) {
         if (!ok) {
           return res.status(401).json({ error: 'Incorrect password' });
         }
+
+        const profileOtpSession = (req.session as any)?.profileOtp;
+        const maxOtpAgeMs = 15 * 60 * 1000;
+        const otpFresh = profileOtpSession && profileOtpSession.email === updates.email && Date.now() - profileOtpSession.verifiedAt <= maxOtpAgeMs;
+        if (!otpFresh) {
+          return res.status(401).json({ error: 'Email change requires verification code' });
+        }
       }
       // Save old values for email
       const oldProfile = {
@@ -204,6 +328,11 @@ export async function registerMeRoutes(app: Express) {
       }, 'user_profile', { oldProfile, newProfile: updates });
       // Send confirmation email
       await sendEmail(generateProfileUpdateEmail(updatedUser.email, oldProfile, updates));
+
+      if (req.session?.profileOtp && updates.email && req.session.profileOtp.email === updates.email) {
+        delete req.session.profileOtp;
+        req.session.save(() => undefined);
+      }
       res.json({ message: 'Profile updated successfully', user: updatedUser });
     } catch (error) {
       logger.error('Profile update error', {

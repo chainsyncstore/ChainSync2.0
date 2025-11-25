@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, asc, desc, eq, gte, isNotNull, lte, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, lt, or, sql } from 'drizzle-orm';
 import type { QueryResult } from "pg";
 import {
   customers,
@@ -9,6 +9,7 @@ import {
   loyaltyTiers,
   loyaltyTransactions,
   lowStockAlerts,
+  storePerformanceAlerts,
   passwordResetTokens,
   products,
   stores,
@@ -51,10 +52,41 @@ import type {
   AlertsOverviewResponse,
   StoreAlertDetail,
   StoreAlertsResponse,
+  StorePerformanceAlertSummary,
 } from '@shared/types/alerts';
 import { AuthService } from "./auth";
 import { db } from "./db";
 import { logger } from "./lib/logger";
+
+const parseNumeric = (value: any, fallback = 0): number => {
+  if (value == null) {
+    return fallback;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const parseNullableNumeric = (value: any): number | null => {
+  if (value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+type AlertQueryOptions = {
+  performanceLimit?: number;
+  performanceAlerts?: StorePerformanceAlertSummary[];
+};
+
+const clampPerformanceLimit = (value?: number): number => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return 3;
+  }
+  return Math.min(Math.max(Math.floor(num), 1), 20);
+};
 
 type InventoryAlertBreakdown = {
   LOW_STOCK: number;
@@ -289,7 +321,7 @@ export interface IStorage {
   getInventoryByStore(storeId: string): Promise<Inventory[]>;
   getInventoryItem(productId: string, storeId: string): Promise<Inventory | undefined>;
   getOrganizationInventorySummary(orgId: string): Promise<OrganizationInventorySummary>;
-  getOrganizationAlertsOverview(orgId: string): Promise<AlertsOverviewResponse>;
+  getOrganizationAlertsOverview(orgId: string, options?: AlertQueryOptions): Promise<AlertsOverviewResponse>;
   // Added for integration tests compatibility
   createInventory(insertInventory: InsertInventory, userId?: string, options?: InventoryCreateOptions): Promise<Inventory>;
   getInventory(productId: string, storeId: string): Promise<Inventory>;
@@ -322,7 +354,8 @@ export interface IStorage {
   createLowStockAlert(alert: InsertLowStockAlert): Promise<LowStockAlert>;
   getLowStockAlerts(storeId: string): Promise<LowStockAlert[]>;
   resolveLowStockAlert(id: string): Promise<void>;
-  getStoreAlertDetails(storeId: string): Promise<StoreAlertsResponse>;
+  getStoreAlertDetails(storeId: string, options?: AlertQueryOptions): Promise<StoreAlertsResponse>;
+  getRecentStorePerformanceAlerts(orgId: string, limitPerStore?: number, storeIds?: string[]): Promise<StorePerformanceAlertSummary[]>;
 
   // Loyalty Program operations
   getLoyaltyTiers(storeId: string): Promise<LoyaltyTier[]>;
@@ -1452,8 +1485,11 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getOrganizationAlertsOverview(orgId: string): Promise<AlertsOverviewResponse> {
+  async getOrganizationAlertsOverview(orgId: string, options?: AlertQueryOptions): Promise<AlertsOverviewResponse> {
     const storesForOrg = await this.getOrganizationStoreRecords(orgId);
+    const performanceLimit = clampPerformanceLimit(options?.performanceLimit);
+    const storeIds = storesForOrg.map((store) => store.id);
+
     const overview: AlertsOverviewResponse = {
       totals: {
         storesWithAlerts: 0,
@@ -1463,12 +1499,29 @@ export class DatabaseStorage implements IStorage {
         total: 0,
       },
       stores: [],
+      performanceAlerts: [],
     };
+
+    const preloadedPerformanceAlerts = options?.performanceAlerts ?? (storeIds.length
+      ? await this.getRecentStorePerformanceAlerts(orgId, performanceLimit, storeIds)
+      : []);
+    const performanceByStore = new Map<string, StorePerformanceAlertSummary[]>();
+    for (const alert of preloadedPerformanceAlerts) {
+      const existing = performanceByStore.get(alert.storeId) ?? [];
+      if (existing.length < performanceLimit) {
+        existing.push(alert);
+      }
+      performanceByStore.set(alert.storeId, existing);
+    }
+    overview.performanceAlerts = preloadedPerformanceAlerts;
 
     for (const store of storesForOrg) {
       let storeDetails: StoreAlertsResponse | null = null;
       try {
-        storeDetails = await this.getStoreAlertDetails(store.id);
+        storeDetails = await this.getStoreAlertDetails(store.id, {
+          performanceLimit,
+          performanceAlerts: performanceByStore.get(store.id),
+        });
       } catch (error) {
         logger.warn('Failed to load store alert details', {
           storeId: store.id,
@@ -1499,6 +1552,125 @@ export class DatabaseStorage implements IStorage {
     }
 
     return overview;
+  }
+
+  async getRecentStorePerformanceAlerts(orgId: string, limitPerStore = 3, storeIds?: string[]): Promise<StorePerformanceAlertSummary[]> {
+    if (!orgId) return [];
+    const perStoreLimit = clampPerformanceLimit(limitPerStore);
+    const requestedStoreIds = Array.isArray(storeIds)
+      ? storeIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : [];
+
+    if (this.isTestEnv) {
+      const memRows = this.mem.storePerformanceAlerts?.get(orgId) ?? [];
+      const filteredRows = requestedStoreIds.length
+        ? memRows.filter((row: any) => requestedStoreIds.includes(row.storeId))
+        : memRows;
+      const perStoreCounts = new Map<string, number>();
+      const results: StorePerformanceAlertSummary[] = [];
+
+      for (const row of filteredRows) {
+        const current = perStoreCounts.get(row.storeId) ?? 0;
+        if (current >= perStoreLimit) continue;
+        results.push(row);
+        perStoreCounts.set(row.storeId, current + 1);
+      }
+      return results;
+    }
+
+    const lookbackDays = Number(process.env.STORE_ALERT_LOOKBACK_DAYS ?? 30);
+    const lookbackDate = new Date();
+    lookbackDate.setUTCDate(lookbackDate.getUTCDate() - Math.max(7, lookbackDays));
+
+    const whereConditions = [
+      eq(storePerformanceAlerts.orgId, orgId),
+      gte(storePerformanceAlerts.snapshotDate, lookbackDate as any),
+    ];
+
+    if (requestedStoreIds.length > 0) {
+      whereConditions.push(inArray(storePerformanceAlerts.storeId, requestedStoreIds));
+    }
+
+    const fetchMultiplier = requestedStoreIds.length > 0 ? requestedStoreIds.length : 25;
+    const queryLimit = Math.min(perStoreLimit * fetchMultiplier, 500);
+
+    const rows = await db
+      .select({
+        id: storePerformanceAlerts.id,
+        storeId: storePerformanceAlerts.storeId,
+        storeName: stores.name,
+        snapshotDate: storePerformanceAlerts.snapshotDate,
+        timeframe: storePerformanceAlerts.timeframe,
+        comparisonWindow: storePerformanceAlerts.comparisonWindow,
+        severity: storePerformanceAlerts.severity,
+        grossRevenue: storePerformanceAlerts.grossRevenue,
+        netRevenue: storePerformanceAlerts.netRevenue,
+        transactionsCount: storePerformanceAlerts.transactionsCount,
+        averageOrderValue: storePerformanceAlerts.averageOrderValue,
+        revenueDeltaPct: storePerformanceAlerts.revenueDeltaPct,
+        transactionsDeltaPct: storePerformanceAlerts.transactionsDeltaPct,
+        refundRatio: storePerformanceAlerts.refundRatio,
+        topProduct: storePerformanceAlerts.topProduct,
+      })
+      .from(storePerformanceAlerts)
+      .innerJoin(stores, eq(stores.id, storePerformanceAlerts.storeId))
+      .where(and(...whereConditions))
+      .orderBy(desc(storePerformanceAlerts.snapshotDate))
+      .limit(queryLimit);
+
+    const perStoreCounts = new Map<string, number>();
+    const results: StorePerformanceAlertSummary[] = [];
+
+    for (const row of rows) {
+      const current = perStoreCounts.get(row.storeId) ?? 0;
+      if (current >= perStoreLimit) {
+        continue;
+      }
+
+      let topProduct: StorePerformanceAlertSummary['topProduct'] = null;
+      if (row.topProduct) {
+        try {
+          const parsed = typeof row.topProduct === 'string' ? JSON.parse(row.topProduct) : row.topProduct;
+          if (parsed && typeof parsed === 'object') {
+            topProduct = {
+              name: parsed.name ?? null,
+              revenue: parseNullableNumeric(parsed.revenue),
+              quantity: parseNullableNumeric(parsed.quantity),
+              ...parsed,
+            };
+          }
+        } catch {
+          topProduct = null;
+        }
+      }
+
+      const rawSnapshotDate = row.snapshotDate as unknown;
+      const snapshotDateIso = rawSnapshotDate instanceof Date
+        ? rawSnapshotDate.toISOString()
+        : new Date(String(row.snapshotDate)).toISOString();
+
+      results.push({
+        id: row.id,
+        storeId: row.storeId,
+        storeName: row.storeName,
+        snapshotDate: snapshotDateIso,
+        timeframe: row.timeframe,
+        comparisonWindow: row.comparisonWindow,
+        severity: (row.severity as StorePerformanceAlertSummary['severity']) ?? 'low',
+        grossRevenue: parseNumeric(row.grossRevenue),
+        netRevenue: parseNumeric(row.netRevenue),
+        transactionsCount: parseNumeric(row.transactionsCount),
+        averageOrderValue: parseNumeric(row.averageOrderValue),
+        revenueDeltaPct: parseNullableNumeric(row.revenueDeltaPct),
+        transactionsDeltaPct: parseNullableNumeric(row.transactionsDeltaPct),
+        refundRatio: parseNullableNumeric(row.refundRatio),
+        topProduct,
+      });
+
+      perStoreCounts.set(row.storeId, current + 1);
+    }
+
+    return results;
   }
 
   async getInventoryItem(productId: string, storeId: string): Promise<Inventory | undefined> {
@@ -2357,7 +2529,9 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getStoreAlertDetails(storeId: string): Promise<StoreAlertsResponse> {
+  async getStoreAlertDetails(storeId: string, options?: AlertQueryOptions): Promise<StoreAlertsResponse> {
+    const performanceLimit = clampPerformanceLimit(options?.performanceLimit);
+
     const storeRecord = await this.getStore(storeId);
     if (!storeRecord) {
       throw new Error('Store not found');
@@ -2411,12 +2585,22 @@ export class DatabaseStorage implements IStorage {
       return acc;
     }, { lowStock: 0, outOfStock: 0, overstocked: 0, total: 0 });
 
+    let performanceAlerts: StorePerformanceAlertSummary[] = [];
+    if (Array.isArray(options?.performanceAlerts) && options.performanceAlerts.length > 0) {
+      performanceAlerts = options.performanceAlerts
+        .filter((alert) => alert.storeId === storeId)
+        .slice(0, performanceLimit);
+    } else if (storeRecord.orgId) {
+      performanceAlerts = await this.getRecentStorePerformanceAlerts(storeRecord.orgId, performanceLimit, [storeId]);
+    }
+
     return {
       storeId,
       storeName: storeRecord.name,
       currency: (storeRecord as any).currency ?? 'USD',
       stats,
       alerts: alertDetails,
+      performanceAlerts,
     } satisfies StoreAlertsResponse;
   }
 
