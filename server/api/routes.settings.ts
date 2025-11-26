@@ -1,11 +1,29 @@
 import { eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
-import { users } from '@shared/schema';
+import { stores, users } from '@shared/schema';
 import { db } from '../db';
 import { requireAuth } from '../middleware/authz';
 
+const EmailChannelSchema = z.object({
+  email: z.boolean().optional(),
+});
+
+const InAppChannelSchema = z.object({
+  inApp: z.boolean().optional(),
+});
+
+const DualChannelSchema = z.object({
+  email: z.boolean().optional(),
+  inApp: z.boolean().optional(),
+});
+
 const NotificationSettingsSchema = z.object({
+  systemHealth: EmailChannelSchema.optional(),
+  storePerformance: DualChannelSchema.optional(),
+  inventoryRisks: InAppChannelSchema.optional(),
+  billing: EmailChannelSchema.optional(),
+  // Legacy flat toggles kept for backwards compatibility
   lowStockAlerts: z.boolean().optional(),
   salesReports: z.boolean().optional(),
   systemUpdates: z.boolean().optional(),
@@ -22,16 +40,135 @@ const SettingsSchema = z.object({
   integrations: IntegrationSettingsSchema.optional(),
 });
 
+type NotificationScope =
+  | { type: 'org' }
+  | { type: 'store'; storeId: string | null; storeName: string | null };
+
+type NormalizedNotificationSettings = {
+  systemHealth: { email: boolean };
+  storePerformance: { email: boolean; inApp: boolean };
+  inventoryRisks: { inApp: boolean };
+  billing: { email: boolean };
+  lowStockAlerts: boolean;
+  salesReports: boolean;
+  systemUpdates: boolean;
+};
+
+const defaultNotificationPreferences: NormalizedNotificationSettings = {
+  systemHealth: { email: true },
+  storePerformance: { email: true, inApp: true },
+  inventoryRisks: { inApp: true },
+  billing: { email: true },
+  lowStockAlerts: true,
+  salesReports: true,
+  systemUpdates: true,
+};
+
+const coerceBoolean = (value: unknown, fallback: boolean) =>
+  typeof value === 'boolean' ? value : fallback;
+
+const normalizeNotificationPreferences = (raw?: Record<string, any>): NormalizedNotificationSettings => {
+  const legacyLowStock = typeof raw?.lowStockAlerts === 'boolean' ? raw?.lowStockAlerts : undefined;
+  const legacySalesReports = typeof raw?.salesReports === 'boolean' ? raw?.salesReports : undefined;
+  const legacySystemUpdates = typeof raw?.systemUpdates === 'boolean' ? raw?.systemUpdates : undefined;
+
+  const normalized: NormalizedNotificationSettings = {
+    systemHealth: {
+      email: coerceBoolean(raw?.systemHealth?.email, legacySystemUpdates ?? defaultNotificationPreferences.systemHealth.email),
+    },
+    storePerformance: {
+      email: coerceBoolean(raw?.storePerformance?.email, legacySalesReports ?? defaultNotificationPreferences.storePerformance.email),
+      inApp: coerceBoolean(raw?.storePerformance?.inApp, defaultNotificationPreferences.storePerformance.inApp),
+    },
+    inventoryRisks: {
+      inApp: coerceBoolean(raw?.inventoryRisks?.inApp, legacyLowStock ?? defaultNotificationPreferences.inventoryRisks.inApp),
+    },
+    billing: {
+      email: coerceBoolean(raw?.billing?.email, defaultNotificationPreferences.billing.email),
+    },
+    lowStockAlerts: coerceBoolean(legacyLowStock, coerceBoolean(raw?.inventoryRisks?.inApp, defaultNotificationPreferences.lowStockAlerts)),
+    salesReports: coerceBoolean(legacySalesReports, coerceBoolean(raw?.storePerformance?.email, defaultNotificationPreferences.salesReports)),
+    systemUpdates: coerceBoolean(legacySystemUpdates, coerceBoolean(raw?.systemHealth?.email, defaultNotificationPreferences.systemUpdates)),
+  };
+
+  return normalized;
+};
+
+const mergeNotificationPreferences = (
+  current: NormalizedNotificationSettings,
+  patch?: Record<string, any>
+): NormalizedNotificationSettings => {
+  if (!patch) {
+    return current;
+  }
+
+  const merged: NormalizedNotificationSettings = {
+    systemHealth: {
+      email: coerceBoolean(patch.systemHealth?.email, current.systemHealth.email),
+    },
+    storePerformance: {
+      email: coerceBoolean(patch.storePerformance?.email, current.storePerformance.email),
+      inApp: coerceBoolean(patch.storePerformance?.inApp, current.storePerformance.inApp),
+    },
+    inventoryRisks: {
+      inApp: coerceBoolean(patch.inventoryRisks?.inApp, current.inventoryRisks.inApp),
+    },
+    billing: {
+      email: coerceBoolean(patch.billing?.email, current.billing.email),
+    },
+    lowStockAlerts: coerceBoolean(patch.lowStockAlerts, coerceBoolean(patch.inventoryRisks?.inApp, current.inventoryRisks.inApp)),
+    salesReports: coerceBoolean(patch.salesReports, coerceBoolean(patch.storePerformance?.email, current.storePerformance.email)),
+    systemUpdates: coerceBoolean(patch.systemUpdates, coerceBoolean(patch.systemHealth?.email, current.systemHealth.email)),
+  };
+
+  return merged;
+};
+
+const resolveNotificationScope = async (userId: string): Promise<NotificationScope> => {
+  const [userRow] = await db
+    .select({ isAdmin: users.isAdmin, storeId: users.storeId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!userRow) {
+    return { type: 'org' };
+  }
+
+  if (userRow.isAdmin) {
+    return { type: 'org' };
+  }
+
+  const storeId = userRow.storeId ?? null;
+  if (!storeId) {
+    return { type: 'store', storeId: null, storeName: null };
+  }
+
+  const [storeRow] = await db
+    .select({ name: stores.name })
+    .from(stores)
+    .where(eq(stores.id, storeId))
+    .limit(1);
+
+  return { type: 'store', storeId, storeName: storeRow?.name ?? null };
+};
+
 export async function registerSettingsRoutes(app: Express) {
   // Get user settings
   app.get('/api/settings', requireAuth, async (req: Request, res: Response) => {
     const userId = req.session.userId as string;
     try {
-      const [user] = await db.select({ settings: users.settings }).from(users).where(eq(users.id, userId));
+      const [user] = await db
+        .select({ settings: users.settings })
+        .from(users)
+        .where(eq(users.id, userId));
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
-      res.json(user.settings || {});
+      const rawSettings = (user.settings || {}) as Record<string, any>;
+      const normalizedNotifications = normalizeNotificationPreferences(rawSettings.notifications);
+      const notificationScope = await resolveNotificationScope(userId);
+      res.json({ ...rawSettings, notifications: normalizedNotifications, notificationScope });
     } catch (error) {
       console.error('Failed to get settings:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -47,20 +184,34 @@ export async function registerSettingsRoutes(app: Express) {
 
     const userId = req.session.userId as string;
     try {
-      const [user] = await db.select({ settings: users.settings }).from(users).where(eq(users.id, userId));
+      const [user] = await db
+        .select({ settings: users.settings })
+        .from(users)
+        .where(eq(users.id, userId));
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
 
       const currentSettings = (user.settings || {}) as Record<string, any>;
-      const newSettings = { ...currentSettings, ...parsed.data };
+      const currentNotifications = normalizeNotificationPreferences(currentSettings.notifications);
+      const updatedNotifications = mergeNotificationPreferences(currentNotifications, parsed.data.notifications);
 
-      const [updatedUser] = await db.update(users as any)
+      const newSettings = {
+        ...currentSettings,
+        ...parsed.data,
+        notifications: updatedNotifications,
+      };
+
+      const [updatedUser] = await db
+        .update(users as any)
         .set({ settings: newSettings } as any)
         .where(eq(users.id, userId))
         .returning({ settings: users.settings });
 
-      res.json(updatedUser.settings);
+      const updatedSettings = (updatedUser.settings || {}) as Record<string, any>;
+      const notificationScope = await resolveNotificationScope(userId);
+      const normalized = normalizeNotificationPreferences(updatedSettings.notifications);
+      res.json({ ...updatedSettings, notifications: normalized, notificationScope });
     } catch (error) {
       console.error('Failed to update settings:', error);
       res.status(500).json({ error: 'Internal server error' });

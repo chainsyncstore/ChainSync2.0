@@ -16,6 +16,7 @@ import { registerAnalyticsRoutes } from './routes.analytics';
 import { registerAuthRoutes } from './routes.auth';
 import { registerBillingRoutes } from './routes.billing';
 import { registerCustomerRoutes } from './routes.customers';
+import { registerExportRoutes } from './routes.export';
 import { registerInventoryRoutes } from './routes.inventory';
 import { registerIpWhitelistRoutes } from './routes.ip-whitelist';
 import { registerLoyaltyRoutes } from './routes.loyalty';
@@ -66,6 +67,7 @@ export async function registerRoutes(app: Express) {
   await registerPaymentRoutes(app);
   await registerPosRoutes(app);
   await registerSettingsRoutes(app);
+  await registerExportRoutes(app);
   await registerStoreRoutes(app);
   await registerStoreStaffRoutes(app);
   await registerWebhookRoutes(app);

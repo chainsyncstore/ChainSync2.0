@@ -1,4 +1,4 @@
-import { Download, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
+import { AlertCircle, Download, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import QRCode from 'react-qr-code';
 import type { Store } from '@shared/schema';
@@ -13,6 +13,46 @@ import { Switch } from '../components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { useAuth } from '../hooks/use-auth';
 import { useToast } from '../hooks/use-toast';
+
+type NotificationScope =
+  | { type: 'org' }
+  | { type: 'store'; storeId: string | null; storeName: string | null };
+
+type NotificationChannels = {
+  systemHealth: { email: boolean };
+  storePerformance: { email: boolean; inApp: boolean };
+  inventoryRisks: { inApp: boolean };
+  billing: { email: boolean };
+};
+
+const defaultNotificationSettings: NotificationChannels = {
+  systemHealth: { email: false },
+  storePerformance: { email: false, inApp: false },
+  inventoryRisks: { inApp: false },
+  billing: { email: false },
+};
+
+const normalizeNotificationSettingsPayload = (raw?: Partial<NotificationChannels>): NotificationChannels => {
+  const legacySalesReports = typeof (raw as any)?.salesReports === 'boolean' ? (raw as any)?.salesReports : undefined;
+  const legacySystemUpdates = typeof (raw as any)?.systemUpdates === 'boolean' ? (raw as any)?.systemUpdates : undefined;
+  const legacyLowStock = typeof (raw as any)?.lowStockAlerts === 'boolean' ? (raw as any)?.lowStockAlerts : undefined;
+
+  return {
+    systemHealth: {
+      email: Boolean(raw?.systemHealth?.email ?? legacySystemUpdates ?? defaultNotificationSettings.systemHealth.email),
+    },
+    storePerformance: {
+      email: Boolean(raw?.storePerformance?.email ?? legacySalesReports ?? defaultNotificationSettings.storePerformance.email),
+      inApp: Boolean(raw?.storePerformance?.inApp ?? defaultNotificationSettings.storePerformance.inApp),
+    },
+    inventoryRisks: {
+      inApp: Boolean(raw?.inventoryRisks?.inApp ?? legacyLowStock ?? defaultNotificationSettings.inventoryRisks.inApp),
+    },
+    billing: {
+      email: Boolean(raw?.billing?.email ?? defaultNotificationSettings.billing.email),
+    },
+  };
+};
 
 export default function Settings() {
   const {
@@ -36,7 +76,8 @@ export default function Settings() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Notification settings state
-  const [notificationSettings, setNotificationSettings] = useState({ salesReports: false, systemUpdates: false });
+  const [notificationSettings, setNotificationSettings] = useState<NotificationChannels>(defaultNotificationSettings);
+  const [notificationScope, setNotificationScope] = useState<NotificationScope | null>(null);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
 
   // Profile form state
@@ -103,11 +144,11 @@ export default function Settings() {
           const response = await fetch('/api/settings');
           if (response.ok) {
             const settings = await response.json();
-            const notifications = settings.notifications || {};
-            setNotificationSettings({
-              salesReports: Boolean(notifications.salesReports),
-              systemUpdates: Boolean(notifications.systemUpdates),
-            });
+            const normalizedNotifications = normalizeNotificationSettingsPayload(settings.notifications);
+            setNotificationSettings(normalizedNotifications);
+            if (settings.notificationScope) {
+              setNotificationScope(settings.notificationScope as NotificationScope);
+            }
           }
         } catch (error) {
           console.error('Failed to fetch settings:', error);
@@ -371,6 +412,13 @@ export default function Settings() {
         body: JSON.stringify({ notifications: notificationSettings }),
       });
       if (!response.ok) throw new Error('Failed to save notification settings');
+      const updated = await response.json().catch(() => null);
+      if (updated?.notifications) {
+        setNotificationSettings(normalizeNotificationSettingsPayload(updated.notifications));
+      }
+      if (updated?.notificationScope) {
+        setNotificationScope(updated.notificationScope as NotificationScope);
+      }
       toast({ title: "Success", description: "Notification settings saved." });
     } catch (error) {
       console.error('Failed to save notification settings', error);
@@ -378,6 +426,20 @@ export default function Settings() {
     } finally {
       setIsSavingNotifications(false);
     }
+  };
+
+  const updateNotificationChannel = (
+    category: keyof NotificationChannels,
+    channel: 'email' | 'inApp',
+    value: boolean,
+  ) => {
+    setNotificationSettings((prev) => ({
+      ...prev,
+      [category]: {
+        ...prev[category],
+        [channel]: value,
+      },
+    }));
   };
 
   const handleExport = async (type: string) => {
@@ -741,23 +803,96 @@ export default function Settings() {
                   <CardTitle>Notification Preferences</CardTitle>
                   <CardDescription>Choose how you want to be notified</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Sales Reports</p>
-                      <p className="text-sm text-gray-600">Receive daily sales summaries</p>
+                <CardContent className="space-y-5">
+                  {notificationScope && (
+                    <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-500" />
+                      <div>
+                        {notificationScope.type === 'org' ? (
+                          <p>Admin preferences apply to the entire organization.</p>
+                        ) : (
+                          <p>
+                            Preferences apply to
+                            {' '}
+                            <strong>{notificationScope.storeName || 'your assigned store'}</strong> only.
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <Switch checked={notificationSettings.salesReports} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, salesReports: checked })} />
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">System Updates</p>
-                      <p className="text-sm text-gray-600">Get notified about system maintenance and updates</p>
+                  )}
+
+                  <div className="space-y-4">
+                    <div className="rounded-md border p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-medium">System health & maintenance</p>
+                          <p className="text-sm text-muted-foreground">Sentry outages, required updates, security advisories (email)</p>
+                        </div>
+                        <Switch
+                          checked={notificationSettings.systemHealth.email}
+                          onCheckedChange={(checked) => updateNotificationChannel('systemHealth', 'email', checked)}
+                        />
+                      </div>
                     </div>
-                    <Switch checked={notificationSettings.systemUpdates} onCheckedChange={checked => setNotificationSettings({ ...notificationSettings, systemUpdates: checked })} />
+
+                    <div className="rounded-md border p-4">
+                      <div className="flex flex-col gap-2">
+                        <div>
+                          <p className="font-medium">Store performance alerts</p>
+                          <p className="text-sm text-muted-foreground">Background job summaries delivered via email and in-app feed</p>
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="flex items-center justify-between rounded-md border p-3">
+                            <div>
+                              <p className="text-sm font-medium">Email</p>
+                              <p className="text-xs text-muted-foreground">Daily/weekly rollups</p>
+                            </div>
+                            <Switch
+                              checked={notificationSettings.storePerformance.email}
+                              onCheckedChange={(checked) => updateNotificationChannel('storePerformance', 'email', checked)}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between rounded-md border p-3">
+                            <div>
+                              <p className="text-sm font-medium">In-app</p>
+                              <p className="text-xs text-muted-foreground">Live alert feed</p>
+                            </div>
+                            <Switch
+                              checked={notificationSettings.storePerformance.inApp}
+                              onCheckedChange={(checked) => updateNotificationChannel('storePerformance', 'inApp', checked)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-medium">Inventory risks</p>
+                          <p className="text-sm text-muted-foreground">Critical low stock and stock-out alerts (in-app only)</p>
+                        </div>
+                        <Switch
+                          checked={notificationSettings.inventoryRisks.inApp}
+                          onCheckedChange={(checked) => updateNotificationChannel('inventoryRisks', 'inApp', checked)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-medium">Billing & subscription</p>
+                          <p className="text-sm text-muted-foreground">Renewals, failed payments, trial reminders (email)</p>
+                        </div>
+                        <Switch
+                          checked={notificationSettings.billing.email}
+                          onCheckedChange={(checked) => updateNotificationChannel('billing', 'email', checked)}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  
+
                   <Button onClick={handleSaveNotificationSettings} disabled={isSavingNotifications}>
                     {isSavingNotifications ? 'Saving...' : 'Save Preferences'}
                   </Button>
@@ -772,14 +907,14 @@ export default function Settings() {
                   <CardDescription>Export your data for backup or analysis</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {user.role === 'admin' && stores.length > 1 && (
+                  {user.role === 'admin' && stores.length > 0 && (
                     <div>
                       <Label htmlFor="store-select">Select Store</Label>
                       <select
                         id="store-select"
                         value={selectedStoreId}
                         onChange={(e) => setSelectedStoreId(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-md mt-1"
+                        className="mt-1 w-full rounded-md border border-gray-300 p-2"
                       >
                         {stores.map((store) => (
                           <option key={store.id} value={store.id}>
@@ -787,6 +922,12 @@ export default function Settings() {
                           </option>
                         ))}
                       </select>
+                      <p className="mt-2 text-xs text-muted-foreground">Exports include data for the selected store across your organization.</p>
+                    </div>
+                  )}
+                  {user.role === 'manager' && (
+                    <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                      Exports are limited to {stores.find((s) => s.id === selectedStoreId)?.name || 'your assigned store'}.
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-4">
