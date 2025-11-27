@@ -1,6 +1,7 @@
 import { AlertCircle, Download, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import QRCode from 'react-qr-code';
+import { getCsrfToken } from '@/lib/csrf';
 import type { Store } from '@shared/schema';
 import { IpWhitelistManager } from '../components/ip-whitelist/ip-whitelist-manager';
 import { Badge } from '../components/ui/badge';
@@ -79,6 +80,10 @@ export default function Settings() {
   const [notificationSettings, setNotificationSettings] = useState<NotificationChannels>(defaultNotificationSettings);
   const [notificationScope, setNotificationScope] = useState<NotificationScope | null>(null);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
+  const [orgSecurity, setOrgSecurity] = useState<{ ipWhitelistEnforced: boolean } | null>(null);
+  const [orgSecurityLoading, setOrgSecurityLoading] = useState(false);
+  const [orgSecuritySaving, setOrgSecuritySaving] = useState(false);
+  const [orgSecurityError, setOrgSecurityError] = useState<string | null>(null);
 
   // Profile form state
   const [profileForm, setProfileForm] = useState({
@@ -157,6 +162,66 @@ export default function Settings() {
       void fetchSettings();
     }
   }, [user]);
+
+  const fetchOrgSecurity = useCallback(async () => {
+    if (user?.role !== 'admin') {
+      return;
+    }
+    setOrgSecurityLoading(true);
+    setOrgSecurityError(null);
+    try {
+      const response = await fetch('/api/admin/org/security', { credentials: 'include' });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || 'Failed to load security settings');
+      }
+      const data = await response.json();
+      setOrgSecurity({ ipWhitelistEnforced: Boolean(data?.ipWhitelistEnforced) });
+    } catch (error: any) {
+      setOrgSecurityError(error?.message || 'Unable to load security settings');
+    } finally {
+      setOrgSecurityLoading(false);
+    }
+  }, [user?.role]);
+
+  useEffect(() => {
+    void fetchOrgSecurity();
+  }, [fetchOrgSecurity]);
+
+  const handleToggleIpWhitelist = useCallback(async (checked: boolean) => {
+    if (user?.role !== 'admin') {
+      return;
+    }
+    setOrgSecuritySaving(true);
+    try {
+      const csrfToken = await getCsrfToken();
+      const response = await fetch('/api/admin/org/security', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+        credentials: 'include',
+        body: JSON.stringify({ ipWhitelistEnforced: checked }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || 'Failed to update security settings');
+      }
+      const data = await response.json();
+      setOrgSecurity({ ipWhitelistEnforced: Boolean(data?.ipWhitelistEnforced) });
+      toast({
+        title: 'Security settings updated',
+        description: checked
+          ? 'IP whitelist enforcement is now enabled for your organization.'
+          : 'IP whitelist enforcement is now disabled.',
+      });
+    } catch (error: any) {
+      toast({ title: 'Error', description: error?.message || 'Failed to update security settings', variant: 'destructive' });
+    } finally {
+      setOrgSecuritySaving(false);
+    }
+  }, [toast, user?.role]);
 
   const handleBeginTwoFactorSetup = async () => {
     if (twoFactorEnabled) {
@@ -752,6 +817,37 @@ export default function Settings() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {user.role === 'admin' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Organization security</CardTitle>
+                <CardDescription>Control whether managers and cashiers must log in from approved IPs.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {orgSecurityError && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                    {orgSecurityError}
+                  </div>
+                )}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-medium">Enforce IP whitelist</p>
+                    <p className="text-sm text-muted-foreground">
+                      {orgSecurity?.ipWhitelistEnforced
+                        ? 'Only approved IPs can access non-admin accounts.'
+                        : 'Managers and cashiers can log in from any IP.'}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={Boolean(orgSecurity?.ipWhitelistEnforced)}
+                    disabled={orgSecurityLoading || orgSecuritySaving}
+                    onCheckedChange={handleToggleIpWhitelist}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {user.role !== 'cashier' && (
             <Card>

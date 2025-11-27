@@ -15,7 +15,7 @@ import { sendEmail, generateEmailVerificationEmail, generateSignupOtpEmail } fro
 import { PRICING_TIERS } from '../lib/constants';
 import { logger, extractLogContext } from '../lib/logger';
 import { monitoringService } from '../lib/monitoring';
-import { requireAuth } from '../middleware/authz';
+import { requireAuth, getClientIp } from '../middleware/authz';
 import { signupBotPrevention, botPreventionMiddleware } from '../middleware/bot-prevention';
 import { authRateLimit, sensitiveEndpointRateLimit, generateCsrfToken } from '../middleware/security';
 import { SignupSchema, LoginSchema as ValidationLoginSchema } from '../schemas/auth';
@@ -25,6 +25,7 @@ import { PendingSignup } from './pending-signup';
 
 export async function registerAuthRoutes(app: Express) {
   const env = loadEnv(process.env);
+  const defaultIpWhitelistEnforced = (process.env.IP_WHITELIST_ENFORCED ?? 'true').toLowerCase() !== 'false';
   const isTestEnv = process.env.NODE_ENV === 'test';
   const forcePendingSignup = process.env.TEST_PENDING_SIGNUP === 'true';
   const OTP_EXPIRY_MINUTES = 15;
@@ -764,6 +765,44 @@ export async function registerAuthRoutes(app: Express) {
           });
         }
         return res.status(400).json({ message: 'Invalid email or password' });
+      }
+
+      if (!isAdmin) {
+        const orgRow = user.orgId
+          ? (await db
+              .select({ ipWhitelistEnforced: organizations.ipWhitelistEnforced })
+              .from(organizations)
+              .where(eq(organizations.id, user.orgId))
+              .limit(1))[0]
+          : undefined;
+        const enforcementEnabled = typeof orgRow?.ipWhitelistEnforced === 'boolean'
+          ? orgRow.ipWhitelistEnforced
+          : defaultIpWhitelistEnforced;
+
+        if (enforcementEnabled) {
+          const clientIp = getClientIp(req);
+          const allowed = await storage.checkIpWhitelisted(clientIp, user.id);
+          try {
+            await storage.logIpAccess(
+              clientIp,
+              user.id,
+              user.email || (user as any).username || user.id,
+              'login_attempt',
+              allowed,
+              allowed ? 'IP whitelisted' : 'IP not whitelisted',
+              req.get('User-Agent') || undefined,
+            );
+          } catch (logError) {
+            logger.warn('Failed to record IP whitelist login event', {
+              error: logError instanceof Error ? logError.message : String(logError),
+              userId: user.id,
+              clientIp,
+            });
+          }
+          if (!allowed) {
+            return res.status(403).json({ message: 'IP address not allowed. Contact an administrator.' });
+          }
+        }
       }
 
       // Force pending signups back into the OTP flow
