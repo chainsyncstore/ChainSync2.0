@@ -589,6 +589,12 @@ export default function Settings() {
     setIsSavingProfile(true);
     try {
       const csrfToken = await getCsrfToken();
+      const payload = { ...profileForm };
+      if (!payload.password.trim()) {
+        delete payload.password;
+      } else {
+        payload.password = payload.password.trim();
+      }
       const response = await fetch('/api/auth/me/profile', {
         method: 'PUT',
         headers: {
@@ -596,7 +602,7 @@ export default function Settings() {
           'X-CSRF-Token': csrfToken,
         },
         credentials: 'include',
-        body: JSON.stringify(profileForm),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
