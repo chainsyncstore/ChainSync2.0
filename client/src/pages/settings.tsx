@@ -588,9 +588,13 @@ export default function Settings() {
   const handleSaveProfile = async () => {
     setIsSavingProfile(true);
     try {
+      const csrfToken = await getCsrfToken();
       const response = await fetch('/api/auth/me/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         credentials: 'include',
         body: JSON.stringify(profileForm),
       });
