@@ -34,6 +34,7 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
   const [selectedStoreId, setSelectedStoreId] = useState('');
   const [selectedRoles, setSelectedRoles] = useState<WhitelistRole[]>(['MANAGER', 'CASHIER']);
   const [description, setDescription] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isAdmin = Boolean((user as any)?.isAdmin || user?.role === 'admin');
 
@@ -67,8 +68,16 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
       return;
     }
 
+    setIsSubmitting(true);
+
     try {
-      await addStoreIpToWhitelist(newIpAddress, selectedStoreId, selectedRoles, description);
+      await addStoreIpToWhitelist(
+        newIpAddress.trim(),
+        selectedStoreId,
+        selectedRoles,
+        description.trim() || undefined,
+      );
+
       toast({
         title: "Success",
         description: "IP address added to whitelist",
@@ -79,12 +88,15 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
       setSelectedRoles(['MANAGER', 'CASHIER']);
       setDescription('');
     } catch (err) {
-      console.error('Failed to add IP to whitelist', err);
+      const message = err instanceof Error ? err.message : 'Failed to add IP to whitelist';
+      console.error('Failed to add IP', err);
       toast({
         title: "Error",
-        description: "Failed to add IP to whitelist",
+        description: message,
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -223,7 +235,9 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
                 <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button onClick={handleAddIp}>Add IP</Button>
+                <Button onClick={handleAddIp} disabled={isSubmitting}>
+                  {isSubmitting ? 'Adding…' : 'Add IP'}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

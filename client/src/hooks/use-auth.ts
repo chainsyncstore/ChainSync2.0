@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { post } from "@/lib/api-client";
+import { getCsrfToken } from "@/lib/csrf";
 import { saveSession, loadSession, clearSession, refreshSession } from "@/lib/utils";
-import { getCsrfToken, clearCsrfTokenCache } from "@/lib/csrf";
 import { User } from "@shared/schema";
 
 interface AuthState {
