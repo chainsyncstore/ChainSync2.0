@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { post } from "@/lib/api-client";
 import { saveSession, loadSession, clearSession, refreshSession } from "@/lib/utils";
+import { getCsrfToken, clearCsrfTokenCache } from "@/lib/csrf";
 import { User } from "@shared/schema";
 
 interface AuthState {
@@ -327,9 +328,13 @@ export function useAuth(): AuthState & AuthActions {
 
   const setupTwoFactor = async () => {
     try {
+      const csrfToken = await getCsrfToken().catch(() => null);
       const response = await fetch('/api/auth/setup-2fa', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
         credentials: 'include',
       });
 
@@ -349,9 +354,13 @@ export function useAuth(): AuthState & AuthActions {
 
   const verifyTwoFactor = async (token: string) => {
     try {
+      const csrfToken = await getCsrfToken().catch(() => null);
       const response = await fetch('/api/auth/verify-2fa', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
         credentials: 'include',
         body: JSON.stringify({ token }),
       });
@@ -374,9 +383,13 @@ export function useAuth(): AuthState & AuthActions {
 
   const disableTwoFactor = async (password: string) => {
     try {
+      const csrfToken = await getCsrfToken().catch(() => null);
       const response = await fetch('/api/auth/disable-2fa', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
         credentials: 'include',
         body: JSON.stringify({ password }),
       });
@@ -404,9 +417,13 @@ export function useAuth(): AuthState & AuthActions {
     }
 
     try {
+      const csrfToken = await getCsrfToken().catch(() => null);
       const response = await fetch('/api/auth/me/profile-otp/request', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
         credentials: 'include',
         body: JSON.stringify({ email: cleanEmail }),
       });
@@ -434,9 +451,13 @@ export function useAuth(): AuthState & AuthActions {
     }
 
     try {
+      const csrfToken = await getCsrfToken().catch(() => null);
       const response = await fetch('/api/auth/me/profile-otp/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
         credentials: 'include',
         body: JSON.stringify({ email: cleanEmail, code: cleanCode }),
       });
