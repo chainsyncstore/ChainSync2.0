@@ -3381,11 +3381,16 @@ export class DatabaseStorage implements IStorage {
     if (!user) {
       throw new Error('User not found');
     }
+    const orgId = (user as any).orgId;
+    if (!orgId) {
+      throw new Error('User is not associated with an organization');
+    }
 
     const [whitelist] = await db.insert(ipWhitelists).values({
       ipAddress,
       whitelistedFor: userId,
       whitelistedBy,
+      orgId,
       role: normalizeRole((user as any).role),
       storeId: user.storeId,
       description,
@@ -3401,10 +3406,15 @@ export class DatabaseStorage implements IStorage {
     whitelistedBy: string;
     description?: string;
   }): Promise<IpWhitelist[]> {
-    const storeRecord = await db.select().from(stores).where(eq(stores.id, params.storeId)).limit(1);
-    if (!storeRecord.length) {
+    const storeRecord = await db.select({ id: stores.id, orgId: stores.orgId }).from(stores).where(eq(stores.id, params.storeId)).limit(1);
+    const store = storeRecord[0];
+    if (!store) {
       throw new Error('Store not found');
     }
+    if (!store.orgId) {
+      throw new Error('Store is not associated with an organization');
+    }
+    const orgId = store.orgId;
 
     const entries: IpWhitelist[] = [];
 
@@ -3414,6 +3424,7 @@ export class DatabaseStorage implements IStorage {
         ipAddress: params.ipAddress,
         whitelistedFor: params.whitelistedBy,
         whitelistedBy: params.whitelistedBy,
+        orgId,
         role: normalized,
         storeId: params.storeId,
         description: params.description,
