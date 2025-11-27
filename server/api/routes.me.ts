@@ -92,6 +92,23 @@ export async function registerMeRoutes(app: Express) {
         userId,
         error: subscriptionError instanceof Error ? subscriptionError.message : String(subscriptionError),
       });
+    }
+
+    res.json({
+      id: user.id,
+      email: user.email,
+      isAdmin,
+      role,
+      storeId,
+      orgId,
+      firstName: (user as any).firstName ?? null,
+      lastName: (user as any).lastName ?? null,
+      phone: (user as any).phone ?? null,
+      requiresPasswordChange: Boolean((user as any)?.requiresPasswordChange),
+      twofaVerified,
+      subscription: subscriptionSummary,
+    });
+  });
 
   app.post('/api/auth/me/profile-otp/request', requireAuth, async (req: Request, res: Response) => {
     const userId = req.session.userId as string;
@@ -195,23 +212,6 @@ export async function registerMeRoutes(app: Express) {
       });
       return res.status(500).json({ error: 'Could not verify code' });
     }
-  });
-    }
-
-    res.json({
-      id: user.id,
-      email: user.email,
-      isAdmin,
-      role,
-      storeId,
-      orgId,
-      firstName: (user as any).firstName ?? null,
-      lastName: (user as any).lastName ?? null,
-      phone: (user as any).phone ?? null,
-      requiresPasswordChange: Boolean((user as any)?.requiresPasswordChange),
-      twofaVerified,
-      subscription: subscriptionSummary,
-    });
   });
 
   app.get('/api/auth/me/roles', async (req: Request, res: Response) => {
