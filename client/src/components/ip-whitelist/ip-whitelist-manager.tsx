@@ -35,8 +35,10 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
   const [selectedRoles, setSelectedRoles] = useState<WhitelistRole[]>(['MANAGER', 'CASHIER']);
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRequirementsDialogOpen, setIsRequirementsDialogOpen] = useState(false);
 
   const isAdmin = Boolean((user as any)?.isAdmin || user?.role === 'admin');
+  const requiresStoreSetup = isAdmin && stores.length === 0;
 
   const storeLookup = useMemo(() => {
     const map = new Map<string, string>();
@@ -153,96 +155,131 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
         </div>
         
         {isAdmin && (
-          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
-            setIsAddDialogOpen(open);
-            if (open) {
-              setSelectedStoreId(prev => prev || stores[0]?.id || '');
-            }
-          }}>
-            <DialogTrigger asChild>
-              <Button>Add IP Address</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add IP to Whitelist</DialogTitle>
-                <DialogDescription>
-                  Add an IP address that will be allowed for selected store roles.
-                </DialogDescription>
-              </DialogHeader>
+          requiresStoreSetup ? (
+            <>
+              <Button onClick={() => setIsRequirementsDialogOpen(true)}>Add IP Address</Button>
+              <Dialog open={isRequirementsDialogOpen} onOpenChange={setIsRequirementsDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Store setup required</DialogTitle>
+                    <DialogDescription>
+                      Create at least one store before whitelisting IP addresses for staff access.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 text-sm text-gray-700">
+                    <p>To add an IP address you need:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                      <li>An active store under your organization.</li>
+                      <li>Roles (manager or cashier) that should use the IP.</li>
+                    </ul>
+                    <p>Head over to the Stores tab to create a store, then return to whitelist the IP.</p>
+                  </div>
+                  <DialogFooter>
+                    <Button onClick={() => setIsRequirementsDialogOpen(false)}>Got it</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </>
+          ) : (
+            <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+              setIsAddDialogOpen(open);
+              if (open) {
+                setSelectedStoreId(prev => prev || stores[0]?.id || '');
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button>Add IP Address</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add IP to Whitelist</DialogTitle>
+                  <DialogDescription>
+                    Add an IP address that will be allowed for selected store roles.
+                  </DialogDescription>
+                </DialogHeader>
 
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="ipAddress">IP Address</Label>
-                  <Input
-                    id="ipAddress"
-                    value={newIpAddress}
-                    onChange={(e) => setNewIpAddress(e.target.value)}
-                    placeholder="192.168.1.100"
-                  />
-                </div>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="ipAddress">IP Address</Label>
+                    <Input
+                      id="ipAddress"
+                      value={newIpAddress}
+                      onChange={(e) => setNewIpAddress(e.target.value)}
+                      placeholder="192.168.1.100"
+                    />
+                  </div>
 
-                <div>
-                  <Label htmlFor="storeId">Store</Label>
-                  <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a store" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {stores.length === 0 ? (
-                        <SelectItem value="" disabled>
-                          No stores available
-                        </SelectItem>
-                      ) : (
-                        stores.map(store => (
-                          <SelectItem key={store.id} value={store.id}>
-                            {store.name || 'Untitled store'}
+                  <div>
+                    <Label htmlFor="storeId">Store</Label>
+                    <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a store" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {stores.length === 0 ? (
+                          <SelectItem value="" disabled>
+                            No stores available
                           </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
+                        ) : (
+                          stores.map(store => (
+                            <SelectItem key={store.id} value={store.id}>
+                              {store.name || 'Untitled store'}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div>
-                  <Label>Allowed roles</Label>
-                  <div className="flex gap-4 flex-wrap mt-2">
-                    {ROLE_OPTIONS.map(option => (
-                      <label key={option.value} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4"
-                          checked={selectedRoles.includes(option.value)}
-                          onChange={() => toggleRole(option.value)}
-                        />
-                        {option.label}
-                      </label>
-                    ))}
+                  <div>
+                    <Label>Allowed roles</Label>
+                    <div className="flex gap-4 flex-wrap mt-2">
+                      {ROLE_OPTIONS.map(option => (
+                        <label key={option.value} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={selectedRoles.includes(option.value)}
+                            onChange={() => toggleRole(option.value)}
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="description">Description (Optional)</Label>
+                    <Input
+                      id="description"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="e.g., Office computer, Mobile device"
+                    />
                   </div>
                 </div>
 
-                <div>
-                  <Label htmlFor="description">Description (Optional)</Label>
-                  <Input
-                    id="description"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="e.g., Office computer, Mobile device"
-                  />
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAddIp} disabled={isSubmitting}>
-                  {isSubmitting ? 'Adding…' : 'Add IP'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleAddIp} disabled={isSubmitting}>
+                    {isSubmitting ? 'Adding…' : 'Add IP'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )
         )}
       </div>
+
+      {requiresStoreSetup && (
+        <Alert>
+          <AlertDescription>
+            You need to create at least one store before adding IP addresses for your staff. Visit the Stores tab to add a store, then return here to whitelist IPs.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {error && (
         <Alert variant="destructive">
