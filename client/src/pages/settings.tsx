@@ -652,7 +652,7 @@ export default function Settings() {
           </Card>
 
           <Dialog open={twoFactorDialogOpen} onOpenChange={handleTwoFactorDialogChange}>
-            <DialogContent>
+            <DialogContent className="sm:max-w-[420px]">
               <DialogHeader>
                 <DialogTitle>Set up Two-Factor Authentication</DialogTitle>
                 <DialogDescription>
@@ -664,8 +664,8 @@ export default function Settings() {
                 {twoFactorOtpauth && (
                   <div className="space-y-2">
                     <div className="flex justify-center">
-                      <div className="rounded-md border p-4 bg-white">
-                        <QRCode value={twoFactorOtpauth} size={164} />
+                      <div className="rounded-md border p-3 bg-white">
+                        <QRCode value={twoFactorOtpauth} size={140} />
                       </div>
                     </div>
                     <Label>Setup key</Label>
