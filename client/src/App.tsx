@@ -1,6 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useCallback } from 'react';
 import { Switch, Route, useLocation } from "wouter";
+import { TwoFactorModal } from "@/components/auth/two-factor-modal";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { PageLoading } from "@/components/ui/loading";
 import { Toaster } from "@/components/ui/toaster";
@@ -147,7 +148,19 @@ function Dashboard({ userRole }: { userRole: string }) {
 }
 
 function App() {
-  const { user, login, isAuthenticated, isLoading, error, requiresPasswordChange } = useAuth();
+  const {
+    user,
+    login,
+    isAuthenticated,
+    isLoading,
+    error,
+    requiresPasswordChange,
+    twoFactorChallengeUser,
+    twoFactorError,
+    isTwoFactorSubmitting,
+    completeTwoFactorChallenge,
+    cancelTwoFactorChallenge,
+  } = useAuth();
   const [location, setLocation] = useLocation();
 
   useEffect(() => {
@@ -166,11 +179,22 @@ function App() {
     MODE: import.meta.env.MODE
   });
 
+  const handleTwoFactorSubmit = useCallback(async (code: string) => {
+    return completeTwoFactorChallenge(code);
+  }, [completeTwoFactorChallenge]);
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AIChatProvider>
           <TooltipProvider>
+              <TwoFactorModal
+                user={twoFactorChallengeUser}
+                error={twoFactorError}
+                isSubmitting={isTwoFactorSubmitting}
+                onSubmit={handleTwoFactorSubmit}
+                onCancel={cancelTwoFactorChallenge}
+              />
               <Toaster />
               {isLoading ? (
                 <PageLoader />

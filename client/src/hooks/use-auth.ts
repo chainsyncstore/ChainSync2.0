@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { post } from "@/lib/api-client";
 import { getCsrfToken } from "@/lib/csrf";
 import { saveSession, loadSession, clearSession, refreshSession } from "@/lib/utils";
 import { User } from "@shared/schema";
+
+type TwoFactorChallengeUser = Pick<User, 'id'> & {
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+};
 
 interface AuthState {
   user: User | null;
@@ -10,6 +15,9 @@ interface AuthState {
   isAuthenticated: boolean;
   requiresPasswordChange: boolean;
   twoFactorEnabled: boolean;
+  twoFactorChallengeUser: TwoFactorChallengeUser | null;
+  twoFactorError: string | null;
+  isTwoFactorSubmitting: boolean;
 }
 
 /* eslint-disable no-unused-vars -- function type parameter names are required for DX */
@@ -23,6 +31,8 @@ interface AuthActions {
   disableTwoFactor(password: string): Promise<boolean>;
   requestProfileOtp(email: string): Promise<{ status: string; expiresAt?: string | Date } | null>;
   verifyProfileOtp(params: { email: string; code: string }): Promise<boolean>;
+  completeTwoFactorChallenge(code: string): Promise<boolean>;
+  cancelTwoFactorChallenge(): Promise<void>;
 }
 /* eslint-enable no-unused-vars */
 
@@ -52,6 +62,9 @@ export function useAuth(): AuthState & AuthActions {
   const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [twoFactorChallengeUser, setTwoFactorChallengeUser] = useState<TwoFactorChallengeUser | null>(null);
+  const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
+  const [isTwoFactorSubmitting, setIsTwoFactorSubmitting] = useState(false);
 
   // Auto-refresh session when user is active
   const handleUserActivity = useCallback(() => {
@@ -130,6 +143,8 @@ export function useAuth(): AuthState & AuthActions {
         setUser(null);
         setRequiresPasswordChange(false);
         setTwoFactorEnabled(false);
+        setTwoFactorChallengeUser(null);
+        setTwoFactorError(null);
         return;
       }
 
@@ -140,17 +155,56 @@ export function useAuth(): AuthState & AuthActions {
       setRequiresPasswordChange(Boolean((normalized as any)?.requiresPasswordChange));
       setTwoFactorEnabled(Boolean((normalized as any)?.twofaVerified));
       saveSession(normalized as any);
+      setTwoFactorChallengeUser(null);
+      setTwoFactorError(null);
     } catch {
       clearSession();
       setUser(null);
       setRequiresPasswordChange(false);
       setTwoFactorEnabled(false);
+      setTwoFactorChallengeUser(null);
+      setTwoFactorError(null);
     }
   }, []);
+
+  const redirectAfterLogin = (normalizedUser: any) => {
+    if ((normalizedUser as any)?.requiresPasswordChange) {
+      window.location.href = "/force-password-reset";
+      return;
+    }
+
+    const role = normalizedUser?.isAdmin ? 'admin' : (normalizedUser as any)?.role || 'cashier';
+    let defaultPath = "/pos";
+    if (role === "admin") {
+      defaultPath = normalizedUser?.storeId ? "/analytics" : "/multi-store";
+    } else if (role === "manager") {
+      defaultPath = "/inventory";
+    }
+    window.location.href = defaultPath;
+  };
+
+  const applyAuthenticatedUser = (rawUser: any, options: { redirect?: boolean } = {}) => {
+    const normalizedUser = normalizeUserPayload(rawUser);
+    setUser(normalizedUser as any);
+    setRequiresPasswordChange(Boolean((normalizedUser as any)?.requiresPasswordChange));
+    setTwoFactorEnabled(Boolean((normalizedUser as any)?.twofaVerified));
+    saveSession(normalizedUser as any);
+    refreshSession();
+    setTwoFactorChallengeUser(null);
+    setTwoFactorError(null);
+
+    if (options.redirect !== false) {
+      redirectAfterLogin(normalizedUser);
+    }
+
+    return normalizedUser;
+  };
 
   const login = async (usernameOrEmail: string, password: string) => {
     setIsLoading(true);
     setError(null);
+    setTwoFactorError(null);
+    setTwoFactorChallengeUser(null);
     try {
       const body: any = usernameOrEmail.includes('@')
         ? { email: usernameOrEmail, password }
@@ -178,20 +232,14 @@ export function useAuth(): AuthState & AuthActions {
         return;
       }
 
-      if (loginResp?.status === 'otp_required') {
-        const otp = window.prompt('Enter 2FA code from your authenticator app');
-        if (!otp) {
-          setIsLoading(false);
-          setError('2FA required');
-          return;
-        }
-        const verifyResp = await post<any>("/auth/2fa/verify", { code: otp });
-        if (!verifyResp?.success && !verifyResp?.user) {
-          setIsLoading(false);
-          setError('Invalid OTP');
-          return;
-        }
-        loginResp = verifyResp;
+      if (loginResp?.status === 'twofa_required') {
+        const challengeUser = loginResp?.user && typeof loginResp.user === 'object'
+          ? loginResp.user
+          : { id: loginResp?.userId ?? '' };
+        setTwoFactorChallengeUser(challengeUser);
+        setTwoFactorError(null);
+        setIsLoading(false);
+        return;
       }
 
       if (!response.ok || loginResp?.status !== 'success') {
@@ -201,26 +249,7 @@ export function useAuth(): AuthState & AuthActions {
 
       const respUser = (loginResp as any)?.user;
       if (respUser) {
-        const normalizedUser = normalizeUserPayload(respUser);
-        setUser(normalizedUser as any);
-        setRequiresPasswordChange(Boolean((normalizedUser as any)?.requiresPasswordChange));
-        setTwoFactorEnabled(Boolean((normalizedUser as any)?.twofaVerified));
-        saveSession(normalizedUser as any);
-        refreshSession();
-
-        if ((normalizedUser as any)?.requiresPasswordChange) {
-          window.location.href = "/force-password-reset";
-          return;
-        }
-
-        const role = normalizedUser?.isAdmin ? 'admin' : (normalizedUser as any)?.role || 'cashier';
-        let defaultPath = "/pos";
-        if (role === "admin") {
-          defaultPath = normalizedUser?.storeId ? "/analytics" : "/multi-store";
-        } else if (role === "manager") {
-          defaultPath = "/inventory";
-        }
-        window.location.href = defaultPath;
+        applyAuthenticatedUser(respUser);
         return;
       }
       const fetchMe = async (attempt = 1): Promise<Response> => {
@@ -236,28 +265,12 @@ export function useAuth(): AuthState & AuthActions {
       if (!me.ok) throw new Error('Failed to fetch user');
       const payload = await me.json();
       const userData = (payload as any)?.data || payload;
-      const normalizedUser = normalizeUserPayload(userData);
-      setUser(normalizedUser as any);
-      setRequiresPasswordChange(Boolean((normalizedUser as any)?.requiresPasswordChange));
-      setTwoFactorEnabled(Boolean((normalizedUser as any)?.twofaVerified));
-      saveSession(normalizedUser as any);
-
-      if ((normalizedUser as any)?.requiresPasswordChange) {
-        window.location.href = "/force-password-reset";
-        return;
-      }
-
-      const role = normalizedUser?.isAdmin ? 'admin' : (normalizedUser as any)?.role || 'cashier';
-      let defaultPath = "/pos";
-      if (role === "admin") {
-        defaultPath = normalizedUser?.storeId ? "/analytics" : "/multi-store";
-      } else if (role === "manager") {
-        defaultPath = "/inventory";
-      }
-      window.location.href = defaultPath;
+      applyAuthenticatedUser(userData);
     } catch (err) {
       console.error('Login request failed', err);
       setError("Login failed. Please check your credentials.");
+      setTwoFactorChallengeUser(null);
+      setTwoFactorError(null);
     } finally {
       setIsLoading(false);
     }
@@ -290,6 +303,9 @@ export function useAuth(): AuthState & AuthActions {
     setError(null);
     clearSession();
     setTwoFactorEnabled(false);
+    setTwoFactorChallengeUser(null);
+    setTwoFactorError(null);
+    setIsTwoFactorSubmitting(false);
 
     // Final verification before redirecting
     try {
@@ -325,6 +341,61 @@ export function useAuth(): AuthState & AuthActions {
   if (typeof window !== 'undefined') {
     (window as any).__chainsyncDebugLogout = logout;
   }
+
+  const completeTwoFactorChallenge = async (code: string) => {
+    const cleanCode = code.trim();
+    if (!cleanCode) {
+      setTwoFactorError('Enter the 6-digit code.');
+      return false;
+    }
+
+    setIsTwoFactorSubmitting(true);
+    setTwoFactorError(null);
+
+    try {
+      const csrfToken = await getCsrfToken().catch(() => null);
+      const response = await fetch('/api/auth/verify-2fa', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ token: cleanCode }),
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message = payload?.message || 'Invalid or expired 2FA code';
+        setTwoFactorError(message);
+        setIsTwoFactorSubmitting(false);
+        return false;
+      }
+
+      if (payload?.user) {
+        applyAuthenticatedUser(payload.user);
+      } else {
+        await refreshUser();
+      }
+
+      setTwoFactorChallengeUser(null);
+      setIsTwoFactorSubmitting(false);
+      return true;
+    } catch (error) {
+      console.error('completeTwoFactorChallenge error', error);
+      setTwoFactorError('Failed to verify code. Please try again.');
+      setIsTwoFactorSubmitting(false);
+      return false;
+    }
+  };
+
+  const cancelTwoFactorChallenge = async () => {
+    setTwoFactorChallengeUser(null);
+    setTwoFactorError(null);
+    setIsTwoFactorSubmitting(false);
+    await logout();
+  };
 
   const setupTwoFactor = async () => {
     try {
@@ -487,10 +558,15 @@ export function useAuth(): AuthState & AuthActions {
     requiresPasswordChange,
     refreshUser,
     twoFactorEnabled,
+    twoFactorChallengeUser,
+    twoFactorError,
+    isTwoFactorSubmitting,
     setupTwoFactor,
     verifyTwoFactor,
     disableTwoFactor,
     requestProfileOtp,
     verifyProfileOtp,
+    completeTwoFactorChallenge,
+    cancelTwoFactorChallenge,
   } as any;
 }

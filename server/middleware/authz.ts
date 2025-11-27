@@ -7,8 +7,58 @@ import { storage } from '../storage';
 
 const defaultIpWhitelistEnforced = (process.env.IP_WHITELIST_ENFORCED ?? 'true').toLowerCase() !== 'false';
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+type MinimalUser = {
+  id: string;
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  [key: string]: unknown;
+};
+
+async function ensureTwoFactorVerified(req: Request, res: Response, userHint?: MinimalUser): Promise<boolean> {
+  const session = req.session;
+  const userId = session?.userId;
+  if (!session || !userId) return false;
+  if (session.twofaVerified) return true;
+
+  let user = userHint;
+  if (!user) {
+    try {
+      user = await storage.getUser(userId) as MinimalUser | undefined;
+    } catch {
+      user = undefined;
+    }
+  }
+
+  const hasTwoFactor = Boolean((user as any)?.totpSecret ?? (user as any)?.twofaSecret ?? (user as any)?.requires2fa);
+
+  if (!hasTwoFactor) {
+    session.twofaVerified = true;
+    if (typeof session.save === 'function') {
+      session.save(() => undefined);
+    }
+    return true;
+  }
+
+  res.status(403).json({
+    status: 'twofa_required',
+    code: 'TWO_FA_REQUIRED',
+    message: 'Two-factor authentication required',
+    user: user
+      ? {
+          id: user.id,
+          email: (user as any)?.email ?? null,
+          firstName: (user as any)?.firstName ?? null,
+          lastName: (user as any)?.lastName ?? null,
+        }
+      : undefined,
+  });
+  return false;
+}
+
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) return res.status(401).json({ status: 'error', message: 'Not authenticated' });
+  if (!(await ensureTwoFactorVerified(req, res))) return;
   next();
 }
 
@@ -50,6 +100,7 @@ export function requireRole(required: AnyRole | AnyRole[]) {
     }
 
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    if (!(await ensureTwoFactorVerified(req, res, user as MinimalUser))) return;
     if (user.isAdmin) return next();
     if (user.isActive === false) {
       return res.status(423).json({ error: 'Account disabled' });
@@ -120,6 +171,7 @@ export function requireManagerWithStore() {
     }).from(users).where(eq(users.id, userId));
     const user = rows[0];
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    if (!(await ensureTwoFactorVerified(req, res, user as MinimalUser))) return;
     if (user.isAdmin) return res.status(403).json({ error: 'Admins cannot access this endpoint' });
     if (user.isActive === false) {
       return res.status(423).json({ error: 'Account disabled' });

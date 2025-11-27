@@ -23,6 +23,33 @@ import { storage } from '../storage';
 import { SubscriptionService } from '../subscription/service';
 import { PendingSignup } from './pending-signup';
 
+const formatUserForResponse = (user: any) => {
+  if (!user) return user;
+
+  const {
+    password,
+    passwordHash,
+    password_hash,
+    passwordHashLegacy,
+    totpSecret,
+    twofaSecret,
+    ...userData
+  } = user as any;
+
+  void password;
+  void passwordHash;
+  void password_hash;
+  void passwordHashLegacy;
+  void totpSecret;
+  void twofaSecret;
+
+  return {
+    ...userData,
+    twofaVerified: Boolean((user as any)?.twofaVerified ?? (user as any)?.requires2fa ?? false),
+    requiresPasswordChange: Boolean((user as any)?.requiresPasswordChange ?? (user as any)?.requires_password_change),
+  };
+};
+
 export async function registerAuthRoutes(app: Express) {
   const env = loadEnv(process.env);
   const defaultIpWhitelistEnforced = (process.env.IP_WHITELIST_ENFORCED ?? 'true').toLowerCase() !== 'false';
@@ -879,6 +906,38 @@ export async function registerAuthRoutes(app: Express) {
         }
       }
 
+      const hasTwoFactorSecret = Boolean((user as any).totpSecret ?? (user as any).twofaSecret);
+
+      if (hasTwoFactorSecret) {
+        try {
+          logger.info('login-twofa-challenge-initiated', { uid: user.id, req: extractLogContext(req) });
+        } catch (twofaLogError) {
+          logger.warn('Failed to log twofa challenge start', {
+            error: twofaLogError instanceof Error ? twofaLogError.message : String(twofaLogError)
+          });
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          req.session!.regenerate((err) => {
+            if (err) return reject(err);
+            req.session!.pendingUserId = user.id;
+            req.session!.twofaVerified = false;
+            req.session!.save((err2) => (err2 ? reject(err2) : resolve()));
+          });
+        });
+
+        return res.status(202).json({
+          status: 'twofa_required',
+          message: 'Two-factor authentication required. Enter the code from your authenticator app.',
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: (user as any)?.firstName ?? null,
+            lastName: (user as any)?.lastName ?? null,
+          },
+        });
+      }
+
       // Successful login
       try {
         logger.info('login-session-set-begin', { uid: user.id, req: extractLogContext(req) });
@@ -891,6 +950,7 @@ export async function registerAuthRoutes(app: Express) {
         req.session!.regenerate((err) => {
           if (err) return reject(err);
           req.session!.userId = user.id;
+          req.session!.pendingUserId = undefined;
           req.session!.twofaVerified = 'twofaVerified' in user ? (user as any).twofaVerified || false : false;
           req.session!.save((err2) => (err2 ? reject(err2) : resolve()));
         });
@@ -903,25 +963,10 @@ export async function registerAuthRoutes(app: Express) {
         });
       }
 
-      const {
-        password: _legacyPassword,
-        passwordHash: _passwordHash,
-        password_hash: _password_hash,
-        passwordHashLegacy,
-        ...userData
-      } = user as any;
-      void _legacyPassword;
-      void _passwordHash;
-      void _password_hash;
-      void passwordHashLegacy;
-
       res.json({ 
         status: 'success',
         message: 'Login successful', 
-        user: {
-          ...userData,
-          requiresPasswordChange: Boolean((user as any)?.requiresPasswordChange ?? (user as any)?.requires_password_change),
-        },
+        user: formatUserForResponse(user),
       });
     } catch (error) {
       logger.error('Login error', { error, req: extractLogContext(req) });
@@ -1170,8 +1215,12 @@ export async function registerAuthRoutes(app: Express) {
 
   // 2FA verify
   app.post('/api/auth/verify-2fa', sensitiveEndpointRateLimit, async (req: Request, res: Response) => {
-    const { userId } = req.session!;
-    const { token } = req.body;
+    const session = req.session!;
+    const pendingUserId = session.pendingUserId;
+    const sessionUserId = session.userId;
+    const userId = pendingUserId ?? sessionUserId;
+    const token = typeof req.body?.token === 'string' ? req.body.token : req.body?.code;
+
     if (!userId || !token) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
@@ -1192,8 +1241,27 @@ export async function registerAuthRoutes(app: Express) {
         return res.status(400).json({ message: 'Invalid 2FA token' });
       }
 
-      await storage.updateUser(userId, { twofaVerified: true } as Record<string, unknown>);
-      req.session!.twofaVerified = true;
+      if (!(user as any).twofaVerified) {
+        await storage.updateUser(userId, { twofaVerified: true } as Record<string, unknown>);
+      }
+
+      if (pendingUserId) {
+        session.pendingUserId = undefined;
+        session.userId = userId;
+      }
+      session.twofaVerified = true;
+
+      await new Promise<void>((resolve, reject) => {
+        session.save((saveErr) => (saveErr ? reject(saveErr) : resolve()));
+      });
+
+      if (pendingUserId) {
+        return res.json({
+          status: 'success',
+          message: '2FA verified successfully',
+          user: formatUserForResponse(user),
+        });
+      }
 
       res.json({ message: '2FA verified successfully' });
     } catch (error) {
