@@ -46,8 +46,13 @@ export async function registerIpWhitelistRoutes(app: Express) {
     userEntries.forEach(entry => collected.set(entry.id, { ...entry, scope: 'user' }));
 
     if (role === 'ADMIN') {
-      const allEntries = await storage.getAllIpWhitelists();
-      allEntries.forEach(entry => {
+      const orgId = (user as any).orgId;
+      if (!orgId) {
+        return res.status(400).json({ error: 'Organization not set for admin user' });
+      }
+
+      const orgEntries = await storage.getOrgIpWhitelists(orgId);
+      orgEntries.forEach(entry => {
         const scope = entry.storeId ? 'store' : 'user';
         collected.set(entry.id, { ...entry, scope });
       });

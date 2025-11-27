@@ -382,7 +382,7 @@ export interface IStorage {
   getIpAccessLogs(limit?: number): Promise<IpWhitelistLog[]>;
   getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]>;
   getStoreWhitelistsForRole(storeId: string, role: 'ADMIN' | 'MANAGER' | 'CASHIER'): Promise<IpWhitelist[]>;
-  getAllIpWhitelists(): Promise<IpWhitelist[]>;
+  getOrgIpWhitelists(orgId: string): Promise<IpWhitelist[]>;
   getIpWhitelistsForUser(userId: string): Promise<IpWhitelist[]>;
   addIpToWhitelist(ipAddress: string, userId: string, whitelistedBy: string, description?: string): Promise<IpWhitelist>;
   addStoreIpToWhitelist(params: {
@@ -3362,9 +3362,14 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(ipWhitelists.createdAt));
   }
 
-  async getAllIpWhitelists(): Promise<IpWhitelist[]> {
+  async getOrgIpWhitelists(orgId: string): Promise<IpWhitelist[]> {
     return await db.select().from(ipWhitelists)
-      .where(eq(ipWhitelists.isActive, true as any))
+      .where(
+        and(
+          eq(ipWhitelists.orgId, orgId),
+          eq(ipWhitelists.isActive, true as any),
+        ),
+      )
       .orderBy(desc(ipWhitelists.createdAt));
   }
 
