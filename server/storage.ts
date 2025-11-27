@@ -379,7 +379,7 @@ export interface IStorage {
   // IP Whitelist operations
   checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean>;
   logIpAccess(ipAddress: string, userId: string | undefined, username: string | undefined, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void>;
-  getIpAccessLogs(limit?: number): Promise<IpWhitelistLog[]>;
+  getIpAccessLogs(orgId: string, limit?: number): Promise<IpWhitelistLog[]>;
   getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]>;
   getStoreWhitelistsForRole(storeId: string, role: 'ADMIN' | 'MANAGER' | 'CASHIER'): Promise<IpWhitelist[]>;
   getOrgIpWhitelists(orgId: string): Promise<IpWhitelist[]>;
@@ -393,7 +393,7 @@ export interface IStorage {
     description?: string;
   }): Promise<IpWhitelist[]>;
   removeIpFromWhitelist(ipAddress: string, userId: string): Promise<void>;
-  deactivateIpWhitelistEntry(id: string): Promise<void>;
+  deactivateIpWhitelistEntry(id: string, orgId: string): Promise<boolean>;
 
   // Export operations
   exportProducts(storeId: string, format: string): Promise<any>;
@@ -3449,10 +3449,17 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
-  async deactivateIpWhitelistEntry(id: string): Promise<void> {
-    await db.update(ipWhitelists)
+  async deactivateIpWhitelistEntry(id: string, orgId: string): Promise<boolean> {
+    const result = await db.update(ipWhitelists)
       .set({ isActive: false as any, updatedAt: new Date() } as any)
-      .where(eq(ipWhitelists.id, id));
+      .where(
+        and(
+          eq(ipWhitelists.id, id),
+          eq(ipWhitelists.orgId, orgId),
+        ),
+      )
+      .returning({ id: ipWhitelists.id });
+    return result.length > 0;
   }
 
   async logIpAccess(ipAddress: string, userId: string, username: string, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void> {
@@ -3467,14 +3474,26 @@ export class DatabaseStorage implements IStorage {
     } as unknown as typeof ipWhitelistLogs.$inferInsert);
   }
 
-  async getIpAccessLogs(limit = 100): Promise<IpWhitelistLog[]> {
+  async getIpAccessLogs(orgId: string, limit = 100): Promise<IpWhitelistLog[]> {
     try {
       const rows = await db
-        .select()
+        .select({
+          id: ipWhitelistLogs.id,
+          ipAddress: ipWhitelistLogs.ipAddress,
+          userId: ipWhitelistLogs.userId,
+          username: ipWhitelistLogs.username,
+          action: ipWhitelistLogs.action,
+          success: ipWhitelistLogs.success,
+          reason: ipWhitelistLogs.reason,
+          userAgent: ipWhitelistLogs.userAgent,
+          createdAt: ipWhitelistLogs.createdAt,
+        })
         .from(ipWhitelistLogs)
+        .leftJoin(users, eq(users.id, ipWhitelistLogs.userId))
+        .where(eq(users.orgId, orgId))
         .orderBy(desc(ipWhitelistLogs.createdAt))
         .limit(limit);
-      return rows as any;
+      return rows as IpWhitelistLog[];
     } catch (error: any) {
       if (error?.code === '42P01') {
         console.warn('ip_whitelist_logs table missing; returning empty logs');

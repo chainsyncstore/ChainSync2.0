@@ -107,12 +107,38 @@ export async function registerIpWhitelistRoutes(app: Express) {
       return res.status(400).json({ error: 'Whitelist entry ID is required' });
     }
 
-    await storage.deactivateIpWhitelistEntry(id);
+    const adminId = req.session?.userId as string | undefined;
+    if (!adminId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const adminUser = await storage.getUser(adminId);
+    const orgId = (adminUser as any)?.orgId;
+    if (!orgId) {
+      return res.status(400).json({ error: 'Organization not set for admin user' });
+    }
+
+    const removed = await storage.deactivateIpWhitelistEntry(id, orgId);
+    if (!removed) {
+      return res.status(404).json({ error: 'Whitelist entry not found' });
+    }
+
     return res.status(204).end();
   });
 
-  app.get('/api/ip-whitelist/logs', requireAuth, requireRole('ADMIN'), async (_req: Request, res: Response) => {
-    const logs = await storage.getIpAccessLogs(200);
+  app.get('/api/ip-whitelist/logs', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+    const adminId = req.session?.userId as string | undefined;
+    if (!adminId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const adminUser = await storage.getUser(adminId);
+    const orgId = (adminUser as any)?.orgId;
+    if (!orgId) {
+      return res.status(400).json({ error: 'Organization not set for admin user' });
+    }
+
+    const logs = await storage.getIpAccessLogs(orgId, 200);
     res.json(logs);
   });
 }
