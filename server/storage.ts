@@ -234,8 +234,12 @@ const mapDbUser = (row: any): User | undefined => {
   const rawRole = row.role ?? (isAdmin ? 'ADMIN' : undefined);
   const role = rawRole ? String(rawRole).toUpperCase() : undefined;
   const storeId = row.storeId ?? row.store_id ?? null;
-  const totpSecret = row.totpSecret ?? row.totp_secret ?? null;
-  const requires2fa = Boolean(row.requires2fa ?? row.twofaVerified ?? row.twofa_verified ?? false);
+  const totpSecret = row.totpSecret ?? row.totp_secret ?? row.twofaSecret ?? row.twofa_secret ?? null;
+  const hasTwoFactorSecret = Boolean(totpSecret);
+  const dbRequires2fa = Boolean(row.requires2fa ?? row.requires_2fa ?? false);
+  const dbTwofaVerified = Boolean(row.twofaVerified ?? row.twofa_verified ?? false);
+  const requires2fa = hasTwoFactorSecret && (dbRequires2fa || dbTwofaVerified);
+  const twofaVerified = hasTwoFactorSecret && dbTwofaVerified;
 
   return {
     ...row,
@@ -248,7 +252,7 @@ const mapDbUser = (row: any): User | undefined => {
     totpSecret,
     twofaSecret: totpSecret,
     requires2fa,
-    twofaVerified: requires2fa,
+    twofaVerified,
   } as unknown as User;
 };
 
