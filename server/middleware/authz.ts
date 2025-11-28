@@ -31,9 +31,10 @@ async function ensureTwoFactorVerified(req: Request, res: Response, userHint?: M
   }
 
   const userTwofaSecret = (user as any)?.totpSecret ?? (user as any)?.twofaSecret ?? null;
-  const hasTwoFactor = Boolean(userTwofaSecret);
+  const hasTwoFactorSecret = Boolean(userTwofaSecret);
+  const requiresTwoFactor = hasTwoFactorSecret && Boolean((user as any)?.requires2fa ?? (user as any)?.twofaVerified ?? false);
 
-  if (!hasTwoFactor) {
+  if (!requiresTwoFactor) {
     session.twofaVerified = true;
     if (typeof session.save === 'function') {
       session.save(() => undefined);
