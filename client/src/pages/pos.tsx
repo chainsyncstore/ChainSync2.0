@@ -19,6 +19,7 @@ import { useOfflineSyncIndicator } from "@/hooks/use-offline-sync-indicator";
 import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfToken } from "@/lib/csrf";
 import type { ReceiptPrintJob } from "@/lib/printer";
 import type { CartItem, CartSummary } from "@/types/pos";
 import type { Store, LowStockAlert } from "@shared/schema";
@@ -382,6 +383,7 @@ export default function POS() {
     mutationFn: async () => {
       const { generateIdempotencyKey, validateSalePayload, enqueueOfflineSale } = await import('@/lib/offline-queue');
       const idempotencyKey = generateIdempotencyKey();
+      const csrfToken = await getCsrfToken().catch(() => null);
 
       const splitBreakdown = payment.split?.map((portion) => ({
         method: portion.method,
@@ -415,6 +417,7 @@ export default function POS() {
           headers: {
             'Content-Type': 'application/json',
             'Idempotency-Key': idempotencyKey,
+            ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
           },
           body: JSON.stringify(payload),
           credentials: 'include',
@@ -428,7 +431,12 @@ export default function POS() {
           addNotification({ type: 'error', title: 'Cannot queue sale', message: v.errors.slice(0,3).join('; ') });
           throw err;
         }
-        await enqueueOfflineSale({ url: '/api/pos/sales', payload, idempotencyKey });
+        await enqueueOfflineSale({
+          url: '/api/pos/sales',
+          payload,
+          idempotencyKey,
+          headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined,
+        });
         await refreshCounts();
         addNotification({
           type: 'info',
