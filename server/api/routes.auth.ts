@@ -907,8 +907,9 @@ export async function registerAuthRoutes(app: Express) {
       }
 
       const hasTwoFactorSecret = Boolean((user as any).totpSecret ?? (user as any).twofaSecret);
+      const requiresTwoFactor = Boolean((user as any).requires2fa ?? (user as any).twofaVerified ?? false);
 
-      if (hasTwoFactorSecret) {
+      if (hasTwoFactorSecret && requiresTwoFactor) {
         try {
           logger.info('login-twofa-challenge-initiated', { uid: user.id, req: extractLogContext(req) });
         } catch (twofaLogError) {
