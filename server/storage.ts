@@ -3336,14 +3336,34 @@ export class DatabaseStorage implements IStorage {
 		
 		if (whitelist) return true;
 
-		// For managers and cashiers, also check store-level whitelists
+		// For managers and cashiers, also check store-level whitelists (includes delegated stores)
 		if (normalizedRole === 'MANAGER' || normalizedRole === 'CASHIER') {
+			const storeIds = new Set<string>();
 			if (user.storeId) {
+				storeIds.add(user.storeId);
+			}
+			if (normalizedRole === 'MANAGER') {
+				const permissions = await this.getUserStorePermissions(userId);
+				permissions.forEach((permission) => {
+					if (permission.storeId) {
+						storeIds.add(permission.storeId);
+					}
+				});
+			}
+			if (storeIds.size > 0) {
+				const storeIdList = Array.from(storeIds);
 				const [storeWhitelist] = await db.select().from(ipWhitelists)
 					.where(
-						sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.storeId} = ${user.storeId} AND ${ipWhitelists.role} = ${normalizedRole} AND ${ipWhitelists.isActive} = true`
-					);
-				
+						and(
+							eq(ipWhitelists.ipAddress, ipAddress),
+							eq(ipWhitelists.role, normalizedRole),
+							eq(ipWhitelists.isActive, true as any),
+							storeIdList.length === 1
+								? eq(ipWhitelists.storeId, storeIdList[0])
+								: inArray(ipWhitelists.storeId, storeIdList as string[])
+						)
+					)
+					.limit(1);
 				if (storeWhitelist) return true;
 			}
 		}
