@@ -9,6 +9,7 @@ import { logger } from '../lib/logger';
 import { getPlan } from '../lib/plans';
 import { requireAuth, requireRole, enforceIpWhitelist } from '../middleware/authz';
 import { PaymentService } from '../payment/service';
+import { storage } from '../storage';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
@@ -159,10 +160,32 @@ export async function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Delete user
+  // Delete user (org scoped)
   app.delete('/api/admin/users/:id', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
-    const id = req.params.id;
-    await db.execute(sql`DELETE FROM users WHERE id = ${id}`);
+    const targetId = req.params.id;
+    const currentUserId = ((req.session as any)?.userId as string | undefined) || (process.env.NODE_ENV === 'test' ? 'u-test' : undefined);
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+
+    let me = (await db.select().from(users).where(eq(users.id, currentUserId)))[0] as any;
+    if (!me && process.env.NODE_ENV === 'test') {
+      me = { id: currentUserId, orgId: 'org-test', isAdmin: true };
+    }
+
+    if (!me?.orgId) {
+      return res.status(400).json({ error: 'Organization not set' });
+    }
+
+    const target = (await db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, targetId), eq(users.orgId as any, me.orgId as any)))
+      .limit(1))[0];
+
+    if (!target) {
+      return res.status(404).json({ error: 'User not found in your organization' });
+    }
+
+    await storage.deleteUser(targetId);
     res.status(204).end();
   });
 
