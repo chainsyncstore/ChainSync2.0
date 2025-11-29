@@ -84,6 +84,8 @@ export default function Settings() {
   const [orgSecurityLoading, setOrgSecurityLoading] = useState(false);
   const [orgSecuritySaving, setOrgSecuritySaving] = useState(false);
   const [orgSecurityError, setOrgSecurityError] = useState<string | null>(null);
+  const [ipWhitelistWarningOpen, setIpWhitelistWarningOpen] = useState(false);
+  const [pendingIpWhitelistValue, setPendingIpWhitelistValue] = useState<boolean | null>(null);
 
   // Profile form state
   const [profileForm, setProfileForm] = useState({
@@ -188,7 +190,7 @@ export default function Settings() {
     void fetchOrgSecurity();
   }, [fetchOrgSecurity]);
 
-  const handleToggleIpWhitelist = useCallback(async (checked: boolean) => {
+  const applyIpWhitelistToggle = useCallback(async (checked: boolean) => {
     if (user?.role !== 'admin') {
       return;
     }
@@ -222,6 +224,29 @@ export default function Settings() {
       setOrgSecuritySaving(false);
     }
   }, [toast, user?.role]);
+
+  const handleToggleIpWhitelist = useCallback((checked: boolean) => {
+    if (checked) {
+      setPendingIpWhitelistValue(true);
+      setIpWhitelistWarningOpen(true);
+      return;
+    }
+    void applyIpWhitelistToggle(false);
+  }, [applyIpWhitelistToggle]);
+
+  const handleConfirmIpWhitelistWarning = useCallback(async () => {
+    setIpWhitelistWarningOpen(false);
+    const nextValue = pendingIpWhitelistValue;
+    setPendingIpWhitelistValue(null);
+    if (nextValue === true) {
+      await applyIpWhitelistToggle(true);
+    }
+  }, [applyIpWhitelistToggle, pendingIpWhitelistValue]);
+
+  const handleDismissIpWhitelistWarning = useCallback(() => {
+    setIpWhitelistWarningOpen(false);
+    setPendingIpWhitelistValue(null);
+  }, []);
 
   const handleBeginTwoFactorSetup = async () => {
     if (twoFactorEnabled) {
@@ -875,6 +900,39 @@ export default function Settings() {
               </CardContent>
             </Card>
           )}
+
+          <Dialog open={ipWhitelistWarningOpen} onOpenChange={(open) => {
+            setIpWhitelistWarningOpen(open);
+            if (!open) {
+              setPendingIpWhitelistValue(null);
+            }
+          }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>IP addresses can change unexpectedly</DialogTitle>
+                <DialogDescription>
+                  Mobile data and consumer broadband connections frequently rotate IP addresses, so enforcing an IP whitelist can require constant maintenance.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Enable this feature only if your staff operates from a static, business-grade connection. Otherwise, legitimate users may be locked out whenever their ISP reassigns their IP.
+                </p>
+                <ul className="list-disc space-y-1 pl-4">
+                  <li>Dynamic IPs (mobile hotspots, residential broadband) can change multiple times per day.</li>
+                  <li>Each change will require an admin to update the whitelist before the team can log back in.</li>
+                </ul>
+              </div>
+              <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button variant="outline" onClick={handleDismissIpWhitelistWarning}>
+                  Cancel
+                </Button>
+                <Button onClick={() => { void handleConfirmIpWhitelistWarning(); }}>
+                  Enable anyway
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {user.role === 'admin' && (
             <Card>
