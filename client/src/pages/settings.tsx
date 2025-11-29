@@ -599,8 +599,19 @@ export default function Settings() {
     if (!user?.id) return;
     setIsDeleting(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, { method: 'DELETE', credentials: 'include' });
-      if (!res.ok) throw new Error('Failed');
+      const csrfToken = await getCsrfToken();
+      const res = await fetch('/api/auth/delete-account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.message || 'Failed to delete account');
+      }
       toast({ title: 'Account deleted', description: 'Your account has been permanently deleted.' });
       await logout();
     } catch (error) {
