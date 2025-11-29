@@ -348,6 +348,8 @@ export class NotificationService {
           message: event.message,
           data: event.data,
           priority: event.priority,
+          storeId: event.storeId ?? null,
+          userId: event.userId ?? null,
           timestamp: new Date().toISOString()
         },
         timestamp: Date.now()
@@ -411,6 +413,8 @@ export class NotificationService {
         message: event.message,
         data: event.data,
         priority: event.priority,
+        storeId: event.storeId ?? null,
+        userId,
         timestamp: new Date().toISOString()
       },
       timestamp: Date.now()

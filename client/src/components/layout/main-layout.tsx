@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import TrialAutopayBanner from "@/components/billing/TrialAutopayBanner";
 import { useAuth } from "@/hooks/use-auth";
 import { LayoutContext } from "@/hooks/use-layout";
+import { useNotificationBridge } from "@/hooks/use-notification-bridge";
 
 const Sidebar = lazy(() => import("./sidebar"));
 const TopBar = lazy(() => import("./topbar"));
@@ -21,6 +22,8 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
   const [managerStoreId, setManagerStoreId] = useState<string | null>(null);
   const [alertCount, setAlertCount] = useState(0);
   const [sidebarFooter, setSidebarFooter] = useState<React.ReactNode | null>(null);
+
+  useNotificationBridge();
 
   const subscription = (user as any)?.subscription;
 

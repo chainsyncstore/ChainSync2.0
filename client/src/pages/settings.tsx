@@ -2,6 +2,8 @@ import { AlertCircle, Download, Shield, Bell, Database, Settings as SettingsIcon
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import QRCode from 'react-qr-code';
 import { getCsrfToken } from '@/lib/csrf';
+import type { NotificationChannels, NotificationScope } from '@/types/notifications';
+import { defaultNotificationSettings, normalizeNotificationSettingsPayload } from '@/types/notifications';
 import type { Store } from '@shared/schema';
 import { IpWhitelistManager } from '../components/ip-whitelist/ip-whitelist-manager';
 import { Badge } from '../components/ui/badge';
@@ -13,47 +15,8 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { useAuth } from '../hooks/use-auth';
+import { useDesktopNotifications } from '../hooks/use-desktop-notifications';
 import { useToast } from '../hooks/use-toast';
-
-type NotificationScope =
-  | { type: 'org' }
-  | { type: 'store'; storeId: string | null; storeName: string | null };
-
-type NotificationChannels = {
-  systemHealth: { email: boolean };
-  storePerformance: { email: boolean; inApp: boolean };
-  inventoryRisks: { inApp: boolean };
-  billing: { email: boolean };
-};
-
-const defaultNotificationSettings: NotificationChannels = {
-  systemHealth: { email: false },
-  storePerformance: { email: false, inApp: false },
-  inventoryRisks: { inApp: false },
-  billing: { email: false },
-};
-
-const normalizeNotificationSettingsPayload = (raw?: Partial<NotificationChannels>): NotificationChannels => {
-  const legacySalesReports = typeof (raw as any)?.salesReports === 'boolean' ? (raw as any)?.salesReports : undefined;
-  const legacySystemUpdates = typeof (raw as any)?.systemUpdates === 'boolean' ? (raw as any)?.systemUpdates : undefined;
-  const legacyLowStock = typeof (raw as any)?.lowStockAlerts === 'boolean' ? (raw as any)?.lowStockAlerts : undefined;
-
-  return {
-    systemHealth: {
-      email: Boolean(raw?.systemHealth?.email ?? legacySystemUpdates ?? defaultNotificationSettings.systemHealth.email),
-    },
-    storePerformance: {
-      email: Boolean(raw?.storePerformance?.email ?? legacySalesReports ?? defaultNotificationSettings.storePerformance.email),
-      inApp: Boolean(raw?.storePerformance?.inApp ?? defaultNotificationSettings.storePerformance.inApp),
-    },
-    inventoryRisks: {
-      inApp: Boolean(raw?.inventoryRisks?.inApp ?? legacyLowStock ?? defaultNotificationSettings.inventoryRisks.inApp),
-    },
-    billing: {
-      email: Boolean(raw?.billing?.email ?? defaultNotificationSettings.billing.email),
-    },
-  };
-};
 
 export default function Settings() {
   const {
@@ -121,6 +84,51 @@ export default function Settings() {
 
   const isCashier = user?.role === 'cashier';
   const isManager = user?.role === 'manager';
+
+  const {
+    permission: desktopPermission,
+    supportsNotifications,
+    canNotify: desktopCanNotify,
+    requestPermission: requestDesktopPermission,
+    sendPreviewNotification,
+  } = useDesktopNotifications({ disabled: isCashier });
+
+  const desktopPermissionLabel = useMemo(() => {
+    if (!supportsNotifications) {
+      return 'This browser does not support system notifications.';
+    }
+    if (desktopPermission === 'granted') {
+      return 'Ready – alerts will appear in your device notification center.';
+    }
+    if (desktopPermission === 'denied') {
+      return 'Blocked in browser settings. Allow notifications for chainsync.store to receive alerts.';
+    }
+    return 'Permission not requested yet.';
+  }, [desktopPermission, supportsNotifications]);
+
+  const handleRequestDesktopPermission = useCallback(async () => {
+    const result = await requestDesktopPermission();
+    if (result === 'granted') {
+      toast({ title: 'Desktop notifications enabled', description: 'ChainSync alerts will use your OS notification center.' });
+      return;
+    }
+    if (result === 'denied') {
+      toast({
+        title: 'Permission blocked',
+        description: 'Enable notifications for chainsync.store in your browser settings to receive alerts.',
+        variant: 'destructive',
+      });
+    }
+  }, [requestDesktopPermission, toast]);
+
+  const handlePreviewDesktopNotification = useCallback(() => {
+    const sent = sendPreviewNotification();
+    toast({
+      title: sent ? 'Test alert sent' : 'Unable to send preview',
+      description: sent ? 'Check your device notification center for the ChainSync test alert.' : 'Grant notification permission to preview alerts.',
+      variant: sent ? 'default' : 'destructive',
+    });
+  }, [sendPreviewNotification, toast]);
 
   const twoFactorSecret = useMemo(() => {
     if (!twoFactorOtpauth) return '';
@@ -513,6 +521,9 @@ export default function Settings() {
       }
       if (updated?.notificationScope) {
         setNotificationScope(updated.notificationScope as NotificationScope);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('chainsync:notifications-updated'));
       }
       toast({ title: "Success", description: "Notification settings saved." });
     } catch (error) {
@@ -981,9 +992,47 @@ export default function Settings() {
               <Card>
                 <CardHeader>
                   <CardTitle>Notification Preferences</CardTitle>
-                  <CardDescription>Choose how you want to be notified</CardDescription>
+                  <CardDescription>Choose how you want ChainSync to contact you via email or desktop/device alerts</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                  <div className="rounded-md border border-dashed bg-slate-50/70 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-medium">Desktop & device notifications</p>
+                        <p className="text-sm text-muted-foreground">{desktopPermissionLabel}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => { void handleRequestDesktopPermission(); }}
+                          disabled={!supportsNotifications || desktopPermission === 'granted'}
+                        >
+                          Enable notifications
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={handlePreviewDesktopNotification}
+                          disabled={!desktopCanNotify}
+                        >
+                          Send test alert
+                        </Button>
+                      </div>
+                    </div>
+                    {!supportsNotifications ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This device cannot display system notifications. Try a modern desktop browser (Chrome, Edge, Safari).
+                      </p>
+                    ) : desktopPermission === 'denied' ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Notifications are blocked. Update browser site settings to allow alerts from chainsync.store.
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Alerts include ChainSync branding (logo + name) inside your operating system notification center.
+                      </p>
+                    )}
+                  </div>
+
                   {notificationScope && (
                     <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                       <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-500" />
@@ -1019,7 +1068,7 @@ export default function Settings() {
                       <div className="flex flex-col gap-2">
                         <div>
                           <p className="font-medium">Store performance alerts</p>
-                          <p className="text-sm text-muted-foreground">Background job summaries delivered via email and in-app feed</p>
+                          <p className="text-sm text-muted-foreground">Background job summaries delivered via email and your device notification center</p>
                         </div>
                         <div className="grid gap-4 sm:grid-cols-2">
                           <div className="flex items-center justify-between rounded-md border p-3">
@@ -1034,8 +1083,8 @@ export default function Settings() {
                           </div>
                           <div className="flex items-center justify-between rounded-md border p-3">
                             <div>
-                              <p className="text-sm font-medium">In-app</p>
-                              <p className="text-xs text-muted-foreground">Live alert feed</p>
+                              <p className="text-sm font-medium">Desktop & device</p>
+                              <p className="text-xs text-muted-foreground">Pushes to the OS notification center</p>
                             </div>
                             <Switch
                               checked={notificationSettings.storePerformance.inApp}
@@ -1050,7 +1099,7 @@ export default function Settings() {
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="font-medium">Inventory risks</p>
-                          <p className="text-sm text-muted-foreground">Critical low stock and stock-out alerts (in-app only)</p>
+                          <p className="text-sm text-muted-foreground">Critical low stock and stock-out alerts (desktop/device notifications)</p>
                         </div>
                         <Switch
                           checked={notificationSettings.inventoryRisks.inApp}
