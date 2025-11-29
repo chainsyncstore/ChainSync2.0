@@ -6,7 +6,6 @@ import {
 	Upload,
 	Building2,
 	Settings,
-	Link as LinkIcon,
 	Crown,
 	CreditCard,
 	Users,
@@ -100,8 +99,12 @@ export default function Sidebar({
 			{/* Logo and Brand */}
 			<div className="p-4 sm:p-6 border-b border-slate-200">
 				<div className="flex items-center space-x-3">
-					<div className="w-8 h-8 sm:w-10 sm:h-10 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
-						<LinkIcon className="text-white text-lg sm:text-xl" />
+					<div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-slate-100">
+						<img
+							src="/branding/chainsync-logo-solid.svg"
+							alt="ChainSync logo"
+							className="w-7 h-7 sm:w-9 sm:h-9"
+						/>
 					</div>
 					<div className="block">
 						<h1 className="text-lg sm:text-xl font-bold text-slate-800">ChainSync</h1>

@@ -565,8 +565,8 @@ self.addEventListener('push', (event) => {
     // ...
     const options = {
       body: data.message,
-      icon: '/icon-192x192.png',
-      badge: '/badge-72x72.png',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-72.png',
       tag: data.tag || 'chainsync-notification',
       data: data.data || {},
       actions: data.actions || [],

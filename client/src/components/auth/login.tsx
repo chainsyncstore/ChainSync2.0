@@ -1,4 +1,4 @@
-import { AlertCircle, LogIn } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,8 +31,12 @@ export default function Login({ onLogin, onForgotPassword, isLoading, error }: L
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-slate-50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
-          <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mx-auto mb-4">
-            <LogIn className="text-white text-xl" />
+          <div className="w-14 h-14 rounded-lg flex items-center justify-center mx-auto mb-4">
+            <img
+              src="/branding/chainsync-logo-solid.svg"
+              alt="ChainSync logo"
+              className="w-12 h-12"
+            />
           </div>
           <CardTitle className="text-2xl font-bold">ChainSync Login</CardTitle>
           <CardDescription>

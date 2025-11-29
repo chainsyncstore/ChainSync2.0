@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 
-const DEFAULT_ICON_URL = "/icons/icon-192.png";
+const DEFAULT_ICON_URL = "/branding/chainsync-logo-solid.svg";
 
 export type DesktopNotificationPermission = NotificationPermission | "unsupported";
 
