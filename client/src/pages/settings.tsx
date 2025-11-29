@@ -509,9 +509,14 @@ export default function Settings() {
   const handleSaveNotificationSettings = async () => {
     setIsSavingNotifications(true);
     try {
+      const csrfToken = await getCsrfToken();
       const response = await fetch('/api/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+        credentials: 'include',
         body: JSON.stringify({ notifications: notificationSettings }),
       });
       if (!response.ok) throw new Error('Failed to save notification settings');
