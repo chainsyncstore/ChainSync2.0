@@ -105,8 +105,8 @@ async function precacheBuildAssets(cache) {
   }
 }
 
-const CACHE_NAME = 'chainsync-v1.0.2';
-const OFFLINE_CACHE = 'chainsync-offline-v1.0.2';
+const CACHE_NAME = 'chainsync-v1.0.3';
+const OFFLINE_CACHE = 'chainsync-offline-v1.0.3';
 let isDisabled = false;
 let heartbeatTimer = null;
 const ASSET_MANIFEST_URL = '/asset-manifest.json';
