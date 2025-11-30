@@ -62,7 +62,7 @@ export class SubscriptionService {
         ? (rows as QueryResult<any>).rows
         : [];
 
-    return list.length;
+    return list.filter((store) => (store?.isActive ?? true) !== false).length;
   }
 
   private buildBillingImpact(

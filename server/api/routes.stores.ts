@@ -45,12 +45,14 @@ export async function registerStoreRoutes(app: Express) {
     if (!me?.orgId) return res.status(400).json({ error: 'Missing org' });
 
     // Enforce subscription limits
-    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.orgId, me.orgId)))[0];
-    const plan = getPlan(sub?.planCode || 'basic');
-    const storeCountResult = await db.execute(sql`select count(*) from stores where org_id = ${me.orgId}`);
+    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.orgId, me.orgId)).limit(1))[0];
+    const plan = getPlan((sub?.planCode ?? sub?.tier ?? 'basic').toLowerCase());
+    const storeCountResult = await db.execute(
+      sql`select count(*) from stores where org_id = ${me.orgId} and coalesce(is_active, true) = true`
+    );
     const storeCount = parseInt((storeCountResult.rows[0] as any).count, 10);
 
-    if (storeCount >= plan.maxStores) {
+    if (Number.isFinite(plan.maxStores) && storeCount >= plan.maxStores) {
       return res.status(403).json({ error: 'Store limit reached. Upgrade to add more stores.' });
     }
 
@@ -152,6 +154,21 @@ export async function registerStoreRoutes(app: Express) {
     const updateData: Record<string, unknown> = { ...parsed.data };
     if (typeof parsed.data.taxRate === 'number') {
       updateData.taxRate = parsed.data.taxRate.toFixed(4);
+    }
+
+    const isActivatingStore = parsed.data.isActive === true && store.isActive === false;
+    if (isActivatingStore) {
+      const sub = (await db.select().from(subscriptions).where(eq(subscriptions.orgId, me.orgId)).limit(1))[0];
+      const plan = getPlan((sub?.planCode ?? sub?.tier ?? 'basic').toLowerCase());
+      if (Number.isFinite(plan.maxStores)) {
+        const activeStoreCountResult = await db.execute(
+          sql`select count(*) from stores where org_id = ${me.orgId} and coalesce(is_active, true) = true`
+        );
+        const activeStoreCount = parseInt((activeStoreCountResult.rows[0] as any).count, 10);
+        if (activeStoreCount >= plan.maxStores) {
+          return res.status(403).json({ error: 'Store limit reached. Upgrade your plan to reactivate this store.' });
+        }
+      }
     }
 
     const [updatedStore] = await db.update(stores)
