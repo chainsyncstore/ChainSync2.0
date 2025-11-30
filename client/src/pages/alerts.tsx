@@ -1,14 +1,12 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, Loader2, Store } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle, InfoIcon, Loader2, Store } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { formatDateTime } from "@/lib/pos-utils";
-import { apiRequest } from "@/lib/queryClient";
 import type { AlertsOverviewResponse, StoreAlertDetail, StoreAlertsResponse } from "@shared/types/alerts";
 
 const severityStyles = {
@@ -30,7 +28,6 @@ const summaryDefaults = { lowStock: 0, outOfStock: 0, overstocked: 0, total: 0 }
 
 export default function Alerts() {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
   const isAdmin = Boolean(user?.isAdmin);
   const managerStoreId = !isAdmin ? user?.storeId ?? null : null;
 
@@ -61,20 +58,6 @@ export default function Alerts() {
     },
   });
 
-  const resolveAlertMutation = useMutation({
-    mutationFn: async (alertId: string) => {
-      await apiRequest("PUT", `/api/alerts/${alertId}/resolve`);
-    },
-    onSuccess: async () => {
-      if (storeIdForDetail) {
-        await queryClient.invalidateQueries({ queryKey: ["/api/alerts/stores", storeIdForDetail] });
-      }
-      if (isAdmin) {
-        await queryClient.invalidateQueries({ queryKey: ["/api/alerts/overview"] });
-      }
-    },
-  });
-
   const storeOptions = useMemo(() => (isAdmin ? overviewQuery.data?.stores ?? [] : []), [isAdmin, overviewQuery.data]);
 
   useEffect(() => {
@@ -93,13 +76,6 @@ export default function Alerts() {
   const stats = detail?.stats ?? summaryDefaults;
   const alerts = detail?.alerts ?? [];
   const storeName = detail?.storeName ?? (isAdmin ? "Select a store" : "Assigned store");
-
-  const handleResolve = (alert: StoreAlertDetail) => {
-    if (!alert.alertId || alert.alertId.startsWith("virtual")) {
-      return;
-    }
-    resolveAlertMutation.mutate(alert.alertId);
-  };
 
   const renderStoreSnapshot = () => {
     if (!isAdmin) return null;
@@ -244,13 +220,14 @@ export default function Alerts() {
             </div>
           ) : (
             <div className="space-y-4">
+              <div className="flex items-start gap-2 rounded-md bg-slate-50 p-3 text-sm text-muted-foreground">
+                <InfoIcon className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                Alerts resolve automatically once stock moves back within configured thresholds.
+              </div>
               {alerts.map((storeAlert) => (
                 <AlertListItem
                   key={`${storeAlert.productId}-${storeAlert.alertId}`}
                   alertItem={storeAlert}
-                  onResolve={() => handleResolve(storeAlert)}
-                  resolvingId={resolveAlertMutation.variables}
-                  isResolving={resolveAlertMutation.isPending}
                 />
               ))}
             </div>
@@ -295,18 +272,10 @@ function SummaryCard({
 
 function AlertListItem({
   alertItem,
-  onResolve,
-  resolvingId,
-  isResolving,
 }: {
   alertItem: StoreAlertDetail;
-  onResolve: () => void;
-  resolvingId: string | undefined;
-  isResolving: boolean;
 }) {
   const severity = severityStyles[alertItem.severity] ?? severityStyles.info;
-  const canResolve = Boolean(alertItem.alertId && !alertItem.alertId.startsWith("virtual"));
-  const resolving = isResolving && alertItem.alertId === resolvingId;
 
   return (
     <div className="rounded-lg border border-slate-200 p-4">
@@ -342,16 +311,6 @@ function AlertListItem({
               <p>Created</p>
             </div>
           </div>
-        </div>
-        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canResolve || isResolving}
-            onClick={onResolve}
-          >
-            {resolving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />} Resolve
-          </Button>
         </div>
       </div>
     </div>
