@@ -10,7 +10,7 @@ export const plans: Record<string, Plan> = {
     code: 'basic',
     name: 'Basic Plan',
     maxStores: 1,
-    availableRoles: ['ADMIN', 'CASHIER'],
+    availableRoles: ['ADMIN', 'MANAGER', 'CASHIER'],
   },
   pro: {
     code: 'pro',
