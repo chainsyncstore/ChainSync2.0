@@ -19,6 +19,7 @@ export type LogLevel = typeof LOG_LEVELS[keyof typeof LOG_LEVELS];
 export interface LogContext {
   userId?: string;
   storeId?: string;
+  orgId?: string;
   transactionId?: string;
   productId?: string;
   ipAddress?: string;
@@ -319,10 +320,12 @@ export const extractLogContext = (req: Request, additionalContext?: Partial<LogC
   const sessionUser = session?.user;
   const fallbackUserId = session?.userId;
   const fallbackStoreId = session?.storeId;
+  const fallbackOrgId = session?.orgId;
 
   return {
     userId: sessionUser?.id ?? fallbackUserId,
     storeId: sessionUser?.storeId ?? fallbackStoreId,
+    orgId: sessionUser?.orgId ?? fallbackOrgId ?? (req as any).orgId,
     ipAddress: req.ip || req.connection.remoteAddress,
     userAgent: req.get('User-Agent'),
     ...additionalContext,

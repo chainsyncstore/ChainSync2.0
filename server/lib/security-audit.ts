@@ -1,12 +1,14 @@
 import { Request, Response } from 'express';
 import { logger, LogContext } from './logger';
 import { monitoringService } from './monitoring';
+import { emitUserActivityAlert } from './notification-producers';
 
 export interface SecurityEvent {
   type: 'authentication' | 'authorization' | 'data_access' | 'configuration' | 'network' | 'application';
   severity: 'low' | 'medium' | 'high' | 'critical';
   source: string;
   timestamp: string;
+  orgId?: string | null;
   userId?: string;
   storeId?: string;
   ipAddress?: string;
@@ -47,11 +49,12 @@ class SecurityAuditService {
   logAuthenticationEvent(event: 'login_success' | 'login_failed' | 'logout' | 'session_expired' | 'mfa_challenge' | 'mfa_success' | 'mfa_failed', context: LogContext, details: Record<string, any> = {}): void {
     const riskScore = this.calculateAuthenticationRisk(event, context, details);
     
-    this.addSecurityEvent({
+    const securityEvent: SecurityEvent = {
       type: 'authentication',
       severity: this.getSeverityFromRisk(riskScore),
       source: 'auth_system',
       timestamp: new Date().toISOString(),
+      orgId: context.orgId,
       userId: context.userId,
       storeId: context.storeId,
       ipAddress: context.ipAddress,
@@ -62,7 +65,9 @@ class SecurityAuditService {
         sessionId: context.requestId
       },
       riskScore
-    });
+    };
+    this.addSecurityEvent(securityEvent);
+    this.notifyAdmins(securityEvent, context);
 
     // Update monitoring metrics
     if (event === 'login_failed') {
@@ -76,11 +81,12 @@ class SecurityAuditService {
   logAuthorizationEvent(event: 'access_granted' | 'access_denied' | 'privilege_escalation_attempt' | 'role_violation', context: LogContext, resource: string, details: Record<string, any> = {}): void {
     const riskScore = this.calculateAuthorizationRisk(event, context, resource, details);
     
-    this.addSecurityEvent({
+    const securityEvent: SecurityEvent = {
       type: 'authorization',
       severity: this.getSeverityFromRisk(riskScore),
       source: 'authz_system',
       timestamp: new Date().toISOString(),
+      orgId: context.orgId,
       userId: context.userId,
       storeId: context.storeId,
       ipAddress: context.ipAddress,
@@ -89,7 +95,9 @@ class SecurityAuditService {
       resource,
       details,
       riskScore
-    });
+    };
+    this.addSecurityEvent(securityEvent);
+    this.notifyAdmins(securityEvent, context);
 
     if (event === 'access_denied' || event === 'privilege_escalation_attempt') {
       monitoringService.recordSecurityEvent('unauthorized_access', context);
@@ -99,11 +107,12 @@ class SecurityAuditService {
   logDataAccessEvent(event: 'data_read' | 'data_write' | 'data_delete' | 'bulk_operation' | 'sensitive_data_access', context: LogContext, resource: string, details: Record<string, any> = {}): void {
     const riskScore = this.calculateDataAccessRisk(event, context, resource, details);
     
-    this.addSecurityEvent({
+    const securityEvent: SecurityEvent = {
       type: 'data_access',
       severity: this.getSeverityFromRisk(riskScore),
       source: 'data_layer',
       timestamp: new Date().toISOString(),
+      orgId: context.orgId,
       userId: context.userId,
       storeId: context.storeId,
       ipAddress: context.ipAddress,
@@ -115,7 +124,9 @@ class SecurityAuditService {
         recordCount: details.recordCount || 1
       },
       riskScore
-    });
+    };
+    this.addSecurityEvent(securityEvent);
+    this.notifyAdmins(securityEvent, context);
 
     // Track user data access patterns
     this.updateUserActivityPattern(context.userId, event);
@@ -124,11 +135,12 @@ class SecurityAuditService {
   logNetworkEvent(event: 'suspicious_request' | 'rate_limit_exceeded' | 'ip_blocked' | 'unusual_location' | 'tor_access', context: LogContext, details: Record<string, any> = {}): void {
     const riskScore = this.calculateNetworkRisk(event, context, details);
     
-    this.addSecurityEvent({
+    const securityEvent: SecurityEvent = {
       type: 'network',
       severity: this.getSeverityFromRisk(riskScore),
       source: 'network_layer',
       timestamp: new Date().toISOString(),
+      orgId: context.orgId,
       userId: context.userId,
       storeId: context.storeId,
       ipAddress: context.ipAddress,
@@ -136,7 +148,9 @@ class SecurityAuditService {
       action: event,
       details,
       riskScore
-    });
+    };
+    this.addSecurityEvent(securityEvent);
+    this.notifyAdmins(securityEvent, context);
 
     // Update IP risk scores
     if (context.ipAddress) {
@@ -149,11 +163,12 @@ class SecurityAuditService {
   logApplicationEvent(event: 'input_validation_failed' | 'csrf_violation' | 'xss_attempt' | 'sql_injection_attempt' | 'file_upload_suspicious' | 'error_enumeration', context: LogContext, details: Record<string, any> = {}): void {
     const riskScore = this.calculateApplicationRisk(event, context, details);
     
-    this.addSecurityEvent({
+    const securityEvent: SecurityEvent = {
       type: 'application',
       severity: this.getSeverityFromRisk(riskScore),
       source: 'application',
       timestamp: new Date().toISOString(),
+      orgId: context.orgId,
       userId: context.userId,
       storeId: context.storeId,
       ipAddress: context.ipAddress,
@@ -161,7 +176,9 @@ class SecurityAuditService {
       action: event,
       details,
       riskScore
-    });
+    };
+    this.addSecurityEvent(securityEvent);
+    this.notifyAdmins(securityEvent, context);
 
     monitoringService.recordSecurityEvent('suspicious_activity', context);
   }
@@ -311,6 +328,34 @@ class SecurityAuditService {
     if (event.severity === 'critical') {
       void this.sendWebhookAlert(event);
     }
+  }
+
+  private notifyAdmins(event: SecurityEvent, context: LogContext): void {
+    if (!context.orgId) return;
+    if (event.severity === 'low' || event.severity === 'medium') return;
+    const title = event.severity === 'critical'
+      ? 'Critical security event detected'
+      : 'High risk security activity detected';
+    const message = `Detected ${event.type.replace(/_/g, ' ')} activity (${event.action})${event.resource ? ` on ${event.resource}` : ''}.`;
+    void emitUserActivityAlert({
+      orgId: context.orgId,
+      storeId: event.storeId ?? context.storeId,
+      severity: event.severity,
+      title,
+      message,
+      data: {
+        action: event.action,
+        type: event.type,
+        resource: event.resource,
+        ipAddress: event.ipAddress ?? context.ipAddress,
+        userAgent: event.userAgent ?? context.userAgent,
+        userId: context.userId,
+        details: event.details,
+        riskScore: event.riskScore,
+        source: event.source,
+      },
+      sendEmail: event.severity === 'critical',
+    });
   }
 
   private analyzeAuthenticationPattern(context: LogContext, event: string): void {

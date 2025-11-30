@@ -57,6 +57,7 @@ import type {
 import { AuthService } from "./auth";
 import { db } from "./db";
 import { logger } from "./lib/logger";
+import { getNotificationService } from "./lib/notification-bus";
 
 const parseNumeric = (value: any, fallback = 0): number => {
   if (value == null) {
@@ -2047,6 +2048,15 @@ export class DatabaseStorage implements IStorage {
       const existing = await this.getActiveLowStockAlert(storeId, productId);
       if (existing) {
         await this.resolveLowStockAlert(existing.id);
+        await this.emitLowStockNotification({
+          alertId: existing.id,
+          storeId,
+          productId,
+          quantity: 0,
+          minStockLevel: existing.minStockLevel ?? 0,
+          status: 'resolved',
+          previousStatus: (existing.currentStock ?? 0) <= 0 ? 'out_of_stock' : 'low_stock',
+        });
       }
       return;
     }
@@ -2056,19 +2066,50 @@ export class DatabaseStorage implements IStorage {
     const existing = await this.getActiveLowStockAlert(storeId, productId);
 
     if (minStockLevel > 0 && quantity <= minStockLevel) {
+      const status = quantity <= 0 ? 'out_of_stock' : 'low_stock';
       if (existing) {
+        const previousStatus = (existing.currentStock ?? 0) <= 0 ? 'out_of_stock' : 'low_stock';
         await db
           .update(lowStockAlerts)
           .set({ currentStock: quantity, minStockLevel } as any)
           .where(eq(lowStockAlerts.id, existing.id));
+        if (status !== previousStatus) {
+          await this.emitLowStockNotification({
+            alertId: existing.id,
+            storeId,
+            productId,
+            quantity,
+            minStockLevel,
+            status,
+            previousStatus,
+          });
+        }
       } else {
-        await this.createLowStockAlert({ storeId, productId, currentStock: quantity, minStockLevel });
+        const alert = await this.createLowStockAlert({ storeId, productId, currentStock: quantity, minStockLevel });
+        await this.emitLowStockNotification({
+          alertId: alert.id,
+          storeId,
+          productId,
+          quantity,
+          minStockLevel,
+          status,
+        });
       }
       return;
     }
 
     if (existing) {
+      const previousStatus = (existing.currentStock ?? 0) <= 0 ? 'out_of_stock' : 'low_stock';
       await this.resolveLowStockAlert(existing.id);
+      await this.emitLowStockNotification({
+        alertId: existing.id,
+        storeId,
+        productId,
+        quantity,
+        minStockLevel,
+        status: 'resolved',
+        previousStatus,
+      });
     }
   }
 
@@ -2620,6 +2661,72 @@ export class DatabaseStorage implements IStorage {
       .update(lowStockAlerts)
       .set({ isResolved: true as any, resolvedAt: new Date() } as any)
       .where(eq(lowStockAlerts.id, id));
+  }
+
+  private async emitLowStockNotification(params: {
+    alertId?: string;
+    storeId: string;
+    productId: string;
+    quantity: number;
+    minStockLevel: number;
+    status: 'low_stock' | 'out_of_stock' | 'resolved';
+    previousStatus?: 'low_stock' | 'out_of_stock';
+  }): Promise<void> {
+    const ws = getNotificationService();
+    if (!ws) return;
+
+    try {
+      const [storeRecord, productRecord] = await Promise.all([
+        this.getStore(params.storeId),
+        this.getProduct(params.productId),
+      ]);
+
+      const productName = productRecord?.name ?? 'Inventory item';
+      const storeName = storeRecord?.name ?? 'Store';
+
+      let title: string;
+      let message: string;
+      let priority: 'low' | 'medium' | 'high' | 'critical';
+      if (params.status === 'resolved') {
+        title = `Stock recovered – ${productName}`;
+        message = `${productName} at ${storeName} is above the minimum threshold now (${params.quantity} on hand).`;
+        priority = 'low';
+      } else if (params.status === 'out_of_stock') {
+        title = `Out of stock – ${productName}`;
+        message = `${productName} at ${storeName} is out of stock (${params.quantity} remaining, min ${params.minStockLevel}).`;
+        priority = 'critical';
+      } else {
+        title = `Low stock – ${productName}`;
+        message = `${productName} at ${storeName} is below the minimum (${params.quantity} on hand, min ${params.minStockLevel}).`;
+        priority = 'medium';
+      }
+
+      await ws.broadcastNotification({
+        type: params.status === 'resolved' ? 'inventory_alert' : 'low_stock',
+        storeId: params.storeId,
+        title,
+        message,
+        priority,
+        data: {
+          alertId: params.alertId ?? null,
+          productId: params.productId,
+          storeId: params.storeId,
+          status: params.status,
+          previousStatus: params.previousStatus ?? null,
+          quantity: params.quantity,
+          minStockLevel: params.minStockLevel,
+          productName,
+          storeName,
+        },
+      });
+    } catch (error) {
+      logger.warn('Failed to emit low stock notification', {
+        storeId: params.storeId,
+        productId: params.productId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   // Loyalty Program operations

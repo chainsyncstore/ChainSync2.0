@@ -7,6 +7,8 @@ export type NotificationChannels = {
   storePerformance: { email: boolean; inApp: boolean };
   inventoryRisks: { inApp: boolean };
   billing: { email: boolean };
+  paymentAlerts: { inApp: boolean };
+  aiInsights: { inApp: boolean };
 };
 
 export const defaultNotificationSettings: NotificationChannels = {
@@ -14,6 +16,8 @@ export const defaultNotificationSettings: NotificationChannels = {
   storePerformance: { email: false, inApp: false },
   inventoryRisks: { inApp: false },
   billing: { email: false },
+  paymentAlerts: { inApp: false },
+  aiInsights: { inApp: false },
 };
 
 export function normalizeNotificationSettingsPayload(raw?: Partial<NotificationChannels> | Record<string, unknown>): NotificationChannels {
@@ -34,6 +38,12 @@ export function normalizeNotificationSettingsPayload(raw?: Partial<NotificationC
     },
     billing: {
       email: Boolean((raw as any)?.billing?.email ?? defaultNotificationSettings.billing.email),
+    },
+    paymentAlerts: {
+      inApp: Boolean((raw as any)?.paymentAlerts?.inApp ?? defaultNotificationSettings.paymentAlerts.inApp),
+    },
+    aiInsights: {
+      inApp: Boolean((raw as any)?.aiInsights?.inApp ?? defaultNotificationSettings.aiInsights.inApp),
     },
   };
 }

@@ -17,6 +17,10 @@ interface SocketNotificationPayload {
 
 const STORE_PERFORMANCE_EVENT = "store_performance";
 const INVENTORY_EVENTS = new Set(["inventory_alert", "low_stock"]);
+const SALES_EVENT = "sales_update";
+const MONITORING_EVENT = "monitoring_alert";
+const PAYMENT_EVENT = "payment_alert";
+const AI_EVENT = "ai_insight";
 
 const WS_PATH = "/ws/notifications";
 
@@ -97,14 +101,23 @@ export function useNotificationBridge() {
 
   const shouldNotifyForEvent = useCallback((eventType?: string) => {
     if (!eventType) return false;
-    if (eventType === STORE_PERFORMANCE_EVENT) {
+    if (eventType === MONITORING_EVENT) {
+      return Boolean(channelPrefs.systemHealth.email);
+    }
+    if (eventType === STORE_PERFORMANCE_EVENT || eventType === SALES_EVENT) {
       return Boolean(channelPrefs.storePerformance.inApp);
     }
     if (INVENTORY_EVENTS.has(eventType)) {
       return Boolean(channelPrefs.inventoryRisks.inApp);
     }
+    if (eventType === PAYMENT_EVENT) {
+      return Boolean(channelPrefs.paymentAlerts.inApp);
+    }
+    if (eventType === AI_EVENT) {
+      return Boolean(channelPrefs.aiInsights.inApp);
+    }
     return false;
-  }, [channelPrefs.storePerformance.inApp, channelPrefs.inventoryRisks.inApp]);
+  }, [channelPrefs.systemHealth.email, channelPrefs.storePerformance.inApp, channelPrefs.inventoryRisks.inApp, channelPrefs.paymentAlerts.inApp, channelPrefs.aiInsights.inApp]);
 
   const handleNotificationPayload = useCallback((payload: SocketNotificationPayload) => {
     if (!canNotify) return;

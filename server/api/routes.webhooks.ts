@@ -1,11 +1,15 @@
 import crypto from 'crypto';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import express, { type Express, type Request, type Response } from 'express';
-import { subscriptions, subscriptionPayments, organizations, webhookEvents, users } from '@shared/schema';
+import { subscriptions, subscriptionPayments, organizations, webhookEvents, users, userRoles } from '@shared/schema';
 import { db } from '../db';
 import { generateMonitoringAlertEmail, sendEmail } from '../email';
 import { logger } from '../lib/logger';
 import { getNotificationService } from '../lib/notification-bus';
+import { isSystemHealthEmailEnabled } from '../lib/notification-preferences';
+import { emitPaymentAlert } from '../lib/notification-producers';
+import { handleSystemHealthNotification } from '../lib/system-health-follow-ups';
+import { translateSentryEvent } from '../lib/system-health-translator';
 
 function verifyPaystackSignature(rawBody: string, signature: string | undefined): boolean {
   const secret = process.env.WEBHOOK_SECRET_PAYSTACK || process.env.PAYSTACK_SECRET_KEY || '';
@@ -58,6 +62,33 @@ export async function registerWebhookRoutes(app: Express) {
   const allowedPaystackEvents = new Set(['charge.success']);
   const allowedFlutterwaveEvents = new Set(['charge.completed']);
   const allowedSentryResources = new Set(['error', 'issue_alert', 'metric_alert']);
+
+  function deriveSentryIssueId(payload: any): string | null {
+    const issue = payload?.data?.issue ?? payload?.issue ?? payload?.data?.event?.issue;
+    const fingerprint = payload?.data?.event?.fingerprint;
+    const candidates = [
+      issue?.id,
+      issue?.issue_id,
+      issue?.issueId,
+      issue?.shortId,
+      payload?.data?.issue_id,
+      payload?.data?.issueId,
+      payload?.issue_id,
+      payload?.issueId,
+      payload?.data?.event?.issue_id,
+      payload?.data?.event?.issueId,
+    ];
+    for (const value of candidates) {
+      if (value !== undefined && value !== null) {
+        const normalized = String(value).trim();
+        if (normalized.length > 0) return normalized;
+      }
+    }
+    if (Array.isArray(fingerprint) && fingerprint.length > 0) {
+      return fingerprint.join('#');
+    }
+    return null;
+  }
 
   // Common header validation
   function parseAndValidateTimestamp(req: Request): { ok: boolean; error?: string } {
@@ -150,7 +181,8 @@ export async function registerWebhookRoutes(app: Express) {
       if (!orgId || !planCode) return res.status(400).json({ error: 'Missing subscription identifiers' });
 
       const rows = await db.select().from(organizations).where(eq(organizations.id, orgId));
-      if (!rows[0]) {
+      const organization = rows[0];
+      if (!organization) {
         // In test environment, acknowledge after idempotency write without requiring seeded org
         if (process.env.NODE_ENV === 'test') {
           return res.json({ status: 'success', received: true });
@@ -165,6 +197,9 @@ export async function registerWebhookRoutes(app: Express) {
       const externalSubId = (data?.subscription) || (data?.subscription_code) || undefined;
       const startedAt = data?.paid_at ? new Date(data.paid_at) : (data?.createdAt ? new Date(data.createdAt) : undefined);
       const currentPeriodEnd = data?.next_payment_date ? new Date(data.next_payment_date) : undefined;
+      const paymentCurrency = data?.currency || 'NGN';
+      const paymentReference = data?.reference || data?.id;
+      let paymentAmountMajor: number | null = null;
 
       // Upsert by (orgId)
       const existing = await db.select().from(subscriptions).where(eq(subscriptions.orgId, orgId));
@@ -196,7 +231,8 @@ export async function registerWebhookRoutes(app: Express) {
 
       // Record payment events when applicable
       if (data?.status === 'success' || data?.status === 'failed') {
-        const amountMajor = (Number(data?.amount ?? 0) / 100).toFixed(2);
+        const amountMajor = Number(data?.amount ?? 0) / 100;
+        paymentAmountMajor = amountMajor;
         try {
           await db.insert(subscriptionPayments).values({
             orgId,
@@ -204,9 +240,9 @@ export async function registerWebhookRoutes(app: Express) {
             planCode,
             externalSubId: data?.subscription || undefined,
             externalInvoiceId: data?.invoice || undefined,
-            reference: data?.reference || data?.id,
-            amount: amountMajor as any,
-            currency: data?.currency || 'NGN',
+            reference: paymentReference,
+            amount: amountMajor.toFixed(2) as any,
+            currency: paymentCurrency,
             status: data?.status,
             eventType: evt?.event,
             raw: evt as any,
@@ -228,6 +264,36 @@ export async function registerWebhookRoutes(app: Express) {
         await db.execute(sql`UPDATE organizations SET locked_until = ${grace} WHERE id = ${orgId}`);
       } else if (status === 'CANCELLED') {
         await db.execute(sql`UPDATE organizations SET is_active = false WHERE id = ${orgId}`);
+      }
+
+      if (data?.status === 'success' || data?.status === 'failed') {
+        const isSuccess = data.status === 'success';
+        const amountDisplay = paymentAmountMajor !== null ? paymentAmountMajor.toFixed(2) : '0.00';
+        const gatewayMessage = data?.gateway_response || data?.message || 'No gateway message supplied.';
+        try {
+          await emitPaymentAlert({
+            orgId,
+            title: isSuccess ? 'Subscription payment received' : 'Subscription payment failed',
+            message: isSuccess
+              ? `Paystack processed a ${paymentCurrency} ${amountDisplay} subscription payment for ${organization.name ?? 'your organization'}.`
+              : `Paystack could not process the ${paymentCurrency} ${amountDisplay} subscription payment: ${gatewayMessage}.`,
+            priority: isSuccess ? 'low' : 'high',
+            data: {
+              provider: 'PAYSTACK',
+              reference: paymentReference,
+              planCode,
+              amount: paymentAmountMajor,
+              currency: paymentCurrency,
+              status: data.status,
+            },
+          });
+        } catch (error) {
+          logger.warn('Failed to emit Paystack payment alert', {
+            orgId,
+            reference: paymentReference,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
 
       return res.json({ status: 'success', received: true });
@@ -302,7 +368,8 @@ export async function registerWebhookRoutes(app: Express) {
       if (!orgId || !planCode) return res.status(400).json({ error: 'Missing subscription identifiers' });
 
       const rows = await db.select().from(organizations).where(eq(organizations.id, orgId));
-      if (!rows[0]) {
+      const organization = rows[0];
+      if (!organization) {
         if (process.env.NODE_ENV === 'test') {
           return res.json({ status: 'success', received: true });
         }
@@ -315,6 +382,9 @@ export async function registerWebhookRoutes(app: Express) {
       const externalSubId = (data?.plan) || (data?.payment_plan) || undefined;
       const startedAt = data?.created_at ? new Date(data.created_at) : undefined;
       const currentPeriodEnd = (data?.next_due_date ? new Date(data.next_due_date) : undefined) as Date | undefined;
+      const paymentCurrency = data?.currency || 'USD';
+      const paymentReference = data?.tx_ref || data?.id;
+      let paymentAmountMajor: number | null = null;
 
       const existing = await db.select().from(subscriptions).where(eq(subscriptions.orgId, orgId));
       if (existing[0]) {
@@ -345,7 +415,8 @@ export async function registerWebhookRoutes(app: Express) {
 
       // Record payment events when applicable
       if (data?.status === 'successful' || data?.status === 'failed') {
-        const amountMajor = (Number(data?.amount ?? 0)).toFixed(2); // Flutterwave sends in major units
+        const amountMajor = Number(data?.amount ?? 0); // Flutterwave sends in major units
+        paymentAmountMajor = amountMajor;
         try {
           await db.insert(subscriptionPayments).values({
             orgId,
@@ -353,9 +424,9 @@ export async function registerWebhookRoutes(app: Express) {
             planCode,
             externalSubId: data?.plan || undefined,
             externalInvoiceId: data?.id || undefined,
-            reference: data?.tx_ref || data?.id,
-            amount: amountMajor as any,
-            currency: data?.currency || 'USD',
+            reference: paymentReference,
+            amount: amountMajor.toFixed(2) as any,
+            currency: paymentCurrency,
             status: data?.status,
             eventType: evt?.event,
             raw: evt as any,
@@ -376,6 +447,36 @@ export async function registerWebhookRoutes(app: Express) {
         await db.execute(sql`UPDATE organizations SET locked_until = ${grace} WHERE id = ${orgId}`);
       } else if (status === 'CANCELLED') {
         await db.execute(sql`UPDATE organizations SET is_active = false WHERE id = ${orgId}`);
+      }
+
+      if (data?.status === 'successful' || data?.status === 'failed') {
+        const isSuccess = data.status === 'successful';
+        const amountDisplay = paymentAmountMajor !== null ? paymentAmountMajor.toFixed(2) : '0.00';
+        const failureReason = data?.processor_response || data?.complete_message || 'No gateway message supplied.';
+        try {
+          await emitPaymentAlert({
+            orgId,
+            title: isSuccess ? 'Subscription payment received' : 'Subscription payment failed',
+            message: isSuccess
+              ? `Flutterwave processed a ${paymentCurrency} ${amountDisplay} subscription payment for ${organization.name ?? 'your organization'}.`
+              : `Flutterwave could not process the ${paymentCurrency} ${amountDisplay} subscription payment: ${failureReason}.`,
+            priority: isSuccess ? 'low' : 'high',
+            data: {
+              provider: 'FLW',
+              reference: paymentReference,
+              planCode,
+              amount: paymentAmountMajor,
+              currency: paymentCurrency,
+              status: data.status,
+            },
+          });
+        } catch (error) {
+          logger.warn('Failed to emit Flutterwave payment alert', {
+            orgId,
+            reference: paymentReference,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
 
       return res.json({ status: 'success', received: true });
@@ -433,69 +534,79 @@ export async function registerWebhookRoutes(app: Express) {
         return res.json({ status: 'success', received: true, idempotent: true });
       }
 
-      const event = payload?.data?.event;
-      const projectSlug = payload?.project_slug || event?.project_slug || payload?.data?.project || 'Sentry';
-      const level = event?.level || payload?.data?.level || 'error';
-      const environment = event?.environment || payload?.environment || 'production';
-      const title = event?.title || payload?.data?.issue?.title || payload?.data?.description || `Sentry ${resource} alert`;
-      const description = event?.metadata?.value || event?.message || payload?.data?.description || 'A monitoring alert was received from Sentry.';
-      const url = event?.web_url || event?.url || payload?.url || payload?.data?.issue?.url;
-      const timestamp = event?.datetime || event?.timestamp || payload?.data?.issue?.lastSeen || payload?.sent_at || payload?.triggered_at;
+      const translated = translateSentryEvent(payload);
+      const issueId = deriveSentryIssueId(payload) ?? (eventId ? String(eventId) : null);
 
-      const tagsArray: Array<[string, string]> = Array.isArray(event?.tags)
-        ? event.tags
-        : Array.isArray(payload?.data?.tags)
-          ? payload.data.tags
-          : [];
-      const tags: Record<string, string> = {};
-      tagsArray.forEach(([key, value]) => {
-        if (key) tags[key] = String(value ?? '');
-      });
-      if (resource) tags.resource = resource;
+      await handleSystemHealthNotification({
+        issueId,
+        translation: translated,
+        deliver: async () => {
+          const ws = getNotificationService();
+          if (ws) {
+            await ws.broadcastNotification({
+              type: 'monitoring_alert',
+              title: translated.title,
+              message: translated.message,
+              priority: translated.priority,
+              data: {
+                category: translated.category,
+                status: translated.status,
+                requiresAction: translated.requiresAction,
+                affectedArea: translated.affectedArea,
+                project: translated.project,
+                environment: translated.environment,
+                url: translated.url,
+                timestamp: translated.timestamp,
+                level: translated.level,
+                tags: translated.tags,
+              },
+            });
+          }
 
-      const ws = getNotificationService();
-      await ws?.broadcastNotification({
-        type: 'monitoring_alert',
-        title,
-        message: description,
-        priority: level === 'fatal' || level === 'error' ? 'high' : level === 'warning' ? 'medium' : 'low',
-        data: {
-          project: projectSlug,
-          environment,
-          url,
-          timestamp,
-          level,
-          tags,
+          const adminRecipients = await db
+            .select({ email: users.email, settings: users.settings })
+            .from(users)
+            .where(eq(users.isAdmin as any, true as any));
+
+          const managerRecipients = await db
+            .select({ email: users.email, settings: users.settings })
+            .from(users)
+            .innerJoin(userRoles, and(eq(userRoles.userId, users.id), eq(userRoles.role, 'MANAGER')));
+
+          const eligibleRecipients = [...adminRecipients, ...managerRecipients];
+
+          const uniqueEmails = Array.from(
+            new Set(
+              eligibleRecipients
+                .filter((row) => row.email && isSystemHealthEmailEnabled(row.settings as Record<string, any> | undefined))
+                .map((row) => row.email)
+                .filter(Boolean)
+            )
+          );
+          await Promise.all(
+            uniqueEmails.map((email) =>
+              sendEmail(
+                generateMonitoringAlertEmail({
+                  to: email!,
+                  title: translated.title,
+                  message: translated.message,
+                  level: translated.level,
+                  project: translated.project,
+                  environment: translated.environment,
+                  url: translated.url,
+                  timestamp: translated.timestamp,
+                  tags: translated.tags,
+                })
+              ).catch((error) => {
+                logger.warn('Failed to send monitoring alert email', {
+                  email,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              })
+            )
+          );
         },
       });
-
-      const adminRecipients = await db
-        .select({ email: users.email })
-        .from(users)
-        .where(eq(users.isAdmin as any, true as any));
-      const uniqueEmails = Array.from(new Set(adminRecipients.map((row) => row.email).filter(Boolean)));
-      await Promise.all(
-        uniqueEmails.map((email) =>
-          sendEmail(
-            generateMonitoringAlertEmail({
-              to: email!,
-              title,
-              message: description,
-              level,
-              project: projectSlug,
-              environment,
-              url,
-              timestamp,
-              tags,
-            })
-          ).catch((error) => {
-            logger.warn('Failed to send monitoring alert email', {
-              email,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          })
-        )
-      );
 
       return res.json({ status: 'success', received: true });
     } catch (error) {

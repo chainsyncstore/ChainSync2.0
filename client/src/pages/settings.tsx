@@ -1060,7 +1060,7 @@ export default function Settings() {
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="font-medium">System health & maintenance</p>
-                          <p className="text-sm text-muted-foreground">Sentry outages, required updates, security advisories (email)</p>
+                          <p className="text-sm text-muted-foreground">Status updates about uptime, maintenance windows, and security advisories (email)</p>
                         </div>
                         <Switch
                           checked={notificationSettings.systemHealth.email}

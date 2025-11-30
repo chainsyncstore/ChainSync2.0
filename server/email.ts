@@ -34,6 +34,188 @@ const loadLogoDataUri = (fileName: string, fallback: string): string => {
   }
 };
 
+export interface UserActivityAlertEmailParams {
+  to: string;
+  recipientName?: string | null;
+  title: string;
+  message: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  details?: Record<string, any>;
+}
+
+const userActivitySeverityCopy: Record<UserActivityAlertEmailParams['severity'], { badge: string; description: string }> = {
+  critical: {
+    badge: 'Critical security event',
+    description: 'Immediate attention required. Review the event details below and take action to secure your workspace.',
+  },
+  high: {
+    badge: 'High risk activity detected',
+    description: 'We detected unusual account activity. Please audit the user and resource referenced below.',
+  },
+  medium: {
+    badge: 'Security advisory',
+    description: 'We recommend reviewing this event to confirm the activity is expected.',
+  },
+  low: {
+    badge: 'Security notice',
+    description: 'This activity was logged for your records.',
+  },
+};
+
+export function generateUserActivityAlertEmail(params: UserActivityAlertEmailParams): EmailOptions {
+  const { to, recipientName, title, message, severity, details } = params;
+  const friendlyName = recipientName?.trim()?.length ? recipientName.trim() : 'there';
+  const severityCopy = userActivitySeverityCopy[severity];
+  const detailEntries = details
+    ? Object.entries(details).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    : [];
+
+  const htmlDetails = detailEntries.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; margin-top: 16px;">
+        ${detailEntries
+          .map(
+            ([key, value]) => `
+              <tr>
+                <td style="padding:8px 10px; width:35%; background:#F8FAFC; border:1px solid #E2E8F0; font-size:13px; color:#475569; text-transform:capitalize;">${key.replace(/_/g, ' ')}</td>
+                <td style="padding:8px 10px; border:1px solid #E2E8F0; font-size:13px; color:#0F172A;">${String(value)}</td>
+              </tr>`
+          )
+          .join('')}
+      </table>`
+    : '';
+
+  const html = `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Inter', Arial, sans-serif; background-color: #F8FAFC; padding: 0; margin: 0;">
+      <tr>
+        <td align="center" style="padding: 32px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08); overflow: hidden;">
+            <tr>
+              <td style="padding: 28px 32px; background: linear-gradient(135deg, #0EA5E9 0%, #2563EB 100%); color: white;">
+                <img src="${LOGO_OUTLINE}" alt="ChainSync" width="64" height="64" style="display:block; margin-bottom: 12px;" />
+                <p style="margin: 0 0 8px; letter-spacing: 0.08em; font-size: 11px; text-transform: uppercase; opacity: 0.8;">Security alert</p>
+                <h1 style="margin: 0; font-size: 21px; font-weight: 600;">${title}</h1>
+                <span style="display:inline-block; margin-top: 10px; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,0.2);">${severityCopy.badge}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 28px 32px; color: #0F172A;">
+                <p style="margin: 0 0 12px; color: #475569;">Hi ${friendlyName},</p>
+                <p style="margin: 0 0 16px; color: #475569; line-height: 1.6;">${severityCopy.description}</p>
+                <div style="margin: 12px 0; padding: 16px; border-radius: 12px; background:#F1F5F9; color:#0F172A;">
+                  ${message}
+                </div>
+                ${htmlDetails}
+                <p style="margin-top: 18px; font-size: 12px; color: #94A3B8;">This notification was sent automatically because security alerts are enabled for your account.</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const textLines = [
+    `Security alert (${severity})`,
+    title,
+    message,
+    ...detailEntries.map(([key, value]) => `${key}: ${value}`),
+  ];
+
+  return {
+    to,
+    subject: `[Security] ${title}`,
+    html,
+    text: textLines.join('\n'),
+  };
+}
+
+export interface BillingAlertEmailParams {
+  to: string;
+  orgName: string;
+  amount: number;
+  currency?: string;
+  reason: 'failed' | 'missing_method';
+  dueDate?: Date;
+  provider?: string;
+  reference?: string;
+  message?: string;
+}
+
+const billingReasonCopy: Record<BillingAlertEmailParams['reason'], { title: string; body: string }> = {
+  failed: {
+    title: 'Automatic renewal failed',
+    body: 'We were unable to charge the saved payment method. Please update the card on file to keep your organization active.',
+  },
+  missing_method: {
+    title: 'Payment method required',
+    body: 'No payment method is on file for the upcoming renewal. Add a card to avoid losing access.',
+  },
+};
+
+export function generateBillingAlertEmail(params: BillingAlertEmailParams): EmailOptions {
+  const { to, orgName, amount, currency, reason, dueDate, provider, reference, message } = params;
+  const currencyCode = currency || process.env.DEFAULT_CURRENCY || 'USD';
+  const formatter = new Intl.NumberFormat('en', { style: 'currency', currency: currencyCode });
+  const formattedAmount = formatter.format(amount);
+  const formattedDueDate = dueDate
+    ? dueDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    : 'today';
+  const reasonCopy = billingReasonCopy[reason];
+
+  const html = `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Inter', Arial, sans-serif; background-color: #F8FAFC; padding: 0; margin: 0;">
+      <tr>
+        <td align="center" style="padding: 32px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 620px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 15px 40px rgba(15, 23, 42, 0.08); overflow: hidden;">
+            <tr>
+              <td style="padding: 28px 32px; background: linear-gradient(135deg, #0EA5E9 0%, #2563EB 100%); color: white;">
+                <img src="${LOGO_OUTLINE}" alt="ChainSync" width="72" height="72" style="display:block; margin-bottom: 12px;" />
+                <p style="margin: 0 0 8px; letter-spacing: 0.08em; font-size: 12px; text-transform: uppercase; opacity: 0.85;">Billing alert</p>
+                <h1 style="margin: 0; font-size: 22px; font-weight: 600;">${reasonCopy.title}</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 28px 32px; color: #0F172A;">
+                <p style="margin: 0 0 16px; color: #475569; line-height: 1.5;">${reasonCopy.body}</p>
+                <div style="margin-bottom: 16px;">
+                  <p style="margin:4px 0; color:#475569;"><strong>Organization:</strong> ${orgName}</p>
+                  <p style="margin:4px 0; color:#475569;"><strong>Amount due:</strong> ${formattedAmount}</p>
+                  <p style="margin:4px 0; color:#475569;"><strong>Due date:</strong> ${formattedDueDate}</p>
+                  ${provider ? `<p style="margin:4px 0; color:#475569;"><strong>Provider:</strong> ${provider}</p>` : ''}
+                  ${reference ? `<p style="margin:4px 0; color:#475569;"><strong>Reference:</strong> ${reference}</p>` : ''}
+                </div>
+                ${message ? `<p style="margin: 0 0 16px; color: #475569;">${message}</p>` : ''}
+                <div style="margin-top: 12px;">
+                  <a href="${process.env.APP_ORIGIN ?? 'https://app.chainsync.store'}/billing" style="display:inline-block; padding: 10px 18px; border-radius: 999px; background:#2563EB; color:#fff; text-decoration:none; font-weight:600;">Manage billing</a>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const textLines = [
+    reasonCopy.title,
+    reasonCopy.body,
+    `Organization: ${orgName}`,
+    `Amount due: ${formattedAmount}`,
+    `Due date: ${formattedDueDate}`,
+    provider ? `Provider: ${provider}` : null,
+    reference ? `Reference: ${reference}` : null,
+    message ?? null,
+    `Manage billing: ${(process.env.APP_ORIGIN ?? 'https://app.chainsync.store')}/billing`,
+  ].filter(Boolean) as string[];
+
+  return {
+    to,
+    subject: `[Billing] ${reasonCopy.title}`,
+    html,
+    text: textLines.join('\n')
+  };
+}
+
 export interface ProfileChangeOtpEmailParams {
   to: string;
   userName?: string | null;
