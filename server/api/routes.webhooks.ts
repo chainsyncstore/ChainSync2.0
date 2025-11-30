@@ -91,9 +91,16 @@ export async function registerWebhookRoutes(app: Express) {
   }
 
   // Common header validation
-  function parseAndValidateTimestamp(req: Request): { ok: boolean; error?: string } {
+  type TimestampCheck = { ok: boolean; error?: string; missing?: boolean };
+  function parseAndValidateTimestamp(req: Request, options?: { optional?: boolean; provider?: string }): TimestampCheck {
     const hdr = req.headers['x-event-timestamp'];
-    if (!hdr) return { ok: false, error: 'Missing event timestamp' };
+    if (!hdr) {
+      if (options?.optional) {
+        logger.warn('Webhook event timestamp header missing', { provider: options.provider });
+        return { ok: true, missing: true };
+      }
+      return { ok: false, error: 'Missing event timestamp' };
+    }
     let ts = 0;
     if (Array.isArray(hdr)) return { ok: false, error: 'Invalid event timestamp' };
     const asNum = Number(hdr);
@@ -107,9 +114,15 @@ export async function registerWebhookRoutes(app: Express) {
     if (Math.abs(now - ts) > skewMs) return { ok: false, error: 'Stale or future timestamp' };
     return { ok: true };
   }
-  function requireEventId(req: Request): { ok: boolean; id?: string; error?: string } {
+  function requireEventId(req: Request, options?: { optional?: boolean; provider?: string }): { ok: boolean; id?: string; error?: string; missing?: boolean } {
     const id = req.headers['x-event-id'];
-    if (!id || Array.isArray(id) || String(id).trim() === '') return { ok: false, error: 'Missing event id' };
+    if (!id || Array.isArray(id) || String(id).trim() === '') {
+      if (options?.optional) {
+        logger.warn('Webhook event id header missing', { provider: options.provider });
+        return { ok: true, missing: true };
+      }
+      return { ok: false, error: 'Missing event id' };
+    }
     return { ok: true, id: String(id) };
   }
   // Health pings for debugging
@@ -122,9 +135,9 @@ export async function registerWebhookRoutes(app: Express) {
       try { raw = JSON.stringify((req as any).body || {}); } catch { raw = ''; }
     }
     // Validate timestamp and event id headers
-    const tsCheck = parseAndValidateTimestamp(req);
+    const tsCheck = parseAndValidateTimestamp(req, { optional: true, provider: 'PAYSTACK' });
     if (!tsCheck.ok) return res.status(401).json({ error: tsCheck.error });
-    const idCheck = requireEventId(req);
+    const idCheck = requireEventId(req, { optional: true, provider: 'PAYSTACK' });
     if (!idCheck.ok) return res.status(400).json({ error: idCheck.error });
     const ok = verifyPaystackSignature(raw, req.headers['x-paystack-signature'] as string | undefined);
     if (!ok) return res.status(401).json({ error: 'Invalid signature' });
@@ -140,11 +153,13 @@ export async function registerWebhookRoutes(app: Express) {
         return res.json({ status: 'success', received: true, idempotent: true });
       }
       // Event-id header uniqueness with TTL
-      const headerKey = 'PAYSTACK#' + idCheck.id;
-      if (isSeen(headerKey)) {
-        return res.json({ status: 'success', received: true, idempotent: true });
+      if (idCheck.id) {
+        const headerKey = 'PAYSTACK#' + idCheck.id;
+        if (isSeen(headerKey)) {
+          return res.json({ status: 'success', received: true, idempotent: true });
+        }
+        markSeen(headerKey);
       }
-      markSeen(headerKey);
       // Idempotency: skip already-processed events (DB uniqueness)
       try {
         await db.insert(webhookEvents).values({ provider: 'PAYSTACK' as any, eventId: providerEventId } as any);
