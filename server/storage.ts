@@ -1,14 +1,18 @@
 import crypto from "crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, lt, or, sql } from 'drizzle-orm';
 import type { QueryResult } from "pg";
+import { z } from "zod";
 import {
   customers,
   inventory,
+  inventoryCostLayers,
+  inventoryRevaluationEvents,
   ipWhitelistLogs,
   ipWhitelists,
   loyaltyTiers,
   loyaltyTransactions,
   lowStockAlerts,
+  priceChangeEvents,
   storePerformanceAlerts,
   passwordResetTokens,
   products,
@@ -20,9 +24,11 @@ import {
   type Customer,
   type InsertCustomer,
   type InsertInventory,
+  type InsertInventoryRevaluationEvent,
   type InsertLowStockAlert,
   type InsertLoyaltyTier,
   type InsertLoyaltyTransaction,
+  type InsertPriceChangeEvent,
   type InsertProduct,
   type InsertStore,
   type InsertTransaction,
@@ -75,6 +81,30 @@ const parseNullableNumeric = (value: any): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const costUpdateSchema = z.object({
+  cost: z.number().min(0).optional(),
+  salePrice: z.number().min(0).optional(),
+  payloadCurrency: z.string().length(3).optional(),
+});
+
+export type CostUpdateInput = z.infer<typeof costUpdateSchema>;
+
+export type InventoryUpdatePayload = {
+  quantity?: number | null;
+  minStockLevel?: number | null;
+  maxStockLevel?: number | null;
+  reorderLevel?: number | null;
+};
+
+const toDecimalString = (value: number, digits = 4): string =>
+  Number.isFinite(value) ? value.toFixed(digits) : (0).toFixed(digits);
+
+const toOptionalDecimalString = (value?: number | null, digits = 4): string | null =>
+  value == null || Number.isNaN(value) ? null : value.toFixed(digits);
+
+const toCurrencyString = (value: number, digits = 2): string =>
+  Number.isFinite(value) ? value.toFixed(digits) : (0).toFixed(digits);
 
 type AlertQueryOptions = {
   performanceLimit?: number;
@@ -129,9 +159,14 @@ export type OrganizationInventorySummary = {
 type ProfitLossResult = {
   revenue: number;
   cost: number;
+  cogsFromSales: number;
+  inventoryAdjustments: number;
+  netCost: number;
   refundAmount: number;
   refundCount: number;
   profit: number;
+  priceChangeCount: number;
+  priceChangeDelta: number;
 };
 
 type StockMovementLogParams = {
@@ -154,6 +189,8 @@ type InventoryCreateOptions = {
   referenceId?: string;
   notes?: string;
   metadata?: Record<string, unknown>;
+  costOverride?: number;
+  salePriceOverride?: number;
 };
 
 type StockMovementWithProduct = StockMovement & {
@@ -330,7 +367,12 @@ export interface IStorage {
   // Added for integration tests compatibility
   createInventory(insertInventory: InsertInventory, userId?: string, options?: InventoryCreateOptions): Promise<Inventory>;
   getInventory(productId: string, storeId: string): Promise<Inventory>;
-  updateInventory(productId: string, storeId: string, inventory: Partial<InsertInventory>, userId?: string): Promise<Inventory>;
+  updateInventory(
+    productId: string,
+    storeId: string,
+    inventory: InventoryUpdatePayload & { costUpdate?: CostUpdateInput; source?: string; referenceId?: string },
+    userId?: string,
+  ): Promise<Inventory>;
   adjustInventory(productId: string, storeId: string, quantityChange: number, userId?: string, source?: string, referenceId?: string, notes?: string, metadata?: Record<string, unknown>): Promise<Inventory>;
   deleteInventory(productId: string, storeId: string, userId?: string, reason?: string): Promise<void>;
   getLowStockItems(storeId: string): Promise<Inventory[]>;
@@ -425,6 +467,9 @@ export class DatabaseStorage implements IStorage {
     transactionItems: new Map<string, any[]>(),
     lowStockAlerts: new Map<string, any>(),
     stockMovements: new Map<string, any>(),
+    inventoryCostLayers: new Map<string, any[]>(),
+    priceChangeEvents: new Map<string, any[]>(),
+    inventoryRevaluationEvents: new Map<string, any[]>(),
   } : null as any;
 
   /**
@@ -449,6 +494,159 @@ export class DatabaseStorage implements IStorage {
     } catch {
       return 'id_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
     }
+  }
+
+  private sortLayersByCreatedAt<T extends { createdAt?: Date | string | null }>(layers: T[]): T[] {
+    return layers.slice().sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+      return aTime - bTime;
+    });
+  }
+
+  private async getFallbackCost(storeId: string, productId: string, inventoryContext?: Inventory | null): Promise<number> {
+    let avgCost = 0;
+    if (inventoryContext) {
+      avgCost = parseNumeric((inventoryContext as any).avgCost, 0);
+    } else {
+      const inventoryRecord = await this.getInventoryItem(productId, storeId);
+      avgCost = parseNumeric((inventoryRecord as any)?.avgCost, 0);
+    }
+    if (avgCost > 0) {
+      return avgCost;
+    }
+    const product = await this.getProduct(productId);
+    const productCost = parseNumeric(product?.cost, 0);
+    return productCost > 0 ? productCost : 0;
+  }
+
+  private async previewCostFromLayers(
+    storeId: string,
+    productId: string,
+    quantity: number,
+    context?: { inventory?: Inventory | null },
+  ): Promise<number> {
+    if (quantity <= 0) {
+      return 0;
+    }
+    let remaining = quantity;
+    let totalCost = 0;
+
+    if (this.isTestEnv) {
+      const key = `${storeId}:${productId}`;
+      const layers = this.sortLayersByCreatedAt(this.mem.inventoryCostLayers.get(key) || []);
+      for (const layer of layers) {
+        if (remaining <= 0) break;
+        const available = parseNumeric((layer as any).quantityRemaining, parseNumeric((layer as any).quantity, 0));
+        if (available <= 0) continue;
+        const useQty = Math.min(available, remaining);
+        const layerCost = parseNumeric((layer as any).unitCost, 0);
+        totalCost += useQty * layerCost;
+        remaining -= useQty;
+      }
+    } else {
+      const rows = await db
+        .select({
+          id: inventoryCostLayers.id,
+          quantityRemaining: inventoryCostLayers.quantityRemaining,
+          unitCost: inventoryCostLayers.unitCost,
+          createdAt: inventoryCostLayers.createdAt,
+        })
+        .from(inventoryCostLayers)
+        .where(and(eq(inventoryCostLayers.storeId, storeId), eq(inventoryCostLayers.productId, productId)))
+        .orderBy(asc(inventoryCostLayers.createdAt), asc(inventoryCostLayers.id));
+
+      for (const row of rows) {
+        if (remaining <= 0) break;
+        const available = parseNumeric(row.quantityRemaining, 0);
+        if (available <= 0) continue;
+        const useQty = Math.min(available, remaining);
+        const layerCost = parseNumeric(row.unitCost, 0);
+        totalCost += useQty * layerCost;
+        remaining -= useQty;
+      }
+    }
+
+    if (remaining > 0) {
+      const fallback = await this.getFallbackCost(storeId, productId, context?.inventory ?? null);
+      totalCost += remaining * fallback;
+    }
+
+    return totalCost;
+  }
+
+  private async consumeCostLayers(
+    storeId: string,
+    productId: string,
+    quantity: number,
+    context?: { inventory?: Inventory | null },
+  ): Promise<number> {
+    if (quantity <= 0) {
+      return 0;
+    }
+
+    let remaining = quantity;
+    let totalCost = 0;
+
+    if (this.isTestEnv) {
+      const key = `${storeId}:${productId}`;
+      const layers = this.mem.inventoryCostLayers.get(key) || [];
+      const ordered = this.sortLayersByCreatedAt(layers);
+      for (const layer of ordered) {
+        if (remaining <= 0) break;
+        const available = parseNumeric((layer as any).quantityRemaining, parseNumeric((layer as any).quantity, 0));
+        if (available <= 0) continue;
+        const useQty = Math.min(available, remaining);
+        const layerCost = parseNumeric((layer as any).unitCost, 0);
+        totalCost += useQty * layerCost;
+        remaining -= useQty;
+        const idx = layers.findIndex((entry: any) => entry.id === (layer as any).id);
+        if (idx >= 0) {
+          if (useQty === available) {
+            layers.splice(idx, 1);
+          } else {
+            layers[idx] = { ...layers[idx], quantityRemaining: available - useQty };
+          }
+        }
+      }
+      this.mem.inventoryCostLayers.set(key, layers);
+    } else {
+      const rows = await db
+        .select({
+          id: inventoryCostLayers.id,
+          quantityRemaining: inventoryCostLayers.quantityRemaining,
+          unitCost: inventoryCostLayers.unitCost,
+          createdAt: inventoryCostLayers.createdAt,
+        })
+        .from(inventoryCostLayers)
+        .where(and(eq(inventoryCostLayers.storeId, storeId), eq(inventoryCostLayers.productId, productId)))
+        .orderBy(asc(inventoryCostLayers.createdAt), asc(inventoryCostLayers.id));
+
+      for (const row of rows) {
+        if (remaining <= 0) break;
+        const available = parseNumeric(row.quantityRemaining, 0);
+        if (available <= 0) continue;
+        const useQty = Math.min(available, remaining);
+        const layerCost = parseNumeric(row.unitCost, 0);
+        totalCost += useQty * layerCost;
+        remaining -= useQty;
+        if (useQty === available) {
+          await db.delete(inventoryCostLayers).where(eq(inventoryCostLayers.id, row.id));
+        } else {
+          await db
+            .update(inventoryCostLayers)
+            .set({ quantityRemaining: available - useQty } as any)
+            .where(eq(inventoryCostLayers.id, row.id));
+        }
+      }
+    }
+
+    if (remaining > 0) {
+      const fallback = await this.getFallbackCost(storeId, productId, context?.inventory ?? null);
+      totalCost += remaining * fallback;
+    }
+
+    return totalCost;
   }
   // User operations
   async getUser(id: string): Promise<User | undefined> {
@@ -1861,7 +2059,15 @@ export class DatabaseStorage implements IStorage {
 
   async createInventory(insertInventory: InsertInventory, userId?: string, options?: InventoryCreateOptions): Promise<Inventory> {
     if (this.isTestEnv) {
-      const item: any = { id: this.generateId(), ...insertInventory, updatedAt: new Date() };
+      const avgCost = options?.costOverride ?? parseNumeric((insertInventory as any).avgCost, 0);
+      const item: any = {
+        id: this.generateId(),
+        ...insertInventory,
+        avgCost,
+        totalCostValue: parseNumeric((insertInventory as any).quantity, 0) * avgCost,
+        lastCostUpdate: new Date(),
+        updatedAt: new Date(),
+      };
       this.mem.inventory.set(`${(insertInventory as any).storeId}:${(insertInventory as any).productId}`, item);
       await this.syncLowStockAlertState((insertInventory as any).storeId, (insertInventory as any).productId);
       const recordMovement = options?.recordMovement !== false;
@@ -1886,9 +2092,15 @@ export class DatabaseStorage implements IStorage {
     }
     let item: typeof inventory.$inferSelect;
     try {
+      const payload = {
+        ...insertInventory,
+        avgCost: options?.costOverride ?? parseNumeric((insertInventory as any).avgCost, 0),
+        totalCostValue: parseNumeric((insertInventory as any).quantity, 0) * (options?.costOverride ?? parseNumeric((insertInventory as any).avgCost, 0)),
+        lastCostUpdate: new Date(),
+      } as typeof inventory.$inferInsert;
       [item] = await db
         .insert(inventory)
-        .values(insertInventory as unknown as typeof inventory.$inferInsert)
+        .values(payload)
         .returning();
 
       if (process.env.NODE_ENV === 'test') {
@@ -1922,6 +2134,17 @@ export class DatabaseStorage implements IStorage {
       });
     }
 
+    if (typeof options?.costOverride === 'number' || typeof options?.salePriceOverride === 'number') {
+      await this.updateProductPricingIfNeeded(insertInventory.productId, {
+        storeId: insertInventory.storeId,
+        cost: options?.costOverride,
+        salePrice: options?.salePriceOverride,
+        userId,
+        source: options?.source,
+        referenceId: options?.referenceId,
+      });
+    }
+
     await this.syncLowStockAlertState(item.storeId, item.productId);
     return item;
   }
@@ -1935,16 +2158,81 @@ export class DatabaseStorage implements IStorage {
     return item;
   }
 
-  async updateInventory(productId: string, storeId: string, updateInventory: Partial<InsertInventory>, userId?: string): Promise<Inventory> {
+  async updateInventory(
+    productId: string,
+    storeId: string,
+    updateInventory: InventoryUpdatePayload & { costUpdate?: CostUpdateInput; source?: string; referenceId?: string },
+    userId?: string,
+  ): Promise<Inventory> {
     const current = this.isTestEnv
-      ? this.mem.inventory.get(`${storeId}:${productId}`) || { quantity: 0 }
+      ? this.mem.inventory.get(`${storeId}:${productId}`) || { quantity: 0, avgCost: 0, totalCostValue: 0 }
       : await this.getInventoryItem(productId, storeId);
-    const quantityBefore = current?.quantity || 0;
-    
+    if (!current) {
+      throw new Error('Inventory record not found for update');
+    }
+
+    const quantityBefore = parseNumeric(current.quantity, 0);
+    const avgCostBefore = parseNumeric((current as any).avgCost, 0);
+    const costInput = updateInventory.costUpdate ? costUpdateSchema.safeParse(updateInventory.costUpdate) : null;
+    if (costInput && !costInput.success) {
+      throw new Error(costInput.error.issues.map((issue) => issue.message).join(', '));
+    }
+    const nextCostUpdate = costInput?.success ? costInput.data : undefined;
+
+    const buildNextCostState = (nextQuantity: number): { avgCost: number; totalCostValue: number } => {
+      if (!nextCostUpdate || typeof nextCostUpdate.cost !== 'number') {
+        return {
+          avgCost: nextQuantity > 0 ? avgCostBefore : 0,
+          totalCostValue: nextQuantity > 0 ? avgCostBefore * nextQuantity : 0,
+        };
+      }
+      const newAvgCost = nextCostUpdate.cost;
+      return {
+        avgCost: newAvgCost,
+        totalCostValue: newAvgCost * nextQuantity,
+      };
+    };
+
+    const nextQuantity = updateInventory.quantity != null ? parseNumeric(updateInventory.quantity, 0) : quantityBefore;
+    const { avgCost, totalCostValue } = buildNextCostState(nextQuantity);
+
+    const persistCostLayer = async (quantityDelta: number) => {
+      if (quantityDelta <= 0 || !nextCostUpdate || typeof nextCostUpdate.cost !== 'number') {
+        return;
+      }
+      const layerPayload = {
+        storeId,
+        productId,
+        quantityRemaining: quantityDelta,
+        unitCost: toDecimalString(nextCostUpdate.cost, 4),
+        source: updateInventory.source || 'inventory',
+        referenceId: updateInventory.referenceId,
+        notes: nextCostUpdate.payloadCurrency,
+      } as typeof inventoryCostLayers.$inferInsert;
+      if (this.isTestEnv) {
+        const key = `${storeId}:${productId}`;
+        const existing = this.mem.inventoryCostLayers.get(key) || [];
+        existing.push({ id: this.generateId(), createdAt: new Date(), ...layerPayload });
+        this.mem.inventoryCostLayers.set(key, existing);
+      } else {
+        await db.insert(inventoryCostLayers).values(layerPayload);
+      }
+    };
+
     let item: any;
     if (this.isTestEnv) {
       const key = `${storeId}:${productId}`;
-      const updated: any = { ...current, ...updateInventory, storeId, productId, updatedAt: new Date() };
+      const updated: any = {
+        ...current,
+        ...updateInventory,
+        avgCost,
+        totalCostValue,
+        lastCostUpdate: new Date(),
+        storeId,
+        productId,
+        updatedAt: new Date(),
+      };
+      delete updated.costUpdate;
       this.mem.inventory.set(key, updated);
       item = updated;
     } else {
@@ -1952,9 +2240,27 @@ export class DatabaseStorage implements IStorage {
         process.stdout.write(`[storage.debug] updateInventory(db) updating storeId=${storeId} productId=${productId}: ${JSON.stringify(updateInventory)}\n`);
       }
       try {
+        const payload: Record<string, unknown> = {
+          avgCost: toDecimalString(avgCost, 4),
+          totalCostValue: toDecimalString(totalCostValue, 4),
+          lastCostUpdate: new Date(),
+          updatedAt: new Date(),
+        };
+        if (updateInventory.quantity != null) {
+          payload.quantity = parseNumeric(updateInventory.quantity, 0);
+        }
+        if (updateInventory.minStockLevel != null) {
+          payload.minStockLevel = parseNumeric(updateInventory.minStockLevel, 0);
+        }
+        if (updateInventory.maxStockLevel != null) {
+          payload.maxStockLevel = parseNumeric(updateInventory.maxStockLevel, 0);
+        }
+        if (updateInventory.reorderLevel != null) {
+          payload.reorderLevel = parseNumeric(updateInventory.reorderLevel, 0);
+        }
         [item] = await db
           .update(inventory)
-          .set({ ...(updateInventory as any), updatedAt: new Date() } as any)
+          .set(payload as typeof inventory.$inferInsert)
           .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)))
           .returning();
       } catch (error) {
@@ -1962,37 +2268,82 @@ export class DatabaseStorage implements IStorage {
         throw error;
       }
     }
-    
-    // Record stock movement if quantity changed
-    const quantityAfter = item.quantity || 0;
+
+    const quantityAfter = parseNumeric(item.quantity, 0);
     if (quantityBefore !== quantityAfter) {
       await this.recordStockMovement({
         storeId: item.storeId,
         productId: item.productId,
         quantityBefore,
-        quantityAfter,
+        quantityAfter: item.quantity || 0,
         actionType: 'update',
-        source: 'inventory',
+        source: updateInventory.source || 'inventory',
+        referenceId: updateInventory.referenceId,
         userId,
         notes: 'Manual inventory update',
+        metadata: { avgCost, totalCostValue },
+      } as StockMovementLogParams);
+      if (nextCostUpdate && typeof nextCostUpdate.cost === 'number' && quantityAfter > quantityBefore) {
+        await persistCostLayer(quantityAfter - quantityBefore);
+      }
+    } else if (nextCostUpdate && typeof nextCostUpdate.cost === 'number') {
+      await persistCostLayer(quantityAfter);
+    }
+
+    if (quantityBefore > quantityAfter) {
+      await this.consumeCostLayers(storeId, productId, quantityBefore - quantityAfter, { inventory: current as Inventory });
+    }
+
+    if (nextCostUpdate && (typeof nextCostUpdate.cost === 'number' || typeof nextCostUpdate.salePrice === 'number')) {
+      await this.updateProductPricingIfNeeded(productId, {
+        storeId,
+        cost: nextCostUpdate.cost,
+        salePrice: nextCostUpdate.salePrice,
+        userId,
+        source: updateInventory.source,
+        referenceId: updateInventory.referenceId,
       });
     }
-    
+
     await this.syncLowStockAlertState(storeId, productId);
-    return item;
+    return item as Inventory;
   }
 
-  async adjustInventory(productId: string, storeId: string, quantityChange: number, userId?: string, source?: string, referenceId?: string, notes?: string): Promise<Inventory> {
+  async adjustInventory(
+    productId: string,
+    storeId: string,
+    quantityChange: number,
+    userId?: string,
+    source?: string,
+    referenceId?: string,
+    notes?: string,
+    costUpdate?: CostUpdateInput,
+  ): Promise<Inventory> {
     const current = this.isTestEnv
-      ? this.mem.inventory.get(`${storeId}:${productId}`) || { quantity: 0 }
+      ? this.mem.inventory.get(`${storeId}:${productId}`) || { quantity: 0, avgCost: 0, totalCostValue: 0 }
       : await this.getInventoryItem(productId, storeId);
     const quantityBefore = current?.quantity || 0;
     const nextQuantity = quantityBefore + quantityChange;
+    const parsedCostUpdate = costUpdate ? costUpdateSchema.safeParse(costUpdate) : null;
+    if (parsedCostUpdate && !parsedCostUpdate.success) {
+      throw new Error(parsedCostUpdate.error.issues.map((issue) => issue.message).join(', '));
+    }
+    const costInfo = parsedCostUpdate?.success ? parsedCostUpdate.data : undefined;
+    const nextAvgCost = costInfo?.cost ?? parseNumeric((current as any).avgCost, 0);
+    const nextTotalCost = Math.max(nextQuantity, 0) * nextAvgCost;
 
     let item: any;
     if (this.isTestEnv) {
       const key = `${storeId}:${productId}`;
-      const updated: any = { ...current, storeId, productId, quantity: nextQuantity, updatedAt: new Date() };
+      const updated: any = {
+        ...current,
+        storeId,
+        productId,
+        quantity: nextQuantity,
+        avgCost: nextAvgCost,
+        totalCostValue: nextTotalCost,
+        updatedAt: new Date(),
+      };
       this.mem.inventory.set(key, updated);
       item = updated;
     } else {
@@ -2001,15 +2352,25 @@ export class DatabaseStorage implements IStorage {
         item = await this.createInventory(
           { productId, storeId, quantity: nextQuantity } as any,
           userId,
-          { source, referenceId, notes, metadata: { quantityChange }, recordMovement: false },
+          {
+            source,
+            referenceId,
+            notes,
+            metadata: { quantityChange },
+            recordMovement: false,
+            costOverride: nextAvgCost,
+          },
         );
       } else {
+        const payload: Record<string, unknown> = {
+          quantity: nextQuantity,
+          avgCost: toDecimalString(nextAvgCost, 4),
+          totalCostValue: toDecimalString(nextTotalCost, 4),
+          updatedAt: new Date(),
+        };
         [item] = await db
           .update(inventory)
-          .set({
-            quantity: nextQuantity as any,
-            updatedAt: new Date(),
-          } as any)
+          .set(payload as typeof inventory.$inferInsert)
           .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)))
           .returning();
       }
@@ -2026,11 +2387,106 @@ export class DatabaseStorage implements IStorage {
       referenceId,
       userId,
       notes: notes || `Stock adjusted by ${quantityChange}`,
-      metadata: { quantityChange },
-    });
+      metadata: { quantityChange, avgCost: nextAvgCost },
+    } as StockMovementLogParams);
     
+    if (quantityChange < 0) {
+      await this.consumeCostLayers(storeId, productId, Math.abs(quantityChange), { inventory: current as Inventory });
+    }
+
+    if (costInfo && (typeof costInfo.cost === 'number' || typeof costInfo.salePrice === 'number')) {
+      await this.updateProductPricingIfNeeded(productId, {
+        storeId,
+        cost: costInfo.cost,
+        salePrice: costInfo.salePrice,
+        userId,
+        source,
+        referenceId,
+      });
+    }
+
     await this.syncLowStockAlertState(storeId, productId);
-    return item;
+    return item as Inventory;
+  }
+
+  private async logPriceChangeEvent(event: InsertPriceChangeEvent & { occurredAt?: Date | null }): Promise<void> {
+    const payload = {
+      ...event,
+      occurredAt: event.occurredAt ?? new Date(),
+    } as InsertPriceChangeEvent;
+
+    if (this.isTestEnv) {
+      const key = `${event.storeId}:${event.productId}`;
+      const existing = this.mem.priceChangeEvents.get(key) || [];
+      existing.push({ id: this.generateId(), ...payload });
+      this.mem.priceChangeEvents.set(key, existing);
+      return;
+    }
+
+    await db.insert(priceChangeEvents).values(payload);
+  }
+
+  private async logInventoryRevaluationEvent(
+    event: InsertInventoryRevaluationEvent & { occurredAt?: Date | null },
+  ): Promise<void> {
+    const payload = {
+      ...event,
+      occurredAt: event.occurredAt ?? new Date(),
+    } as InsertInventoryRevaluationEvent;
+
+    if (this.isTestEnv) {
+      const key = `${event.storeId}:${event.productId}`;
+      const existing = this.mem.inventoryRevaluationEvents.get(key) || [];
+      existing.push({ id: this.generateId(), ...payload });
+      this.mem.inventoryRevaluationEvents.set(key, existing);
+      return;
+    }
+
+    await db.insert(inventoryRevaluationEvents).values(payload);
+  }
+
+  private async updateProductPricingIfNeeded(
+    productId: string,
+    options: {
+      storeId: string;
+      cost?: number;
+      salePrice?: number;
+      source?: string;
+      referenceId?: string;
+      userId?: string;
+    },
+  ): Promise<void> {
+    const updates: Record<string, any> = {};
+    if (typeof options.cost === 'number') {
+      updates.cost = toCurrencyString(options.cost, 2);
+      updates.costPrice = options.cost.toFixed(4);
+    }
+    if (typeof options.salePrice === 'number') {
+      updates.salePrice = options.salePrice.toFixed(4);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return;
+    }
+
+    const current = await this.getProduct(productId);
+    await this.updateProduct(productId, updates);
+
+    const priceChangePayload = {
+      storeId: options.storeId,
+      productId,
+      userId: options.userId ?? null,
+      orgId: current?.orgId ?? null,
+      source: options.source ?? null,
+      referenceId: options.referenceId ?? null,
+      oldCost: current?.cost ? toOptionalDecimalString(parseNumeric(current.cost, 0), 4) : null,
+      newCost: typeof options.cost === 'number' ? toOptionalDecimalString(options.cost, 4) : null,
+      oldSalePrice: current?.salePrice ? toOptionalDecimalString(parseNumeric(current.salePrice, 0), 4) : null,
+      newSalePrice: typeof options.salePrice === 'number' ? toOptionalDecimalString(options.salePrice, 4) : null,
+      metadata: null,
+      occurredAt: new Date(),
+    } as InsertPriceChangeEvent;
+    await this.logPriceChangeEvent(priceChangePayload);
   }
 
   private async getActiveLowStockAlert(storeId: string, productId: string) {
@@ -2172,13 +2628,29 @@ export class DatabaseStorage implements IStorage {
   async addTransactionItem(insertItem: InsertTransactionItem): Promise<TransactionItem> {
     if (this.isTestEnv) {
       const id = this.generateId();
-      const item: any = { id, ...insertItem };
+      const product = this.mem.products.get(insertItem.productId);
+      const unitCost = parseNumeric(product?.cost, 0);
+      const item: any = { id, ...insertItem, unitCost, totalCost: unitCost * insertItem.quantity };
       const list = this.mem.transactionItems.get((insertItem as any).transactionId) || [];
       list.push(item);
       this.mem.transactionItems.set((insertItem as any).transactionId, list);
       return item;
     }
-    const [item] = await db.insert(transactionItems).values(insertItem as unknown as typeof transactionItems.$inferInsert).returning();
+    const transaction = await this.getTransaction(insertItem.transactionId);
+    if (!transaction) {
+      throw new Error('Transaction not found for transaction item');
+    }
+    const inventorySnapshot = await this.getInventoryItem(insertItem.productId, transaction.storeId);
+    const totalCost = await this.previewCostFromLayers(transaction.storeId, insertItem.productId, insertItem.quantity, {
+      inventory: inventorySnapshot,
+    });
+    const unitCost = insertItem.quantity > 0 ? totalCost / insertItem.quantity : 0;
+    const payload = {
+      ...insertItem,
+      unitCost,
+      totalCost,
+    } as typeof transactionItems.$inferInsert;
+    const [item] = await db.insert(transactionItems).values(payload).returning();
     return item;
   }
 
@@ -2487,7 +2959,7 @@ export class DatabaseStorage implements IStorage {
       total: items.reduce((sum, item) => sum + item.totalPrice, 0).toString(),
       paymentMethod: "cash", // Use cash as the payment method for refunds
       status: "completed",
-    });
+    } as any);
 
     // Restore inventory for refunded items
     for (const item of items) {
@@ -3363,14 +3835,103 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
+  async getPriceHistoryForProducts(params: {
+    storeId: string;
+    productIds?: string[];
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+  }): Promise<Array<{ productId: string; priceTimeline: Array<{ occurredAt: string; kind: 'price_change' | 'inventory_revaluation'; oldSalePrice: number | null; newSalePrice: number | null; oldCost: number | null; newCost: number | null; avgCostAfter?: number | null; revaluationDelta?: number | null; source?: string | null; userId?: string | null; }> }>> {
+    const { storeId, productIds, startDate, endDate, limit = 100 } = params;
+
+    const priceWhere = [eq(priceChangeEvents.storeId, storeId)];
+    if (productIds?.length) {
+      priceWhere.push(inArray(priceChangeEvents.productId, productIds));
+    }
+    if (startDate) priceWhere.push(gte(priceChangeEvents.occurredAt, startDate));
+    if (endDate) priceWhere.push(lt(priceChangeEvents.occurredAt, endDate));
+
+    const revaluationWhere = [eq(inventoryRevaluationEvents.storeId, storeId)];
+    if (productIds?.length) {
+      revaluationWhere.push(inArray(inventoryRevaluationEvents.productId, productIds));
+    }
+    if (startDate) revaluationWhere.push(gte(inventoryRevaluationEvents.occurredAt, startDate));
+    if (endDate) revaluationWhere.push(lt(inventoryRevaluationEvents.occurredAt, endDate));
+
+    const priceRows = await db
+      .select({
+        productId: priceChangeEvents.productId,
+        occurredAt: priceChangeEvents.occurredAt,
+        oldSalePrice: priceChangeEvents.oldSalePrice,
+        newSalePrice: priceChangeEvents.newSalePrice,
+        oldCost: priceChangeEvents.oldCost,
+        newCost: priceChangeEvents.newCost,
+        source: priceChangeEvents.source,
+        userId: priceChangeEvents.userId,
+      })
+      .from(priceChangeEvents)
+      .where(and(...priceWhere))
+      .orderBy(priceChangeEvents.productId, priceChangeEvents.occurredAt)
+      .limit(limit);
+
+    const revaluationRows = await db
+      .select({
+        productId: inventoryRevaluationEvents.productId,
+        occurredAt: inventoryRevaluationEvents.occurredAt,
+        avgCostAfter: inventoryRevaluationEvents.avgCostAfter,
+        deltaValue: inventoryRevaluationEvents.deltaValue,
+      })
+      .from(inventoryRevaluationEvents)
+      .where(and(...revaluationWhere))
+      .orderBy(inventoryRevaluationEvents.productId, inventoryRevaluationEvents.occurredAt)
+      .limit(limit);
+
+    const grouped = new Map<string, Array<{ occurredAt: string; kind: 'price_change' | 'inventory_revaluation'; oldSalePrice: number | null; newSalePrice: number | null; oldCost: number | null; newCost: number | null; avgCostAfter?: number | null; revaluationDelta?: number | null; source?: string | null; userId?: string | null; }>>();
+
+    const pushEntry = (productId: string, entry: { occurredAt: string; kind: 'price_change' | 'inventory_revaluation'; oldSalePrice: number | null; newSalePrice: number | null; oldCost: number | null; newCost: number | null; avgCostAfter?: number | null; revaluationDelta?: number | null; source?: string | null; userId?: string | null; }) => {
+      if (!grouped.has(productId)) grouped.set(productId, []);
+      grouped.get(productId)!.push(entry);
+    };
+
+    for (const row of priceRows) {
+      pushEntry(row.productId, {
+        occurredAt: row.occurredAt?.toISOString?.() ?? new Date(row.occurredAt as any).toISOString(),
+        kind: 'price_change',
+        oldSalePrice: row.oldSalePrice ? parseFloat(String(row.oldSalePrice)) : null,
+        newSalePrice: row.newSalePrice ? parseFloat(String(row.newSalePrice)) : null,
+        oldCost: row.oldCost ? parseFloat(String(row.oldCost)) : null,
+        newCost: row.newCost ? parseFloat(String(row.newCost)) : null,
+        source: row.source ?? null,
+        userId: row.userId ?? null,
+      });
+    }
+
+    for (const row of revaluationRows) {
+      pushEntry(row.productId, {
+        occurredAt: row.occurredAt?.toISOString?.() ?? new Date(row.occurredAt as any).toISOString(),
+        kind: 'inventory_revaluation',
+        oldSalePrice: null,
+        newSalePrice: null,
+        oldCost: null,
+        newCost: null,
+        avgCostAfter: row.avgCostAfter ? parseFloat(String(row.avgCostAfter)) : null,
+        revaluationDelta: row.deltaValue ? parseFloat(String(row.deltaValue)) : null,
+      });
+    }
+
+    return Array.from(grouped.entries()).map(([productId, events]) => ({
+      productId,
+      priceTimeline: events.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)),
+    }));
+  }
+
   async getStoreProfitLoss(storeId: string, startDate: Date, endDate: Date): Promise<ProfitLossResult> {
     const [salesRow] = await db.select({
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
-      cost: sql`COALESCE(SUM(${transactionItems.quantity} * ${products.cost}), 0)`,
+      cogs: sql`COALESCE(SUM(${transactionItems.totalCost}), 0)`,
     })
     .from(transactions)
     .innerJoin(transactionItems, eq(transactions.id, transactionItems.transactionId))
-    .innerJoin(products, eq(transactionItems.productId, products.id))
     .where(
       and(
         eq(transactions.storeId, storeId),
@@ -3396,14 +3957,54 @@ export class DatabaseStorage implements IStorage {
       )
     );
 
+    const [revaluationRow] = await db.select({
+      deltaValue: sql`COALESCE(SUM(${inventoryRevaluationEvents.deltaValue}), 0)`,
+    })
+    .from(inventoryRevaluationEvents)
+    .where(
+      and(
+        eq(inventoryRevaluationEvents.storeId, storeId),
+        gte(inventoryRevaluationEvents.occurredAt, startDate),
+        lt(inventoryRevaluationEvents.occurredAt, endDate),
+      )
+    );
+
+    const [priceChangeRow] = await db.select({
+      changeCount: sql`COUNT(*)`,
+      deltaValue: sql`COALESCE(SUM(COALESCE(${priceChangeEvents.newCost}, 0) - COALESCE(${priceChangeEvents.oldCost}, 0)), 0)`,
+    })
+    .from(priceChangeEvents)
+    .where(
+      and(
+        eq(priceChangeEvents.storeId, storeId),
+        gte(priceChangeEvents.occurredAt, startDate),
+        lt(priceChangeEvents.occurredAt, endDate),
+      )
+    );
+
     const revenue = parseFloat(String(salesRow?.revenue || "0"));
-    const cost = parseFloat(String(salesRow?.cost || "0"));
+    const cogsFromSales = parseFloat(String(salesRow?.cogs || "0"));
+    const inventoryAdjustments = parseFloat(String(revaluationRow?.deltaValue || "0"));
+    const netCost = cogsFromSales + inventoryAdjustments;
     const refundAmount = parseFloat(String(refundRow?.refundAmount || "0"));
     const refundCount = parseInt(String(refundRow?.refundCount || "0"));
     const netRevenue = revenue - refundAmount;
-    const profit = netRevenue - cost;
+    const profit = netRevenue - netCost;
+    const priceChangeCount = parseInt(String(priceChangeRow?.changeCount || "0"));
+    const priceChangeDelta = parseFloat(String(priceChangeRow?.deltaValue || "0"));
 
-    return { revenue, cost, refundAmount, refundCount, profit };
+    return {
+      revenue,
+      cost: netCost,
+      cogsFromSales,
+      inventoryAdjustments,
+      netCost,
+      refundAmount,
+      refundCount,
+      profit,
+      priceChangeCount,
+      priceChangeDelta,
+    };
   }
 
   async getStoreInventory(storeId: string): Promise<any> {

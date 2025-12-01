@@ -13,6 +13,28 @@ import { requireAuth, enforceIpWhitelist, requireManagerWithStore, requireRole }
 import { sensitiveEndpointRateLimit } from '../middleware/security';
 import { resolveStoreAccess } from '../middleware/store-access';
 import { storage } from '../storage';
+import type { CostUpdateInput } from '../storage';
+
+const buildCostUpdatePayload = (costPrice?: number | null, salePrice?: number | null): CostUpdateInput | undefined => {
+  let cost: number | undefined;
+  let sale: number | undefined;
+
+  if (typeof costPrice === 'number' && Number.isFinite(costPrice) && costPrice >= 0) {
+    cost = costPrice;
+  }
+  if (typeof salePrice === 'number' && Number.isFinite(salePrice) && salePrice >= 0) {
+    sale = salePrice;
+  }
+
+  if (cost === undefined && sale === undefined) {
+    return undefined;
+  }
+
+  const payload: CostUpdateInput = {};
+  if (cost !== undefined) payload.cost = cost;
+  if (sale !== undefined) payload.salePrice = sale;
+  return payload;
+};
 
 export async function registerInventoryRoutes(app: Express) {
   // Product catalog endpoints expected by client analytics/alerts pages
@@ -182,18 +204,23 @@ export async function registerInventoryRoutes(app: Express) {
     }
   });
 
+  const PriceUpdateSchema = z.object({
+    costPrice: z.coerce.number().min(0).optional(),
+    salePrice: z.coerce.number().min(0).optional(),
+  });
+
   const ManualInventorySchema = z.object({
     productId: z.string().uuid(),
     storeId: z.string().uuid(),
     quantity: z.number().int().min(0),
     minStockLevel: z.number().int().min(0).default(0),
     maxStockLevel: z.number().int().min(0).optional(),
-  });
+  }).merge(PriceUpdateSchema);
 
   const InventoryAdjustSchema = z.object({
     quantity: z.coerce.number().int().min(1, { message: 'quantity must be at least 1' }),
     reason: z.string().trim().max(200).optional(),
-  });
+  }).merge(PriceUpdateSchema);
 
   // Schemas reserved for potential future use (InventoryUpdateSchema,
   // DeleteInventorySchema) were defined but unused; they have been removed
@@ -538,7 +565,7 @@ export async function registerInventoryRoutes(app: Express) {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
     }
 
-    const { productId, storeId, quantity, minStockLevel, maxStockLevel } = parsed.data;
+    const { productId, storeId, quantity, minStockLevel, maxStockLevel, costPrice, salePrice } = parsed.data;
     const userId = (req.session as any)?.userId as string | undefined;
 
     try {
@@ -564,12 +591,17 @@ export async function registerInventoryRoutes(app: Express) {
       }
 
       const existing = await storage.getInventoryItem(productId, storeId);
-      const payload: Record<string, number> = {
+      const payload: Record<string, number> & { costUpdate?: { cost?: number; salePrice?: number }; source?: string } = {
         quantity,
         minStockLevel,
       };
       if (typeof maxStockLevel === 'number') {
         payload.maxStockLevel = maxStockLevel;
+      }
+      const costUpdate = buildCostUpdatePayload(costPrice, salePrice);
+      if (costUpdate) {
+        payload.costUpdate = costUpdate;
+        payload.source = 'manual';
       }
 
       const inventoryRecord = existing
@@ -580,7 +612,12 @@ export async function registerInventoryRoutes(app: Express) {
             quantity,
             minStockLevel,
             maxStockLevel: typeof maxStockLevel === 'number' ? maxStockLevel : undefined,
-          } as any, userId);
+            reorderLevel: undefined,
+          } as any, userId, {
+            source: 'manual',
+            costOverride: typeof costPrice === 'number' ? costPrice : undefined,
+            salePriceOverride: typeof salePrice === 'number' ? salePrice : undefined,
+          });
 
       const action = existing ? 'update' : 'create';
       const baseContext = extractLogContext(req, {
@@ -664,7 +701,8 @@ export async function registerInventoryRoutes(app: Express) {
           userId,
           'manual_adjustment',
           undefined,
-          parsed.data.reason
+          parsed.data.reason,
+          buildCostUpdatePayload(parsed.data.costPrice, parsed.data.salePrice)
         );
 
         logger.logInventoryEvent('stock_adjusted', {
@@ -738,7 +776,7 @@ export async function registerInventoryRoutes(app: Express) {
       return res.status(access.error.status).json({ error: access.error.message });
     }
 
-    let sanitizedUpdates: Array<{ productId: string; quantity: number }>;
+    let sanitizedUpdates: Array<{ productId: string; quantity: number; costPrice?: number; salePrice?: number }>;
     try {
       sanitizedUpdates = updates.map((update: any) => {
         if (!update || typeof update.productId !== 'string') {
@@ -747,9 +785,19 @@ export async function registerInventoryRoutes(app: Express) {
         if (typeof update.quantity !== 'number' || update.quantity < 0) {
           throw new Error('Quantity must be a non-negative number');
         }
+        const normalizedCost = update.costPrice != null ? Number(update.costPrice) : undefined;
+        const normalizedSale = update.salePrice != null ? Number(update.salePrice) : undefined;
+        if (normalizedCost != null && (!Number.isFinite(normalizedCost) || normalizedCost < 0)) {
+          throw new Error('costPrice must be a non-negative number');
+        }
+        if (normalizedSale != null && (!Number.isFinite(normalizedSale) || normalizedSale < 0)) {
+          throw new Error('salePrice must be a non-negative number');
+        }
         return {
           productId: update.productId,
           quantity: update.quantity,
+          costPrice: normalizedCost,
+          salePrice: normalizedSale,
         };
       });
     } catch (error) {
@@ -759,7 +807,14 @@ export async function registerInventoryRoutes(app: Express) {
     try {
       const results = [] as Array<{ productId: string; quantity: number }>;
       for (const update of sanitizedUpdates) {
-        const updated = await storage.updateInventory(update.productId, storeId, { quantity: update.quantity } as any);
+        const costUpdate = buildCostUpdatePayload(update.costPrice, update.salePrice);
+        const updated = await storage.updateInventory(
+          update.productId,
+          storeId,
+          costUpdate
+            ? { quantity: update.quantity, costUpdate, source: 'bulk_update' } as any
+            : ({ quantity: update.quantity } as any),
+        );
         results.push({ productId: update.productId, quantity: updated.quantity });
       }
       return res.json(results);
@@ -1012,6 +1067,17 @@ export async function registerInventoryRoutes(app: Express) {
           addedProducts += 1;
         }
 
+        const costNumber = Number.parseFloat(r.cost_price);
+        const saleNumber = Number.parseFloat(r.sale_price);
+        if (!Number.isFinite(costNumber) || costNumber < 0) {
+          invalidRows.push({ row: raw, error: 'cost_price must be a non-negative number' });
+          continue;
+        }
+        if (!Number.isFinite(saleNumber) || saleNumber < 0) {
+          invalidRows.push({ row: raw, error: 'sale_price must be a non-negative number' });
+          continue;
+        }
+
         const quantityDelta = Number(r.initial_quantity);
         const minStockLevel = Number(r.min_stock_level ?? r.reorder_level ?? '0');
         const maxStockLevel = Number(r.max_stock_level ?? '0');
@@ -1042,90 +1108,51 @@ export async function registerInventoryRoutes(app: Express) {
           zeroQuantityRows += 1;
         }
 
+        const existingInventory = await storage.getInventoryItem(productId, storeId);
+        let targetQuantity = existingInventory?.quantity ?? 0;
         if (mode === 'overwrite') {
-          // Get existing quantity for movement tracking
-          const existingCheck = await db.execute(
-            sql`SELECT quantity FROM inventory WHERE store_id = ${storeId} AND product_id = ${productId} LIMIT 1`
-          );
-          const existingRow = Array.isArray((existingCheck as any).rows)
-            ? (existingCheck as any).rows[0]
-            : (existingCheck as any)[0];
-          const quantityBefore = existingRow?.quantity ?? 0;
+          targetQuantity = quantityDelta;
+        } else {
+          targetQuantity = (existingInventory?.quantity ?? 0) + quantityDelta;
+        }
 
-          await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level, min_stock_level, max_stock_level)
-             VALUES (${storeId}, ${productId}, ${quantityDelta}, ${reorderLevel}, ${minStockLevel}, ${maxStockLevel})
-             ON CONFLICT (store_id, product_id)
-             DO UPDATE SET quantity = EXCLUDED.quantity,
-               reorder_level = EXCLUDED.reorder_level,
-               min_stock_level = EXCLUDED.min_stock_level,
-               max_stock_level = EXCLUDED.max_stock_level`);
-
-          // Record stock movement via storage helper
-          if (quantityBefore !== quantityDelta) {
-            await storage.logStockMovement({
-              storeId,
-              productId,
-              quantityBefore,
-              quantityAfter: quantityDelta,
-              actionType: 'import',
+        const costUpdate = buildCostUpdatePayload(costNumber, saleNumber);
+        if (existingInventory) {
+          await storage.updateInventory(
+            productId,
+            storeId,
+            {
+              quantity: targetQuantity,
+              minStockLevel,
+              maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
+              reorderLevel,
+              costUpdate,
               source: 'csv_import',
               referenceId: importBatchId,
-              userId,
-              notes: `Import overwrite from ${fileName}`,
-              metadata: { mode, quantityDelta },
-            });
-          }
-          stockAdjusted += 1;
-        } else {
-          const existingInventory = await db.execute(
-            sql`SELECT quantity FROM inventory WHERE store_id = ${storeId} AND product_id = ${productId} LIMIT 1`
+            } as any,
+            userId,
           );
-          const existingRow = Array.isArray((existingInventory as any).rows)
-            ? (existingInventory as any).rows[0]
-            : (existingInventory as any)[0];
-
-          if (existingRow && typeof existingRow.quantity === 'number') {
-            const currentQuantity = existingRow.quantity;
-            const newQuantity = currentQuantity + quantityDelta;
-            await db.execute(sql`UPDATE inventory SET quantity = ${newQuantity}, reorder_level = ${reorderLevel}, min_stock_level = ${minStockLevel}, max_stock_level = ${maxStockLevel}
-               WHERE store_id = ${storeId} AND product_id = ${productId}`);
-
-            if (quantityDelta !== 0) {
-              await storage.logStockMovement({
-                storeId,
-                productId,
-                quantityBefore: currentQuantity,
-                quantityAfter: newQuantity,
-                actionType: 'import',
-                source: 'csv_import',
-                referenceId: importBatchId,
-                userId,
-                notes: `Import regularize from ${fileName}`,
-                metadata: { mode, quantityDelta },
-              });
-            }
-            stockAdjusted += 1;
-          } else {
-            await db.execute(sql`INSERT INTO inventory (store_id, product_id, quantity, reorder_level, min_stock_level, max_stock_level)
-               VALUES (${storeId}, ${productId}, ${quantityDelta}, ${reorderLevel}, ${minStockLevel}, ${maxStockLevel})`);
-
-            if (quantityDelta !== 0) {
-              await storage.logStockMovement({
-                storeId,
-                productId,
-                quantityBefore: 0,
-                quantityAfter: quantityDelta,
-                actionType: 'import',
-                source: 'csv_import',
-                referenceId: importBatchId,
-                userId,
-                notes: `Import new from ${fileName}`,
-                metadata: { mode, quantityDelta },
-              });
-            }
-            stockAdjusted += 1;
-          }
+        } else {
+          await storage.createInventory(
+            {
+              productId,
+              storeId,
+              quantity: targetQuantity,
+              minStockLevel,
+              maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
+              reorderLevel,
+            } as any,
+            userId,
+            {
+              source: 'csv_import',
+              referenceId: importBatchId,
+              notes: `Import ${mode} from ${fileName}`,
+              costOverride: costNumber,
+              salePriceOverride: saleNumber,
+            },
+          );
         }
+        stockAdjusted += 1;
         alertSyncTargets.add(`${storeId}:${productId}`);
 
         results.push({ sku: r.sku, productId, storeId, mode });

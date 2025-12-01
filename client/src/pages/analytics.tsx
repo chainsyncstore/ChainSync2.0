@@ -4,12 +4,14 @@ import {
   DollarSign,
   Package,
   RotateCcw,
+  Tag,
   TrendingDown,
   TrendingUp,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Suspense, lazy, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { CartesianGrid, Legend, Line, LineChart as RechartsLineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
   AnalyticsScopeProvider,
@@ -86,17 +88,21 @@ interface PopularProductItem {
 
 interface ProfitLossSummaryTotals {
   revenue: Money;
-  cost: Money;
+  cogs?: Money;
+  inventoryAdjustments?: Money;
+  netCost?: Money;
   profit: Money;
   refunds?: Money;
   netRevenue?: Money;
   refundCount?: number;
+  priceChangeCount?: number;
+  priceChangeDelta?: Money;
 }
 
 interface ProfitLossSummary {
   currency: CurrencyCode;
   totals: ProfitLossSummaryTotals;
-  normalized?: Omit<ProfitLossSummaryTotals, "refundCount">;
+  normalized?: Omit<ProfitLossSummaryTotals, "refundCount" | "priceChangeCount">;
 }
 
 interface InventoryValueResponse {
@@ -122,6 +128,41 @@ interface CustomerInsightsResponse {
   totalCustomers: number;
   newCustomers: number;
   repeatCustomers: number;
+}
+
+interface PriceHistoryTimelinePoint {
+  occurredAt: string;
+  kind: "price_change" | "inventory_revaluation";
+  oldSalePrice: number | null;
+  newSalePrice: number | null;
+  oldCost: number | null;
+  newCost: number | null;
+  avgCostAfter?: number | null;
+  revaluationDelta?: number | null;
+  source?: string | null;
+  userId?: string | null;
+}
+
+interface PriceHistoryItem {
+  productId: string;
+  product: {
+    name: string;
+    sku: string | null;
+    barcode: string | null;
+    salePrice: string | null;
+    costPrice: string | null;
+  } | null;
+  timeline: PriceHistoryTimelinePoint[];
+}
+
+interface PriceHistoryResponse {
+  currency: CurrencyCode;
+  items: PriceHistoryItem[];
+  period: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  limit: number;
 }
 
 const makeMoney = (amount: number, currency: CurrencyCode = "USD"): Money => ({ amount, currency });
@@ -394,6 +435,21 @@ function computeDelta(current: number, previous?: number | null): DeltaInfo | un
   };
 }
 
+function parseNumericInput(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const numericValue = typeof value === "number" ? value : parseFloat(String(value));
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function formatDateTimeLabel(value: string | Date): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function AnalyticsContent() {
   const { user } = useAuth();
   const {
@@ -604,6 +660,29 @@ function AnalyticsContent() {
     },
   });
 
+  const priceHistoryQuery = useQuery<PriceHistoryResponse>({
+    queryKey: [
+      "/api/stores",
+      storeId,
+      "analytics/price-history",
+      rangeKey,
+    ],
+    enabled: hasStore,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("startDate", effectiveRange.start.toISOString());
+      params.set("endDate", effectiveRange.end.toISOString());
+      params.set("limit", "250");
+      const res = await fetch(`/api/stores/${storeId}/analytics/price-history?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load price history");
+      }
+      return res.json();
+    },
+  });
+
   const customerInsightsQuery = useQuery<CustomerInsightsResponse>({
     queryKey: [
       "/api/stores",
@@ -677,20 +756,29 @@ function AnalyticsContent() {
     currency: resolvedCurrency,
     totals: {
       revenue: makeMoney(0, resolvedCurrency),
-      cost: makeMoney(0, resolvedCurrency),
+      cogs: makeMoney(0, resolvedCurrency),
+      inventoryAdjustments: makeMoney(0, resolvedCurrency),
+      netCost: makeMoney(0, resolvedCurrency),
       profit: makeMoney(0, resolvedCurrency),
       refunds: makeMoney(0, resolvedCurrency),
       netRevenue: makeMoney(0, resolvedCurrency),
       refundCount: 0,
+      priceChangeCount: 0,
+      priceChangeDelta: makeMoney(0, resolvedCurrency),
     },
   } satisfies ProfitLossSummary;
   const displayRevenue = profitLossData.normalized?.revenue ?? profitLossData.totals.revenue;
-  const displayCost = profitLossData.normalized?.cost ?? profitLossData.totals.cost;
+  const displayCogs = profitLossData.normalized?.cogs ?? profitLossData.totals.cogs ?? makeMoney(0, resolvedCurrency);
+  const displayInventoryAdj = profitLossData.normalized?.inventoryAdjustments ?? profitLossData.totals.inventoryAdjustments ?? makeMoney(0, resolvedCurrency);
+  const displayNetCost = profitLossData.normalized?.netCost ?? profitLossData.totals.netCost ?? makeMoney(0, resolvedCurrency);
   const displayProfit = profitLossData.normalized?.profit ?? profitLossData.totals.profit;
   const displayRefunds = profitLossData.normalized?.refunds ?? profitLossData.totals.refunds ?? makeMoney(0, resolvedCurrency);
   const displayNetRevenue = profitLossData.normalized?.netRevenue ?? profitLossData.totals.netRevenue ?? makeMoney(displayRevenue.amount - displayRefunds.amount, displayRevenue.currency);
   const totalRefundCount = profitLossData.totals.refundCount ?? 0;
+  const priceChangeCount = profitLossData.totals.priceChangeCount ?? 0;
+  const priceChangeDeltaMoney = profitLossData.normalized?.priceChangeDelta ?? profitLossData.totals.priceChangeDelta ?? makeMoney(0, resolvedCurrency);
   const profitMargin = displayRevenue.amount > 0 ? (displayProfit.amount / displayRevenue.amount) * 100 : 0;
+  const displayCost = displayNetCost;
 
   const inventoryData: InventoryValueResponse =
     inventoryValueQuery.data ?? {
@@ -717,6 +805,56 @@ function AnalyticsContent() {
 
   const popularProducts = popularProductsQuery.data?.items ?? [];
   const alerts = alertsQuery.data ?? [];
+  const priceHistoryCurrency = priceHistoryQuery.data?.currency ?? resolvedCurrency;
+  const priceHistoryItems = useMemo(() => priceHistoryQuery.data?.items ?? [], [priceHistoryQuery.data]);
+  const [selectedPriceProductId, setSelectedPriceProductId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!priceHistoryItems.length) {
+      if (selectedPriceProductId) {
+        setSelectedPriceProductId(null);
+      }
+      return;
+    }
+    if (!selectedPriceProductId || !priceHistoryItems.some(item => item.productId === selectedPriceProductId)) {
+      setSelectedPriceProductId(priceHistoryItems[0].productId);
+    }
+  }, [priceHistoryItems, selectedPriceProductId]);
+
+  const selectedPriceHistory = useMemo(() => {
+    if (!priceHistoryItems.length) return null;
+    if (selectedPriceProductId) {
+      return priceHistoryItems.find(item => item.productId === selectedPriceProductId) ?? priceHistoryItems[0];
+    }
+    return priceHistoryItems[0];
+  }, [priceHistoryItems, selectedPriceProductId]);
+
+  const priceTrendPoints = useMemo(() => {
+    if (!selectedPriceHistory) return [];
+    let runningSale = parseNumericInput(selectedPriceHistory.product?.salePrice ?? null);
+    let runningCost = parseNumericInput(selectedPriceHistory.product?.costPrice ?? null);
+    return selectedPriceHistory.timeline.map((entry) => {
+      if (entry.kind === "price_change") {
+        if (entry.newSalePrice !== null) runningSale = entry.newSalePrice;
+        if (entry.newCost !== null) runningCost = entry.newCost;
+      } else if (entry.kind === "inventory_revaluation") {
+        if (entry.avgCostAfter !== null) runningCost = entry.avgCostAfter;
+      }
+      return {
+        date: entry.occurredAt,
+        salePrice: runningSale,
+        avgCost: runningCost,
+        kind: entry.kind,
+      };
+    });
+  }, [selectedPriceHistory]);
+
+  const priceHistoryEvents = useMemo(() => {
+    if (!selectedPriceHistory) return [];
+    return [...selectedPriceHistory.timeline].reverse().slice(0, 5);
+  }, [selectedPriceHistory]);
+
+  const latestPricePoint = priceTrendPoints.length > 0 ? priceTrendPoints[priceTrendPoints.length - 1] : null;
 
   const averageTransactionValue = currentOverview.transactions > 0
     ? makeMoney(currentOverview.revenue.amount / currentOverview.transactions, currentOverview.revenue.currency)
@@ -928,8 +1066,16 @@ function AnalyticsContent() {
                   <span className="font-semibold text-emerald-600">{formatCurrency(displayRevenue)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Costs</span>
-                  <span className="font-semibold text-red-500">{formatCurrency(displayCost)}</span>
+                  <span className="text-muted-foreground">COGS</span>
+                  <span className="font-semibold text-red-500">{formatCurrency(displayCogs)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Inventory Adjustments</span>
+                  <span className="font-semibold text-amber-600">{formatCurrency(displayInventoryAdj)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Net Cost</span>
+                  <span className="font-semibold text-slate-900">{formatCurrency(displayNetCost)}</span>
                 </div>
                 <div className="border-t pt-4">
                   <div className="flex items-center justify-between">
@@ -952,10 +1098,6 @@ function AnalyticsContent() {
             <CardContent>
               <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                 <div className="text-center">
-                  <p className="text-3xl font-semibold text-blue-600">{customerInsights.totalCustomers.toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground">Total Customers</p>
-                </div>
-                <div className="text-center">
                   <p className="text-3xl font-semibold text-emerald-600">{customerInsights.newCustomers.toLocaleString()}</p>
                   <p className="text-xs text-muted-foreground">New This Period</p>
                 </div>
@@ -966,6 +1108,142 @@ function AnalyticsContent() {
               </div>
             </CardContent>
           </Card>
+
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-start justify-between space-y-0">
+                  <div>
+                    <CardTitle>Price Change Summary</CardTitle>
+                    <p className="text-sm text-muted-foreground">Across the selected period</p>
+                  </div>
+                  <Tag className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <dl className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <dt className="text-muted-foreground">Changes</dt>
+                      <dd className="text-2xl font-semibold">{priceChangeCount.toLocaleString()}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Net Cost Delta</dt>
+                      <dd className={`text-2xl font-semibold ${priceChangeDeltaMoney.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                        {formatCurrency(priceChangeDeltaMoney)}
+                      </dd>
+                    </div>
+                  </dl>
+                  <dl className="grid grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <dt className="text-muted-foreground">COGS</dt>
+                      <dd className="font-semibold">{formatCurrency(displayCogs)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Inventory Adj.</dt>
+                      <dd className="font-semibold">{formatCurrency(displayInventoryAdj)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Net Cost</dt>
+                      <dd className="font-semibold">{formatCurrency(displayNetCost)}</dd>
+                    </div>
+                  </dl>
+                  <p className="text-xs text-muted-foreground">
+                    Latest snapshot: {latestPricePoint ? `${latestPricePoint.salePrice ?? "--"} sale / ${latestPricePoint.avgCost ?? "--"} avg cost` : "No captured data"}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="col-span-2">
+                <CardHeader className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <CardTitle>Price vs Cost Trend</CardTitle>
+                    {priceHistoryItems.length > 1 ? (
+                      <Select value={selectedPriceProductId ?? undefined} onValueChange={setSelectedPriceProductId}>
+                        <SelectTrigger className="w-[220px]">
+                          <SelectValue placeholder="Select product" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {priceHistoryItems.map((item) => (
+                            <SelectItem key={item.productId} value={item.productId}>
+                              {item.product?.name ?? "Unnamed SKU"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : null}
+                  </div>
+                  {selectedPriceHistory ? (
+                    <p className="text-sm text-muted-foreground">
+                      Tracking {selectedPriceHistory.product?.name ?? "current SKU"} in {priceHistoryCurrency}
+                    </p>
+                  ) : null}
+                </CardHeader>
+                <CardContent className="h-[320px]">
+                  {priceHistoryQuery.isLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading price history…</div>
+                  ) : priceTrendPoints.length > 1 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsLineChart data={priceTrendPoints}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" tickFormatter={(value) => new Date(value).toLocaleDateString()} />
+                        <YAxis tickFormatter={(value) => `${priceHistoryCurrency} ${Number(value).toFixed(2)}`} />
+                        <Tooltip
+                          formatter={(value: any, name: string) => [
+                            `${priceHistoryCurrency} ${Number(value ?? 0).toFixed(2)}`,
+                            name === "salePrice" ? "Sale Price" : "Avg Cost",
+                          ]}
+                          labelFormatter={(value) => formatDateTimeLabel(value)}
+                        />
+                        <Legend />
+                        <Line type="monotone" dataKey="salePrice" name="Sale Price" stroke="#3B82F6" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="avgCost" name="Avg Cost" stroke="#10B981" strokeWidth={2} dot={false} />
+                      </RechartsLineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                      {selectedPriceHistory ? "Not enough price events to chart" : "No price history captured for this range."}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent Price Events</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {priceHistoryEvents.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No recent price changes recorded.</p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {priceHistoryEvents.map((event, index) => (
+                        <li key={`${event.occurredAt}-${index}`} className="rounded-md border border-slate-100 p-3 text-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium capitalize">{event.kind.replace("_", " ")}</span>
+                            <span className="text-xs text-muted-foreground">{formatDateTimeLabel(event.occurredAt)}</span>
+                          </div>
+                          {event.kind === "price_change" ? (
+                            <p className="text-muted-foreground">
+                              Sale {event.oldSalePrice ?? "--"} → {event.newSalePrice ?? "--"} • Cost {event.oldCost ?? "--"} → {event.newCost ?? "--"}
+                            </p>
+                          ) : (
+                            <p className="text-muted-foreground">
+                              Inventory revaluation Δ {priceHistoryCurrency} {event.revaluationDelta?.toFixed(2) ?? "0.00"}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {priceHistoryItems.length === 0 && !priceHistoryQuery.isLoading ? (
+              <div className="rounded-md border border-dashed border-slate-200 p-6 text-sm text-muted-foreground">
+                No price change data within this time range. Update product costs/sale prices to start tracking trends.
+              </div>
+            ) : null}
+          </div>
         </TabsContent>
 
         <TabsContent value="sales-performance" className="space-y-6">

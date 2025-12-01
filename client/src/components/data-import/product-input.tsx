@@ -174,13 +174,15 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
   const createProductMutation = useMutation({
     mutationFn: async (payload: ProductFormData) => {
       const csrfToken = await getCsrfToken();
+      const parsedPrice = parseFloat(payload.price);
+      const parsedCost = payload.cost ? parseFloat(payload.cost) : undefined;
       const productPayload = {
         name: payload.name,
         sku: payload.sku,
         barcode: payload.barcode,
         description: payload.description,
-        price: parseFloat(payload.price),
-        cost: payload.cost ? parseFloat(payload.cost) : undefined,
+        price: parsedPrice,
+        cost: parsedCost,
         category: payload.category,
         brand: payload.brand,
       };
@@ -214,6 +216,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
           quantity: parseInt(payload.quantity, 10),
           minStockLevel: parseInt(payload.minStockLevel, 10),
           maxStockLevel: parseInt(payload.maxStockLevel, 10) || undefined,
+          costPrice: Number.isFinite(parsedCost ?? NaN) ? parsedCost : undefined,
+          salePrice: Number.isFinite(parsedPrice) ? parsedPrice : undefined,
         }),
       });
 

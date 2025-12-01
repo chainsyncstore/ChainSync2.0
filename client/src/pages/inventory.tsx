@@ -161,6 +161,8 @@ export default function Inventory() {
   const [editMinStock, setEditMinStock] = useState<string>("");
   const [editMaxStock, setEditMaxStock] = useState<string>("");
   const [deleteNotes, setDeleteNotes] = useState<string>("");
+  const [editCostPrice, setEditCostPrice] = useState<string>("");
+  const [editSalePrice, setEditSalePrice] = useState<string>("");
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [historyFilters, setHistoryFilters] = useState<{ actionType: string; startDate: string; endDate: string }>({
     actionType: "all",
@@ -470,6 +472,8 @@ export default function Inventory() {
     setEditMaxStock("");
     setDeleteNotes("");
     setIsDeleteMode(false);
+    setEditCostPrice("");
+    setEditSalePrice("");
   };
 
   const openEditModal = (item: InventoryWithProduct) => {
@@ -479,10 +483,14 @@ export default function Inventory() {
     setEditMaxStock(item.maxStockLevel != null ? String(item.maxStockLevel) : "");
     setDeleteNotes("");
     setIsDeleteMode(false);
+    const costValue = item.product?.costPrice ?? item.product?.cost ?? "";
+    const saleValue = item.product?.salePrice ?? item.product?.price ?? "";
+    setEditCostPrice(costValue ? String(costValue) : "");
+    setEditSalePrice(saleValue ? String(saleValue) : "");
   };
 
   const updateInventoryMutation = useMutation({
-    mutationFn: async (payload: { productId: string; storeId: string; quantity: number; minStockLevel: number; maxStockLevel?: number | null }) => {
+    mutationFn: async (payload: { productId: string; storeId: string; quantity: number; minStockLevel: number; maxStockLevel?: number | null; costPrice?: number; salePrice?: number }) => {
       const csrfToken = await getCsrfToken();
       const response = await fetch("/api/inventory", {
         method: "POST",
@@ -567,6 +575,8 @@ export default function Inventory() {
     const quantity = Number(editQuantity);
     const minStock = Number(editMinStock || 0);
     const maxStock = editMaxStock ? Number(editMaxStock) : undefined;
+    const costPriceValue = editCostPrice !== "" ? Number(editCostPrice) : undefined;
+    const salePriceValue = editSalePrice !== "" ? Number(editSalePrice) : undefined;
 
     if (Number.isNaN(quantity) || quantity < 0) {
       toast({ title: "Invalid quantity", description: "Quantity must be a non-negative number.", variant: "destructive" });
@@ -583,12 +593,24 @@ export default function Inventory() {
       return;
     }
 
+    if (costPriceValue != null && (Number.isNaN(costPriceValue) || costPriceValue < 0)) {
+      toast({ title: "Invalid cost", description: "Cost price must be zero or higher.", variant: "destructive" });
+      return;
+    }
+
+    if (salePriceValue != null && (Number.isNaN(salePriceValue) || salePriceValue < 0)) {
+      toast({ title: "Invalid selling price", description: "Selling price must be zero or higher.", variant: "destructive" });
+      return;
+    }
+
     void updateInventoryMutation.mutateAsync({
       productId: editingItem.productId,
       storeId,
       quantity,
       minStockLevel: minStock,
       maxStockLevel: maxStock,
+      costPrice: costPriceValue,
+      salePrice: salePriceValue,
     });
   };
 
@@ -625,7 +647,7 @@ export default function Inventory() {
       toast({ title: "No history to export", description: "Adjust filters or perform inventory updates to generate history." });
       return;
     }
-    const header = ["Date", "Product", "Action", "Source", "Delta", "Before", "After", "Notes"];
+    const header = ["Date", "Product", "Action", "Source", "Δ Qty", "Before → After", "Notes"];
     const rows = stockMovements.map((movement) => [
       new Date(movement.occurredAt).toLocaleString(),
       movement.productName ?? movement.productSku ?? movement.productId,
@@ -1194,6 +1216,33 @@ export default function Inventory() {
                     min={0}
                     value={editMaxStock}
                     onChange={(event) => setEditMaxStock(event.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="cost-price">Cost price (per unit)</Label>
+                  <Input
+                    id="cost-price"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={editCostPrice}
+                    onChange={(event) => setEditCostPrice(event.target.value)}
+                    placeholder="Leave blank to keep current cost"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="sale-price">Selling price</Label>
+                  <Input
+                    id="sale-price"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={editSalePrice}
+                    onChange={(event) => setEditSalePrice(event.target.value)}
+                    placeholder="Leave blank to keep current price"
                   />
                 </div>
               </div>

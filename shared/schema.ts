@@ -199,11 +199,68 @@ export const inventory = pgTable("inventory", {
   minStockLevel: integer("min_stock_level").default(10),
   maxStockLevel: integer("max_stock_level").default(100),
   lastRestocked: timestamp("last_restocked"),
+  avgCost: decimal("avg_cost", { precision: 12, scale: 4 }).notNull().default("0"),
+  totalCostValue: decimal("total_cost_value", { precision: 14, scale: 4 }).notNull().default("0"),
+  lastCostUpdate: timestamp("last_cost_update", { withTimezone: true }),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   storeIdIdx: index("inventory_store_id_idx").on(table.storeId),
   productIdIdx: index("inventory_product_id_idx").on(table.productId),
   storeProductUnique: uniqueIndex("inventory_store_product_unique").on(table.storeId, table.productId),
+}));
+
+export const inventoryCostLayers = pgTable("inventory_cost_layers", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  quantityRemaining: integer("quantity_remaining").notNull(),
+  unitCost: decimal("unit_cost", { precision: 12, scale: 4 }).notNull(),
+  source: varchar("source", { length: 64 }),
+  referenceId: uuid("reference_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  storeProductIdx: index("inventory_cost_layers_store_product_idx").on(table.storeId, table.productId, table.createdAt),
+}));
+
+export const priceChangeEvents = pgTable("price_change_events", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  orgId: uuid("org_id").references(() => organizations.id, { onDelete: "set null" }),
+  source: varchar("source", { length: 64 }),
+  referenceId: uuid("reference_id"),
+  oldCost: decimal("old_cost", { precision: 12, scale: 4 }),
+  newCost: decimal("new_cost", { precision: 12, scale: 4 }),
+  oldSalePrice: decimal("old_sale_price", { precision: 12, scale: 4 }),
+  newSalePrice: decimal("new_sale_price", { precision: 12, scale: 4 }),
+  metadata: jsonb("metadata"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  storeProductIdx: index("price_change_events_store_product_idx").on(table.storeId, table.productId, table.occurredAt),
+}));
+
+export const inventoryRevaluationEvents = pgTable("inventory_revaluation_events", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  source: varchar("source", { length: 64 }),
+  referenceId: uuid("reference_id"),
+  quantityBefore: integer("quantity_before").notNull(),
+  quantityAfter: integer("quantity_after").notNull(),
+  revaluedQuantity: integer("revalued_quantity"),
+  avgCostBefore: decimal("avg_cost_before", { precision: 12, scale: 4 }),
+  avgCostAfter: decimal("avg_cost_after", { precision: 12, scale: 4 }),
+  totalCostBefore: decimal("total_cost_before", { precision: 14, scale: 4 }),
+  totalCostAfter: decimal("total_cost_after", { precision: 14, scale: 4 }),
+  deltaValue: decimal("delta_value", { precision: 14, scale: 4 }),
+  metadata: jsonb("metadata"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  storeProductIdx: index("inventory_revaluation_events_store_product_idx").on(table.storeId, table.productId, table.occurredAt),
 }));
 
 export const importJobs = pgTable("import_jobs", {
@@ -260,6 +317,8 @@ export const transactionItems = pgTable("transaction_items", {
   quantity: integer("quantity").notNull(),
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
+  unitCost: decimal("unit_cost", { precision: 12, scale: 4 }).notNull().default("0"),
+  totalCost: decimal("total_cost", { precision: 14, scale: 4 }).notNull().default("0"),
 }, (table) => ({
   transactionIdIdx: index("transaction_items_transaction_id_idx").on(table.transactionId),
   productIdIdx: index("transaction_items_product_id_idx").on(table.productId),
@@ -852,16 +911,21 @@ export type Organization = typeof organizations.$inferSelect;
 export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
 
 export type Product = typeof products.$inferSelect;
-export type InsertProduct = z.infer<typeof insertProductSchema>;
+export type InsertProduct = typeof products.$inferInsert;
 
 export type Inventory = typeof inventory.$inferSelect;
-export type InsertInventory = z.infer<typeof insertInventorySchema>;
+export type InsertInventory = typeof inventory.$inferInsert;
 
 export type Transaction = typeof transactions.$inferSelect;
-export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
+export type InsertTransaction = typeof transactions.$inferInsert;
 
 export type TransactionItem = typeof transactionItems.$inferSelect;
-export type InsertTransactionItem = z.infer<typeof insertTransactionItemSchema>;
+export type InsertTransactionItem = typeof transactionItems.$inferInsert;
+
+export type PriceChangeEvent = typeof priceChangeEvents.$inferSelect;
+export type InventoryRevaluationEvent = typeof inventoryRevaluationEvents.$inferSelect;
+export type InsertPriceChangeEvent = typeof priceChangeEvents.$inferInsert;
+export type InsertInventoryRevaluationEvent = typeof inventoryRevaluationEvents.$inferInsert;
 
 // Notification types
 export type Notification = typeof notifications.$inferSelect;

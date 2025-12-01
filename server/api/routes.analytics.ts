@@ -2,7 +2,7 @@ import { and, eq, gte, lte, sql, inArray } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import type { CurrencyCode, Money } from '@shared/lib/currency';
-import { organizations, legacySales as sales, legacyReturns as returns, users, userRoles, stores, scheduledReports } from '@shared/schema';
+import { organizations, legacySales as sales, legacyReturns as returns, users, userRoles, stores, scheduledReports, products } from '@shared/schema';
 import { db } from '../db';
 import { sendEmail } from '../email';
 import { getDefaultRates, convertAmount, StaticCurrencyRateProvider } from '../lib/currency';
@@ -704,28 +704,38 @@ export async function registerAnalyticsRoutes(app: Express) {
     const profitLoss = await storage.getStoreProfitLoss(storeId, startDate, endDate);
 
     const revenueMoney = toMoney(profitLoss.revenue, storeCurrency);
-    const costMoney = toMoney(profitLoss.cost, storeCurrency);
+    const cogsMoney = toMoney(profitLoss.cogsFromSales, storeCurrency);
+    const inventoryAdjMoney = toMoney(profitLoss.inventoryAdjustments, storeCurrency);
+    const netCostMoney = toMoney(profitLoss.netCost, storeCurrency);
     const refundMoney = toMoney(profitLoss.refundAmount, storeCurrency);
     const netRevenueMoney = toMoney(profitLoss.revenue - profitLoss.refundAmount, storeCurrency);
     const profitMoney = toMoney(profitLoss.profit, storeCurrency);
+    const priceChangeDeltaMoney = toMoney(profitLoss.priceChangeDelta, storeCurrency);
 
     const totals = {
       revenue: revenueMoney,
-      cost: costMoney,
+      cogs: cogsMoney,
+      inventoryAdjustments: inventoryAdjMoney,
+      netCost: netCostMoney,
       profit: profitMoney,
       refunds: refundMoney,
       netRevenue: netRevenueMoney,
       refundCount: profitLoss.refundCount,
+      priceChangeCount: profitLoss.priceChangeCount,
+      priceChangeDelta: priceChangeDeltaMoney,
     };
 
     const normalized = normalizeCurrency
       ? {
           baseCurrency,
           revenue: await convertForOrg(revenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          cost: await convertForOrg(costMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          cogs: await convertForOrg(cogsMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          inventoryAdjustments: await convertForOrg(inventoryAdjMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          netCost: await convertForOrg(netCostMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           profit: await convertForOrg(profitMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           refunds: await convertForOrg(refundMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           netRevenue: await convertForOrg(netRevenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          priceChangeDelta: await convertForOrg(priceChangeDeltaMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
         }
       : undefined;
 
@@ -774,6 +784,93 @@ export async function registerAnalyticsRoutes(app: Express) {
       total: totalValue,
       normalized,
       itemCount: Number(data.itemCount ?? 0),
+    });
+  });
+
+  app.get('/api/stores/:storeId/analytics/price-history', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    const storeId = String(req.params.storeId || '').trim();
+    if (!storeId) return res.status(400).json({ error: 'storeId is required' });
+
+    const { orgId, allowedStoreIds, isAdmin } = await getScope(req);
+    if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId, currency: stores.currency }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+    if (orgId && store.orgId !== orgId && !isAdmin) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const startDateRaw = String((req.query as any)?.startDate || '').trim();
+    const endDateRaw = String((req.query as any)?.endDate || '').trim();
+    const limitRaw = String((req.query as any)?.limit || '').trim();
+    const productIdsParam = (req.query as any)?.productIds ?? (req.query as any)?.product_ids ?? (req.query as any)?.productId;
+
+    const startDate = startDateRaw ? new Date(startDateRaw) : undefined;
+    const endDate = endDateRaw ? new Date(endDateRaw) : undefined;
+    if ((startDate && Number.isNaN(startDate.getTime())) || (endDate && Number.isNaN(endDate.getTime()))) {
+      return res.status(400).json({ error: 'Invalid date range supplied' });
+    }
+
+    const limit = Number.isNaN(Number(limitRaw)) ? 200 : Math.min(Math.max(parseInt(limitRaw || '200', 10), 1), 500);
+
+    const parsedProductIds = typeof productIdsParam === 'string'
+      ? productIdsParam.split(',').map((id: string) => id.trim()).filter(Boolean)
+      : Array.isArray(productIdsParam)
+        ? (productIdsParam as string[]).map((id) => String(id).trim()).filter(Boolean)
+        : undefined;
+
+    const storeCurrency = coerceCurrency(store.currency ?? 'NGN', 'NGN');
+
+    const priceHistory = await storage.getPriceHistoryForProducts({
+      storeId,
+      productIds: parsedProductIds && parsedProductIds.length > 0 ? parsedProductIds : undefined,
+      startDate,
+      endDate,
+      limit,
+    });
+
+    const productIds = priceHistory.map(item => item.productId);
+    const uniqueProductIds = Array.from(new Set(productIds));
+
+    let productMetadata: Record<string, { name: string; sku: string | null; barcode: string | null; salePrice: string | null; costPrice: string | null } | undefined> = {};
+    if (uniqueProductIds.length) {
+      const productRows = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          sku: products.sku,
+          barcode: products.barcode,
+          salePrice: products.salePrice,
+          costPrice: products.costPrice,
+        })
+        .from(products)
+        .where(inArray(products.id, uniqueProductIds));
+      productMetadata = productRows.reduce((acc, row) => {
+        acc[row.id] = {
+          name: row.name,
+          sku: row.sku,
+          barcode: row.barcode,
+          salePrice: row.salePrice,
+          costPrice: row.costPrice,
+        };
+        return acc;
+      }, {} as Record<string, { name: string; sku: string | null; barcode: string | null; salePrice: string | null; costPrice: string | null }>);
+    }
+
+    res.json({
+      currency: storeCurrency,
+      items: priceHistory.map(entry => ({
+        productId: entry.productId,
+        product: productMetadata[entry.productId] ?? null,
+        timeline: entry.priceTimeline,
+      })),
+      period: {
+        startDate: startDate?.toISOString() ?? null,
+        endDate: endDate?.toISOString() ?? null,
+      },
+      limit,
     });
   });
 
