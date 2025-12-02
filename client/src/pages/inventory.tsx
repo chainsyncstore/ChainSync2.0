@@ -210,7 +210,7 @@ export default function Inventory() {
   const [selectedBrand, setSelectedBrand] = useState<string>("all");
   const [stockFilter, setStockFilter] = useState<string>("all");
   const [editingItem, setEditingItem] = useState<InventoryWithProduct | null>(null);
-  const [editQuantity, setEditQuantity] = useState<string>("");
+  const [quantityToAdd, setQuantityToAdd] = useState<string>("");
   const [editMinStock, setEditMinStock] = useState<string>("");
   const [editMaxStock, setEditMaxStock] = useState<string>("");
   const [deleteNotes, setDeleteNotes] = useState<string>("");
@@ -532,7 +532,7 @@ export default function Inventory() {
 
   const resetEditState = () => {
     setEditingItem(null);
-    setEditQuantity("");
+    setQuantityToAdd("");
     setEditMinStock("");
     setEditMaxStock("");
     setDeleteNotes("");
@@ -594,7 +594,7 @@ export default function Inventory() {
 
   const openEditModal = (item: InventoryWithProduct) => {
     setEditingItem(item);
-    setEditQuantity(String(item.quantity ?? ""));
+    setQuantityToAdd(""); // Start with empty - user enters quantity to add
     setEditMinStock(item.minStockLevel != null ? String(item.minStockLevel) : "");
     setEditMaxStock(item.maxStockLevel != null ? String(item.maxStockLevel) : "");
     setDeleteNotes("");
@@ -772,11 +772,11 @@ export default function Inventory() {
     });
   };
 
-  // Check if quantity is being increased (for cost price edit restriction)
+  // Quantity to add logic - only positive values allowed for adding stock
   const originalQuantity = editingItem?.quantity ?? 0;
-  const newQuantity = Number(editQuantity) || 0;
-  const isQuantityIncreasing = newQuantity > originalQuantity;
-  const quantityDelta = newQuantity - originalQuantity;
+  const addedQuantity = Math.max(0, Number(quantityToAdd) || 0);
+  const newQuantity = originalQuantity + addedQuantity;
+  const isQuantityIncreasing = addedQuantity > 0;
 
   const handleSubmitEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -787,13 +787,12 @@ export default function Inventory() {
       return;
     }
 
-    const quantity = Number(editQuantity);
     const minStock = Number(editMinStock || 0);
     const maxStock = editMaxStock ? Number(editMaxStock) : undefined;
     const costPriceValue = editCostPrice !== "" ? Number(editCostPrice) : undefined;
     const salePriceValue = editSalePrice !== "" ? Number(editSalePrice) : undefined;
 
-    if (Number.isNaN(quantity) || quantity < 0) {
+    if (Number.isNaN(newQuantity) || newQuantity < 0) {
       toast({ title: "Invalid quantity", description: "Quantity must be a non-negative number.", variant: "destructive" });
       return;
     }
@@ -821,7 +820,7 @@ export default function Inventory() {
     void updateInventoryMutation.mutateAsync({
       productId: editingItem.productId,
       storeId,
-      quantity,
+      quantity: newQuantity,
       minStockLevel: minStock,
       maxStockLevel: maxStock,
       costPrice: costPriceValue,
@@ -1437,21 +1436,36 @@ export default function Inventory() {
           {/* Edit Mode */}
           {!isDeleteMode && !isRemovalMode ? (
             <form className="space-y-4" onSubmit={handleSubmitEdit}>
-              <div>
-                <Label htmlFor="quantity">Quantity on hand</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  min={0}
-                  value={editQuantity}
-                  onChange={(event) => setEditQuantity(event.target.value)}
-                  required
-                />
-                {quantityDelta !== 0 && (
-                  <p className={`text-xs mt-1 ${quantityDelta > 0 ? "text-green-600" : "text-red-600"}`}>
-                    {quantityDelta > 0 ? `+${quantityDelta} units (adding stock)` : `${quantityDelta} units (reducing stock)`}
+              <div className="space-y-3">
+                <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-md">
+                  <div>
+                    <p className="text-xs text-slate-500">Current stock</p>
+                    <p className="text-lg font-semibold">{originalQuantity} units</p>
+                  </div>
+                  {addedQuantity > 0 && (
+                    <>
+                      <span className="text-slate-400">→</span>
+                      <div>
+                        <p className="text-xs text-green-600">New total</p>
+                        <p className="text-lg font-semibold text-green-600">{newQuantity} units</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div>
+                  <Label htmlFor="quantity-to-add">Quantity to add</Label>
+                  <Input
+                    id="quantity-to-add"
+                    type="number"
+                    min={0}
+                    value={quantityToAdd}
+                    onChange={(event) => setQuantityToAdd(event.target.value)}
+                    placeholder="Enter units to add (0 to skip)"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    To reduce stock, use the &ldquo;Remove Stock&rdquo; button below for tracked removals.
                   </p>
-                )}
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
