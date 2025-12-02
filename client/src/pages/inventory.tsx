@@ -1565,7 +1565,6 @@ export default function Inventory() {
                   <Label htmlFor="cost-price" className="flex items-center gap-1">
                     <DollarSign className="w-3 h-3" />
                     Cost price (per unit)
-                    <span className="text-xs text-amber-600 font-normal">(only affects new imports)</span>
                   </Label>
                   <Input
                     id="cost-price"
@@ -1577,6 +1576,9 @@ export default function Inventory() {
                     placeholder={isQuantityIncreasing ? "Cost for new units" : "Leave blank (no new units)"}
                     disabled={!isQuantityIncreasing && editCostPrice === ""}
                   />
+                  <p className="text-xs text-slate-500 mt-1">
+                    (only affects new imports)
+                  </p>
                 </div>
                 <div>
                   <Label htmlFor="sale-price">Selling price</Label>
