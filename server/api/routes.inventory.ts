@@ -39,7 +39,8 @@ const buildCostUpdatePayload = (costPrice?: number | null, salePrice?: number | 
 export async function registerInventoryRoutes(app: Express) {
   // Product catalog endpoints expected by client analytics/alerts pages
   app.get('/api/products', requireAuth, async (_req: Request, res: Response) => {
-    const rows = await db.select().from(products).limit(1000);
+    // Only return active products
+    const rows = await db.select().from(products).where(eq(products.isActive, true)).limit(1000);
     res.json(rows);
   });
 
@@ -416,6 +417,9 @@ export async function registerInventoryRoutes(app: Express) {
               category: (item.product as any)?.category ?? null,
               brand: (item.product as any)?.brand ?? null,
               price: (item.product as any)?.price ?? null,
+              cost: (item.product as any)?.cost ?? null,
+              costPrice: (item.product as any)?.costPrice ?? (item.product as any)?.cost ?? null,
+              salePrice: (item.product as any)?.salePrice ?? (item.product as any)?.price ?? null,
             }
           : null,
       })),

@@ -2660,6 +2660,27 @@ export class DatabaseStorage implements IStorage {
         .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)));
     }
     await this.syncLowStockAlertState(storeId, productId);
+    
+    // Check if product has any remaining inventory records across all stores
+    // If not, mark the product as inactive to hide from POS, exports, and imports
+    const remainingInventory = this.isTestEnv
+      ? Array.from(this.mem.inventory.values()).filter((inv: any) => inv.productId === productId)
+      : await db.select({ id: inventory.id }).from(inventory).where(eq(inventory.productId, productId)).limit(1);
+    
+    if (remainingInventory.length === 0) {
+      // No inventory records remain - mark product as inactive
+      if (this.isTestEnv) {
+        const product = this.mem.products.get(productId);
+        if (product) {
+          this.mem.products.set(productId, { ...product, isActive: false });
+        }
+      } else {
+        await db
+          .update(products)
+          .set({ isActive: false, updatedAt: new Date() } as any)
+          .where(eq(products.id, productId));
+      }
+    }
   }
 
   async removeStock(
@@ -3870,8 +3891,10 @@ export class DatabaseStorage implements IStorage {
   // Export Methods
   async exportProducts(_storeId: string, format: string): Promise<any> {
     void _storeId;
+    // Only export active products
     const productData = await db.select()
       .from(products)
+      .where(eq(products.isActive, true))
       .orderBy(asc(products.name));
 
     if (format === "csv") {

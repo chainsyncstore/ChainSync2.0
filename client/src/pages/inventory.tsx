@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers, TrendingDown, TrendingUp, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -217,10 +217,15 @@ export default function Inventory() {
   const [editCostPrice, setEditCostPrice] = useState<string>("");
   const [editSalePrice, setEditSalePrice] = useState<string>("");
   const [isDeleteMode, setIsDeleteMode] = useState(false);
-  const [historyFilters, setHistoryFilters] = useState<{ actionType: string; startDate: string; endDate: string }>({
-    actionType: "all",
-    startDate: "",
-    endDate: "",
+  // Default history filters to last 7 days
+  const [historyFilters, setHistoryFilters] = useState<{ actionType: string; startDate: string; endDate: string }>(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return {
+      actionType: "all",
+      startDate: sevenDaysAgo.toISOString().split("T")[0],
+      endDate: now.toISOString().split("T")[0],
+    };
   });
   const [historyProduct, setHistoryProduct] = useState<InventoryWithProduct | null>(null);
   const [selectedOrgCurrency, setSelectedOrgCurrency] = useState<string | null>(null);
@@ -437,8 +442,10 @@ export default function Inventory() {
   // Calculate total inventory value at COST (not sale price) for accurate financial reporting
   const totalStockValue = useMemo(
     () => filteredInventory.reduce((sum, item) => {
-      // Use cost price if available, fall back to 0 if no cost is set
-      const unitCost = item.product?.costPrice ? parseFloat(String(item.product.costPrice)) : 0;
+      // Use cost price if available, fall back to cost, then to 0 if no cost is set
+      const productAny = item.product as Record<string, unknown> | null;
+      const costPrice = productAny?.costPrice ?? productAny?.cost ?? null;
+      const unitCost = costPrice ? parseFloat(String(costPrice)) : 0;
       return sum + item.quantity * unitCost;
     }, 0),
     [filteredInventory],
@@ -564,35 +571,54 @@ export default function Inventory() {
     },
   });
 
-  // Check margin when sale price changes
-  const checkMargin = async (proposedPrice: number) => {
+  // Debounced margin check for better performance
+  const marginCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const checkMargin = useCallback((proposedPrice: number) => {
+    // Clear any pending check
+    if (marginCheckTimeoutRef.current) {
+      clearTimeout(marginCheckTimeoutRef.current);
+    }
+
     if (!editingItem || !storeId || proposedPrice <= 0) {
       setShowMarginWarning(false);
       setMarginAnalysis(null);
       return;
     }
 
-    try {
-      const csrfToken = await getCsrfToken();
-      const response = await fetch(`/api/inventory/${editingItem.productId}/${storeId}/analyze-margin`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-        },
-        body: JSON.stringify({ proposedSalePrice: proposedPrice }),
-      });
+    // Debounce margin check to reduce API calls during typing
+    marginCheckTimeoutRef.current = setTimeout(async () => {
+      try {
+        const csrfToken = await getCsrfToken();
+        const response = await fetch(`/api/inventory/${editingItem.productId}/${storeId}/analyze-margin`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken,
+          },
+          body: JSON.stringify({ proposedSalePrice: proposedPrice }),
+        });
 
-      if (response.ok) {
-        const analysis = await response.json() as MarginAnalysis;
-        setMarginAnalysis(analysis);
-        setShowMarginWarning(analysis.layersAtLoss > 0);
+        if (response.ok) {
+          const analysis = await response.json() as MarginAnalysis;
+          setMarginAnalysis(analysis);
+          setShowMarginWarning(analysis.layersAtLoss > 0);
+        }
+      } catch (error) {
+        console.error("Failed to analyze margin", error);
       }
-    } catch (error) {
-      console.error("Failed to analyze margin", error);
-    }
-  };
+    }, 400); // 400ms debounce delay
+  }, [editingItem, storeId]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (marginCheckTimeoutRef.current) {
+        clearTimeout(marginCheckTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const openEditModal = (item: InventoryWithProduct) => {
     setEditingItem(item);
@@ -631,7 +657,10 @@ export default function Inventory() {
       return response.json();
     },
     onSuccess: () => {
+      // Invalidate inventory and related queries for real-time updates
       void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "inventory"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "stock-movements"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       toast({
         title: "Inventory updated",
         description: "The inventory item was successfully updated.",
@@ -668,7 +697,11 @@ export default function Inventory() {
       return response.json();
     },
     onSuccess: () => {
+      // Invalidate inventory, products, and stock movements for real-time updates
       void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "inventory"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "stock-movements"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       toast({
         title: "Inventory removed",
         description: "The inventory item was removed from the store.",
@@ -719,7 +752,9 @@ export default function Inventory() {
       return response.json();
     },
     onSuccess: (data) => {
+      // Invalidate inventory and stock movements for real-time updates
       void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "inventory"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "stock-movements"] });
       const lossText = data.lossAmount > 0 ? ` Loss recorded: ${formatFlexibleCurrency(data.lossAmount, currency)}.` : "";
       const refundText = data.refundAmount > 0 ? ` Refund: ${formatFlexibleCurrency(data.refundAmount, currency)}.` : "";
       toast({
@@ -855,7 +890,14 @@ export default function Inventory() {
   const stockMovements = stockMovementsResponse?.data ?? [];
 
   const resetHistoryFilters = () => {
-    setHistoryFilters({ actionType: "all", startDate: "", endDate: "" });
+    // Reset to default last 7 days
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    setHistoryFilters({
+      actionType: "all",
+      startDate: sevenDaysAgo.toISOString().split("T")[0],
+      endDate: now.toISOString().split("T")[0],
+    });
   };
 
   const handleExportHistory = () => {
@@ -1262,7 +1304,9 @@ export default function Inventory() {
                             <th className="text-right p-3 sm:p-4 font-medium">Current Stock</th>
                             <th className="text-right p-3 sm:p-4 font-medium hidden lg:table-cell">Min Level</th>
                             <th className="text-right p-3 sm:p-4 font-medium hidden lg:table-cell">Max Level</th>
-                            <th className="text-right p-3 sm:p-4 font-medium hidden md:table-cell">Value</th>
+                            <th className="text-right p-3 sm:p-4 font-medium hidden xl:table-cell">Cost Price</th>
+                            <th className="text-right p-3 sm:p-4 font-medium hidden xl:table-cell">Selling Price</th>
+                            <th className="text-right p-3 sm:p-4 font-medium hidden md:table-cell">Stock Value</th>
                             <th className="text-center p-3 sm:p-4 font-medium">Status</th>
                             <th className="text-center p-3 sm:p-4 font-medium">Actions</th>
                           </tr>
@@ -1270,7 +1314,7 @@ export default function Inventory() {
                         <tbody>
                           {filteredInventory.length === 0 ? (
                             <tr>
-                              <td colSpan={8} className="p-6 text-center text-slate-500">
+                              <td colSpan={10} className="p-6 text-center text-slate-500">
                                 No inventory items match your filters.
                               </td>
                             </tr>
@@ -1300,12 +1344,32 @@ export default function Inventory() {
                                 <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
                                   <span className="text-sm text-slate-600">{item.maxStockLevel ?? "-"}</span>
                                 </td>
+                                <td className="p-3 sm:p-4 text-right hidden xl:table-cell">
+                                  <span className="text-sm text-slate-600">
+                                    {(() => {
+                                      const productAny = item.product as Record<string, unknown> | null;
+                                      const costPrice = productAny?.costPrice ?? productAny?.cost ?? null;
+                                      return costPrice ? formatFlexibleCurrency(parseFloat(String(costPrice)), currency) : "-";
+                                    })()}
+                                  </span>
+                                </td>
+                                <td className="p-3 sm:p-4 text-right hidden xl:table-cell">
+                                  <span className="text-sm text-slate-600">
+                                    {(() => {
+                                      const productAny = item.product as Record<string, unknown> | null;
+                                      const salePrice = productAny?.salePrice ?? productAny?.price ?? null;
+                                      return salePrice ? formatFlexibleCurrency(parseFloat(String(salePrice)), currency) : "-";
+                                    })()}
+                                  </span>
+                                </td>
                                 <td className="p-3 sm:p-4 text-right hidden md:table-cell">
                                   <span className="font-medium text-slate-800">
-                                    {formatFlexibleCurrency(
-                                      item.quantity * (item.product?.price ? parseFloat(String(item.product.price)) : item.formattedPrice ?? 0),
-                                      currency,
-                                    )}
+                                    {(() => {
+                                      const productAny = item.product as Record<string, unknown> | null;
+                                      const costPrice = productAny?.costPrice ?? productAny?.cost ?? null;
+                                      const unitCost = costPrice ? parseFloat(String(costPrice)) : 0;
+                                      return formatFlexibleCurrency(item.quantity * unitCost, currency);
+                                    })()}
                                   </span>
                                 </td>
                                 <td className="p-3 sm:p-4 text-center">
