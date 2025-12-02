@@ -82,21 +82,52 @@ export async function registerRoutes(app: Express) {
     });
   }
 
-  // Final API 404 handler for unmatched routes (all methods)
-  app.all('/api/*', (req, res) => {
-    return res.status(404).json({
-      error: 'API endpoint not found',
-      path: req.path,
-      message: 'The requested API endpoint could not be found'
-    });
-  });
-
-  // OpenAI chat endpoint (ensure available in API router path)
+  // OpenAI chat endpoint (must be before 404 catch-all)
   const openaiService = process.env.NODE_ENV === 'test' ? (null as unknown as OpenAIService) : new OpenAIService();
-  app.post('/api/openai/chat', async (req, res) => {
+  const { requireAuth } = await import('../middleware/authz');
+  const { storage } = await import('../storage');
+  const { userRoles } = await import('../../shared/schema');
+  const { eq: eqOp } = await import('drizzle-orm');
+  const { db: dbInstance } = await import('../db');
+  
+  app.post('/api/openai/chat', requireAuth, async (req, res) => {
     try {
-      const { message, storeId } = req.body || {};
-      const openaiResponse = await openaiService.processChatMessage(message, storeId);
+      const { message, storeId, conversationHistory } = req.body || {};
+      const userId = req.session?.userId as string | undefined;
+      
+      // Build user context for role-based scoping
+      let userContext: import('../openai/service').ChatUserContext | undefined;
+      if (userId) {
+        try {
+          const user = await storage.getUser(userId) as any;
+          if (user) {
+            // Determine role from user record or roles table
+            let role: 'admin' | 'manager' | 'cashier' = 'cashier';
+            if (user.isAdmin) {
+              role = 'admin';
+            } else {
+              const roles = await dbInstance.select().from(userRoles).where(eqOp(userRoles.userId, userId));
+              const hasManager = roles.some(r => String(r.role).toUpperCase() === 'MANAGER');
+              if (hasManager) role = 'manager';
+            }
+            
+            userContext = {
+              userId,
+              userName: user.firstName ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}` : user.email,
+              role,
+              orgId: user.orgId || undefined,
+              storeId: user.storeId || undefined,
+            };
+          }
+        } catch (err) {
+          logger.warn('Failed to build user context for AI chat', { userId, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      
+      // Parse conversation history if provided
+      const history = Array.isArray(conversationHistory) ? conversationHistory : undefined;
+      
+      const openaiResponse = await openaiService.processChatMessage(message, storeId, userContext, history);
       res.json({
         fulfillmentText: openaiResponse.text,
         payload: openaiResponse.payload,
@@ -110,7 +141,7 @@ export async function registerRoutes(app: Express) {
       });
     }
   });
-  
+
   // Phase 8: Enhanced Observability Routes (best-effort)
   try {
     const { registerObservabilityRoutes } = await import('./routes.observability');
@@ -140,8 +171,18 @@ export async function registerRoutes(app: Express) {
       error: error instanceof Error ? error.message : String(error)
     });
   }
+
   app.get('/api/billing/plans', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // Final API 404 handler for unmatched routes (must be last API route)
+  app.all('/api/*', (req, res) => {
+    return res.status(404).json({
+      error: 'API endpoint not found',
+      path: req.path,
+      message: 'The requested API endpoint could not be found'
+    });
   });
 
   const server = createServer(app);

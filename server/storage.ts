@@ -4326,8 +4326,8 @@ export class DatabaseStorage implements IStorage {
     const refundAmount = parseFloat(String(refundRow?.refundAmount || "0"));
     const refundCount = parseInt(String(refundRow?.refundCount || "0"));
     const netRevenue = revenue - refundAmount;
-    // Adjust profit calculation to account for manufacturer refunds (they reduce losses)
-    const adjustedProfit = (netRevenue - netCost) + manufacturerRefunds;
+    // Adjust profit calculation: subtract stock removal losses, add manufacturer refunds (they offset losses)
+    const adjustedProfit = (netRevenue - netCost) - stockRemovalLoss + manufacturerRefunds;
     const priceChangeCount = parseInt(String(priceChangeRow?.changeCount || "0"));
     const priceChangeDelta = parseFloat(String(priceChangeRow?.deltaValue || "0"));
 

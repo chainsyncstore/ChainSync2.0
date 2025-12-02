@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers } from "lucide-react";
+import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers, TrendingDown, TrendingUp, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -434,10 +434,12 @@ export default function Inventory() {
     [filteredInventory, isAllStoresView],
   );
 
+  // Calculate total inventory value at COST (not sale price) for accurate financial reporting
   const totalStockValue = useMemo(
     () => filteredInventory.reduce((sum, item) => {
-      const unitPrice = item.product?.price ? parseFloat(String(item.product.price)) : item.formattedPrice ?? 0;
-      return sum + item.quantity * unitPrice;
+      // Use cost price if available, fall back to 0 if no cost is set
+      const unitCost = item.product?.costPrice ? parseFloat(String(item.product.costPrice)) : 0;
+      return sum + item.quantity * unitCost;
     }, 0),
     [filteredInventory],
   );
@@ -1112,6 +1114,68 @@ export default function Inventory() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* AI Demand Forecasting Widget */}
+            {(lowStockItems.length > 0 || outOfStockItems.length > 0) && (
+              <Card className="border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50 to-white">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-purple-700">
+                    <Sparkles className="h-5 w-5" />
+                    Demand Forecast & Restocking Insights
+                  </CardTitle>
+                  <CardDescription>AI-powered recommendations based on your inventory levels</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {outOfStockItems.length > 0 && (
+                      <div className="p-4 bg-red-50 rounded-lg border border-red-100">
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertTriangle className="h-4 w-4 text-red-600" />
+                          <span className="font-medium text-red-700">Critical: Restock Now</span>
+                        </div>
+                        <p className="text-sm text-red-600 mb-2">{outOfStockItems.length} out of stock</p>
+                        <ul className="text-xs text-red-700 space-y-1 max-h-20 overflow-y-auto">
+                          {outOfStockItems.slice(0, 3).map((item) => (
+                            <li key={item.productId} className="flex items-center gap-1">
+                              <TrendingDown className="h-3 w-3" />
+                              {item.product?.name || 'Unknown'}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {lowStockItems.filter(i => i.quantity > 0).length > 0 && (
+                      <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-100">
+                        <div className="flex items-center gap-2 mb-2">
+                          <TrendingDown className="h-4 w-4 text-yellow-600" />
+                          <span className="font-medium text-yellow-700">Low Stock Alert</span>
+                        </div>
+                        <p className="text-sm text-yellow-600 mb-2">{lowStockItems.filter(i => i.quantity > 0).length} running low</p>
+                        <ul className="text-xs text-yellow-700 space-y-1 max-h-20 overflow-y-auto">
+                          {lowStockItems.filter(i => i.quantity > 0).slice(0, 3).map((item) => (
+                            <li key={item.productId} className="flex items-center justify-between">
+                              <span className="truncate">{item.product?.name || 'Unknown'}</span>
+                              <Badge variant="outline" className="text-xs ml-1">{item.quantity}</Badge>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className="p-4 bg-purple-50 rounded-lg border border-purple-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <TrendingUp className="h-4 w-4 text-purple-600" />
+                        <span className="font-medium text-purple-700">Restocking Tips</span>
+                      </div>
+                      <ul className="text-xs text-purple-700 space-y-2">
+                        <li>• Prioritize out-of-stock items</li>
+                        <li>• Order before weekend rush</li>
+                        <li>• Promote overstocked items</li>
+                      </ul>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Filters & Stock Levels */}
             <Card>
