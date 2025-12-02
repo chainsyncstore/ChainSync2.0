@@ -4256,6 +4256,7 @@ export class DatabaseStorage implements IStorage {
       )
     );
 
+    // Get inventory adjustments EXCLUDING stock removal events (those are handled separately)
     const [revaluationRow] = await db.select({
       deltaValue: sql`COALESCE(SUM(${inventoryRevaluationEvents.deltaValue}), 0)`,
     })
@@ -4265,6 +4266,7 @@ export class DatabaseStorage implements IStorage {
         eq(inventoryRevaluationEvents.storeId, storeId),
         gte(inventoryRevaluationEvents.occurredAt, startDate),
         lt(inventoryRevaluationEvents.occurredAt, endDate),
+        sql`${inventoryRevaluationEvents.source} NOT LIKE 'stock_removal_%'`
       )
     );
 

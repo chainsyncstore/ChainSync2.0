@@ -419,10 +419,10 @@ export class AdvancedAnalyticsService {
       category: 'inventory',
       priority: 'medium',
       title: 'Inventory Optimization',
-      description: 'Several slow-moving items are taking up valuable shelf space and capital.',
+      description: 'Several slow-moving items are taking up valuable shelf space and capital. Review inventory levels and consider clearance sales for slow movers.',
       impact: 'negative',
       confidence: 0.75,
-      actionable: true,
+      actionable: false,
       recommendedActions: [
         'Run clearance sales for slow movers',
         'Reduce ordering quantities',

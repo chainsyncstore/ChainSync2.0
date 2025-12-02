@@ -1238,10 +1238,21 @@ function AnalyticsContent() {
                     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading price history…</div>
                   ) : priceTrendPoints.length > 1 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <RechartsLineChart data={priceTrendPoints}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tickFormatter={(value) => new Date(value).toLocaleDateString()} />
-                        <YAxis tickFormatter={(value) => `${priceHistoryCurrency} ${Number(value).toFixed(2)}`} />
+                      <RechartsLineChart data={priceTrendPoints} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis 
+                          dataKey="date" 
+                          tickFormatter={(value) => new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} 
+                          tick={{ fontSize: 11 }}
+                          tickMargin={8}
+                        />
+                        <YAxis 
+                          tickFormatter={(value) => `${Number(value).toFixed(0)}`}
+                          tick={{ fontSize: 11 }}
+                          tickCount={5}
+                          width={50}
+                          domain={['auto', 'auto']}
+                        />
                         <Tooltip
                           formatter={(value: any, name: string) => [
                             `${priceHistoryCurrency} ${Number(value ?? 0).toFixed(2)}`,
@@ -1275,15 +1286,18 @@ function AnalyticsContent() {
                       {priceHistoryEvents.map((event, index) => (
                         <li key={`${event.occurredAt}-${index}`} className="rounded-md border border-slate-100 p-3 text-sm">
                           <div className="flex items-center justify-between">
-                            <span className="font-medium capitalize">{event.kind.replace("_", " ")}</span>
+                            <div>
+                              <span className="font-medium">{selectedPriceHistory?.product?.name ?? "Unknown Product"}</span>
+                              <span className="ml-2 text-xs text-muted-foreground capitalize">({event.kind.replace("_", " ")})</span>
+                            </div>
                             <span className="text-xs text-muted-foreground">{formatDateTimeLabel(event.occurredAt)}</span>
                           </div>
                           {event.kind === "price_change" ? (
-                            <p className="text-muted-foreground">
-                              Sale {event.oldSalePrice ?? "--"} → {event.newSalePrice ?? "--"} • Cost {event.oldCost ?? "--"} → {event.newCost ?? "--"}
+                            <p className="text-muted-foreground text-xs mt-1">
+                              Sale: {event.oldSalePrice ?? "--"} → {event.newSalePrice ?? "--"} • Cost: {event.oldCost ?? "--"} → {event.newCost ?? "--"}
                             </p>
                           ) : (
-                            <p className="text-muted-foreground">
+                            <p className="text-muted-foreground text-xs mt-1">
                               Inventory revaluation Δ {priceHistoryCurrency} {event.revaluationDelta?.toFixed(2) ?? "0.00"}
                             </p>
                           )}

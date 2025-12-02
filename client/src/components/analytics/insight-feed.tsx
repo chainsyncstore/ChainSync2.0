@@ -9,7 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiClient } from "@/lib/api-client";
 import { formatDate } from "@/lib/pos-utils";
 import { cn } from "@/lib/utils";
-import type { LowStockAlert } from "@shared/schema";
+import type { LowStockAlert, Product } from "@shared/schema";
+
+// Extended type that includes product info from the API
+interface LowStockAlertWithProduct extends LowStockAlert {
+  product?: Product | null;
+}
 
 interface AiInsight {
   id: string;
@@ -35,7 +40,7 @@ interface FeedItem {
 
 interface InsightFeedProps {
   storeId: string;
-  alerts: LowStockAlert[];
+  alerts: LowStockAlertWithProduct[];
   canViewAi: boolean;
   className?: string;
 }
@@ -126,10 +131,11 @@ export default function InsightFeed({ storeId, alerts, canViewAi, className }: I
         descriptionParts.push(`Reorder ${reorder}`);
       }
 
+      const productName = alert.product?.name ?? alert.productId?.slice(0, 8) ?? "Unknown";
       return {
         id: `alert-${alert.id}`,
         type: "alert",
-        title: alert.productId ? `Low stock: ${alert.productId.slice(0, 8)}` : "Stock alert",
+        title: `Low stock: ${productName}`,
         description: descriptionParts.join(" • "),
         severity,
         timestamp: (typeof alert.createdAt === "string" ? alert.createdAt : alert.createdAt?.toISOString()) ?? new Date().toISOString(),
