@@ -364,9 +364,12 @@ export class AdvancedAnalyticsService {
       const percent = Number.isFinite(returnRate) ? +(returnRate * 100).toFixed(1) : 0;
       const priority = returnRate > 0.2 ? 'critical' : returnRate > 0.12 ? 'high' : returnRate > 0.07 ? 'medium' : 'low';
       const isElevated = returnRate >= 0.07;
+      const hasRevenue = net > 0;
       const description = isElevated
         ? `Returns consumed ${percent}% of gross revenue over the last ${lookbackDays} days (${refundCount} refund${refundCount === 1 ? '' : 's'}). Net revenue is ${net.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`
-        : `Return rate held at ${percent}% over the last ${lookbackDays} days. Net revenue remains healthy at ${net.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`;
+        : hasRevenue 
+          ? `Return rate held at ${percent}% over the last ${lookbackDays} days. Net revenue is ${net.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`
+          : `No sales recorded in the last ${lookbackDays} days. Return rate is ${percent}%.`;
 
       return [{
         category: 'revenue',

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Calendar as CalendarIcon,
   DollarSign,
+  HelpCircle,
   Package,
   RotateCcw,
   Tag,
@@ -1106,7 +1107,12 @@ function AnalyticsContent() {
                   <span className="font-semibold text-emerald-600">{formatCurrency(displayRevenue)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">COGS</span>
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    COGS
+                    <span title="Cost of Goods Sold - The direct cost of products sold during this period, calculated from inventory cost layers.">
+                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
+                    </span>
+                  </span>
                   <span className="font-semibold text-red-500">{formatCurrency(displayCogs)}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -1166,7 +1172,12 @@ function AnalyticsContent() {
                       <dd className="text-2xl font-semibold">{priceChangeCount.toLocaleString()}</dd>
                     </div>
                     <div>
-                      <dt className="text-muted-foreground">Net Cost Delta</dt>
+                      <dt className="text-muted-foreground flex items-center gap-1">
+                        Net Cost Delta
+                        <span title="Net Cost Delta = Sum of (New Cost - Old Cost) for all price changes. Positive means costs increased, negative means costs decreased.">
+                          <HelpCircle className="h-3 w-3 text-muted-foreground/60 cursor-help" />
+                        </span>
+                      </dt>
                       <dd className={`text-2xl font-semibold ${priceChangeDeltaMoney.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                         {formatCurrency(priceChangeDeltaMoney)}
                       </dd>
@@ -1174,7 +1185,12 @@ function AnalyticsContent() {
                   </dl>
                   <dl className="grid grid-cols-3 gap-3 text-xs">
                     <div>
-                      <dt className="text-muted-foreground">COGS</dt>
+                      <dt className="text-muted-foreground flex items-center gap-1">
+                        COGS
+                        <span title="Cost of Goods Sold">
+                          <HelpCircle className="h-2.5 w-2.5 text-muted-foreground/60 cursor-help" />
+                        </span>
+                      </dt>
                       <dd className="font-semibold">{formatCurrency(displayCogs)}</dd>
                     </div>
                     <div>
@@ -1229,9 +1245,10 @@ function AnalyticsContent() {
                         <Tooltip
                           formatter={(value: any, name: string) => [
                             `${priceHistoryCurrency} ${Number(value ?? 0).toFixed(2)}`,
-                            name === "salePrice" ? "Sale Price" : "Avg Cost",
+                            name,
                           ]}
                           labelFormatter={(value) => formatDateTimeLabel(value)}
+                          contentStyle={{ borderRadius: '8px', padding: '8px 12px' }}
                         />
                         <Legend />
                         <Line type="monotone" dataKey="salePrice" name="Sale Price" stroke="#3B82F6" strokeWidth={2} dot={false} />

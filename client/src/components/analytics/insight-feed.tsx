@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Brain, Lightbulb, Package, Sparkles } from "lucide-react";
 import { useMemo } from "react";
+import { useLocation } from "wouter";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,19 @@ const severityTone: Record<FeedItem["severity"], string> = {
 };
 
 export default function InsightFeed({ storeId, alerts, canViewAi, className }: InsightFeedProps) {
+  const [, setLocation] = useLocation();
+
+  const handleTakeAction = (item: FeedItem) => {
+    // Navigate based on item type and category
+    if (item.type === "alert" || item.tags.includes("Inventory")) {
+      setLocation("/inventory");
+    } else if (item.tags.includes("revenue") || item.tags.includes("Revenue")) {
+      setLocation("/analytics");
+    } else {
+      setLocation("/analytics");
+    }
+  };
+
   const {
     data: aiInsights = [],
     isLoading: aiLoading,
@@ -206,7 +220,12 @@ export default function InsightFeed({ storeId, alerts, canViewAi, className }: I
                       ))}
                     </div>
                     {item.actionable && (
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-7 px-2 text-xs"
+                        onClick={() => handleTakeAction(item)}
+                      >
                         Take action
                       </Button>
                     )}

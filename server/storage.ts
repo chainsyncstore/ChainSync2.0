@@ -4281,17 +4281,19 @@ export class DatabaseStorage implements IStorage {
       )
     );
 
-    // Query stock removal movements for loss and manufacturer refund tracking
-    const stockRemovalMovements = await db.select({
-      metadata: stockMovements.metadata,
+    // Query stock removal events from inventoryRevaluationEvents (where source starts with 'stock_removal_')
+    // These events have metadata containing lossAmount and refundAmount
+    const stockRemovalEvents = await db.select({
+      metadata: inventoryRevaluationEvents.metadata,
+      source: inventoryRevaluationEvents.source,
     })
-    .from(stockMovements)
+    .from(inventoryRevaluationEvents)
     .where(
       and(
-        eq(stockMovements.storeId, storeId),
-        eq(stockMovements.actionType, 'removal'),
-        gte(stockMovements.occurredAt, startDate),
-        lt(stockMovements.occurredAt, endDate),
+        eq(inventoryRevaluationEvents.storeId, storeId),
+        gte(inventoryRevaluationEvents.occurredAt, startDate),
+        lt(inventoryRevaluationEvents.occurredAt, endDate),
+        sql`${inventoryRevaluationEvents.source} LIKE 'stock_removal_%'`
       )
     );
 
@@ -4301,8 +4303,8 @@ export class DatabaseStorage implements IStorage {
     let manufacturerRefunds = 0;
     let manufacturerRefundCount = 0;
 
-    for (const movement of stockRemovalMovements) {
-      const meta = movement.metadata as Record<string, unknown> | null;
+    for (const event of stockRemovalEvents) {
+      const meta = event.metadata as Record<string, unknown> | null;
       if (meta) {
         const lossAmount = parseFloat(String(meta.lossAmount || 0));
         const refundAmount = parseFloat(String(meta.refundAmount || 0));
