@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers, TrendingDown, TrendingUp, Sparkles } from "lucide-react";
+import { Package, AlertTriangle, Search, Filter, Edit, Eye, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers, TrendingDown, TrendingUp, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -213,10 +213,8 @@ export default function Inventory() {
   const [quantityToAdd, setQuantityToAdd] = useState<string>("");
   const [editMinStock, setEditMinStock] = useState<string>("");
   const [editMaxStock, setEditMaxStock] = useState<string>("");
-  const [deleteNotes, setDeleteNotes] = useState<string>("");
   const [editCostPrice, setEditCostPrice] = useState<string>("");
   const [editSalePrice, setEditSalePrice] = useState<string>("");
-  const [isDeleteMode, setIsDeleteMode] = useState(false);
   // Default history filters to last 7 days
   const [historyFilters, setHistoryFilters] = useState<{ actionType: string; startDate: string; endDate: string }>(() => {
     const now = new Date();
@@ -544,8 +542,6 @@ export default function Inventory() {
     setQuantityToAdd("");
     setEditMinStock("");
     setEditMaxStock("");
-    setDeleteNotes("");
-    setIsDeleteMode(false);
     setIsRemovalMode(false);
     setEditCostPrice("");
     setEditSalePrice("");
@@ -625,8 +621,6 @@ export default function Inventory() {
     setQuantityToAdd(""); // Start with empty - user enters quantity to add
     setEditMinStock(item.minStockLevel != null ? String(item.minStockLevel) : "");
     setEditMaxStock(item.maxStockLevel != null ? String(item.maxStockLevel) : "");
-    setDeleteNotes("");
-    setIsDeleteMode(false);
     setIsRemovalMode(false);
     const costValue = item.product?.costPrice ?? item.product?.cost ?? "";
     const saleValue = item.product?.salePrice ?? item.product?.price ?? "";
@@ -670,47 +664,6 @@ export default function Inventory() {
     onError: (error: Error) => {
       toast({
         title: "Update failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const deleteInventoryMutation = useMutation({
-    mutationFn: async (payload: { productId: string; storeId: string; reason?: string }) => {
-      const csrfToken = await getCsrfToken();
-      const response = await fetch(`/api/inventory/${payload.productId}`, {
-        method: "DELETE",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-        },
-        body: JSON.stringify({ storeId: payload.storeId, reason: payload.reason ?? undefined }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: "Failed to delete inventory" }));
-        throw new Error(error.error ?? "Failed to delete inventory");
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      // Invalidate inventory, products, and stock movements for real-time updates
-      void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "inventory"] });
-      void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "stock-movements"] });
-      void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      void queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      toast({
-        title: "Inventory removed",
-        description: "The inventory item was removed from the store.",
-      });
-      resetEditState();
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Delete failed",
         description: error.message,
         variant: "destructive",
       });
@@ -862,26 +815,6 @@ export default function Inventory() {
       maxStockLevel: maxStock,
       costPrice: costPriceValue,
       salePrice: salePriceValue,
-    });
-  };
-
-  const handleDeleteInventory = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!editingItem) return;
-    if (!deleteNotes.trim()) {
-      toast({ title: "Reason required", description: "Provide a short reason for deleting this inventory record.", variant: "destructive" });
-      return;
-    }
-
-    if (!canEditInventory || !storeId) {
-      toast({ title: "Store not selected", description: "Select a store you are allowed to manage before deleting inventory.", variant: "destructive" });
-      return;
-    }
-
-    void deleteInventoryMutation.mutateAsync({
-      productId: editingItem.productId,
-      storeId,
-      reason: deleteNotes.trim(),
     });
   };
 
@@ -1519,19 +1452,17 @@ export default function Inventory() {
         <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {isDeleteMode ? "Delete Inventory Item" : isRemovalMode ? "Remove Stock" : "Edit Inventory"}
+              {isRemovalMode ? "Remove Stock" : "Edit Inventory"}
             </DialogTitle>
             <DialogDescription>
-              {isDeleteMode
-                ? "Deleting this inventory record removes stock tracking for the product in this store."
-                : isRemovalMode
+              {isRemovalMode
                 ? `Remove stock for ${editingItem?.product?.name ?? "the selected product"} with loss/refund tracking.`
                 : `Update stock levels for ${editingItem?.product?.name ?? "the selected product"}.`}
             </DialogDescription>
           </DialogHeader>
 
           {/* Cost Layer Summary - shown in edit mode */}
-          {!isDeleteMode && !isRemovalMode && costLayerData && costLayerData.layers.length > 0 && (
+          {!isRemovalMode && costLayerData && costLayerData.layers.length > 0 && (
             <div className="bg-slate-50 rounded-lg p-3 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
                 <Layers className="w-4 h-4" />
@@ -1558,11 +1489,22 @@ export default function Inventory() {
                   )}
                 </div>
               )}
+              {/* Current Selling Price */}
+              <div className="pt-2 border-t border-slate-200">
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium text-slate-700">Selling Price:</span>
+                  <span className="font-semibold text-slate-800">
+                    {editingItem?.product?.salePrice || editingItem?.product?.price
+                      ? formatFlexibleCurrency(Number(editingItem.product.salePrice || editingItem.product.price), currency)
+                      : "Not set"}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 
           {/* Edit Mode */}
-          {!isDeleteMode && !isRemovalMode ? (
+          {!isRemovalMode ? (
             <form className="space-y-4" onSubmit={handleSubmitEdit}>
               <div className="space-y-3">
                 <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-md">
@@ -1623,9 +1565,7 @@ export default function Inventory() {
                   <Label htmlFor="cost-price" className="flex items-center gap-1">
                     <DollarSign className="w-3 h-3" />
                     Cost price (per unit)
-                    {!isQuantityIncreasing && editCostPrice !== "" && (
-                      <span className="text-xs text-amber-600 font-normal">(only affects new units)</span>
-                    )}
+                    <span className="text-xs text-amber-600 font-normal">(only affects new imports)</span>
                   </Label>
                   <Input
                     id="cost-price"
@@ -1637,11 +1577,6 @@ export default function Inventory() {
                     placeholder={isQuantityIncreasing ? "Cost for new units" : "Leave blank (no new units)"}
                     disabled={!isQuantityIncreasing && editCostPrice === ""}
                   />
-                  {!isQuantityIncreasing && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      Cost price only applies when adding new units. Use &ldquo;Remove Stock&rdquo; for tracked removals.
-                    </p>
-                  )}
                 </div>
                 <div>
                   <Label htmlFor="sale-price">Selling price</Label>
@@ -1694,21 +1629,16 @@ export default function Inventory() {
               )}
 
               <DialogFooter className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                <div className="flex gap-2">
-                  <Button type="button" variant="ghost" onClick={() => setIsRemovalMode(true)} className="text-amber-600 hover:text-amber-700">
-                    <MinusCircle className="w-4 h-4 mr-2" /> Remove stock
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={() => setIsDeleteMode(true)} className="text-red-600 hover:text-red-700">
-                    <Trash2 className="w-4 h-4 mr-2" /> Delete
-                  </Button>
-                </div>
+                <Button type="button" variant="ghost" onClick={() => setIsRemovalMode(true)} className="text-amber-600 hover:text-amber-700">
+                  <MinusCircle className="w-4 h-4 mr-2" /> Remove stock
+                </Button>
                 <div className="flex w-full sm:w-auto gap-2 justify-end">
                   <Button type="button" variant="outline" onClick={resetEditState}>
                     Cancel
                   </Button>
                   <Button
                     type="submit"
-                    disabled={updateInventoryMutation.isPending || deleteInventoryMutation.isPending || removeStockMutation.isPending}
+                    disabled={updateInventoryMutation.isPending}
                   >
                     {updateInventoryMutation.isPending ? "Saving..." : "Save changes"}
                   </Button>
@@ -1812,39 +1742,7 @@ export default function Inventory() {
                 </div>
               </DialogFooter>
             </form>
-          ) : (
-            /* Delete Mode */
-            <form className="space-y-4" onSubmit={handleDeleteInventory}>
-              <div>
-                <Label htmlFor="delete-notes">Reason for deletion</Label>
-                <Textarea
-                  id="delete-notes"
-                  placeholder="Explain why this inventory record is being removed."
-                  value={deleteNotes}
-                  onChange={(event) => setDeleteNotes(event.target.value)}
-                  required
-                />
-              </div>
-
-              <DialogFooter className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                <Button type="button" variant="ghost" onClick={() => setIsDeleteMode(false)}>
-                  Back to edit
-                </Button>
-                <div className="flex w-full sm:w-auto gap-2 justify-end">
-                  <Button type="button" variant="outline" onClick={resetEditState}>
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    variant="destructive"
-                    disabled={deleteInventoryMutation.isPending || updateInventoryMutation.isPending}
-                  >
-                    {deleteInventoryMutation.isPending ? "Deleting..." : "Confirm delete"}
-                  </Button>
-                </div>
-              </DialogFooter>
-            </form>
-          )}
+          ) : null}
         </DialogContent>
       </Dialog>
 
