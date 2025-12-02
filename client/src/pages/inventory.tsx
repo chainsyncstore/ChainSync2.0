@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon } from "lucide-react";
-
+import { Package, AlertTriangle, Search, Filter, Edit, Eye, Trash2, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/notice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
@@ -88,6 +88,59 @@ type StockStatus = {
 
 const ALL_STORES_ID = "ALL";
 const ALL_STORES_OPTION = { id: ALL_STORES_ID, name: "All stores" } as const;
+
+// Cost layer and margin analysis types
+type CostLayerInfo = {
+  id: string;
+  quantityRemaining: number;
+  unitCost: number;
+  source?: string | null;
+  createdAt: string | null;
+};
+
+type CostLayerSummary = {
+  layers: CostLayerInfo[];
+  totalQuantity: number;
+  weightedAverageCost: number;
+  oldestLayerCost: number | null;
+  newestLayerCost: number | null;
+};
+
+type MarginAnalysis = {
+  proposedSalePrice: number;
+  costLayers: Array<{
+    quantity: number;
+    unitCost: number;
+    margin: number;
+    marginPercent: number;
+    wouldLoseMoney: boolean;
+  }>;
+  totalQuantity: number;
+  weightedAverageCost: number;
+  overallMargin: number;
+  overallMarginPercent: number;
+  recommendedMinPrice: number;
+  layersAtLoss: number;
+  quantityAtLoss: number;
+};
+
+type StockRemovalReason = "expired" | "damaged" | "low_sales" | "returned_to_manufacturer" | "theft" | "other";
+type RefundType = "none" | "partial" | "full";
+
+const STOCK_REMOVAL_REASONS: Array<{ value: StockRemovalReason; label: string }> = [
+  { value: "expired", label: "Expired" },
+  { value: "damaged", label: "Damaged" },
+  { value: "low_sales", label: "Low sales / Removing from shelves" },
+  { value: "returned_to_manufacturer", label: "Returned to manufacturer" },
+  { value: "theft", label: "Theft / Loss" },
+  { value: "other", label: "Other" },
+];
+
+const REFUND_TYPES: Array<{ value: RefundType; label: string; description: string }> = [
+  { value: "none", label: "No refund", description: "Store absorbs the full cost (write-off)" },
+  { value: "partial", label: "Partial refund", description: "Partial reimbursement from manufacturer" },
+  { value: "full", label: "Full refund", description: "Full reimbursement from manufacturer" },
+];
 
 const MOVEMENT_ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "all", label: "All actions" },
@@ -171,6 +224,18 @@ export default function Inventory() {
   });
   const [historyProduct, setHistoryProduct] = useState<InventoryWithProduct | null>(null);
   const [selectedOrgCurrency, setSelectedOrgCurrency] = useState<string | null>(null);
+
+  // Stock removal modal state
+  const [isRemovalMode, setIsRemovalMode] = useState(false);
+  const [removalQuantity, setRemovalQuantity] = useState<string>("");
+  const [removalReason, setRemovalReason] = useState<StockRemovalReason>("expired");
+  const [refundType, setRefundType] = useState<RefundType>("none");
+  const [refundAmount, setRefundAmount] = useState<string>("");
+  const [removalNotes, setRemovalNotes] = useState<string>("");
+
+  // Margin warning state
+  const [showMarginWarning, setShowMarginWarning] = useState(false);
+  const [marginAnalysis, setMarginAnalysis] = useState<MarginAnalysis | null>(null);
 
   const userRole = (user?.role ?? (user?.isAdmin ? "admin" : undefined))?.toString().toLowerCase();
   const isAdmin = userRole === "admin";
@@ -472,8 +537,59 @@ export default function Inventory() {
     setEditMaxStock("");
     setDeleteNotes("");
     setIsDeleteMode(false);
+    setIsRemovalMode(false);
     setEditCostPrice("");
     setEditSalePrice("");
+    setRemovalQuantity("");
+    setRemovalReason("expired");
+    setRefundType("none");
+    setRefundAmount("");
+    setRemovalNotes("");
+    setShowMarginWarning(false);
+    setMarginAnalysis(null);
+  };
+
+  // Fetch cost layers when editing an item
+  const { data: costLayerData } = useQuery<CostLayerSummary>({
+    queryKey: ["/api/inventory", editingItem?.productId, storeId, "cost-layers"],
+    enabled: Boolean(editingItem && storeId),
+    queryFn: async () => {
+      const response = await fetch(`/api/inventory/${editingItem?.productId}/${storeId}/cost-layers`);
+      if (!response.ok) {
+        throw new Error("Failed to load cost layers");
+      }
+      return response.json();
+    },
+  });
+
+  // Check margin when sale price changes
+  const checkMargin = async (proposedPrice: number) => {
+    if (!editingItem || !storeId || proposedPrice <= 0) {
+      setShowMarginWarning(false);
+      setMarginAnalysis(null);
+      return;
+    }
+
+    try {
+      const csrfToken = await getCsrfToken();
+      const response = await fetch(`/api/inventory/${editingItem.productId}/${storeId}/analyze-margin`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({ proposedSalePrice: proposedPrice }),
+      });
+
+      if (response.ok) {
+        const analysis = await response.json() as MarginAnalysis;
+        setMarginAnalysis(analysis);
+        setShowMarginWarning(analysis.layersAtLoss > 0);
+      }
+    } catch (error) {
+      console.error("Failed to analyze margin", error);
+    }
   };
 
   const openEditModal = (item: InventoryWithProduct) => {
@@ -483,10 +599,13 @@ export default function Inventory() {
     setEditMaxStock(item.maxStockLevel != null ? String(item.maxStockLevel) : "");
     setDeleteNotes("");
     setIsDeleteMode(false);
+    setIsRemovalMode(false);
     const costValue = item.product?.costPrice ?? item.product?.cost ?? "";
     const saleValue = item.product?.salePrice ?? item.product?.price ?? "";
     setEditCostPrice(costValue ? String(costValue) : "");
     setEditSalePrice(saleValue ? String(saleValue) : "");
+    setShowMarginWarning(false);
+    setMarginAnalysis(null);
   };
 
   const updateInventoryMutation = useMutation({
@@ -562,6 +681,102 @@ export default function Inventory() {
       });
     },
   });
+
+  const removeStockMutation = useMutation({
+    mutationFn: async (payload: {
+      productId: string;
+      storeId: string;
+      quantity: number;
+      reason: StockRemovalReason;
+      refundType: RefundType;
+      refundAmount?: number;
+      notes?: string;
+    }) => {
+      const csrfToken = await getCsrfToken();
+      const response = await fetch(`/api/inventory/${payload.productId}/${payload.storeId}/remove`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          quantity: payload.quantity,
+          reason: payload.reason,
+          refundType: payload.refundType,
+          refundAmount: payload.refundAmount,
+          notes: payload.notes,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: "Failed to remove stock" }));
+        throw new Error(error.error ?? "Failed to remove stock");
+      }
+
+      return response.json();
+    },
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "inventory"] });
+      const lossText = data.lossAmount > 0 ? ` Loss recorded: ${formatFlexibleCurrency(data.lossAmount, currency)}.` : "";
+      const refundText = data.refundAmount > 0 ? ` Refund: ${formatFlexibleCurrency(data.refundAmount, currency)}.` : "";
+      toast({
+        title: "Stock removed",
+        description: `Successfully removed stock.${lossText}${refundText}`,
+      });
+      resetEditState();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Removal failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleRemoveStock = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingItem) return;
+
+    if (!canEditInventory || !storeId) {
+      toast({ title: "Store not selected", description: "Select a store you are allowed to manage.", variant: "destructive" });
+      return;
+    }
+
+    const qty = Number(removalQuantity);
+    if (Number.isNaN(qty) || qty < 1) {
+      toast({ title: "Invalid quantity", description: "Quantity must be at least 1.", variant: "destructive" });
+      return;
+    }
+
+    if (qty > (editingItem.quantity || 0)) {
+      toast({ title: "Invalid quantity", description: `Cannot remove more than available stock (${editingItem.quantity}).`, variant: "destructive" });
+      return;
+    }
+
+    const refundVal = refundAmount !== "" ? Number(refundAmount) : undefined;
+    if (refundType === "partial" && (refundVal === undefined || Number.isNaN(refundVal) || refundVal < 0)) {
+      toast({ title: "Invalid refund amount", description: "Provide a valid refund amount for partial refund.", variant: "destructive" });
+      return;
+    }
+
+    void removeStockMutation.mutateAsync({
+      productId: editingItem.productId,
+      storeId,
+      quantity: qty,
+      reason: removalReason,
+      refundType,
+      refundAmount: refundVal,
+      notes: removalNotes || undefined,
+    });
+  };
+
+  // Check if quantity is being increased (for cost price edit restriction)
+  const originalQuantity = editingItem?.quantity ?? 0;
+  const newQuantity = Number(editQuantity) || 0;
+  const isQuantityIncreasing = newQuantity > originalQuantity;
+  const quantityDelta = newQuantity - originalQuantity;
 
   const handleSubmitEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1174,17 +1389,53 @@ export default function Inventory() {
           resetEditState();
         }
       }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{isDeleteMode ? "Delete Inventory Item" : "Edit Inventory"}</DialogTitle>
+            <DialogTitle>
+              {isDeleteMode ? "Delete Inventory Item" : isRemovalMode ? "Remove Stock" : "Edit Inventory"}
+            </DialogTitle>
             <DialogDescription>
               {isDeleteMode
                 ? "Deleting this inventory record removes stock tracking for the product in this store."
+                : isRemovalMode
+                ? `Remove stock for ${editingItem?.product?.name ?? "the selected product"} with loss/refund tracking.`
                 : `Update stock levels for ${editingItem?.product?.name ?? "the selected product"}.`}
             </DialogDescription>
           </DialogHeader>
 
-          {!isDeleteMode ? (
+          {/* Cost Layer Summary - shown in edit mode */}
+          {!isDeleteMode && !isRemovalMode && costLayerData && costLayerData.layers.length > 0 && (
+            <div className="bg-slate-50 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <Layers className="w-4 h-4" />
+                Cost Layers (FIFO)
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                <div>
+                  <span className="font-medium">Total Units:</span> {costLayerData.totalQuantity}
+                </div>
+                <div>
+                  <span className="font-medium">Avg Cost:</span> {formatFlexibleCurrency(costLayerData.weightedAverageCost, currency)}
+                </div>
+              </div>
+              {costLayerData.layers.length > 1 && (
+                <div className="text-xs text-slate-500 space-y-1 max-h-20 overflow-auto">
+                  {costLayerData.layers.slice(0, 5).map((layer, idx) => (
+                    <div key={layer.id} className="flex justify-between">
+                      <span>Layer {idx + 1}: {layer.quantityRemaining} units</span>
+                      <span>{formatFlexibleCurrency(layer.unitCost, currency)}/unit</span>
+                    </div>
+                  ))}
+                  {costLayerData.layers.length > 5 && (
+                    <div className="text-slate-400">...and {costLayerData.layers.length - 5} more layers</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Edit Mode */}
+          {!isDeleteMode && !isRemovalMode ? (
             <form className="space-y-4" onSubmit={handleSubmitEdit}>
               <div>
                 <Label htmlFor="quantity">Quantity on hand</Label>
@@ -1196,6 +1447,11 @@ export default function Inventory() {
                   onChange={(event) => setEditQuantity(event.target.value)}
                   required
                 />
+                {quantityDelta !== 0 && (
+                  <p className={`text-xs mt-1 ${quantityDelta > 0 ? "text-green-600" : "text-red-600"}`}>
+                    {quantityDelta > 0 ? `+${quantityDelta} units (adding stock)` : `${quantityDelta} units (reducing stock)`}
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1222,7 +1478,13 @@ export default function Inventory() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="cost-price">Cost price (per unit)</Label>
+                  <Label htmlFor="cost-price" className="flex items-center gap-1">
+                    <DollarSign className="w-3 h-3" />
+                    Cost price (per unit)
+                    {!isQuantityIncreasing && editCostPrice !== "" && (
+                      <span className="text-xs text-amber-600 font-normal">(only affects new units)</span>
+                    )}
+                  </Label>
                   <Input
                     id="cost-price"
                     type="number"
@@ -1230,8 +1492,14 @@ export default function Inventory() {
                     step="0.01"
                     value={editCostPrice}
                     onChange={(event) => setEditCostPrice(event.target.value)}
-                    placeholder="Leave blank to keep current cost"
+                    placeholder={isQuantityIncreasing ? "Cost for new units" : "Leave blank (no new units)"}
+                    disabled={!isQuantityIncreasing && editCostPrice === ""}
                   />
+                  {!isQuantityIncreasing && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Cost price only applies when adding new units. Use &ldquo;Remove Stock&rdquo; for tracked removals.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="sale-price">Selling price</Label>
@@ -1241,15 +1509,152 @@ export default function Inventory() {
                     min={0}
                     step="0.01"
                     value={editSalePrice}
-                    onChange={(event) => setEditSalePrice(event.target.value)}
+                    onChange={(event) => {
+                      setEditSalePrice(event.target.value);
+                      const price = Number(event.target.value);
+                      if (price > 0) {
+                        void checkMargin(price);
+                      } else {
+                        setShowMarginWarning(false);
+                        setMarginAnalysis(null);
+                      }
+                    }}
                     placeholder="Leave blank to keep current price"
                   />
                 </div>
               </div>
 
+              {/* Margin Warning */}
+              {showMarginWarning && marginAnalysis && (
+                <Alert variant="destructive" className="bg-amber-50 border-amber-200">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-amber-800">
+                    <strong>Margin Warning:</strong> At {formatFlexibleCurrency(marginAnalysis.proposedSalePrice, currency)}, 
+                    you would lose money on <strong>{marginAnalysis.quantityAtLoss} units</strong> ({marginAnalysis.layersAtLoss} cost layers).
+                    <br />
+                    <span className="text-xs">
+                      Recommended minimum: <strong>{formatFlexibleCurrency(marginAnalysis.recommendedMinPrice, currency)}</strong> | 
+                      Overall margin: {marginAnalysis.overallMarginPercent.toFixed(1)}%
+                    </span>
+                    <div className="mt-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setEditSalePrice(String(marginAnalysis.recommendedMinPrice.toFixed(2)))}
+                        className="text-xs"
+                      >
+                        Use recommended price
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <DialogFooter className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                <Button type="button" variant="ghost" onClick={() => setIsDeleteMode(true)} className="text-red-600 hover:text-red-700">
-                  <Trash2 className="w-4 h-4 mr-2" /> Delete inventory record
+                <div className="flex gap-2">
+                  <Button type="button" variant="ghost" onClick={() => setIsRemovalMode(true)} className="text-amber-600 hover:text-amber-700">
+                    <MinusCircle className="w-4 h-4 mr-2" /> Remove stock
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => setIsDeleteMode(true)} className="text-red-600 hover:text-red-700">
+                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                  </Button>
+                </div>
+                <div className="flex w-full sm:w-auto gap-2 justify-end">
+                  <Button type="button" variant="outline" onClick={resetEditState}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={updateInventoryMutation.isPending || deleteInventoryMutation.isPending || removeStockMutation.isPending}
+                  >
+                    {updateInventoryMutation.isPending ? "Saving..." : "Save changes"}
+                  </Button>
+                </div>
+              </DialogFooter>
+            </form>
+          ) : isRemovalMode ? (
+            /* Stock Removal Mode */
+            <form className="space-y-4" onSubmit={handleRemoveStock}>
+              <div>
+                <Label htmlFor="removal-quantity">Quantity to remove</Label>
+                <Input
+                  id="removal-quantity"
+                  type="number"
+                  min={1}
+                  max={editingItem?.quantity || 1}
+                  value={removalQuantity}
+                  onChange={(event) => setRemovalQuantity(event.target.value)}
+                  placeholder={`Max: ${editingItem?.quantity ?? 0}`}
+                  required
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Available: {editingItem?.quantity ?? 0} units
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="removal-reason">Reason for removal</Label>
+                <Select value={removalReason} onValueChange={(v) => setRemovalReason(v as StockRemovalReason)}>
+                  <SelectTrigger id="removal-reason">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STOCK_REMOVAL_REASONS.map((reason) => (
+                      <SelectItem key={reason.value} value={reason.value}>{reason.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="refund-type">Refund / Reimbursement</Label>
+                <Select value={refundType} onValueChange={(v) => setRefundType(v as RefundType)}>
+                  <SelectTrigger id="refund-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {REFUND_TYPES.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        <div>
+                          <span>{type.label}</span>
+                          <span className="text-xs text-muted-foreground ml-2">({type.description})</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {refundType === "partial" && (
+                <div>
+                  <Label htmlFor="refund-amount">Total refund amount</Label>
+                  <Input
+                    id="refund-amount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={refundAmount}
+                    onChange={(event) => setRefundAmount(event.target.value)}
+                    placeholder="Enter refund amount from manufacturer"
+                    required
+                  />
+                </div>
+              )}
+
+              <div>
+                <Label htmlFor="removal-notes">Notes (optional)</Label>
+                <Textarea
+                  id="removal-notes"
+                  placeholder="Additional details about this removal..."
+                  value={removalNotes}
+                  onChange={(event) => setRemovalNotes(event.target.value)}
+                />
+              </div>
+
+              <DialogFooter className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                <Button type="button" variant="ghost" onClick={() => setIsRemovalMode(false)}>
+                  Back to edit
                 </Button>
                 <div className="flex w-full sm:w-auto gap-2 justify-end">
                   <Button type="button" variant="outline" onClick={resetEditState}>
@@ -1257,14 +1662,16 @@ export default function Inventory() {
                   </Button>
                   <Button
                     type="submit"
-                    disabled={updateInventoryMutation.isPending || deleteInventoryMutation.isPending}
+                    variant="destructive"
+                    disabled={removeStockMutation.isPending || updateInventoryMutation.isPending}
                   >
-                    {updateInventoryMutation.isPending ? "Saving..." : "Save changes"}
+                    {removeStockMutation.isPending ? "Removing..." : "Confirm removal"}
                   </Button>
                 </div>
               </DialogFooter>
             </form>
           ) : (
+            /* Delete Mode */
             <form className="space-y-4" onSubmit={handleDeleteInventory}>
               <div>
                 <Label htmlFor="delete-notes">Reason for deletion</Label>

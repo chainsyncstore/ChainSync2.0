@@ -210,7 +210,7 @@ class Logger {
     this.info(`Transaction event: ${event}`, { ...context, amount });
   }
 
-  logInventoryEvent(event: 'stock_adjusted' | 'low_stock_alert' | 'product_added' | 'product_updated', context: LogContext): void {
+  logInventoryEvent(event: 'stock_adjusted' | 'stock_removed' | 'low_stock_alert' | 'product_added' | 'product_updated', context: LogContext): void {
     this.info(`Inventory event: ${event}`, context);
   }
 

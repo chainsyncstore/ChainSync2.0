@@ -760,6 +760,190 @@ export async function registerInventoryRoutes(app: Express) {
     return res.json(item);
   });
 
+  // Delete inventory record
+  app.delete('/api/inventory/:productId', requireAuth, requireRole('MANAGER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const productId = String(req.params?.productId ?? '').trim();
+    const storeId = String((req.body as any)?.storeId ?? '').trim();
+    const reason = String((req.body as any)?.reason ?? '').trim();
+
+    if (!productId) {
+      return res.status(400).json({ error: 'productId is required' });
+    }
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId is required in request body' });
+    }
+
+    const userId = req.session?.userId as string | undefined;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const actor = await storage.getUser(userId);
+    if (!actor) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const actorIsAdmin = Boolean((actor as any)?.isAdmin);
+    const actorStoreId = (actor as any)?.storeId as string | undefined;
+
+    if (!actorIsAdmin) {
+      if (!actorStoreId || actorStoreId !== storeId) {
+        return res.status(403).json({ error: 'You can only delete inventory for your assigned store' });
+      }
+    }
+
+    try {
+      await storage.deleteInventory(productId, storeId, userId, reason || undefined);
+      return res.json({ status: 'deleted' });
+    } catch (error) {
+      logger.error('Failed to delete inventory', {
+        productId,
+        storeId,
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to delete inventory' });
+    }
+  });
+
+  // Get cost layers for a product
+  app.get('/api/inventory/:productId/:storeId/cost-layers', requireAuth, async (req: Request, res: Response) => {
+    const { productId, storeId } = req.params as { productId?: string; storeId?: string };
+    const normalizedProductId = String(productId ?? '').trim();
+    const normalizedStoreId = String(storeId ?? '').trim();
+
+    if (!normalizedProductId || !normalizedStoreId) {
+      return res.status(400).json({ error: 'productId and storeId are required' });
+    }
+
+    const access = await resolveStoreAccess(req, normalizedStoreId, { allowCashier: true });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
+    }
+
+    try {
+      const costLayers = await storage.getCostLayers(normalizedProductId, normalizedStoreId);
+      return res.json(costLayers);
+    } catch (error) {
+      logger.error('Failed to get cost layers', {
+        productId: normalizedProductId,
+        storeId: normalizedStoreId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to get cost layers' });
+    }
+  });
+
+  // Analyze margin impact of proposed sale price
+  app.post('/api/inventory/:productId/:storeId/analyze-margin', requireAuth, async (req: Request, res: Response) => {
+    const { productId, storeId } = req.params as { productId?: string; storeId?: string };
+    const normalizedProductId = String(productId ?? '').trim();
+    const normalizedStoreId = String(storeId ?? '').trim();
+    const proposedPrice = Number((req.body as any)?.proposedSalePrice);
+
+    if (!normalizedProductId || !normalizedStoreId) {
+      return res.status(400).json({ error: 'productId and storeId are required' });
+    }
+
+    if (!Number.isFinite(proposedPrice) || proposedPrice < 0) {
+      return res.status(400).json({ error: 'proposedSalePrice must be a non-negative number' });
+    }
+
+    const access = await resolveStoreAccess(req, normalizedStoreId, { allowCashier: true });
+    if ('error' in access) {
+      return res.status(access.error.status).json({ error: access.error.message });
+    }
+
+    try {
+      const analysis = await storage.analyzeMargin(normalizedProductId, normalizedStoreId, proposedPrice);
+      return res.json(analysis);
+    } catch (error) {
+      logger.error('Failed to analyze margin', {
+        productId: normalizedProductId,
+        storeId: normalizedStoreId,
+        proposedPrice,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to analyze margin' });
+    }
+  });
+
+  // Remove stock with loss/refund tracking
+  const StockRemovalSchema = z.object({
+    quantity: z.coerce.number().int().min(1, { message: 'quantity must be at least 1' }),
+    reason: z.enum(['expired', 'damaged', 'low_sales', 'returned_to_manufacturer', 'theft', 'other']),
+    refundType: z.enum(['none', 'partial', 'full']),
+    refundAmount: z.coerce.number().min(0).optional(),
+    refundPerUnit: z.coerce.number().min(0).optional(),
+    notes: z.string().max(500).optional(),
+  });
+
+  app.post(
+    '/api/inventory/:productId/:storeId/remove',
+    requireAuth,
+    enforceIpWhitelist,
+    requireManagerWithStore(),
+    async (req: Request, res: Response) => {
+      const managerStoreId = (req as any).managerStoreId as string | undefined;
+      const userId = req.session?.userId as string | undefined;
+      const { productId, storeId } = req.params as { productId?: string; storeId?: string };
+
+      if (!productId || !storeId) {
+        return res.status(400).json({ error: 'productId and storeId are required' });
+      }
+
+      if (!managerStoreId || storeId !== managerStoreId) {
+        return res.status(403).json({ error: 'Managers can only remove stock from their assigned store' });
+      }
+
+      const parsed = StockRemovalSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+      }
+
+      try {
+        const result = await storage.removeStock(
+          productId,
+          storeId,
+          parsed.data.quantity,
+          {
+            reason: parsed.data.reason,
+            refundType: parsed.data.refundType,
+            refundAmount: parsed.data.refundAmount,
+            refundPerUnit: parsed.data.refundPerUnit,
+            notes: parsed.data.notes,
+          },
+          userId,
+        );
+
+        logger.logInventoryEvent('stock_removed', {
+          productId,
+          storeId,
+          quantityRemoved: parsed.data.quantity,
+          reason: parsed.data.reason,
+          refundType: parsed.data.refundType,
+          lossAmount: result.lossAmount,
+          refundAmount: result.refundAmount,
+          userId,
+        });
+
+        return res.json({
+          inventory: result.inventory,
+          lossAmount: result.lossAmount,
+          refundAmount: result.refundAmount,
+        });
+      } catch (error) {
+        logger.error('Failed to remove stock', {
+          productId,
+          storeId,
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to remove stock' });
+      }
+    }
+  );
+
   app.post('/api/stores/:storeId/inventory/bulk-update', requireAuth, async (req: Request, res: Response) => {
     const { storeId } = req.params as { storeId?: string };
     if (!storeId) {

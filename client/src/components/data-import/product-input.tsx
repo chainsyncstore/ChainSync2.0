@@ -68,6 +68,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
   const [activeTab, setActiveTab] = useState<"existing" | "new">("existing");
   const [existingSearch, setExistingSearch] = useState({ barcode: "", sku: "", name: "" });
   const [existingQuantity, setExistingQuantity] = useState("1");
+  const [existingCostPrice, setExistingCostPrice] = useState("");
+  const [existingSalePrice, setExistingSalePrice] = useState("");
   const [newProductForm, setNewProductForm] = useState<ProductFormData>(DEFAULT_FORM);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -143,7 +145,12 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
   });
 
   const adjustInventoryMutation = useMutation({
-    mutationFn: async ({ productId, quantity }: { productId: string; quantity: number }) => {
+    mutationFn: async ({ productId, quantity, costPrice, salePrice }: { 
+      productId: string; 
+      quantity: number;
+      costPrice?: number;
+      salePrice?: number;
+    }) => {
       const csrfToken = await getCsrfToken();
       const response = await fetch(`/api/inventory/${productId}/${selectedStore}/adjust`, {
         method: "POST",
@@ -152,7 +159,12 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
           "Content-Type": "application/json",
           "X-CSRF-Token": csrfToken,
         },
-        body: JSON.stringify({ quantity, reason: "single_product_import" }),
+        body: JSON.stringify({ 
+          quantity, 
+          reason: "single_product_import",
+          costPrice: costPrice !== undefined ? costPrice : undefined,
+          salePrice: salePrice !== undefined ? salePrice : undefined,
+        }),
       });
       const parsed = await parseJsonResponse(response);
       if (!response.ok) {
@@ -163,6 +175,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
     onSuccess: () => {
       setSuccessMessage("Stock updated successfully.");
       setExistingQuantity("1");
+      setExistingCostPrice("");
+      setExistingSalePrice("");
       void queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/products"] });
     },
@@ -260,7 +274,25 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
       return;
     }
 
-    adjustInventoryMutation.mutate({ productId: existingProduct.id, quantity: qty });
+    const costPriceVal = existingCostPrice ? parseFloat(existingCostPrice) : undefined;
+    const salePriceVal = existingSalePrice ? parseFloat(existingSalePrice) : undefined;
+
+    if (costPriceVal !== undefined && (Number.isNaN(costPriceVal) || costPriceVal < 0)) {
+      setErrorMessage("Cost price must be a positive number.");
+      return;
+    }
+
+    if (salePriceVal !== undefined && (Number.isNaN(salePriceVal) || salePriceVal < 0)) {
+      setErrorMessage("Sale price must be a positive number.");
+      return;
+    }
+
+    adjustInventoryMutation.mutate({ 
+      productId: existingProduct.id, 
+      quantity: qty,
+      costPrice: costPriceVal,
+      salePrice: salePriceVal,
+    });
   };
 
   const handleNewProductSubmit = (event: React.FormEvent) => {
@@ -301,6 +333,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
   const resetExistingSearch = () => {
     setExistingSearch({ barcode: "", sku: "", name: "" });
     setExistingQuantity("1");
+    setExistingCostPrice("");
+    setExistingSalePrice("");
   };
 
   const resetNewProductForm = () => {
@@ -430,7 +464,7 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <Label htmlFor="existing-quantity">Quantity to add</Label>
+                    <Label htmlFor="existing-quantity">Quantity to add *</Label>
                     <Input
                       id="existing-quantity"
                       type="number"
@@ -439,6 +473,50 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
                       onChange={(e) => setExistingQuantity(e.target.value)}
                       required
                     />
+                  </div>
+                  <div>
+                    <Label htmlFor="existing-cost-price">
+                      Cost price (per unit)
+                      {existingProduct?.cost && (
+                        <span className="text-xs text-muted-foreground ml-1">
+                          Current: {parseFloat(String(existingProduct.cost)).toFixed(2)}
+                        </span>
+                      )}
+                    </Label>
+                    <Input
+                      id="existing-cost-price"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={existingCostPrice}
+                      onChange={(e) => setExistingCostPrice(e.target.value)}
+                      placeholder="Cost for imported units"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Only affects the units being added
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="existing-sale-price">
+                      Sale price
+                      {existingProduct?.salePrice && (
+                        <span className="text-xs text-muted-foreground ml-1">
+                          Current: {parseFloat(String(existingProduct.salePrice)).toFixed(2)}
+                        </span>
+                      )}
+                    </Label>
+                    <Input
+                      id="existing-sale-price"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={existingSalePrice}
+                      onChange={(e) => setExistingSalePrice(e.target.value)}
+                      placeholder="Leave blank to keep current"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Updates sale price for all units
+                    </p>
                   </div>
                 </div>
 

@@ -1,8 +1,8 @@
 import 'dotenv/config';
 
-import { loadEnv } from '../shared/env';
-import { logger } from '../server/lib/logger';
 import { runTrialExpirationBillingNow } from '../server/jobs/cleanup';
+import { logger } from '../server/lib/logger';
+import { loadEnv } from '../shared/env';
 
 async function main() {
   try {

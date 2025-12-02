@@ -711,6 +711,8 @@ export async function registerAnalyticsRoutes(app: Express) {
     const netRevenueMoney = toMoney(profitLoss.revenue - profitLoss.refundAmount, storeCurrency);
     const profitMoney = toMoney(profitLoss.profit, storeCurrency);
     const priceChangeDeltaMoney = toMoney(profitLoss.priceChangeDelta, storeCurrency);
+    const stockRemovalLossMoney = toMoney(profitLoss.stockRemovalLoss, storeCurrency);
+    const manufacturerRefundsMoney = toMoney(profitLoss.manufacturerRefunds, storeCurrency);
 
     const totals = {
       revenue: revenueMoney,
@@ -723,6 +725,10 @@ export async function registerAnalyticsRoutes(app: Express) {
       refundCount: profitLoss.refundCount,
       priceChangeCount: profitLoss.priceChangeCount,
       priceChangeDelta: priceChangeDeltaMoney,
+      stockRemovalLoss: stockRemovalLossMoney,
+      stockRemovalCount: profitLoss.stockRemovalCount,
+      manufacturerRefunds: manufacturerRefundsMoney,
+      manufacturerRefundCount: profitLoss.manufacturerRefundCount,
     };
 
     const normalized = normalizeCurrency
@@ -736,6 +742,8 @@ export async function registerAnalyticsRoutes(app: Express) {
           refunds: await convertForOrg(refundMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           netRevenue: await convertForOrg(netRevenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           priceChangeDelta: await convertForOrg(priceChangeDeltaMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          stockRemovalLoss: await convertForOrg(stockRemovalLossMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          manufacturerRefunds: await convertForOrg(manufacturerRefundsMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
         }
       : undefined;
 

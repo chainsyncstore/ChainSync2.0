@@ -97,12 +97,16 @@ interface ProfitLossSummaryTotals {
   refundCount?: number;
   priceChangeCount?: number;
   priceChangeDelta?: Money;
+  stockRemovalLoss?: Money;
+  stockRemovalCount?: number;
+  manufacturerRefunds?: Money;
+  manufacturerRefundCount?: number;
 }
 
 interface ProfitLossSummary {
   currency: CurrencyCode;
   totals: ProfitLossSummaryTotals;
-  normalized?: Omit<ProfitLossSummaryTotals, "refundCount" | "priceChangeCount">;
+  normalized?: Omit<ProfitLossSummaryTotals, "refundCount" | "priceChangeCount" | "stockRemovalCount" | "manufacturerRefundCount">;
 }
 
 interface InventoryValueResponse {
@@ -765,6 +769,10 @@ function AnalyticsContent() {
       refundCount: 0,
       priceChangeCount: 0,
       priceChangeDelta: makeMoney(0, resolvedCurrency),
+      stockRemovalLoss: makeMoney(0, resolvedCurrency),
+      stockRemovalCount: 0,
+      manufacturerRefunds: makeMoney(0, resolvedCurrency),
+      manufacturerRefundCount: 0,
     },
   } satisfies ProfitLossSummary;
   const displayRevenue = profitLossData.normalized?.revenue ?? profitLossData.totals.revenue;
@@ -777,6 +785,10 @@ function AnalyticsContent() {
   const totalRefundCount = profitLossData.totals.refundCount ?? 0;
   const priceChangeCount = profitLossData.totals.priceChangeCount ?? 0;
   const priceChangeDeltaMoney = profitLossData.normalized?.priceChangeDelta ?? profitLossData.totals.priceChangeDelta ?? makeMoney(0, resolvedCurrency);
+  const displayStockRemovalLoss = profitLossData.normalized?.stockRemovalLoss ?? profitLossData.totals.stockRemovalLoss ?? makeMoney(0, resolvedCurrency);
+  const stockRemovalCount = profitLossData.totals.stockRemovalCount ?? 0;
+  const displayManufacturerRefunds = profitLossData.normalized?.manufacturerRefunds ?? profitLossData.totals.manufacturerRefunds ?? makeMoney(0, resolvedCurrency);
+  const manufacturerRefundCount = profitLossData.totals.manufacturerRefundCount ?? 0;
   const profitMargin = displayRevenue.amount > 0 ? (displayProfit.amount / displayRevenue.amount) * 100 : 0;
   const displayCost = displayNetCost;
 
@@ -976,6 +988,34 @@ function AnalyticsContent() {
       caption: `${customerInsights.newCustomers.toLocaleString()} new this period`,
     },
   ];
+
+  // Additional loss/refund cards shown only if there are values
+  const hasStockLosses = displayStockRemovalLoss.amount > 0 || stockRemovalCount > 0;
+  const hasManufacturerRefunds = displayManufacturerRefunds.amount > 0 || manufacturerRefundCount > 0;
+
+  if (hasStockLosses) {
+    kpiCards.push({
+      key: "stock-losses",
+      title: "Inventory Losses",
+      icon: TrendingDown,
+      value: formatCurrency(displayStockRemovalLoss),
+      currencyBadge: displayCurrency === "native" ? "Native" : resolvedCurrency,
+      caption: `${stockRemovalCount} removal${stockRemovalCount === 1 ? "" : "s"} (expired, damaged, etc.)`,
+      delta: { label: "Write-off", negative: true },
+    });
+  }
+
+  if (hasManufacturerRefunds) {
+    kpiCards.push({
+      key: "manufacturer-refunds",
+      title: "Manufacturer Refunds",
+      icon: RotateCcw,
+      value: formatCurrency(displayManufacturerRefunds),
+      currencyBadge: displayCurrency === "native" ? "Native" : resolvedCurrency,
+      caption: `${manufacturerRefundCount} reimbursement${manufacturerRefundCount === 1 ? "" : "s"} received`,
+      delta: { label: "Recovered", positive: true },
+    });
+  }
 
   if (!hasStore) {
     return (

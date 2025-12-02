@@ -167,6 +167,11 @@ type ProfitLossResult = {
   profit: number;
   priceChangeCount: number;
   priceChangeDelta: number;
+  // Stock removal losses tracking
+  stockRemovalLoss: number;
+  stockRemovalCount: number;
+  manufacturerRefunds: number;
+  manufacturerRefundCount: number;
 };
 
 type StockMovementLogParams = {
@@ -197,6 +202,63 @@ type StockMovementWithProduct = StockMovement & {
   productName?: string | null;
   productSku?: string | null;
   productBarcode?: string | null;
+};
+
+// Cost layer info for UI display
+export type CostLayerInfo = {
+  id: string;
+  quantityRemaining: number;
+  unitCost: number;
+  source?: string | null;
+  referenceId?: string | null;
+  notes?: string | null;
+  createdAt: Date | null;
+};
+
+export type CostLayerSummary = {
+  layers: CostLayerInfo[];
+  totalQuantity: number;
+  weightedAverageCost: number;
+  oldestLayerCost: number | null;
+  newestLayerCost: number | null;
+};
+
+// Stock removal options for loss/refund tracking
+export type StockRemovalReason = 
+  | 'expired'
+  | 'damaged'
+  | 'low_sales'
+  | 'returned_to_manufacturer'
+  | 'theft'
+  | 'other';
+
+export type RefundType = 'none' | 'partial' | 'full';
+
+export type StockRemovalOptions = {
+  reason: StockRemovalReason;
+  refundType: RefundType;
+  refundAmount?: number; // Total refund amount (for partial/full)
+  refundPerUnit?: number; // Per-unit refund amount
+  notes?: string;
+};
+
+// Margin analysis for price warnings
+export type MarginAnalysis = {
+  proposedSalePrice: number;
+  costLayers: Array<{
+    quantity: number;
+    unitCost: number;
+    margin: number;
+    marginPercent: number;
+    wouldLoseMoney: boolean;
+  }>;
+  totalQuantity: number;
+  weightedAverageCost: number;
+  overallMargin: number;
+  overallMarginPercent: number;
+  recommendedMinPrice: number; // Price for 0% margin
+  layersAtLoss: number; // Count of layers that would lose money
+  quantityAtLoss: number; // Total units that would lose money
 };
 
 type StockMovementQueryParams = {
@@ -375,6 +437,9 @@ export interface IStorage {
   ): Promise<Inventory>;
   adjustInventory(productId: string, storeId: string, quantityChange: number, userId?: string, source?: string, referenceId?: string, notes?: string, metadata?: Record<string, unknown>): Promise<Inventory>;
   deleteInventory(productId: string, storeId: string, userId?: string, reason?: string): Promise<void>;
+  removeStock(productId: string, storeId: string, quantity: number, options: StockRemovalOptions, userId?: string): Promise<{ inventory: Inventory; lossAmount: number; refundAmount: number }>;
+  getCostLayers(productId: string, storeId: string): Promise<CostLayerSummary>;
+  analyzeMargin(productId: string, storeId: string, proposedSalePrice: number): Promise<MarginAnalysis>;
   getLowStockItems(storeId: string): Promise<Inventory[]>;
   syncLowStockAlertState(storeId: string, productId: string): Promise<void>;
   logStockMovement(params: StockMovementLogParams): Promise<void>;
@@ -2597,6 +2662,240 @@ export class DatabaseStorage implements IStorage {
     await this.syncLowStockAlertState(storeId, productId);
   }
 
+  async removeStock(
+    productId: string,
+    storeId: string,
+    quantity: number,
+    options: StockRemovalOptions,
+    userId?: string,
+  ): Promise<{ inventory: Inventory; lossAmount: number; refundAmount: number }> {
+    if (quantity <= 0) {
+      throw new Error('Quantity to remove must be greater than 0');
+    }
+
+    const current = this.isTestEnv
+      ? this.mem.inventory.get(`${storeId}:${productId}`)
+      : await this.getInventoryItem(productId, storeId);
+
+    if (!current) {
+      throw new Error('Inventory record not found');
+    }
+
+    const currentQty = current.quantity || 0;
+    if (quantity > currentQty) {
+      throw new Error(`Cannot remove ${quantity} units. Only ${currentQty} available.`);
+    }
+
+    // Calculate cost of removed items using FIFO
+    const costOfRemovedItems = await this.previewCostFromLayers(storeId, productId, quantity, { inventory: current });
+    
+    // Calculate refund amount
+    let refundAmount = 0;
+    if (options.refundType === 'full') {
+      refundAmount = costOfRemovedItems;
+    } else if (options.refundType === 'partial') {
+      if (typeof options.refundAmount === 'number') {
+        refundAmount = options.refundAmount;
+      } else if (typeof options.refundPerUnit === 'number') {
+        refundAmount = options.refundPerUnit * quantity;
+      }
+    }
+
+    // Calculate actual loss (cost minus refund)
+    const lossAmount = Math.max(0, costOfRemovedItems - refundAmount);
+
+    // Consume cost layers (FIFO)
+    await this.consumeCostLayers(storeId, productId, quantity, { inventory: current });
+
+    // Update inventory quantity
+    const newQuantity = currentQty - quantity;
+    const avgCost = parseNumeric((current as any).avgCost, 0);
+    const newTotalCostValue = newQuantity * avgCost;
+
+    let updatedInventory: Inventory;
+    if (this.isTestEnv) {
+      const key = `${storeId}:${productId}`;
+      const updated = {
+        ...current,
+        quantity: newQuantity,
+        totalCostValue: newTotalCostValue,
+        updatedAt: new Date(),
+      };
+      this.mem.inventory.set(key, updated as any);
+      updatedInventory = updated as Inventory;
+    } else {
+      const [item] = await db
+        .update(inventory)
+        .set({
+          quantity: newQuantity,
+          totalCostValue: toDecimalString(newTotalCostValue, 4),
+          updatedAt: new Date(),
+        } as any)
+        .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)))
+        .returning();
+      updatedInventory = item;
+    }
+
+    // Record stock movement with loss/refund metadata
+    await this.recordStockMovement({
+      storeId,
+      productId,
+      quantityBefore: currentQty,
+      quantityAfter: newQuantity,
+      actionType: 'removal',
+      source: options.reason,
+      userId,
+      notes: options.notes || `Stock removed: ${options.reason}`,
+      metadata: {
+        reason: options.reason,
+        refundType: options.refundType,
+        costOfRemovedItems,
+        refundAmount,
+        lossAmount,
+        quantityRemoved: quantity,
+      },
+    });
+
+    // Log inventory revaluation event if there was a loss
+    if (lossAmount > 0) {
+      const revaluationPayload = {
+        storeId,
+        productId,
+        userId: userId ?? null,
+        source: `stock_removal_${options.reason}`,
+        quantityBefore: currentQty,
+        quantityAfter: newQuantity,
+        revaluedQuantity: quantity,
+        avgCostBefore: toOptionalDecimalString(avgCost, 4),
+        avgCostAfter: toOptionalDecimalString(avgCost, 4),
+        totalCostBefore: toOptionalDecimalString(currentQty * avgCost, 4),
+        totalCostAfter: toOptionalDecimalString(newTotalCostValue, 4),
+        deltaValue: toOptionalDecimalString(-lossAmount, 4),
+        metadata: {
+          reason: options.reason,
+          refundType: options.refundType,
+          refundAmount,
+          lossAmount,
+        },
+        occurredAt: new Date(),
+      } as InsertInventoryRevaluationEvent;
+      await this.logInventoryRevaluationEvent(revaluationPayload);
+    }
+
+    await this.syncLowStockAlertState(storeId, productId);
+
+    return {
+      inventory: updatedInventory,
+      lossAmount,
+      refundAmount,
+    };
+  }
+
+  async getCostLayers(productId: string, storeId: string): Promise<CostLayerSummary> {
+    let layers: CostLayerInfo[] = [];
+
+    if (this.isTestEnv) {
+      const key = `${storeId}:${productId}`;
+      const memLayers = this.mem.inventoryCostLayers.get(key) || [];
+      layers = memLayers.map((layer: any) => ({
+        id: layer.id,
+        quantityRemaining: parseNumeric(layer.quantityRemaining, 0),
+        unitCost: parseNumeric(layer.unitCost, 0),
+        source: layer.source ?? null,
+        referenceId: layer.referenceId ?? null,
+        notes: layer.notes ?? null,
+        createdAt: layer.createdAt ?? null,
+      }));
+    } else {
+      const rows = await db
+        .select()
+        .from(inventoryCostLayers)
+        .where(and(eq(inventoryCostLayers.storeId, storeId), eq(inventoryCostLayers.productId, productId)))
+        .orderBy(asc(inventoryCostLayers.createdAt), asc(inventoryCostLayers.id));
+
+      layers = rows.map((row) => ({
+        id: row.id,
+        quantityRemaining: parseNumeric(row.quantityRemaining, 0),
+        unitCost: parseNumeric(row.unitCost, 0),
+        source: row.source ?? null,
+        referenceId: row.referenceId ?? null,
+        notes: row.notes ?? null,
+        createdAt: row.createdAt ?? null,
+      }));
+    }
+
+    // Calculate summary stats
+    let totalQuantity = 0;
+    let totalCostValue = 0;
+
+    for (const layer of layers) {
+      totalQuantity += layer.quantityRemaining;
+      totalCostValue += layer.quantityRemaining * layer.unitCost;
+    }
+
+    const weightedAverageCost = totalQuantity > 0 ? totalCostValue / totalQuantity : 0;
+    const oldestLayerCost = layers.length > 0 ? layers[0].unitCost : null;
+    const newestLayerCost = layers.length > 0 ? layers[layers.length - 1].unitCost : null;
+
+    return {
+      layers,
+      totalQuantity,
+      weightedAverageCost,
+      oldestLayerCost,
+      newestLayerCost,
+    };
+  }
+
+  async analyzeMargin(productId: string, storeId: string, proposedSalePrice: number): Promise<MarginAnalysis> {
+    const costLayerSummary = await this.getCostLayers(productId, storeId);
+    
+    const layerAnalysis = costLayerSummary.layers.map((layer) => {
+      const margin = proposedSalePrice - layer.unitCost;
+      const marginPercent = proposedSalePrice > 0 ? (margin / proposedSalePrice) * 100 : 0;
+      return {
+        quantity: layer.quantityRemaining,
+        unitCost: layer.unitCost,
+        margin,
+        marginPercent,
+        wouldLoseMoney: margin < 0,
+      };
+    });
+
+    const overallMargin = proposedSalePrice - costLayerSummary.weightedAverageCost;
+    const overallMarginPercent = proposedSalePrice > 0 
+      ? (overallMargin / proposedSalePrice) * 100 
+      : 0;
+
+    // Recommended minimum price is the highest cost layer (ensures no loss on any unit)
+    const maxCost = costLayerSummary.layers.reduce(
+      (max, layer) => Math.max(max, layer.unitCost),
+      0
+    );
+    const recommendedMinPrice = maxCost;
+
+    // Count layers and quantities at loss
+    let layersAtLoss = 0;
+    let quantityAtLoss = 0;
+    for (const analysis of layerAnalysis) {
+      if (analysis.wouldLoseMoney) {
+        layersAtLoss++;
+        quantityAtLoss += analysis.quantity;
+      }
+    }
+
+    return {
+      proposedSalePrice,
+      costLayers: layerAnalysis,
+      totalQuantity: costLayerSummary.totalQuantity,
+      weightedAverageCost: costLayerSummary.weightedAverageCost,
+      overallMargin,
+      overallMarginPercent,
+      recommendedMinPrice,
+      layersAtLoss,
+      quantityAtLoss,
+    };
+  }
+
   async getLowStockItems(storeId: string): Promise<Inventory[]> {
     if (this.isTestEnv) {
       return (await this.getInventoryByStore(storeId)).filter(i => (i.quantity || 0) <= (i.minStockLevel || 0));
@@ -3982,6 +4281,44 @@ export class DatabaseStorage implements IStorage {
       )
     );
 
+    // Query stock removal movements for loss and manufacturer refund tracking
+    const stockRemovalMovements = await db.select({
+      metadata: stockMovements.metadata,
+    })
+    .from(stockMovements)
+    .where(
+      and(
+        eq(stockMovements.storeId, storeId),
+        eq(stockMovements.actionType, 'removal'),
+        gte(stockMovements.occurredAt, startDate),
+        lt(stockMovements.occurredAt, endDate),
+      )
+    );
+
+    // Parse metadata to extract loss and refund amounts
+    let stockRemovalLoss = 0;
+    let stockRemovalCount = 0;
+    let manufacturerRefunds = 0;
+    let manufacturerRefundCount = 0;
+
+    for (const movement of stockRemovalMovements) {
+      const meta = movement.metadata as Record<string, unknown> | null;
+      if (meta) {
+        const lossAmount = parseFloat(String(meta.lossAmount || 0));
+        const refundAmount = parseFloat(String(meta.refundAmount || 0));
+        
+        if (lossAmount > 0) {
+          stockRemovalLoss += lossAmount;
+          stockRemovalCount++;
+        }
+        
+        if (refundAmount > 0) {
+          manufacturerRefunds += refundAmount;
+          manufacturerRefundCount++;
+        }
+      }
+    }
+
     const revenue = parseFloat(String(salesRow?.revenue || "0"));
     const cogsFromSales = parseFloat(String(salesRow?.cogs || "0"));
     const inventoryAdjustments = parseFloat(String(revaluationRow?.deltaValue || "0"));
@@ -3989,7 +4326,8 @@ export class DatabaseStorage implements IStorage {
     const refundAmount = parseFloat(String(refundRow?.refundAmount || "0"));
     const refundCount = parseInt(String(refundRow?.refundCount || "0"));
     const netRevenue = revenue - refundAmount;
-    const profit = netRevenue - netCost;
+    // Adjust profit calculation to account for manufacturer refunds (they reduce losses)
+    const adjustedProfit = (netRevenue - netCost) + manufacturerRefunds;
     const priceChangeCount = parseInt(String(priceChangeRow?.changeCount || "0"));
     const priceChangeDelta = parseFloat(String(priceChangeRow?.deltaValue || "0"));
 
@@ -4001,9 +4339,13 @@ export class DatabaseStorage implements IStorage {
       netCost,
       refundAmount,
       refundCount,
-      profit,
+      profit: adjustedProfit,
       priceChangeCount,
       priceChangeDelta,
+      stockRemovalLoss,
+      stockRemovalCount,
+      manufacturerRefunds,
+      manufacturerRefundCount,
     };
   }
 
