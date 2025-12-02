@@ -1203,7 +1203,7 @@ function AnalyticsContent() {
                     </div>
                   </dl>
                   <p className="text-xs text-muted-foreground">
-                    Latest snapshot: {latestPricePoint ? `${latestPricePoint.salePrice ?? "--"} sale / ${latestPricePoint.avgCost ?? "--"} avg cost` : "No captured data"}
+                    Latest snapshot: {latestPricePoint ? `${latestPricePoint.salePrice ?? "--"} sale / ${latestPricePoint.avgCost ?? "--"} cost price` : "No captured data"}
                   </p>
                 </CardContent>
               </Card>
@@ -1263,7 +1263,7 @@ function AnalyticsContent() {
                         />
                         <Legend />
                         <Line type="monotone" dataKey="salePrice" name="Sale Price" stroke="#3B82F6" strokeWidth={2} dot={false} />
-                        <Line type="monotone" dataKey="avgCost" name="Avg Cost" stroke="#10B981" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="avgCost" name="Cost Price" stroke="#10B981" strokeWidth={2} dot={false} />
                       </RechartsLineChart>
                     </ResponsiveContainer>
                   ) : (
