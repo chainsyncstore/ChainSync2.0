@@ -1236,7 +1236,7 @@ export default function Inventory() {
                             <th className="text-left p-3 sm:p-4 font-medium">Product</th>
                             <th className="text-left p-3 sm:p-4 font-medium hidden sm:table-cell">SKU</th>
                             <th className="text-right p-3 sm:p-4 font-medium">Current Stock</th>
-                            <th className="text-right p-3 sm:p-4 font-medium">Cost Price</th>
+                            <th className="text-right p-3 sm:p-4 font-medium">Avg. Cost</th>
                             <th className="text-right p-3 sm:p-4 font-medium">Selling Price</th>
                             <th className="text-right p-3 sm:p-4 font-medium hidden lg:table-cell">Min Level</th>
                             <th className="text-right p-3 sm:p-4 font-medium hidden lg:table-cell">Max Level</th>
