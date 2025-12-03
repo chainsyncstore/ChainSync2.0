@@ -13,6 +13,7 @@ import { NotificationService } from '../websocket/notification-service';
 import { registerAdminRoutes } from './routes.admin';
 import { registerAlertsRoutes } from './routes.alerts';
 import { registerAnalyticsRoutes } from './routes.analytics';
+import { registerAnalyticsV2Routes, registerAnalyticsV2RoutesExtra } from './routes.analytics-v2';
 import { registerAuthRoutes } from './routes.auth';
 import { registerBillingRoutes } from './routes.billing';
 import { registerCustomerRoutes } from './routes.customers';
@@ -56,6 +57,8 @@ export async function registerRoutes(app: Express) {
   // API routes
   await registerAdminRoutes(app);
   await registerAnalyticsRoutes(app);
+  await registerAnalyticsV2Routes(app);
+  await registerAnalyticsV2RoutesExtra(app);
   await registerAlertsRoutes(app);
   await registerAuthRoutes(app);
   await registerBillingRoutes(app);

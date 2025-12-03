@@ -25,7 +25,7 @@ const MainLayout = lazy(() => import("@/components/layout/main-layout"));
 const Landing = lazy(() => import("@/pages/landing"));
 const POS = lazy(() => import("@/pages/pos"));
 const Inventory = lazy(() => import("@/pages/inventory"));
-const Analytics = lazy(() => import("@/pages/analytics"));  
+const Analytics = lazy(() => import("@/pages/analytics-v2"));  
 const Returns = lazy(() => import("@/pages/returns"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminIp = lazy(() => import("@/pages/admin/ip-whitelist"));

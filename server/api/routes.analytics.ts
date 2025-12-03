@@ -808,7 +808,8 @@ export async function registerAnalyticsRoutes(app: Express) {
 
     const startDateRaw = String((req.query as any)?.startDate || '').trim();
     const endDateRaw = String((req.query as any)?.endDate || '').trim();
-    const normalizeCurrency = shouldNormalizeCurrency(req);
+    // eslint-disable-next-line no-unused-vars
+    const _normalizeCurrency = shouldNormalizeCurrency(req);
 
     const endDate = endDateRaw ? new Date(endDateRaw) : new Date();
     const startDate = startDateRaw ? new Date(startDateRaw) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
