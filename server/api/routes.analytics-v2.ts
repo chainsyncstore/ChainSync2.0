@@ -15,6 +15,7 @@ import {
   inventory,
   priceChangeEvents,
   inventoryRevaluationEvents,
+  customers,
 } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
@@ -402,21 +403,37 @@ async function computeInventoryValue(storeIds: string[], currency: CurrencyCode)
 }
 
 async function computeCustomerMetrics(storeIds: string[], window: { start: Date; end: Date }) {
-  const result = await db.execute(sql`
-    SELECT COUNT(DISTINCT lt.customer_id) as active, COUNT(DISTINCT CASE WHEN c.created_at >= ${window.start} AND c.created_at < ${window.end} THEN lt.customer_id END) as new_this_period
-    FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id INNER JOIN customers c ON lt.customer_id = c.id
-    WHERE t.store_id = ANY(${pgArray(storeIds)}) AND t.status = 'completed' AND t.kind = 'SALE' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
+  // Count all customers from customers table (loyalty customers onboarded)
+  const [totalRow] = await db.select({
+    total: sql<number>`COUNT(*)`,
+    newThisPeriod: sql<number>`COUNT(CASE WHEN ${customers.createdAt} >= ${window.start} AND ${customers.createdAt} < ${window.end} THEN 1 END)`,
+  }).from(customers).where(and(inArray(customers.storeId, storeIds), eq(customers.isActive, true)));
+  
+  // Count active customers (those who made transactions in the period)
+  const activeResult = await db.execute(sql`
+    SELECT COUNT(DISTINCT lt.customer_id) as active
+    FROM loyalty_transactions lt 
+    INNER JOIN transactions t ON lt.transaction_id = t.id 
+    WHERE t.store_id = ANY(${pgArray(storeIds)}) AND t.status = 'completed' AND t.kind = 'SALE' 
+      AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
   `);
-  const row = ((result as any).rows || [])[0] || {};
-  return { active: Number(row.active || 0), newThisPeriod: Number(row.new_this_period || 0), retentionRate: 0 };
+  const activeCount = Number(((activeResult as any).rows || [])[0]?.active || 0);
+  
+  return { 
+    active: Number(totalRow?.total || 0),  // Total enrolled customers
+    activeTransacting: activeCount,         // Customers who made purchases
+    newThisPeriod: Number(totalRow?.newThisPeriod || 0), 
+    retentionRate: 0 
+  };
 }
 
-async function getUniqueCustomerCount(storeIds: string[], window: { start: Date; end: Date }) {
-  const result = await db.execute(sql`
-    SELECT COUNT(DISTINCT lt.customer_id) as count FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id
-    WHERE t.store_id = ANY(${pgArray(storeIds)}) AND t.status = 'completed' AND t.kind = 'SALE' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
-  `);
-  return Number(((result as any).rows || [])[0]?.count || 0);
+// eslint-disable-next-line no-unused-vars
+async function getUniqueCustomerCount(storeIds: string[], _window: { start: Date; end: Date }) {
+  // Count total enrolled customers in the store
+  const [row] = await db.select({
+    count: sql<number>`COUNT(*)`,
+  }).from(customers).where(and(inArray(customers.storeId, storeIds), eq(customers.isActive, true)));
+  return Number(row?.count || 0);
 }
 
 // Additional endpoints registration
@@ -442,21 +459,16 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
 
       const currency = await getStoreCurrency(targetStoreIds[0]);
 
-      // Period customers
-      const periodResult = await db.execute(sql`
-        SELECT DISTINCT lt.customer_id, c.created_at as customer_created_at
-        FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id INNER JOIN customers c ON lt.customer_id = c.id
-        WHERE t.store_id = ANY(${pgArray(targetStoreIds)}) AND t.status = 'completed' AND t.kind = 'SALE'
-          AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
-      `);
-      const customerRows = (periodResult as any).rows || [];
-      const totalCustomers = customerRows.length;
-      const newCustomers = customerRows.filter((c: any) => {
-        const created = new Date(c.customer_created_at);
-        return created >= window.start && created < window.end;
-      }).length;
+      // Total customers from customers table (all enrolled loyalty customers)
+      const [customerCounts] = await db.select({
+        total: sql<number>`COUNT(*)`,
+        newThisPeriod: sql<number>`COUNT(CASE WHEN ${customers.createdAt} >= ${window.start} AND ${customers.createdAt} < ${window.end} THEN 1 END)`,
+      }).from(customers).where(and(inArray(customers.storeId, targetStoreIds), eq(customers.isActive, true)));
 
-      // Repeat customers
+      const totalCustomers = Number(customerCounts?.total || 0);
+      const newCustomers = Number(customerCounts?.newThisPeriod || 0);
+
+      // Customers who have made transactions (repeat = made transactions before the period AND during the period)
       const repeatResult = await db.execute(sql`
         SELECT COUNT(DISTINCT cp.customer_id) as repeat_count FROM (
           SELECT DISTINCT lt.customer_id FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id
@@ -470,7 +482,15 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
       const repeatCustomers = Number(((repeatResult as any).rows || [])[0]?.repeat_count || 0);
       const retentionRate = totalCustomers > 0 ? roundAmount((repeatCustomers / totalCustomers) * 100) : 0;
 
-      const prevMetrics = await computeCustomerMetrics(targetStoreIds, prevWindow);
+      // Previous period metrics
+      const [prevCounts] = await db.select({
+        total: sql<number>`COUNT(*)`,
+      }).from(customers).where(and(
+        inArray(customers.storeId, targetStoreIds), 
+        eq(customers.isActive, true),
+        lt(customers.createdAt, prevWindow.end)
+      ));
+      const prevTotalCustomers = Number(prevCounts?.total || 0);
 
       // Engagement metrics
       const [transMetrics] = await db.select({
@@ -482,17 +502,17 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
       const totalRev = Number(transMetrics?.totalRevenue || 0);
       const transactionsPerCustomer = totalCustomers > 0 ? roundAmount(totalTrans / totalCustomers) : 0;
       const avgOrderValue = totalTrans > 0 ? roundAmount(totalRev / totalTrans) : 0;
-      const customerGrowth = prevMetrics.active > 0 ? roundAmount(((totalCustomers - prevMetrics.active) / prevMetrics.active) * 100) : totalCustomers > 0 ? 100 : 0;
-      const oneTimeBuyers = totalCustomers - repeatCustomers - newCustomers;
-      const churnRisk = totalCustomers > 0 ? roundAmount((Math.max(0, oneTimeBuyers) / totalCustomers) * 100) : 0;
+      const customerGrowth = prevTotalCustomers > 0 ? roundAmount(((totalCustomers - prevTotalCustomers) / prevTotalCustomers) * 100) : totalCustomers > 0 ? 100 : 0;
+      const loyalCustomers = repeatCustomers; // Customers with multiple transactions
+      const churnRisk = totalCustomers > 0 ? roundAmount((Math.max(0, totalCustomers - loyalCustomers - newCustomers) / totalCustomers) * 100) : 0;
 
       res.json({
         period: { start: window.start.toISOString(), end: window.end.toISOString() }, currency,
-        totalCustomers: { value: totalCustomers, delta: deltaPercent(totalCustomers, prevMetrics.active) },
+        totalCustomers: { value: totalCustomers, delta: deltaPercent(totalCustomers, prevTotalCustomers) },
         newThisPeriod: { value: newCustomers, percent: totalCustomers > 0 ? roundAmount((newCustomers / totalCustomers) * 100) : 0 },
-        loyalCustomers: { value: repeatCustomers, percent: totalCustomers > 0 ? roundAmount((repeatCustomers / totalCustomers) * 100) : 0 },
-        retentionRate: { value: retentionRate, delta: deltaPercent(retentionRate, prevMetrics.retentionRate) },
-        segments: { new: newCustomers, repeat: repeatCustomers, newPercent: totalCustomers > 0 ? roundAmount((newCustomers / totalCustomers) * 100) : 0, repeatPercent: totalCustomers > 0 ? roundAmount((repeatCustomers / totalCustomers) * 100) : 0 },
+        loyalCustomers: { value: loyalCustomers, percent: totalCustomers > 0 ? roundAmount((loyalCustomers / totalCustomers) * 100) : 0 },
+        retentionRate: { value: retentionRate, delta: null },
+        segments: { new: newCustomers, repeat: loyalCustomers, newPercent: totalCustomers > 0 ? roundAmount((newCustomers / totalCustomers) * 100) : 0, repeatPercent: totalCustomers > 0 ? roundAmount((loyalCustomers / totalCustomers) * 100) : 0 },
         engagement: { transactionsPerCustomer, avgOrderValue: toMoney(avgOrderValue, currency), customerGrowth, churnRisk },
       });
     } catch (error) {
