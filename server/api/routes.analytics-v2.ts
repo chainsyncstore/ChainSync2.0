@@ -26,8 +26,8 @@ const toMoney = (amount: number, currency: CurrencyCode): Money => ({ amount: ro
 
 // Helper to convert JS array to PostgreSQL array for use with ANY()
 function pgArray(arr: string[]) {
-  if (!arr.length) return sql`ARRAY[]::text[]`;
-  return sql`ARRAY[${sql.join(arr.map(id => sql`${id}`), sql`, `)}]`;
+  if (!arr.length) return sql`ARRAY[]::uuid[]`;
+  return sql`ARRAY[${sql.join(arr.map(id => sql`${id}::uuid`), sql`, `)}]::uuid[]`;
 }
 
 async function getScope(req: Request) {
