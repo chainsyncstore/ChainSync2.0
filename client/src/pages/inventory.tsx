@@ -174,6 +174,62 @@ const MOVEMENT_ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "delete", label: "Deletions" },
 ];
 
+const parseMaybeNumber = (value: number | string | null | undefined): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getInventoryQuantity = (item: InventoryWithProduct): number => {
+  return parseMaybeNumber(item.quantity) ?? 0;
+};
+
+export const getInventoryUnitCost = (item: InventoryWithProduct): number => {
+  const quantity = getInventoryQuantity(item);
+  const totalCost = parseMaybeNumber(item.totalCostValue);
+  if (totalCost !== null && quantity > 0) {
+    return totalCost / quantity;
+  }
+
+  const avgCost = parseMaybeNumber(item.avgCost);
+  if (avgCost !== null) {
+    return avgCost;
+  }
+
+  const fallbackCost =
+    parseMaybeNumber((item.product as any)?.costPrice) ?? parseMaybeNumber((item.product as any)?.cost);
+  return fallbackCost ?? 0;
+};
+
+export const getInventoryTotalCost = (item: InventoryWithProduct): number => {
+  const totalCost = parseMaybeNumber(item.totalCostValue);
+  if (totalCost !== null) {
+    return totalCost;
+  }
+  return getInventoryUnitCost(item) * getInventoryQuantity(item);
+};
+
+const getStockStatus = (item: InventoryWithProduct): StockStatus => {
+  const quantity = getInventoryQuantity(item);
+  if (quantity === 0) {
+    return { status: "out", color: "destructive", text: "Out of Stock" };
+  }
+
+  const minStock = parseMaybeNumber(item.minStockLevel) ?? 0;
+  if (quantity <= minStock) {
+    return { status: "low", color: "secondary", text: "Low Stock" };
+  }
+
+  const maxStock = parseMaybeNumber(item.maxStockLevel);
+  if (typeof maxStock === "number" && quantity > maxStock) {
+    return { status: "over", color: "outline", text: "Overstocked" };
+  }
+
+  return { status: "good", color: "default", text: "In Stock" };
+};
+
 const formatFlexibleCurrency = (value: number, currencyCode?: string) => {
   if (!currencyCode) {
     return formatCurrency(value, "USD");
@@ -460,20 +516,20 @@ export default function Inventory() {
   );
 
   const overstockedItems = useMemo(
-    () => (isAllStoresView ? [] : filteredInventory.filter((item) => item.quantity > (item.maxStockLevel ?? Number.MAX_SAFE_INTEGER))),
-    [filteredInventory, isAllStoresView],
+    () =>
+      filteredInventory.filter((item) => {
+        const maxStock = parseMaybeNumber(item.maxStockLevel);
+        if (typeof maxStock !== "number") {
+          return false;
+        }
+        return getInventoryQuantity(item) > maxStock;
+      }),
+    [filteredInventory],
   );
 
   // Calculate total inventory value at COST (not sale price) for accurate financial reporting
   const totalStockValue = useMemo(
-    () => filteredInventory.reduce((sum, item) => {
-      const unitCost = item.avgCost != null
-        ? Number(item.avgCost)
-        : item.product?.costPrice || item.product?.cost
-          ? parseFloat(String(item.product.costPrice ?? item.product.cost))
-          : 0;
-      return sum + item.quantity * unitCost;
-    }, 0),
+    () => filteredInventory.reduce((sum, item) => sum + getInventoryTotalCost(item), 0),
     [filteredInventory],
   );
 
@@ -1013,14 +1069,8 @@ export default function Inventory() {
 
   const productHistoryMovements = productHistoryResponse?.data ?? [];
 
-  const getStockStatus = (item: InventoryWithProduct): StockStatus => {
-    if (item.quantity === 0) return { status: "out", color: "destructive", text: "Out of Stock" };
-    if (item.quantity <= (item.minStockLevel ?? 0)) return { status: "low", color: "secondary", text: "Low Stock" };
-    if (item.quantity > (item.maxStockLevel ?? Number.MAX_SAFE_INTEGER)) return { status: "over", color: "outline", text: "Overstocked" };
-    return { status: "good", color: "default", text: "In Stock" };
-  };
-
   const shouldShowStoreSelector = isAdmin;
+
   const hasSelectedStore = Boolean(storeId);
 
   return (
@@ -1407,11 +1457,9 @@ export default function Inventory() {
                                 <td className="p-3 sm:p-4 text-right">
                                   <span className="text-sm text-slate-600">
                                     {(() => {
-                                      const costPrice = item.avgCost != null
-                                        ? Number(item.avgCost)
-                                        : item.product?.costPrice ?? item.product?.cost ?? null;
-                                      return costPrice != null
-                                        ? formatFlexibleCurrency(Number(costPrice), currency)
+                                      const unitCost = getInventoryUnitCost(item);
+                                      return unitCost > 0
+                                        ? formatFlexibleCurrency(unitCost, currency)
                                         : "-";
                                     })()}
                                   </span>
@@ -1433,14 +1481,7 @@ export default function Inventory() {
                                 </td>
                                 <td className="p-3 sm:p-4 text-right hidden md:table-cell">
                                   <span className="font-medium text-slate-800">
-                                    {(() => {
-                                      const unitCost = item.avgCost != null
-                                        ? Number(item.avgCost)
-                                        : item.product?.costPrice || item.product?.cost
-                                          ? parseFloat(String(item.product.costPrice ?? item.product.cost))
-                                          : 0;
-                                      return formatFlexibleCurrency(item.quantity * unitCost, currency);
-                                    })()}
+                                    {formatFlexibleCurrency(getInventoryTotalCost(item), currency)}
                                   </span>
                                 </td>
                                 <td className="p-3 sm:p-4 text-center">
