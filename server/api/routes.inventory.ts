@@ -732,6 +732,87 @@ export async function registerInventoryRoutes(app: Express) {
     }
   );
 
+  app.post(
+    '/api/inventory/:productId/:storeId/drop',
+    requireAuth,
+    enforceIpWhitelist,
+    requireManagerWithStore(),
+    async (req: Request, res: Response) => {
+      const managerStoreId = (req as any).managerStoreId as string | undefined;
+      const userId = req.session?.userId as string | undefined;
+      const { productId, storeId } = req.params as { productId?: string; storeId?: string };
+
+      if (!productId || !storeId) {
+        return res.status(400).json({ error: 'productId and storeId are required' });
+      }
+
+      if (!managerStoreId || storeId !== managerStoreId) {
+        return res.status(403).json({ error: 'Managers can only drop stock from their assigned store' });
+      }
+
+      const parsed = DropProductSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+      }
+
+      try {
+        const existingInventory = await storage.getInventoryItem(productId, storeId);
+        let removedQuantity = 0;
+        let lossAmount = 0;
+        let refundAmount = 0;
+
+        if (existingInventory && (existingInventory.quantity ?? 0) > 0) {
+          removedQuantity = existingInventory.quantity ?? 0;
+          const removalResult = await storage.removeStock(
+            productId,
+            storeId,
+            removedQuantity,
+            {
+              reason: parsed.data.reason,
+              refundType: parsed.data.refundType,
+              refundAmount: parsed.data.refundAmount,
+              refundPerUnit: parsed.data.refundPerUnit,
+              notes: parsed.data.notes,
+            },
+            userId,
+          );
+          lossAmount = removalResult.lossAmount;
+          refundAmount = removalResult.refundAmount;
+        }
+
+        await storage.deleteInventory(productId, storeId, userId, parsed.data.notes ?? 'Product dropped');
+        const productRecord = await storage.getProduct(productId);
+
+        logger.info?.('product_dropped', {
+          productId,
+          storeId,
+          removedQuantity,
+          reason: parsed.data.reason,
+          refundType: parsed.data.refundType,
+          lossAmount,
+          refundAmount,
+          userId,
+        });
+
+        return res.json({
+          status: 'dropped',
+          removedQuantity,
+          lossAmount,
+          refundAmount,
+          productIsActive: productRecord?.isActive ?? null,
+        });
+      } catch (error) {
+        logger.error('Failed to drop product', {
+          productId,
+          storeId,
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to drop product' });
+      }
+    }
+  );
+
   app.get('/api/inventory/:productId/:storeId', requireAuth, async (req: Request, res: Response) => {
     const { productId, storeId } = req.params as { productId?: string; storeId?: string };
     const normalizedProductId = String(productId ?? '').trim();
@@ -883,6 +964,9 @@ export async function registerInventoryRoutes(app: Express) {
     refundPerUnit: z.coerce.number().min(0).optional(),
     notes: z.string().max(500).optional(),
   });
+
+  // Drop/delete product schema shares the same inputs except quantity is derived automatically
+  const DropProductSchema = StockRemovalSchema.omit({ quantity: true });
 
   app.post(
     '/api/inventory/:productId/:storeId/remove',

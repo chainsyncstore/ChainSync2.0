@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, AlertTriangle, Search, Filter, Edit, Eye, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers, TrendingDown, TrendingUp, Sparkles } from "lucide-react";
+import { Package, AlertTriangle, Search, Filter, Edit, Eye, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers, TrendingDown, TrendingUp, Sparkles, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/notice";
@@ -129,6 +131,25 @@ type MarginAnalysis = {
 type StockRemovalReason = "expired" | "damaged" | "low_sales" | "returned_to_manufacturer" | "theft" | "other";
 type RefundType = "none" | "partial" | "full";
 
+type RemoveStockPayload = {
+  productId: string;
+  storeId: string;
+  quantity: number;
+  reason: StockRemovalReason;
+  refundType: RefundType;
+  refundAmount?: number;
+  notes?: string;
+};
+
+type DropProductPayload = {
+  productId: string;
+  storeId: string;
+  reason: StockRemovalReason;
+  refundType: RefundType;
+  refundAmount?: number;
+  notes?: string;
+};
+
 const STOCK_REMOVAL_REASONS: Array<{ value: StockRemovalReason; label: string }> = [
   { value: "expired", label: "Expired" },
   { value: "damaged", label: "Damaged" },
@@ -241,6 +262,10 @@ export default function Inventory() {
   // Margin warning state
   const [showMarginWarning, setShowMarginWarning] = useState(false);
   const [marginAnalysis, setMarginAnalysis] = useState<MarginAnalysis | null>(null);
+
+  const [confirmAction, setConfirmAction] = useState<"remove" | "drop" | null>(null);
+  const [pendingRemovalPayload, setPendingRemovalPayload] = useState<RemoveStockPayload | null>(null);
+  const [pendingDropPayload, setPendingDropPayload] = useState<DropProductPayload | null>(null);
 
   const userRole = (user?.role ?? (user?.isAdmin ? "admin" : undefined))?.toString().toLowerCase();
   const isAdmin = userRole === "admin";
@@ -728,6 +753,59 @@ export default function Inventory() {
     },
   });
 
+  const dropProductMutation = useMutation({
+    mutationFn: async (payload: {
+      productId: string;
+      storeId: string;
+      reason: StockRemovalReason;
+      refundType: RefundType;
+      refundAmount?: number;
+      notes?: string;
+    }) => {
+      const csrfToken = await getCsrfToken();
+      const response = await fetch(`/api/inventory/${payload.productId}/${payload.storeId}/drop`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          reason: payload.reason,
+          refundType: payload.refundType,
+          refundAmount: payload.refundAmount,
+          notes: payload.notes,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: "Failed to drop product" }));
+        throw new Error(error.error ?? "Failed to drop product");
+      }
+
+      return response.json();
+    },
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "inventory"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/stores", storeId, "stock-movements"] });
+      toast({
+        title: "Product dropped",
+        description:
+          data.removedQuantity > 0
+            ? `All ${data.removedQuantity} units were removed and the product was deactivated.`
+            : "Product was deactivated and will no longer be tracked.",
+      });
+      resetEditState();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Drop failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleRemoveStock = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!editingItem) return;
@@ -754,7 +832,7 @@ export default function Inventory() {
       return;
     }
 
-    void removeStockMutation.mutateAsync({
+    setPendingRemovalPayload({
       productId: editingItem.productId,
       storeId,
       quantity: qty,
@@ -763,7 +841,59 @@ export default function Inventory() {
       refundAmount: refundVal,
       notes: removalNotes || undefined,
     });
+    setConfirmAction("remove");
   };
+
+  const initiateDropProduct = () => {
+    if (!editingItem) return;
+    if (!canEditInventory || !storeId) {
+      toast({ title: "Store not selected", description: "Select a store you are allowed to manage.", variant: "destructive" });
+      return;
+    }
+
+    const refundVal = refundAmount !== "" ? Number(refundAmount) : undefined;
+    if (refundType === "partial" && (refundVal === undefined || Number.isNaN(refundVal) || refundVal < 0)) {
+      toast({ title: "Invalid refund amount", description: "Provide a valid refund amount for partial refund.", variant: "destructive" });
+      return;
+    }
+
+    setPendingDropPayload({
+      productId: editingItem.productId,
+      storeId,
+      reason: removalReason,
+      refundType,
+      refundAmount: refundVal,
+      notes: removalNotes || undefined,
+    });
+    setConfirmAction("drop");
+  };
+
+  const handleConfirmInventoryAction = async () => {
+    if (confirmAction === "remove" && pendingRemovalPayload) {
+      try {
+        await removeStockMutation.mutateAsync(pendingRemovalPayload);
+      } finally {
+        setPendingRemovalPayload(null);
+        setConfirmAction(null);
+      }
+      return;
+    }
+
+    if (confirmAction === "drop" && pendingDropPayload) {
+      try {
+        await dropProductMutation.mutateAsync(pendingDropPayload);
+      } finally {
+        setPendingDropPayload(null);
+        setConfirmAction(null);
+      }
+    }
+  };
+
+  const isConfirming = confirmAction === "remove"
+    ? removeStockMutation.isPending
+    : confirmAction === "drop"
+      ? dropProductMutation.isPending
+      : false;
 
   // Quantity to add logic - only positive values allowed for adding stock
   const originalQuantity = editingItem?.quantity ?? 0;
@@ -1738,9 +1868,18 @@ export default function Inventory() {
                 <Button type="button" variant="ghost" onClick={() => setIsRemovalMode(false)}>
                   Back to edit
                 </Button>
-                <div className="flex w-full sm:w-auto gap-2 justify-end">
+                <div className="flex w-full sm:w-auto gap-2 flex-col sm:flex-row justify-end">
                   <Button type="button" variant="outline" onClick={resetEditState}>
                     Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-red-200 text-red-700 hover:text-red-800"
+                    onClick={initiateDropProduct}
+                    disabled={dropProductMutation.isPending || removeStockMutation.isPending || updateInventoryMutation.isPending}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" /> Drop / Delete product
                   </Button>
                   <Button
                     type="submit"
@@ -1755,6 +1894,37 @@ export default function Inventory() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(confirmAction)} onOpenChange={(open) => {
+        if (!open && !isConfirming) {
+          setConfirmAction(null);
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction === "drop" ? "Drop product and delete stock?" : "Confirm stock removal?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone and any recorded losses or refunds will be saved for reporting.
+              {" "}
+              {confirmAction === "drop"
+                ? "All remaining stock will be removed (if any) and the product will be marked inactive."
+                : "Proceed only if you have verified the quantities and notes."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isConfirming}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleConfirmInventoryAction()} disabled={isConfirming}>
+              {isConfirming
+                ? "Processing..."
+                : confirmAction === "drop"
+                  ? "Yes, drop product"
+                  : "Yes, remove stock"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={Boolean(historyProduct)} onOpenChange={(open) => {
         if (!open) {
