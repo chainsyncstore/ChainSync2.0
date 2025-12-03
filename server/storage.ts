@@ -1573,6 +1573,8 @@ export class DatabaseStorage implements IStorage {
         inv.total_cost_value AS "totalCostValue",
         inv.created_at AS "createdAt",
         inv.updated_at AS "updatedAt",
+        COALESCE(layer_totals.total_quantity, 0) AS "layerQuantity",
+        COALESCE(layer_totals.total_value, 0) AS "layerValue",
         prod.id AS "product.id",
         prod.name AS "product.name",
         prod.sku AS "product.sku",
@@ -1590,6 +1592,17 @@ export class DatabaseStorage implements IStorage {
       FROM inventory inv
       JOIN products prod ON inv.product_id = prod.id
       JOIN stores ON inv.store_id = stores.id
+      LEFT JOIN (
+        SELECT
+          store_id,
+          product_id,
+          SUM(quantity_remaining)::numeric AS total_quantity,
+          SUM(quantity_remaining * unit_cost)::numeric AS total_value
+        FROM inventory_cost_layers
+        GROUP BY store_id, product_id
+      ) AS layer_totals
+        ON layer_totals.store_id = inv.store_id
+        AND layer_totals.product_id = inv.product_id
       WHERE inv.store_id = ${storeId}
     `);
 
@@ -1603,6 +1616,16 @@ export class DatabaseStorage implements IStorage {
         product[prop] = value;
       }
 
+      const layerQuantity = parseNumeric(row.layerQuantity, 0);
+      const layerValue = parseNumeric(row.layerValue, 0);
+      let avgCost = parseNumeric(row.avgCost, 0);
+      let totalCostValue = parseNumeric(row.totalCostValue, 0);
+
+      if (layerQuantity > 0 && layerValue > 0) {
+        avgCost = layerValue / layerQuantity;
+        totalCostValue = layerValue;
+      }
+
       return {
         id: row.id,
         storeId: row.storeId,
@@ -1614,8 +1637,8 @@ export class DatabaseStorage implements IStorage {
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         product: Object.keys(product).length ? product : null,
-        avgCost: parseNumeric(row.avgCost, 0),
-        totalCostValue: parseNumeric(row.totalCostValue, 0),
+        avgCost,
+        totalCostValue,
         formattedPrice: parseFloat(String(product?.price ?? '0')),
         storeCurrency: row.storeCurrency ?? 'USD',
       };
