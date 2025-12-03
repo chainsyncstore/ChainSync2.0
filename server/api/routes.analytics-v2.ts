@@ -474,8 +474,8 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
 
       // Engagement metrics
       const [transMetrics] = await db.select({
-        totalTransactions: sql<number>`COUNT(DISTINCT t.id)`,
-        totalRevenue: sql<number>`COALESCE(SUM(t.total), 0)`,
+        totalTransactions: sql<number>`COUNT(DISTINCT ${transactions.id})`,
+        totalRevenue: sql<number>`COALESCE(SUM(${transactions.total}), 0)`,
       }).from(transactions).where(and(inArray(transactions.storeId, targetStoreIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'SALE'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
       const totalTrans = Number(transMetrics?.totalTransactions || 0);
