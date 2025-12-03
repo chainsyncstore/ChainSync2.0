@@ -2393,9 +2393,9 @@ export class DatabaseStorage implements IStorage {
       if (nextCostUpdate && typeof nextCostUpdate.cost === 'number' && quantityAfter > quantityBefore) {
         await persistCostLayer(quantityAfter - quantityBefore);
       }
-    } else if (nextCostUpdate && typeof nextCostUpdate.cost === 'number') {
-      await persistCostLayer(quantityAfter);
     }
+    // Note: Do NOT create a cost layer when quantity doesn't change.
+    // Cost layers only represent new stock additions, not price updates on existing stock.
 
     if (quantityBefore > quantityAfter) {
       await this.consumeCostLayers(storeId, productId, quantityBefore - quantityAfter, { inventory: current as Inventory });
