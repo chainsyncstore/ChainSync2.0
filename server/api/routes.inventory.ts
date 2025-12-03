@@ -408,6 +408,8 @@ export async function registerInventoryRoutes(app: Express) {
         minStockLevel: item.minStockLevel,
         maxStockLevel: item.maxStockLevel,
         reorderLevel: (item as any)?.reorderLevel ?? null,
+        avgCost: (item as any)?.avgCost ?? null,
+        totalCostValue: (item as any)?.totalCostValue ?? null,
         product: item.product
           ? {
               id: item.product.id,

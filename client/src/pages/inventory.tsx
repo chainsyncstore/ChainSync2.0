@@ -21,6 +21,8 @@ type InventoryWithProduct = InventoryEntry & {
   product: Product | null;
   formattedPrice: number;
   storeCurrency: string;
+  avgCost?: number | null;
+  totalCostValue?: number | null;
 };
 
 type InventoryApiResponse = {
