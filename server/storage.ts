@@ -2242,28 +2242,43 @@ export class DatabaseStorage implements IStorage {
 
     const quantityBefore = parseNumeric(current.quantity, 0);
     const avgCostBefore = parseNumeric((current as any).avgCost, 0);
+    const totalCostBefore = parseNumeric((current as any).totalCostValue, quantityBefore * avgCostBefore);
     const costInput = updateInventory.costUpdate ? costUpdateSchema.safeParse(updateInventory.costUpdate) : null;
     if (costInput && !costInput.success) {
       throw new Error(costInput.error.issues.map((issue) => issue.message).join(', '));
     }
     const nextCostUpdate = costInput?.success ? costInput.data : undefined;
 
-    const buildNextCostState = (nextQuantity: number): { avgCost: number; totalCostValue: number } => {
-      if (!nextCostUpdate || typeof nextCostUpdate.cost !== 'number') {
-        return {
-          avgCost: nextQuantity > 0 ? avgCostBefore : 0,
-          totalCostValue: nextQuantity > 0 ? avgCostBefore * nextQuantity : 0,
-        };
+    const nextQuantity = updateInventory.quantity != null ? parseNumeric(updateInventory.quantity, 0) : quantityBefore;
+    const quantityDelta = nextQuantity - quantityBefore;
+    const computeNextCostState = (): { avgCost: number; totalCostValue: number } => {
+      if (nextQuantity <= 0) {
+        return { avgCost: 0, totalCostValue: 0 };
       }
-      const newAvgCost = nextCostUpdate.cost;
-      return {
-        avgCost: newAvgCost,
-        totalCostValue: newAvgCost * nextQuantity,
-      };
+
+      const hasCostOverride = typeof nextCostUpdate?.cost === 'number';
+      let nextTotalValue = totalCostBefore;
+
+      if (quantityDelta > 0) {
+        const unitCost = hasCostOverride ? (nextCostUpdate!.cost as number) : avgCostBefore;
+        nextTotalValue += unitCost * quantityDelta;
+      } else if (quantityDelta < 0) {
+        const unitsRemoved = Math.min(Math.abs(quantityDelta), quantityBefore);
+        nextTotalValue -= avgCostBefore * unitsRemoved;
+        if (nextTotalValue < 0) {
+          nextTotalValue = 0;
+        }
+      }
+
+      if (hasCostOverride && quantityDelta <= 0) {
+        nextTotalValue = (nextCostUpdate!.cost as number) * nextQuantity;
+      }
+
+      const avgCost = nextTotalValue > 0 ? nextTotalValue / nextQuantity : 0;
+      return { avgCost, totalCostValue: nextTotalValue };
     };
 
-    const nextQuantity = updateInventory.quantity != null ? parseNumeric(updateInventory.quantity, 0) : quantityBefore;
-    const { avgCost, totalCostValue } = buildNextCostState(nextQuantity);
+    const { avgCost, totalCostValue } = computeNextCostState();
 
     const persistCostLayer = async (quantityDelta: number) => {
       if (quantityDelta <= 0 || !nextCostUpdate || typeof nextCostUpdate.cost !== 'number') {
