@@ -227,10 +227,15 @@ export async function registerInventoryRoutes(app: Express) {
   // DeleteInventorySchema) were defined but unused; they have been removed
   // to keep this module lint-clean.
 
-  const parseDateString = (value?: string | null): Date | undefined => {
+  const parseDateString = (value?: string | null, endOfDay = false): Date | undefined => {
     if (!value) return undefined;
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    // For endDate filters, set time to end of day to include all events on that date
+    if (endOfDay) {
+      parsed.setHours(23, 59, 59, 999);
+    }
+    return parsed;
   };
 
   const StockMovementQuerySchema = z.object({
@@ -265,7 +270,7 @@ export async function registerInventoryRoutes(app: Express) {
     const movements = await storage.getStoreStockMovements(rawStoreId, {
       ...rest,
       startDate: parseDateString(startDate),
-      endDate: parseDateString(endDate),
+      endDate: parseDateString(endDate, true),
     });
 
     const enriched = movements.map((movement) => ({
@@ -317,7 +322,7 @@ export async function registerInventoryRoutes(app: Express) {
     const movements = await storage.getProductStockHistory(normalizedStoreId, normalizedProductId, {
       limit,
       startDate: parseDateString(rawStartDate),
-      endDate: parseDateString(rawEndDate),
+      endDate: parseDateString(rawEndDate, true),
     });
 
     const enriched = movements.map((movement) => ({
