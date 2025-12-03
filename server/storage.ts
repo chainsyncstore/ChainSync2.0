@@ -2176,6 +2176,29 @@ export class DatabaseStorage implements IStorage {
           notes: options?.notes ?? 'Initial inventory creation',
           metadata: options?.metadata,
         });
+        
+        // Log inventory revaluation event for P&L tracking (test env)
+        const qty = parseNumeric(item.quantity, 0);
+        const cost = parseNumeric(item.avgCost, 0);
+        if (qty > 0 && cost > 0) {
+          const src = options?.source || 'initial_inventory';
+          if (src !== 'pos_sale' && src !== 'pos_void' && !src.startsWith('stock_removal_')) {
+            await this.logInventoryRevaluationEvent({
+              storeId: item.storeId,
+              productId: item.productId,
+              source: src,
+              referenceId: options?.referenceId ?? null,
+              quantityBefore: 0,
+              quantityAfter: qty,
+              avgCostAfter: toOptionalDecimalString(cost, 4),
+              deltaValue: toOptionalDecimalString(qty * cost, 4),
+              metadata: {
+                notes: options?.notes || 'Initial inventory creation',
+                userId,
+              },
+            } as InsertInventoryRevaluationEvent);
+          }
+        }
       }
       return item;
     }
@@ -2235,6 +2258,31 @@ export class DatabaseStorage implements IStorage {
         source: options?.source,
         referenceId: options?.referenceId,
       });
+    }
+
+    // Log inventory revaluation event for P&L tracking (only for initial inventory with quantity > 0)
+    const quantity = parseNumeric((item as any).quantity, 0);
+    const avgCost = parseNumeric((item as any).avgCost, 0);
+    if (quantity > 0 && avgCost > 0 && recordMovement) {
+      const source = options?.source || 'initial_inventory';
+      // Skip if this is tracked elsewhere
+      if (source !== 'pos_sale' && source !== 'pos_void' && !source.startsWith('stock_removal_')) {
+        const deltaValue = quantity * avgCost;
+        await this.logInventoryRevaluationEvent({
+          storeId: item.storeId,
+          productId: item.productId,
+          source,
+          referenceId: options?.referenceId ?? null,
+          quantityBefore: 0,
+          quantityAfter: quantity,
+          avgCostAfter: toOptionalDecimalString(avgCost, 4),
+          deltaValue: toOptionalDecimalString(deltaValue, 4),
+          metadata: {
+            notes: options?.notes || 'Initial inventory creation',
+            userId,
+          },
+        } as InsertInventoryRevaluationEvent);
+      }
     }
 
     await this.syncLowStockAlertState(item.storeId, item.productId);
@@ -2401,6 +2449,32 @@ export class DatabaseStorage implements IStorage {
       await this.consumeCostLayers(storeId, productId, quantityBefore - quantityAfter, { inventory: current as Inventory });
     }
 
+    // Log inventory revaluation event for P&L tracking (only for quantity changes)
+    if (quantityBefore !== quantityAfter) {
+      const source = updateInventory.source || 'manual_update';
+      // Skip if this is already tracked elsewhere
+      if (source !== 'pos_sale' && source !== 'pos_void' && !source.startsWith('stock_removal_')) {
+        const deltaValue = quantityDelta * avgCost;
+        if (deltaValue !== 0) {
+          await this.logInventoryRevaluationEvent({
+            storeId,
+            productId,
+            source,
+            referenceId: updateInventory.referenceId ?? null,
+            quantityBefore,
+            quantityAfter,
+            avgCostAfter: toOptionalDecimalString(avgCost, 4),
+            deltaValue: toOptionalDecimalString(deltaValue, 4),
+            metadata: {
+              quantityDelta,
+              notes: `Inventory updated from ${quantityBefore} to ${quantityAfter}`,
+              userId,
+            },
+          } as InsertInventoryRevaluationEvent);
+        }
+      }
+    }
+
     if (nextCostUpdate && (typeof nextCostUpdate.cost === 'number' || typeof nextCostUpdate.salePrice === 'number')) {
       await this.updateProductPricingIfNeeded(productId, {
         storeId,
@@ -2499,6 +2573,28 @@ export class DatabaseStorage implements IStorage {
     
     if (quantityChange < 0) {
       await this.consumeCostLayers(storeId, productId, Math.abs(quantityChange), { inventory: current as Inventory });
+    }
+
+    // Log inventory revaluation event for P&L tracking
+    // Calculate monetary impact: quantityChange * avgCost
+    const deltaValue = quantityChange * nextAvgCost;
+    if (deltaValue !== 0 && source !== 'pos_sale' && source !== 'pos_void' && !source?.startsWith('stock_removal_')) {
+      // Only log adjustments that aren't already tracked elsewhere (sales, voids, stock removals)
+      await this.logInventoryRevaluationEvent({
+        storeId,
+        productId,
+        source: source || 'manual_adjustment',
+        referenceId: referenceId ?? null,
+        quantityBefore,
+        quantityAfter: nextQuantity,
+        avgCostAfter: toOptionalDecimalString(nextAvgCost, 4),
+        deltaValue: toOptionalDecimalString(deltaValue, 4),
+        metadata: { 
+          quantityChange, 
+          notes: notes || `Inventory adjusted by ${quantityChange} units`,
+          userId,
+        },
+      } as InsertInventoryRevaluationEvent);
     }
 
     if (costInfo && (typeof costInfo.cost === 'number' || typeof costInfo.salePrice === 'number')) {
@@ -3129,18 +3225,49 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getInventoryValue(storeId: string): Promise<{ totalValue: number; itemCount: number }> {
-    const result = await db.select({
-      totalValue: sql`SUM(${inventory.quantity} * ${products.price})`,
+  async getInventoryValue(storeId: string): Promise<{
+    totalValue: number;
+    totalCostValue: number;
+    totalRetailValue: number;
+    itemCount: number;
+  }> {
+    // Get cost-based valuation from FIFO cost layers (the correct financial value)
+    const costLayersResult = await db.execute(sql`
+      SELECT
+        COALESCE(SUM(quantity_remaining * unit_cost), 0)::numeric AS total_cost_value,
+        COUNT(DISTINCT product_id) AS item_count
+      FROM inventory_cost_layers
+      WHERE store_id = ${storeId} AND quantity_remaining > 0
+    `);
+
+    const costRows = Array.isArray((costLayersResult as any).rows) 
+      ? (costLayersResult as any).rows 
+      : (costLayersResult as any);
+    
+    const totalCostValue = parseFloat(String(costRows[0]?.total_cost_value || "0"));
+    const costLayerItemCount = parseInt(String(costRows[0]?.item_count || "0"));
+
+    // Also get retail value (selling price × quantity) for reference
+    const retailResult = await db.select({
+      totalRetailValue: sql`COALESCE(SUM(${inventory.quantity}::numeric * COALESCE(${products.salePrice}::numeric, ${products.price}::numeric, 0)), 0)`,
       itemCount: sql`COUNT(*)`,
     })
     .from(inventory)
     .innerJoin(products, eq(inventory.productId, products.id))
     .where(eq(inventory.storeId, storeId));
 
+    const totalRetailValue = parseFloat(String(retailResult[0]?.totalRetailValue || "0"));
+    const inventoryItemCount = parseInt(String(retailResult[0]?.itemCount || "0"));
+
+    // Use the larger item count (cost layers may not exist for all items)
+    const itemCount = Math.max(costLayerItemCount, inventoryItemCount);
+
     return {
-      totalValue: parseFloat(String(result[0]?.totalValue || "0")),
-      itemCount: parseInt(String(result[0]?.itemCount || "0")),
+      // totalValue now represents cost-based value (correct for P&L/balance sheet)
+      totalValue: totalCostValue,
+      totalCostValue,
+      totalRetailValue,
+      itemCount,
     };
   }
 
@@ -3172,25 +3299,63 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getEmployeePerformance(storeId: string): Promise<any[]> {
-    const result = await db.select({
-      cashierId: transactions.cashierId,
-      totalSales: sql`COUNT(*)`,
-      totalRevenue: sql`SUM(${transactions.total})`,
-    })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed"),
-        eq(transactions.kind, 'SALE'),
-        gte(transactions.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
-      )
-    )
-    .groupBy(transactions.cashierId)
-    .orderBy(desc(sql`SUM(${transactions.total})`));
+  async getEmployeePerformance(storeId: string, startDate?: Date, endDate?: Date): Promise<Array<{
+    userId: string;
+    name: string;
+    role: string;
+    totalSales: number;
+    totalRevenue: number;
+    avgTicket: number;
+    transactions: number;
+    onShift: boolean;
+  }>> {
+    // Default to last 30 days if no date range provided
+    const effectiveStart = startDate ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const effectiveEnd = endDate ?? new Date();
+    
+    // Get cashier performance from transactions
+    const result = await db.execute(sql`
+      SELECT 
+        t.cashier_id AS "cashierId",
+        u.name AS "userName",
+        u.role AS "userRole",
+        COUNT(*)::integer AS "totalSales",
+        COALESCE(SUM(t.total::numeric), 0) AS "totalRevenue",
+        MAX(t.created_at) AS "lastActivity"
+      FROM transactions t
+      LEFT JOIN users u ON u.id = t.cashier_id
+      WHERE t.store_id = ${storeId}
+        AND t.status = 'completed'
+        AND t.kind = 'SALE'
+        AND t.created_at >= ${effectiveStart}
+        AND t.created_at <= ${effectiveEnd}
+      GROUP BY t.cashier_id, u.name, u.role
+      ORDER BY SUM(t.total::numeric) DESC
+    `);
 
-    return result;
+    const rows = Array.isArray((result as any).rows) ? (result as any).rows : (result as any);
+    
+    // Consider a cashier "on shift" if they had activity in the last 4 hours
+    const shiftThreshold = new Date(Date.now() - 4 * 60 * 60 * 1000);
+    
+    return rows.map((row: any) => {
+      const totalSales = parseInt(String(row.totalSales || 0));
+      const totalRevenue = parseFloat(String(row.totalRevenue || 0));
+      const avgTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
+      const lastActivity = row.lastActivity ? new Date(row.lastActivity) : null;
+      const onShift = lastActivity ? lastActivity >= shiftThreshold : false;
+      
+      return {
+        userId: row.cashierId,
+        name: row.userName || 'Unknown User',
+        role: row.userRole || 'cashier',
+        totalSales,
+        totalRevenue,
+        avgTicket,
+        transactions: totalSales,
+        onShift,
+      };
+    });
   }
 
   // Enhanced Inventory Management Methods

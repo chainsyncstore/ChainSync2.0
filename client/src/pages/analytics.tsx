@@ -113,10 +113,13 @@ interface ProfitLossSummary {
 interface InventoryValueResponse {
   currency: CurrencyCode;
   total: Money;
+  retail?: Money;
   normalized?: {
     total: Money;
+    retail?: Money;
   };
   itemCount: number;
+  valuationBasis?: 'cost' | 'retail';
 }
 
 interface InventoryItemsResponse {
@@ -890,8 +893,48 @@ function AnalyticsContent() {
   const canViewOperations = isAdmin || isManager;
   const activeStore = stores.find((store) => store.id === storeId);
 
+  // Fetch real staff performance data from the new endpoint
+  const staffPerformanceQuery = useQuery<{
+    currency: CurrencyCode;
+    staff: Array<{
+      userId: string;
+      name: string;
+      role: string;
+      totalSales: number;
+      totalRevenue: Money;
+      avgTicket: Money;
+      transactions: number;
+      onShift: boolean;
+    }>;
+  }>({
+    queryKey: [
+      "/api/stores",
+      storeId,
+      "analytics/staff-performance",
+      rangeKey,
+    ],
+    enabled: hasStore && canViewOperations,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("startDate", effectiveRange.start.toISOString());
+      params.set("endDate", effectiveRange.end.toISOString());
+      const res = await fetch(`/api/stores/${storeId}/analytics/staff-performance?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to load staff performance");
+      }
+      return res.json();
+    },
+  });
+
   const staffPerformanceData = useMemo(() => {
     if (!canViewOperations || !hasStore) return [];
+    // Use real staff data from the query
+    if (staffPerformanceQuery.data?.staff && staffPerformanceQuery.data.staff.length > 0) {
+      return staffPerformanceQuery.data.staff;
+    }
+    // Fallback to synthetic data if no real staff data available
     return [
       {
         userId: "cashier-aggregate",
@@ -910,6 +953,7 @@ function AnalyticsContent() {
   }, [
     canViewOperations,
     hasStore,
+    staffPerformanceQuery.data,
     currentOverview.transactions,
     displayRevenue.amount,
     displayRevenue.currency,
@@ -979,7 +1023,7 @@ function AnalyticsContent() {
       icon: Package,
       value: formatCurrency(inventoryMoney),
       currencyBadge: inventoryMoney.currency,
-      caption: `${inventoryData.itemCount.toLocaleString()} items tracked`,
+      caption: `${inventoryData.itemCount.toLocaleString()} items (at cost)`,
     },
     {
       key: "customers",

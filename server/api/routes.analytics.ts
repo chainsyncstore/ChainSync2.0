@@ -2,7 +2,7 @@ import { and, eq, gte, lte, sql, inArray } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import type { CurrencyCode, Money } from '@shared/lib/currency';
-import { organizations, legacySales as sales, legacyReturns as returns, users, userRoles, stores, scheduledReports, products } from '@shared/schema';
+import { organizations, legacySales as sales, legacyReturns as returns, users, userRoles, stores, scheduledReports, products, transactions } from '@shared/schema';
 import { db } from '../db';
 import { sendEmail } from '../email';
 import { getDefaultRates, convertAmount, StaticCurrencyRateProvider } from '../lib/currency';
@@ -249,16 +249,18 @@ export async function registerAnalyticsRoutes(app: Express) {
       const targetCurrencyRaw = String((req.query as any)?.target_currency || '').trim() || undefined;
       const requestedCurrency = targetCurrencyRaw ? coerceCurrency(targetCurrencyRaw, baseCurrency) : undefined;
 
-      const where: any[] = [];
-      if (orgId) where.push(eq(sales.orgId, orgId));
+      // Build WHERE clauses for transactions table (unified data source)
+      const txnWhere: any[] = [
+        eq(transactions.status, 'completed'),
+      ];
       if (storeId) {
         if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) return res.status(403).json({ error: 'Forbidden: store scope' });
-        where.push(eq(sales.storeId, storeId));
+        txnWhere.push(eq(transactions.storeId, storeId));
       } else if (allowedStoreIds.length) {
-        where.push(inArray(sales.storeId, allowedStoreIds));
+        txnWhere.push(inArray(transactions.storeId, allowedStoreIds));
       }
-      if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
-      if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
+      if (dateFrom) txnWhere.push(gte(transactions.createdAt, new Date(dateFrom)));
+      if (dateTo) txnWhere.push(lte(transactions.createdAt, new Date(dateTo)));
 
       // Redis fast-path for "today" without custom date range
       const noCustomRange = !dateFrom && !dateTo;
@@ -295,14 +297,15 @@ export async function registerAnalyticsRoutes(app: Express) {
         }
       }
 
-      const salesAggregates = await getSalesAggregateExpressions();
+      // Query SALES from transactions table (unified with P&L)
+      const salesWhere = [...txnWhere, eq(transactions.kind, 'SALE')];
       const totalRows = await db.execute(sql`
         SELECT stores.currency as currency,
-               ${sql.raw(salesAggregates.total)} as total,
+               COALESCE(SUM(transactions.total::numeric), 0) as total,
                COUNT(*) as transactions
-        FROM sales
-        JOIN stores ON stores.id = sales.store_id
-        ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
+        FROM transactions
+        JOIN stores ON stores.id = transactions.store_id
+        WHERE ${sql.join(salesWhere.map((w: any) => w), sql` AND `)}
         GROUP BY stores.currency
       `);
 
@@ -331,35 +334,23 @@ export async function registerAnalyticsRoutes(app: Express) {
           })
         : undefined;
 
-      const refundWhere: any[] = [];
-      if (orgIdForStore ?? orgId) {
-        refundWhere.push(eq(stores.orgId, orgIdForStore ?? orgId!));
-      }
-      if (storeId) {
-        refundWhere.push(eq(returns.storeId, storeId));
-      } else if (allowedStoreIds.length) {
-        refundWhere.push(inArray(returns.storeId, allowedStoreIds));
-      }
-      if (dateFrom) refundWhere.push(gte(returns.occurredAt, new Date(dateFrom)));
-      if (dateTo) refundWhere.push(lte(returns.occurredAt, new Date(dateTo)));
+      // Query REFUNDS from transactions table (unified with P&L)
+      const refundWhere = [...txnWhere, eq(transactions.kind, 'REFUND')];
+      const refundRows = await db.execute(sql`
+        SELECT stores.currency as currency,
+               COALESCE(SUM(transactions.total::numeric), 0) as total,
+               COUNT(*) as count
+        FROM transactions
+        JOIN stores ON stores.id = transactions.store_id
+        WHERE ${sql.join(refundWhere.map((w: any) => w), sql` AND `)}
+        GROUP BY stores.currency
+      `);
 
-      const refundQueryBase = db
-        .select({
-          currency: stores.currency,
-          total: sql`COALESCE(SUM(${returns.totalRefund}::numeric), 0)`,
-          count: sql`COUNT(*)`
-        })
-        .from(returns)
-        .innerJoin(stores, eq(stores.id, returns.storeId));
-
-      const refundRows = refundWhere.length
-        ? await refundQueryBase.where(and(...refundWhere)).groupBy(stores.currency)
-        : await refundQueryBase.groupBy(stores.currency);
-      const refundValues: Money[] = refundRows.map((row) => {
+      const refundValues: Money[] = ((refundRows as any).rows ?? []).map((row: any) => {
         const currency = coerceCurrency(row.currency ?? nativeCurrency, nativeCurrency);
         return toMoney(Number(row.total ?? 0), currency);
       });
-      const totalRefundCount = refundRows.reduce((sum, row) => sum + Number(row.count ?? 0), 0);
+      const totalRefundCount = ((refundRows as any).rows ?? []).reduce((sum: number, row: any) => sum + Number(row.count ?? 0), 0);
       const refundMoney = await sumMoneyValues(refundValues, totalsCurrency, {
         orgId: orgIdForStore ?? orgId ?? 'system',
         baseCurrency,
@@ -461,68 +452,65 @@ export async function registerAnalyticsRoutes(app: Express) {
     const requestedCurrency = targetCurrencyRaw ? coerceCurrency(targetCurrencyRaw, baseCurrency) : undefined;
 
     const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
-    const where: any[] = [];
-    if (orgId) where.push(eq(sales.orgId, orgId));
+    
+    // Build WHERE clauses for transactions table (unified with P&L/Overview)
+    const txnWhere: any[] = [eq(transactions.status, 'completed')];
     if (storeId) {
-      where.push(eq(sales.storeId, storeId));
+      txnWhere.push(eq(transactions.storeId, storeId));
     } else if (allowedStoreIds.length) {
-      where.push(inArray(sales.storeId, allowedStoreIds));
+      txnWhere.push(inArray(transactions.storeId, allowedStoreIds));
     }
-    if (dateFrom) where.push(gte(sales.occurredAt, new Date(dateFrom)));
-    if (dateTo) where.push(lte(sales.occurredAt, new Date(dateTo)));
+    if (dateFrom) txnWhere.push(gte(transactions.createdAt, new Date(dateFrom)));
+    if (dateTo) txnWhere.push(lte(transactions.createdAt, new Date(dateTo)));
 
-    const salesAggregates = await getSalesAggregateExpressions();
+    // Query SALES from transactions table (unified with P&L/Overview)
+    const salesWhere = [...txnWhere, eq(transactions.kind, 'SALE')];
     const rows = await db.execute(sql`
       SELECT 
-        date_trunc(${sql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
+        date_trunc(${sql.raw(`'${truncUnit}'`)}, transactions.created_at) as bucket,
         stores.currency as currency,
-        ${sql.raw(salesAggregates.total)} as revenue,
-        COUNT(*) as transactions
-      FROM sales
-      JOIN stores ON stores.id = sales.store_id
-      ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
+        COALESCE(SUM(transactions.total::numeric), 0) as revenue,
+        COUNT(*) as transactions,
+        COUNT(DISTINCT transactions.cashier_id) as unique_customers
+      FROM transactions
+      JOIN stores ON stores.id = transactions.store_id
+      WHERE ${sql.join(salesWhere.map((w: any) => w), sql` AND `)}
       GROUP BY 1, 2
       ORDER BY 1 ASC, 2 ASC
     `);
 
-    const pointMap = new Map<string, { values: Money[]; transactions: number }>();
+    const pointMap = new Map<string, { values: Money[]; transactions: number; uniqueCustomers: number }>();
 
-    for (const row of (rows as any).rows as Array<{ bucket: Date; currency: string; revenue: string | number; transactions: string | number }>) {
+    for (const row of (rows as any).rows as Array<{ bucket: Date; currency: string; revenue: string | number; transactions: string | number; unique_customers: string | number }>) {
       const bucketDate = new Date(row.bucket);
       const key = bucketDate.toISOString();
       const currency = coerceCurrency(row.currency, baseCurrency);
       const revenueAmount = Number(row.revenue ?? 0);
-      const transactions = Number(row.transactions ?? 0);
+      const txnCount = Number(row.transactions ?? 0);
       const revenueMoney = toMoney(revenueAmount, currency);
+      const uniqueCustomers = Number(row.unique_customers ?? 0);
 
       if (!pointMap.has(key)) {
-        pointMap.set(key, { values: [], transactions: 0 });
+        pointMap.set(key, { values: [], transactions: 0, uniqueCustomers: 0 });
       }
 
       const entry = pointMap.get(key)!;
       entry.values.push(revenueMoney);
-      entry.transactions += transactions;
+      entry.transactions += txnCount;
+      entry.uniqueCustomers += uniqueCustomers;
     }
 
-    const refundWhere: any[] = [];
-    if (orgId) refundWhere.push(eq(stores.orgId, orgId));
-    if (storeId) {
-      refundWhere.push(eq(returns.storeId, storeId));
-    } else if (allowedStoreIds.length) {
-      refundWhere.push(inArray(returns.storeId, allowedStoreIds));
-    }
-    if (dateFrom) refundWhere.push(gte(returns.occurredAt, new Date(dateFrom)));
-    if (dateTo) refundWhere.push(lte(returns.occurredAt, new Date(dateTo)));
-
+    // Query REFUNDS from transactions table (unified with P&L/Overview)
+    const refundWhere = [...txnWhere, eq(transactions.kind, 'REFUND')];
     const refundRows = await db.execute(sql`
       SELECT 
-        date_trunc(${sql.raw(`'${truncUnit}'`)}, ${returns.occurredAt}) as bucket,
+        date_trunc(${sql.raw(`'${truncUnit}'`)}, transactions.created_at) as bucket,
         stores.currency as currency,
-        COALESCE(SUM(${returns.totalRefund}::numeric), 0) as refund_total,
+        COALESCE(SUM(transactions.total::numeric), 0) as refund_total,
         COUNT(*) as refund_count
-      FROM ${returns}
-      JOIN stores ON stores.id = ${returns.storeId}
-      ${refundWhere.length ? sql`WHERE ${sql.join(refundWhere, sql` AND `)}` : sql``}
+      FROM transactions
+      JOIN stores ON stores.id = transactions.store_id
+      WHERE ${sql.join(refundWhere.map((w: any) => w), sql` AND `)}
       GROUP BY 1, 2
       ORDER BY 1 ASC, 2 ASC
     `);
@@ -561,7 +549,7 @@ export async function registerAnalyticsRoutes(app: Express) {
     }>
 
     for (const [date, entry] of Array.from(pointMap.entries()).sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))) {
-      const transactions = entry.transactions;
+      const transactionCount = entry.transactions;
       const nativeCurrency = storeCurrency ?? entry.values[0]?.currency ?? baseCurrency;
       const outputCurrency = requestedCurrency ?? nativeCurrency;
       const total = await sumMoneyValues(entry.values, outputCurrency, {
@@ -574,7 +562,7 @@ export async function registerAnalyticsRoutes(app: Express) {
             baseCurrency,
           })
         : undefined;
-      const averageOrder = transactions > 0 ? toMoney(total.amount / transactions, total.currency) : toMoney(0, total.currency);
+      const averageOrder = transactionCount > 0 ? toMoney(total.amount / transactionCount, total.currency) : toMoney(0, total.currency);
 
       const refundEntry = refundMap.get(date);
       const refundValues = refundEntry?.values ?? [];
@@ -602,8 +590,8 @@ export async function registerAnalyticsRoutes(app: Express) {
         date,
         total,
         normalized,
-        transactions,
-        customers: transactions, // placeholder without customer linkage
+        transactions: transactionCount,
+        customers: entry.uniqueCustomers, // Now using actual unique cashier count per bucket
         averageOrder,
         refunds: {
           total: refundTotal,
@@ -779,19 +767,81 @@ export async function registerAnalyticsRoutes(app: Express) {
     const baseCurrency = await resolveBaseCurrency({ orgId: orgId ?? store.orgId, storeCurrency });
 
     const data = await storage.getInventoryValue(storeId);
-    const totalValue = toMoney(Number(data.totalValue ?? 0), storeCurrency);
+    // totalValue is now cost-based (from FIFO layers) - correct for P&L/balance sheet
+    const totalCostValue = toMoney(Number(data.totalCostValue ?? data.totalValue ?? 0), storeCurrency);
+    const totalRetailValue = toMoney(Number(data.totalRetailValue ?? 0), storeCurrency);
+    
     const normalized = normalizeCurrency
       ? {
           baseCurrency,
-          total: await convertForOrg(totalValue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          total: await convertForOrg(totalCostValue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          retail: await convertForOrg(totalRetailValue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
         }
       : undefined;
 
     res.json({
       currency: storeCurrency,
-      total: totalValue,
+      // Primary value is cost-based (aligned with P&L semantics)
+      total: totalCostValue,
+      // Also provide retail value for reference
+      retail: totalRetailValue,
       normalized,
       itemCount: Number(data.itemCount ?? 0),
+      valuationBasis: 'cost', // Indicates this is cost-based valuation
+    });
+  });
+
+  app.get('/api/stores/:storeId/analytics/staff-performance', auth, requireActiveSubscription, async (req: Request, res: Response) => {
+    const storeId = String(req.params.storeId || '').trim();
+    if (!storeId) return res.status(400).json({ error: 'storeId is required' });
+
+    const { orgId, allowedStoreIds, isAdmin } = await getScope(req);
+    if (allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const [store] = await db.select({ id: stores.id, orgId: stores.orgId, currency: stores.currency }).from(stores).where(eq(stores.id, storeId)).limit(1);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+    if (orgId && store.orgId !== orgId && !isAdmin) {
+      return res.status(403).json({ error: 'Forbidden: store scope' });
+    }
+
+    const startDateRaw = String((req.query as any)?.startDate || '').trim();
+    const endDateRaw = String((req.query as any)?.endDate || '').trim();
+    const normalizeCurrency = shouldNormalizeCurrency(req);
+
+    const endDate = endDateRaw ? new Date(endDateRaw) : new Date();
+    const startDate = startDateRaw ? new Date(startDateRaw) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date range supplied' });
+    }
+
+    const storeCurrency = coerceCurrency(store.currency ?? 'NGN', 'NGN');
+    const baseCurrency = await resolveBaseCurrency({ orgId: orgId ?? store.orgId, storeCurrency });
+
+    const staffPerformance = await storage.getEmployeePerformance(storeId, startDate, endDate);
+
+    // Convert to Money format with currency
+    const staffData = staffPerformance.map(staff => ({
+      userId: staff.userId,
+      name: staff.name,
+      role: staff.role,
+      totalSales: staff.totalSales,
+      totalRevenue: toMoney(staff.totalRevenue, storeCurrency),
+      avgTicket: toMoney(staff.avgTicket, storeCurrency),
+      transactions: staff.transactions,
+      onShift: staff.onShift,
+    }));
+
+    res.json({
+      currency: storeCurrency,
+      baseCurrency,
+      staff: staffData,
+      period: {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+      },
     });
   });
 
