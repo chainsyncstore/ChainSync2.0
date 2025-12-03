@@ -187,15 +187,17 @@ const getInventoryQuantity = (item: InventoryWithProduct): number => {
 };
 
 export const getInventoryUnitCost = (item: InventoryWithProduct): number => {
+  // Prefer avgCost from server (derived from FIFO cost layers when available)
+  const avgCost = parseMaybeNumber(item.avgCost);
+  if (avgCost !== null && avgCost > 0) {
+    return avgCost;
+  }
+
+  // Fallback: derive from totalCostValue / quantity
   const quantity = getInventoryQuantity(item);
   const totalCost = parseMaybeNumber(item.totalCostValue);
   if (totalCost !== null && quantity > 0) {
     return totalCost / quantity;
-  }
-
-  const avgCost = parseMaybeNumber(item.avgCost);
-  if (avgCost !== null) {
-    return avgCost;
   }
 
   const fallbackCost =
