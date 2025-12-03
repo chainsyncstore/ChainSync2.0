@@ -24,6 +24,12 @@ import { requireActiveSubscription } from '../middleware/subscription';
 const roundAmount = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
 const toMoney = (amount: number, currency: CurrencyCode): Money => ({ amount: roundAmount(amount), currency });
 
+// Helper to convert JS array to PostgreSQL array for use with ANY()
+function pgArray(arr: string[]) {
+  if (!arr.length) return sql`ARRAY[]::text[]`;
+  return sql`ARRAY[${sql.join(arr.map(id => sql`${id}`), sql`, `)}]`;
+}
+
 async function getScope(req: Request) {
   const userId = (req.session as any)?.userId as string | undefined;
   if (!userId) return { orgId: null, allowedStoreIds: [] as string[], isAdmin: false };
@@ -173,7 +179,7 @@ export async function registerAnalyticsV2Routes(app: Express) {
           COALESCE(SUM(CASE WHEN kind = 'SALE' THEN total ELSE 0 END), 0) as revenue,
           COALESCE(SUM(CASE WHEN kind = 'REFUND' THEN total ELSE 0 END), 0) as refunds,
           COUNT(CASE WHEN kind = 'SALE' THEN 1 END) as txn_count
-        FROM transactions WHERE store_id = ANY(${targetStoreIds}) AND status = 'completed'
+        FROM transactions WHERE store_id = ANY(${pgArray(targetStoreIds)}) AND status = 'completed'
           AND created_at >= ${window.start} AND created_at < ${window.end}
         GROUP BY 1 ORDER BY 1 ASC
       `);
@@ -308,7 +314,7 @@ async function registerAnalyticsV2RoutesExtended(app: Express) {
         SELECT CASE WHEN last_restocked IS NULL THEN 'unknown' WHEN CURRENT_DATE - DATE(last_restocked) <= 30 THEN '0-30'
           WHEN CURRENT_DATE - DATE(last_restocked) <= 60 THEN '31-60' WHEN CURRENT_DATE - DATE(last_restocked) <= 90 THEN '61-90' ELSE '90+' END as bucket,
           COUNT(*) as sku_count, COALESCE(SUM(quantity::numeric * avg_cost::numeric), 0) as total_value
-        FROM inventory WHERE store_id = ANY(${targetStoreIds}) GROUP BY 1
+        FROM inventory WHERE store_id = ANY(${pgArray(targetStoreIds)}) GROUP BY 1
       `);
 
       const oldest = await db.select({ productId: inventory.productId, productName: products.name, quantity: inventory.quantity, avgCost: inventory.avgCost, lastRestocked: inventory.lastRestocked })
@@ -399,7 +405,7 @@ async function computeCustomerMetrics(storeIds: string[], window: { start: Date;
   const result = await db.execute(sql`
     SELECT COUNT(DISTINCT lt.customer_id) as active, COUNT(DISTINCT CASE WHEN c.created_at >= ${window.start} AND c.created_at < ${window.end} THEN lt.customer_id END) as new_this_period
     FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id INNER JOIN customers c ON lt.customer_id = c.id
-    WHERE t.store_id = ANY(${storeIds}) AND t.status = 'completed' AND t.kind = 'SALE' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
+    WHERE t.store_id = ANY(${pgArray(storeIds)}) AND t.status = 'completed' AND t.kind = 'SALE' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
   `);
   const row = ((result as any).rows || [])[0] || {};
   return { active: Number(row.active || 0), newThisPeriod: Number(row.new_this_period || 0), retentionRate: 0 };
@@ -408,7 +414,7 @@ async function computeCustomerMetrics(storeIds: string[], window: { start: Date;
 async function getUniqueCustomerCount(storeIds: string[], window: { start: Date; end: Date }) {
   const result = await db.execute(sql`
     SELECT COUNT(DISTINCT lt.customer_id) as count FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id
-    WHERE t.store_id = ANY(${storeIds}) AND t.status = 'completed' AND t.kind = 'SALE' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
+    WHERE t.store_id = ANY(${pgArray(storeIds)}) AND t.status = 'completed' AND t.kind = 'SALE' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
   `);
   return Number(((result as any).rows || [])[0]?.count || 0);
 }
@@ -440,7 +446,7 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
       const periodResult = await db.execute(sql`
         SELECT DISTINCT lt.customer_id, c.created_at as customer_created_at
         FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id INNER JOIN customers c ON lt.customer_id = c.id
-        WHERE t.store_id = ANY(${targetStoreIds}) AND t.status = 'completed' AND t.kind = 'SALE'
+        WHERE t.store_id = ANY(${pgArray(targetStoreIds)}) AND t.status = 'completed' AND t.kind = 'SALE'
           AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
       `);
       const customerRows = (periodResult as any).rows || [];
@@ -454,11 +460,11 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
       const repeatResult = await db.execute(sql`
         SELECT COUNT(DISTINCT cp.customer_id) as repeat_count FROM (
           SELECT DISTINCT lt.customer_id FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id
-          WHERE t.store_id = ANY(${targetStoreIds}) AND t.status = 'completed' AND t.kind = 'SALE'
+          WHERE t.store_id = ANY(${pgArray(targetStoreIds)}) AND t.status = 'completed' AND t.kind = 'SALE'
             AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
         ) cp INNER JOIN (
           SELECT DISTINCT lt.customer_id FROM loyalty_transactions lt INNER JOIN transactions t ON lt.transaction_id = t.id
-          WHERE t.store_id = ANY(${targetStoreIds}) AND t.status = 'completed' AND t.kind = 'SALE' AND t.created_at < ${window.start}
+          WHERE t.store_id = ANY(${pgArray(targetStoreIds)}) AND t.status = 'completed' AND t.kind = 'SALE' AND t.created_at < ${window.start}
         ) pp ON cp.customer_id = pp.customer_id
       `);
       const repeatCustomers = Number(((repeatResult as any).rows || [])[0]?.repeat_count || 0);
@@ -512,7 +518,7 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
 
       // Staff on shift (active in last hour)
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      const activeStaffResult = await db.execute(sql`SELECT COUNT(DISTINCT cashier_id) as active_count FROM transactions WHERE store_id = ANY(${targetStoreIds}) AND created_at >= ${oneHourAgo}`);
+      const activeStaffResult = await db.execute(sql`SELECT COUNT(DISTINCT cashier_id) as active_count FROM transactions WHERE store_id = ANY(${pgArray(targetStoreIds)}) AND created_at >= ${oneHourAgo}`);
       const staffOnShift = Number(((activeStaffResult as any).rows || [])[0]?.active_count || 0);
 
       // Leaderboard
@@ -520,7 +526,7 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
         SELECT t.cashier_id, u.first_name, u.last_name, u.email, u.role, COUNT(DISTINCT t.id) as ticket_count,
           COALESCE(SUM(CASE WHEN t.kind = 'SALE' THEN t.total ELSE 0 END), 0) as total_revenue
         FROM transactions t LEFT JOIN users u ON t.cashier_id = u.id
-        WHERE t.store_id = ANY(${targetStoreIds}) AND t.status = 'completed' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
+        WHERE t.store_id = ANY(${pgArray(targetStoreIds)}) AND t.status = 'completed' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
         GROUP BY t.cashier_id, u.first_name, u.last_name, u.email, u.role ORDER BY total_revenue DESC
       `);
 
@@ -539,7 +545,7 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
           SELECT t.store_id, s.name as store_name, COUNT(DISTINCT t.id) as ticket_count, COUNT(DISTINCT t.cashier_id) as staff_count,
             COALESCE(SUM(CASE WHEN t.kind = 'SALE' THEN t.total ELSE 0 END), 0) as total_revenue
           FROM transactions t INNER JOIN stores s ON t.store_id = s.id
-          WHERE t.store_id = ANY(${targetStoreIds}) AND t.status = 'completed' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
+          WHERE t.store_id = ANY(${pgArray(targetStoreIds)}) AND t.status = 'completed' AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
           GROUP BY t.store_id, s.name ORDER BY total_revenue DESC
         `);
         storeContribution = ((storeRows as any).rows || []).map((r: any) => ({
@@ -584,9 +590,9 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
 
       const productRows = await db.execute(sql`
         SELECT DISTINCT p.id as product_id, p.name as product_name, p.sku, p.price as current_price, p.cost as current_cost,
-          (SELECT COUNT(*) FROM price_change_events pce WHERE pce.product_id = p.id AND pce.store_id = ANY(${targetStoreIds}) AND pce.occurred_at >= ${window.start} AND pce.occurred_at < ${window.end}) as price_change_count
-        FROM products p WHERE EXISTS (SELECT 1 FROM price_change_events pce WHERE pce.product_id = p.id AND pce.store_id = ANY(${targetStoreIds}) AND pce.occurred_at >= ${window.start} AND pce.occurred_at < ${window.end})
-          OR EXISTS (SELECT 1 FROM inventory_revaluation_events ire WHERE ire.product_id = p.id AND ire.store_id = ANY(${targetStoreIds}) AND ire.occurred_at >= ${window.start} AND ire.occurred_at < ${window.end})
+          (SELECT COUNT(*) FROM price_change_events pce WHERE pce.product_id = p.id AND pce.store_id = ANY(${pgArray(targetStoreIds)}) AND pce.occurred_at >= ${window.start} AND pce.occurred_at < ${window.end}) as price_change_count
+        FROM products p WHERE EXISTS (SELECT 1 FROM price_change_events pce WHERE pce.product_id = p.id AND pce.store_id = ANY(${pgArray(targetStoreIds)}) AND pce.occurred_at >= ${window.start} AND pce.occurred_at < ${window.end})
+          OR EXISTS (SELECT 1 FROM inventory_revaluation_events ire WHERE ire.product_id = p.id AND ire.store_id = ANY(${pgArray(targetStoreIds)}) AND ire.occurred_at >= ${window.start} AND ire.occurred_at < ${window.end})
         ORDER BY price_change_count DESC LIMIT ${limit}
       `);
 
