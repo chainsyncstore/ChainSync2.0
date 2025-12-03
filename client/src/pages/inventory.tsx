@@ -1235,10 +1235,10 @@ export default function Inventory() {
                             <th className="text-left p-3 sm:p-4 font-medium">Product</th>
                             <th className="text-left p-3 sm:p-4 font-medium hidden sm:table-cell">SKU</th>
                             <th className="text-right p-3 sm:p-4 font-medium">Current Stock</th>
+                            <th className="text-right p-3 sm:p-4 font-medium">Cost Price</th>
+                            <th className="text-right p-3 sm:p-4 font-medium">Selling Price</th>
                             <th className="text-right p-3 sm:p-4 font-medium hidden lg:table-cell">Min Level</th>
                             <th className="text-right p-3 sm:p-4 font-medium hidden lg:table-cell">Max Level</th>
-                            <th className="text-right p-3 sm:p-4 font-medium hidden xl:table-cell">Cost Price</th>
-                            <th className="text-right p-3 sm:p-4 font-medium hidden xl:table-cell">Selling Price</th>
                             <th className="text-right p-3 sm:p-4 font-medium hidden md:table-cell">Stock Value</th>
                             <th className="text-center p-3 sm:p-4 font-medium">Status</th>
                             <th className="text-center p-3 sm:p-4 font-medium">Actions</th>
@@ -1271,13 +1271,7 @@ export default function Inventory() {
                                 <td className="p-3 sm:p-4 text-right">
                                   <span className="font-medium text-slate-800">{item.quantity}</span>
                                 </td>
-                                <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
-                                  <span className="text-sm text-slate-600">{item.minStockLevel ?? "-"}</span>
-                                </td>
-                                <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
-                                  <span className="text-sm text-slate-600">{item.maxStockLevel ?? "-"}</span>
-                                </td>
-                                <td className="p-3 sm:p-4 text-right hidden xl:table-cell">
+                                <td className="p-3 sm:p-4 text-right">
                                   <span className="text-sm text-slate-600">
                                     {(() => {
                                       const productAny = item.product as Record<string, unknown> | null;
@@ -1286,7 +1280,7 @@ export default function Inventory() {
                                     })()}
                                   </span>
                                 </td>
-                                <td className="p-3 sm:p-4 text-right hidden xl:table-cell">
+                                <td className="p-3 sm:p-4 text-right">
                                   <span className="text-sm text-slate-600">
                                     {(() => {
                                       const productAny = item.product as Record<string, unknown> | null;
@@ -1294,6 +1288,12 @@ export default function Inventory() {
                                       return salePrice ? formatFlexibleCurrency(parseFloat(String(salePrice)), currency) : "-";
                                     })()}
                                   </span>
+                                </td>
+                                <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
+                                  <span className="text-sm text-slate-600">{item.minStockLevel ?? "-"}</span>
+                                </td>
+                                <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
+                                  <span className="text-sm text-slate-600">{item.maxStockLevel ?? "-"}</span>
                                 </td>
                                 <td className="p-3 sm:p-4 text-right hidden md:table-cell">
                                   <span className="font-medium text-slate-800">
