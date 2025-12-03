@@ -2750,7 +2750,9 @@ export class DatabaseStorage implements IStorage {
     // Update inventory quantity
     const newQuantity = currentQty - quantity;
     const avgCost = parseNumeric((current as any).avgCost, 0);
-    const newTotalCostValue = newQuantity * avgCost;
+    const totalCostBefore = parseNumeric((current as any).totalCostValue, currentQty * avgCost);
+    const newTotalCostValue = Math.max(totalCostBefore - costOfRemovedItems, 0);
+    const newAvgCost = newQuantity > 0 ? newTotalCostValue / newQuantity : 0;
 
     let updatedInventory: Inventory;
     if (this.isTestEnv) {
@@ -2758,6 +2760,7 @@ export class DatabaseStorage implements IStorage {
       const updated = {
         ...current,
         quantity: newQuantity,
+        avgCost: newAvgCost,
         totalCostValue: newTotalCostValue,
         updatedAt: new Date(),
       };
@@ -2768,6 +2771,7 @@ export class DatabaseStorage implements IStorage {
         .update(inventory)
         .set({
           quantity: newQuantity,
+          avgCost: toDecimalString(newAvgCost, 4),
           totalCostValue: toDecimalString(newTotalCostValue, 4),
           updatedAt: new Date(),
         } as any)
@@ -2807,8 +2811,8 @@ export class DatabaseStorage implements IStorage {
         quantityAfter: newQuantity,
         revaluedQuantity: quantity,
         avgCostBefore: toOptionalDecimalString(avgCost, 4),
-        avgCostAfter: toOptionalDecimalString(avgCost, 4),
-        totalCostBefore: toOptionalDecimalString(currentQty * avgCost, 4),
+        avgCostAfter: toOptionalDecimalString(newAvgCost, 4),
+        totalCostBefore: toOptionalDecimalString(totalCostBefore, 4),
         totalCostAfter: toOptionalDecimalString(newTotalCostValue, 4),
         deltaValue: toOptionalDecimalString(-lossAmount, 4),
         metadata: {
