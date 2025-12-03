@@ -440,10 +440,11 @@ export default function Inventory() {
   // Calculate total inventory value at COST (not sale price) for accurate financial reporting
   const totalStockValue = useMemo(
     () => filteredInventory.reduce((sum, item) => {
-      // Use cost price if available, fall back to cost, then to 0 if no cost is set
-      const productAny = item.product as Record<string, unknown> | null;
-      const costPrice = productAny?.costPrice ?? productAny?.cost ?? null;
-      const unitCost = costPrice ? parseFloat(String(costPrice)) : 0;
+      const unitCost = item.avgCost != null
+        ? Number(item.avgCost)
+        : item.product?.costPrice || item.product?.cost
+          ? parseFloat(String(item.product.costPrice ?? item.product.cost))
+          : 0;
       return sum + item.quantity * unitCost;
     }, 0),
     [filteredInventory],
@@ -1274,9 +1275,12 @@ export default function Inventory() {
                                 <td className="p-3 sm:p-4 text-right">
                                   <span className="text-sm text-slate-600">
                                     {(() => {
-                                      const productAny = item.product as Record<string, unknown> | null;
-                                      const costPrice = productAny?.costPrice ?? productAny?.cost ?? null;
-                                      return costPrice ? formatFlexibleCurrency(parseFloat(String(costPrice)), currency) : "-";
+                                      const costPrice = item.avgCost != null
+                                        ? Number(item.avgCost)
+                                        : item.product?.costPrice ?? item.product?.cost ?? null;
+                                      return costPrice != null
+                                        ? formatFlexibleCurrency(Number(costPrice), currency)
+                                        : "-";
                                     })()}
                                   </span>
                                 </td>
@@ -1298,9 +1302,11 @@ export default function Inventory() {
                                 <td className="p-3 sm:p-4 text-right hidden md:table-cell">
                                   <span className="font-medium text-slate-800">
                                     {(() => {
-                                      const productAny = item.product as Record<string, unknown> | null;
-                                      const costPrice = productAny?.costPrice ?? productAny?.cost ?? null;
-                                      const unitCost = costPrice ? parseFloat(String(costPrice)) : 0;
+                                      const unitCost = item.avgCost != null
+                                        ? Number(item.avgCost)
+                                        : item.product?.costPrice || item.product?.cost
+                                          ? parseFloat(String(item.product.costPrice ?? item.product.cost))
+                                          : 0;
                                       return formatFlexibleCurrency(item.quantity * unitCost, currency);
                                     })()}
                                   </span>

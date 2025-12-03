@@ -1569,6 +1569,8 @@ export class DatabaseStorage implements IStorage {
         inv.min_stock_level AS "minStockLevel",
         inv.max_stock_level AS "maxStockLevel",
         inv.reorder_level AS "reorderLevel",
+        inv.avg_cost AS "avgCost",
+        inv.total_cost_value AS "totalCostValue",
         inv.created_at AS "createdAt",
         inv.updated_at AS "updatedAt",
         prod.id AS "product.id",
@@ -1612,6 +1614,8 @@ export class DatabaseStorage implements IStorage {
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         product: Object.keys(product).length ? product : null,
+        avgCost: parseNumeric(row.avgCost, 0),
+        totalCostValue: parseNumeric(row.totalCostValue, 0),
         formattedPrice: parseFloat(String(product?.price ?? '0')),
         storeCurrency: row.storeCurrency ?? 'USD',
       };
