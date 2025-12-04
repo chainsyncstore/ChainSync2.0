@@ -1160,12 +1160,15 @@ export async function registerPosRoutes(app: Express) {
     const pg2 = hasTx2 ? await client2.connect() : null;
     try {
       if (hasTx2 && pg2) await pg2.query('BEGIN');
+      logger.info('POS Return: Starting return processing', { saleId: parsed.data.saleId, storeId: parsed.data.storeId });
 
       // Mark sale as returned
       if (typeof (db as any).execute === 'function') {
+        logger.info('POS Return: Updating sale status to RETURNED');
         await (db as any).execute(sql`UPDATE sales SET status = 'RETURNED' WHERE id = ${parsed.data.saleId}`);
       }
 
+      logger.info('POS Return: Inserting return record');
       const insertedReturn = await db.insert(returns).values({
         saleId: parsed.data.saleId,
         storeId: parsed.data.storeId,
@@ -1176,10 +1179,12 @@ export async function registerPosRoutes(app: Express) {
         currency: storeCurrency,
       } as any).returning();
       const ret = insertedReturn[0];
+      logger.info('POS Return: Return record created', { returnId: ret.id });
 
       // Insert return items row-by-row to keep compatibility with the mock db
       const insertedItems: any[] = [];
       for (const row of rowsToInsert) {
+        logger.info('POS Return: Inserting return item', { saleItemId: row.saleItemId, productId: row.productId });
         const [ins] = await db
           .insert(returnItems)
           .values({
@@ -1219,6 +1224,7 @@ export async function registerPosRoutes(app: Express) {
         }
       }
 
+      logger.info('POS Return: Creating refund transaction');
       const refundPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod as string | undefined);
       const [refundTx] = await db
         .insert(prdTransactions)
@@ -1237,6 +1243,7 @@ export async function registerPosRoutes(app: Express) {
           originTransactionId: originTx?.id ?? null,
         } as any)
         .returning();
+      logger.info('POS Return: Refund transaction created', { refundTxId: refundTx?.id });
       void refundTx;
 
       if (hasTx2 && pg2) await pg2.query('COMMIT');
@@ -1251,7 +1258,8 @@ export async function registerPosRoutes(app: Express) {
       }
       logger.error('Failed to process POS return', {
         saleId: parsed.data.saleId,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
       });
       res.status(500).json({ error: 'Failed to process return' });
     } finally {

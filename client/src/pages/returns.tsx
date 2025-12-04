@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useOfflineSyncIndicator } from "@/hooks/use-offline-sync-indicator";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfToken } from "@/lib/csrf";
 import { formatCurrency, formatDateTime } from "@/lib/pos-utils";
 import type { Store } from "@shared/schema";
 
@@ -204,9 +205,13 @@ export default function ReturnsPage() {
         items: itemsPayload,
       };
 
+      const csrfToken = await getCsrfToken().catch(() => null);
       const res = await fetch("/api/pos/returns", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+        },
         credentials: "include",
         body: JSON.stringify(payload),
       });
