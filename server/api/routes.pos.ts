@@ -12,9 +12,7 @@ import {
   users,
   products,
   organizations,
-  legacyCustomers as tblCustomers,
-  loyaltyAccounts,
-  legacyLoyaltyTransactions as loyaltyTransactions,
+  customers,
   transactions as prdTransactions,
   transactionItems as prdTransactionItems,
   importJobs,
@@ -580,29 +578,32 @@ export async function registerPosRoutes(app: Express) {
       if (!Number.isFinite(subtotalNum)) return res.status(400).json({ error: 'Invalid subtotal amount' });
       if (!Number.isFinite(discountNum) || discountNum < 0) return res.status(400).json({ error: 'Invalid discount amount' });
       if (!Number.isFinite(taxNum) || taxNum < 0) return res.status(400).json({ error: 'Invalid tax amount' });
-      // Load or create customer and account if provided
+      // Load or create customer if phone provided (using new customers table with storeId)
       let customerId: string | null = null;
-      let account: any | null = null;
+      let customerPoints = 0;
       if (customerPhone) {
-        const existingCust = await db.select().from(tblCustomers).where(and(eq(tblCustomers.orgId, me.orgId), eq(tblCustomers.phone, customerPhone)));
-        let customer = (existingCust as any)[0];
+        const storeId = parsed.data.storeId;
+        const existingCust = await db.select().from(customers).where(and(eq(customers.storeId, storeId), eq(customers.phone, customerPhone)));
+        let customer = existingCust[0];
         if (!customer) {
-          const created = await db.insert(tblCustomers).values({ orgId: me.orgId, phone: customerPhone } as any).returning();
+          const created = await db.insert(customers).values({
+            storeId,
+            phone: customerPhone,
+            firstName: 'Customer',
+            lastName: '',
+            currentPoints: 0,
+            lifetimePoints: 0,
+          } as typeof customers.$inferInsert).returning();
           customer = created[0];
         }
         customerId = customer.id;
-        const acctExisting = await db.select().from(loyaltyAccounts).where(and(eq(loyaltyAccounts.orgId, me.orgId), eq(loyaltyAccounts.customerId, customerId)));
-        account = (acctExisting as any)[0];
-        if (!account) {
-          const ins = await db.insert(loyaltyAccounts).values({ orgId: me.orgId, customerId, points: 0 } as any).returning();
-          account = ins[0];
-        }
+        customerPoints = customer.currentPoints ?? 0;
       }
 
-      // Apply redeem discount if requested and account available
-      const redeemDiscount = customerPhone && account && redeemPoints > 0 ? (redeemPoints * orgSettings.redeemValue) : 0;
+      // Apply redeem discount if requested and customer has points
+      const redeemDiscount = customerPhone && customerId && redeemPoints > 0 ? (redeemPoints * orgSettings.redeemValue) : 0;
       if (redeemDiscount > 0) {
-        if (account.points < redeemPoints) {
+        if (customerPoints < redeemPoints) {
           if (hasTx && pg) await pg.query('ROLLBACK');
           return res.status(400).json({ error: 'Insufficient loyalty points' });
         }
@@ -698,30 +699,28 @@ export async function registerPosRoutes(app: Express) {
           } as any);
       }
 
-      // Loyalty transactions: record redeem (negative) and earn (positive)
-      if (customerId && account) {
+      // Loyalty: update customer points directly (new schema uses currentPoints on customers table)
+      if (customerId) {
+        let newPoints = customerPoints;
         // Redeem first
         if (redeemDiscount > 0 && redeemPoints > 0) {
-          const newBal = Number(account.points) - redeemPoints;
-          const upd = await db
-            .update(loyaltyAccounts)
-            .set({ points: newBal } as any)
-            .where(eq(loyaltyAccounts.id, account.id))
-            .returning();
-          account = upd[0];
-          await db.insert(loyaltyTransactions).values({ loyaltyAccountId: account.id, points: -redeemPoints, reason: 'redeem' } as any);
+          newPoints = Math.max(0, customerPoints - redeemPoints);
         }
         // Earn: 1 point per 1.00 currency unit of (subtotal - discounts)
         const spendBase = Math.max(0, subtotalNum - effectiveDiscount);
         const pointsEarned = Math.floor(spendBase * Math.max(orgSettings.earnRate, 0));
         if (pointsEarned > 0) {
-          const upd = await db
-            .update(loyaltyAccounts)
-            .set({ points: Number(account.points) + pointsEarned } as any)
-            .where(eq(loyaltyAccounts.id, account.id))
-            .returning();
-          account = upd[0];
-          await db.insert(loyaltyTransactions).values({ loyaltyAccountId: account.id, points: pointsEarned, reason: 'earn' } as any);
+          newPoints += pointsEarned;
+        }
+        // Update customer points if changed
+        if (newPoints !== customerPoints) {
+          await db
+            .update(customers)
+            .set({ 
+              currentPoints: newPoints,
+              lifetimePoints: sql`lifetime_points + ${pointsEarned}`,
+            } as any)
+            .where(eq(customers.id, customerId));
         }
       }
 

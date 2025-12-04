@@ -263,6 +263,19 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   if (req.method === 'POST' && (req.path === '/api/auth/logout' || originalUrl === '/api/auth/logout')) {
     return next();
   }
+  // Bypass CSRF for POS sales with idempotency key (service worker offline sync)
+  // The idempotency key provides replay protection, session cookie validates auth
+  if (req.method === 'POST' && req.path === '/api/pos/sales') {
+    const idempotencyKey = req.get('Idempotency-Key');
+    if (idempotencyKey && idempotencyKey.length > 0) {
+      logger.debug('Bypassing CSRF for POS sale with idempotency key', {
+        idempotencyKey,
+        ip: req.ip,
+        path: req.path,
+      });
+      return next();
+    }
+  }
   return doubleCsrfProtection(req, res, next);
 };
 
