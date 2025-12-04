@@ -322,37 +322,35 @@ interface KpiCardProps {
 
 function KpiCard({ title, value, icon, subtitle, badge, delta, className }: KpiCardProps) {
   return (
-    <Card className={cn("border border-slate-200", className)}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+    <Card className={cn("flex h-full flex-col border border-slate-200 bg-white/95 shadow-sm", className)}>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
         <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
         <div className="rounded-full bg-slate-100 p-2">{icon}</div>
       </CardHeader>
-      <CardContent>
-        <div className="flex items-end justify-between">
-          <div className="space-y-1">
-            <p className="text-2xl font-bold">{value}</p>
-            {badge && (
-              <Badge variant="secondary" className="text-xs">
-                {badge}
-              </Badge>
-            )}
-            {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-          </div>
-          {delta && (
-            <div
-              className={cn(
-                "flex items-center gap-1 text-xs font-medium",
-                delta.positive && "text-emerald-600",
-                delta.negative && "text-red-600",
-                !delta.positive && !delta.negative && "text-muted-foreground"
-              )}
-            >
-              {delta.positive && <TrendingUp className="h-3 w-3" />}
-              {delta.negative && <TrendingDown className="h-3 w-3" />}
-              <span>{delta.label}</span>
-            </div>
+      <CardContent className="flex flex-1 flex-col gap-3">
+        <div className="space-y-1">
+          <p className="text-3xl font-semibold leading-tight tracking-tight break-words">{value}</p>
+          {badge && (
+            <Badge variant="secondary" className="text-xs">
+              {badge}
+            </Badge>
           )}
+          {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
         </div>
+        {delta && (
+          <div
+            className={cn(
+              "mt-auto flex items-center justify-end gap-1 text-xs font-medium",
+              delta.positive && "text-emerald-600",
+              delta.negative && "text-red-600",
+              !delta.positive && !delta.negative && "text-muted-foreground"
+            )}
+          >
+            {delta.positive && <TrendingUp className="h-3 w-3" />}
+            {delta.negative && <TrendingDown className="h-3 w-3" />}
+            <span>{delta.label}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -481,7 +479,7 @@ interface OverviewTabProps {
 
 function OverviewTab({ data, isLoading }: OverviewTabProps) {
   if (isLoading) {
-    return <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-5 animate-pulse">
+    return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-pulse">
       {[...Array(5)].map((_, i) => (
         <Card key={i} className="h-32 bg-slate-100" />
       ))}
@@ -494,7 +492,7 @@ function OverviewTab({ data, isLoading }: OverviewTabProps) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
           title="Gross Revenue"
           value={formatMoney(data.revenue.gross)}
@@ -570,7 +568,7 @@ function SalesTab({ salesData, timeseriesData, popularProducts, profitLoss, isLo
 
   if (isLoading) {
     return <div className="animate-pulse space-y-4">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[...Array(6)].map((_, i) => <Card key={i} className="h-28 bg-slate-100" />)}
       </div>
       <Card className="h-80 bg-slate-100" />
@@ -581,7 +579,7 @@ function SalesTab({ salesData, timeseriesData, popularProducts, profitLoss, isLo
     <div className="space-y-6">
       {/* Sales KPI Cards */}
       {salesData && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
           <KpiCard
             title="Total Revenue"
             value={formatMoney(salesData.totalRevenue.value)}
