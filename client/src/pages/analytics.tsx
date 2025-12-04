@@ -350,7 +350,7 @@ function ScopeControls() {
 
 function AnalyticsKpiBar({ cards }: { cards: KpiCardConfig[] }) {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid auto-rows-fr grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {cards.map((card) => {
         const Icon = card.icon;
         const deltaClass = card.delta
@@ -362,34 +362,33 @@ function AnalyticsKpiBar({ cards }: { cards: KpiCardConfig[] }) {
           : "text-muted-foreground";
 
         return (
-          <Card key={card.key} className="border border-slate-200">
-            <CardHeader className="flex items-start justify-between space-y-0 pb-4">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">{card.title}</p>
-              </div>
+          <Card
+            key={card.key}
+            className="flex h-full flex-col border border-slate-200 bg-white/90 shadow-sm"
+          >
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <p className="text-sm font-medium text-muted-foreground">{card.title}</p>
               <div className="rounded-full bg-slate-100 p-2">
                 <Icon className="h-4 w-4 text-slate-500" />
               </div>
             </CardHeader>
-            <CardContent className="flex items-end justify-between">
+            <CardContent className="flex flex-1 flex-col gap-4">
               <div className="space-y-2">
-                <p className="text-2xl font-semibold leading-none tracking-tight">{card.value}</p>
+                <p className="text-3xl font-semibold leading-none tracking-tight">{card.value}</p>
                 {card.currencyBadge ? (
                   <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[0.7rem] font-medium text-slate-600">
                     {card.currencyBadge}
                   </span>
                 ) : null}
                 {card.caption ? (
-                  <p className="text-xs text-muted-foreground/80">{card.caption}</p>
+                  <p className="text-xs text-muted-foreground/90">{card.caption}</p>
                 ) : null}
               </div>
               {card.delta ? (
-                <div className={cn("flex flex-col items-end text-xs font-medium", deltaClass)}>
-                  <div className="flex items-center gap-1">
-                    {card.delta.positive ? <TrendingUp className="h-3 w-3" /> : null}
-                    {card.delta.negative ? <TrendingDown className="h-3 w-3" /> : null}
-                    <span>{card.delta.label}</span>
-                  </div>
+                <div className={cn("mt-auto flex items-center justify-end gap-1 text-xs font-medium", deltaClass)}>
+                  {card.delta.positive ? <TrendingUp className="h-3 w-3" /> : null}
+                  {card.delta.negative ? <TrendingDown className="h-3 w-3" /> : null}
+                  <span>{card.delta.label}</span>
                 </div>
               ) : null}
             </CardContent>
