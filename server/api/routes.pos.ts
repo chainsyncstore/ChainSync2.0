@@ -653,8 +653,8 @@ export async function registerPosRoutes(app: Express) {
           lineTotal: item.lineTotal,
         } as any);
 
-        const isMockTestDb = process.env.NODE_ENV === 'test' && process.env.LOYALTY_REALDB !== '1';
-        if (isMockTestDb) {
+        // Always use storage.adjustInventory to properly track stock movements
+        try {
           await storage.adjustInventory(
             item.productId,
             parsed.data.storeId,
@@ -664,8 +664,13 @@ export async function registerPosRoutes(app: Express) {
             sale.id,
             `POS sale - ${item.quantity} units`,
           );
-        } else if (typeof (db as any).execute === 'function') {
-          await (db as any).execute(sql`UPDATE inventory SET quantity = quantity - ${item.quantity} WHERE store_id = ${parsed.data.storeId} AND product_id = ${item.productId}`);
+        } catch (invErr) {
+          logger.warn('Inventory adjustment failed for POS sale', {
+            productId: item.productId,
+            storeId: parsed.data.storeId,
+            quantity: item.quantity,
+            error: invErr instanceof Error ? invErr.message : String(invErr),
+          });
         }
       }
 
@@ -712,15 +717,17 @@ export async function registerPosRoutes(app: Express) {
         if (pointsEarned > 0) {
           newPoints += pointsEarned;
         }
-        // Update customer points if changed
-        if (newPoints !== customerPoints) {
+        // Update customer points if earned or redeemed
+        if (pointsEarned > 0 || (redeemDiscount > 0 && redeemPoints > 0)) {
           await db
             .update(customers)
             .set({ 
               currentPoints: newPoints,
-              lifetimePoints: sql`lifetime_points + ${pointsEarned}`,
+              lifetimePoints: pointsEarned > 0 ? sql`lifetime_points + ${pointsEarned}` : sql`lifetime_points`,
+              updatedAt: new Date(),
             } as any)
             .where(eq(customers.id, customerId));
+          logger.info('Loyalty points updated', { customerId, pointsEarned, newPoints });
         }
       }
 
