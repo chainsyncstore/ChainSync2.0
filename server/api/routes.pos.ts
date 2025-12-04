@@ -1204,8 +1204,12 @@ export async function registerPosRoutes(app: Express) {
 
       for (const row of rowsToInsert) {
         if (row.restockAction !== 'RESTOCK') continue;
-        const isMockTestDb = process.env.NODE_ENV === 'test' && process.env.LOYALTY_REALDB !== '1';
-        if (isMockTestDb) {
+        logger.info('POS Return: Restocking inventory', { 
+          productId: row.productId, 
+          storeId: parsed.data.storeId, 
+          quantity: row.quantity 
+        });
+        try {
           await storage.adjustInventory(
             row.productId,
             parsed.data.storeId,
@@ -1215,12 +1219,18 @@ export async function registerPosRoutes(app: Express) {
             ret.id,
             `POS return - ${row.quantity} units restocked`,
           );
-        } else if (typeof (db as any).execute === 'function') {
-          await (db as any).execute(sql`
-            UPDATE inventory
-            SET quantity = quantity + ${row.quantity}
-            WHERE store_id = ${parsed.data.storeId} AND product_id = ${row.productId}
-          `);
+          logger.info('POS Return: Inventory restocked successfully', { 
+            productId: row.productId, 
+            quantity: row.quantity 
+          });
+        } catch (restockErr) {
+          logger.error('POS Return: Failed to restock inventory', {
+            productId: row.productId,
+            storeId: parsed.data.storeId,
+            quantity: row.quantity,
+            error: restockErr instanceof Error ? restockErr.message : String(restockErr),
+          });
+          // Don't throw - continue with the return even if restock fails
         }
       }
 
