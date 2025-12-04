@@ -25,7 +25,7 @@ import {
   Award,
   Activity,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -364,6 +364,7 @@ interface ScopeControlsProps {
   onPresetChange: (newPreset: DatePreset) => void;
   dateRange: DateRange;
   onDateRangeChange: (newRange: DateRange) => void;
+  storeSelectionLocked?: boolean;
 }
 /* eslint-enable no-unused-vars */
 
@@ -376,6 +377,7 @@ function ScopeControls({
   onPresetChange,
   dateRange,
   onDateRangeChange,
+  storeSelectionLocked = false,
 }: ScopeControlsProps) {
   const [startOpen, setStartOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
@@ -400,7 +402,7 @@ function ScopeControls({
         <Select
           value={selectedStoreId || undefined}
           onValueChange={onStoreChange}
-          disabled={isLoadingStores || stores.length === 0}
+          disabled={isLoadingStores || stores.length === 0 || storeSelectionLocked}
         >
           <SelectTrigger className="w-52">
             <SelectValue placeholder={isLoadingStores ? "Loading..." : "Select store"} />
@@ -413,6 +415,9 @@ function ScopeControls({
             ))}
           </SelectContent>
         </Select>
+        {storeSelectionLocked && (
+          <span className="text-xs text-muted-foreground">Store access locked to your assignment.</span>
+        )}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -1379,7 +1384,8 @@ function PriceAnalysisTab({
 
 export default function AnalyticsV2Page() {
   const { user } = useAuth();
-  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+  const managerStoreId = user?.role === "manager" ? user?.storeId ?? null : null;
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(managerStoreId);
   const [datePreset, setDatePreset] = useState<DatePreset>("30");
   const [dateRange, setDateRange] = useState<DateRange>(() => getPresetRange("30"));
   const [activeTab, setActiveTab] = useState("overview");
@@ -1390,12 +1396,23 @@ export default function AnalyticsV2Page() {
     queryKey: ["/api/stores"],
   });
 
-  // Auto-select first store
-  useMemo(() => {
+  // Keep selection synced to manager assignment or default to first store for admins
+  useEffect(() => {
+    if (managerStoreId) {
+      setSelectedStoreId(managerStoreId);
+      return;
+    }
     if (!selectedStoreId && stores.length > 0) {
       setSelectedStoreId(stores[0].id);
     }
-  }, [stores, selectedStoreId]);
+  }, [managerStoreId, stores, selectedStoreId]);
+
+  const visibleStores = useMemo(() => {
+    if (managerStoreId) {
+      return stores.filter((s) => s.id === managerStoreId);
+    }
+    return stores;
+  }, [stores, managerStoreId]);
 
   const storeId = selectedStoreId || "";
   const hasStore = Boolean(storeId);
@@ -1492,7 +1509,7 @@ export default function AnalyticsV2Page() {
           <p className="text-muted-foreground">Business performance insights</p>
         </div>
         <ScopeControls
-          stores={stores}
+          stores={visibleStores}
           isLoadingStores={isLoadingStores}
           selectedStoreId={selectedStoreId}
           onStoreChange={setSelectedStoreId}
@@ -1500,6 +1517,7 @@ export default function AnalyticsV2Page() {
           onPresetChange={setDatePreset}
           dateRange={dateRange}
           onDateRangeChange={setDateRange}
+          storeSelectionLocked={Boolean(managerStoreId)}
         />
       </div>
 
