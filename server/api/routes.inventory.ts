@@ -150,14 +150,16 @@ export async function registerInventoryRoutes(app: Express) {
         .where(eq(products.isActive, true))
         .limit(limit);
 
-      // Transform to return the best available price
+      // Return both price fields so frontend can choose
       const result = rows.map(row => ({
         id: row.id,
         name: row.name,
         sku: row.sku,
         barcode: row.barcode,
-        // Prefer salePrice if set, otherwise use price
-        price: row.salePrice || String(row.price || '0'),
+        // salePrice is the current selling price (updated via inventory page)
+        salePrice: row.salePrice || null,
+        // price is the base/import price
+        price: String(row.price || '0'),
         category: row.category,
         brand: row.brand,
         quantity: row.quantity ?? 0,

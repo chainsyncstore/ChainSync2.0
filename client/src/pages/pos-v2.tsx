@@ -146,7 +146,7 @@ export default function POSV2() {
               id: p.id,
               name: p.name,
               barcode: p.barcode || "",
-              price: String(p.price || p.salePrice || "0"),
+              price: String(p.salePrice || p.price || "0"),
             }))
           );
         }
@@ -929,7 +929,7 @@ export default function POSV2() {
                         id: product.id,
                         name: product.name,
                         barcode: product.barcode || "",
-                        price: parseFloat(product.price || product.salePrice || "0"),
+                        price: parseFloat(product.salePrice || product.price || "0"),
                       });
                       toast({ title: "Added", description: product.name });
                       setIsSearchOpen(false);
@@ -941,7 +941,7 @@ export default function POSV2() {
                       <p className="text-sm text-slate-500">{product.barcode || "No barcode"}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold">{formatCurrency(parseFloat(product.price || "0"), currency)}</p>
+                      <p className="font-semibold">{formatCurrency(parseFloat(product.salePrice || product.price || "0"), currency)}</p>
                       <Plus className="w-4 h-4 text-slate-400 ml-auto" />
                     </div>
                   </button>
