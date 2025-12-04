@@ -713,6 +713,44 @@ export class DatabaseStorage implements IStorage {
 
     return totalCost;
   }
+
+  /**
+   * Restore cost layers for returned/restocked items.
+   * Creates a new cost layer entry at the specified unit cost.
+   */
+  async restoreCostLayer(
+    storeId: string,
+    productId: string,
+    quantity: number,
+    unitCost: number,
+    source?: string,
+    referenceId?: string,
+    notes?: string,
+  ): Promise<void> {
+    if (quantity <= 0 || unitCost < 0) {
+      return;
+    }
+
+    const layerPayload = {
+      storeId,
+      productId,
+      quantityRemaining: quantity,
+      unitCost: toDecimalString(unitCost, 4),
+      source: source || 'pos_return',
+      referenceId: referenceId || null,
+      notes: notes || 'Restocked from return',
+    } as typeof inventoryCostLayers.$inferInsert;
+
+    if (this.isTestEnv) {
+      const key = `${storeId}:${productId}`;
+      const existing = this.mem.inventoryCostLayers.get(key) || [];
+      existing.push({ id: this.generateId(), createdAt: new Date(), ...layerPayload });
+      this.mem.inventoryCostLayers.set(key, existing);
+    } else {
+      await db.insert(inventoryCostLayers).values(layerPayload);
+    }
+  }
+
   // User operations
   async getUser(id: string): Promise<User | undefined> {
     if (this.isTestEnv) {

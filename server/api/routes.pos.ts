@@ -1180,7 +1180,6 @@ export async function registerPosRoutes(app: Express) {
       } as any).returning();
       const ret = insertedReturn[0];
       logger.info('POS Return: Return record created', { returnId: ret.id });
-
       // Insert return items row-by-row to keep compatibility with the mock db
       const insertedItems: any[] = [];
       for (const row of rowsToInsert) {
@@ -1210,6 +1209,10 @@ export async function registerPosRoutes(app: Express) {
           quantity: row.quantity 
         });
         try {
+          // Get current inventory to find avg cost for cost layer restoration
+          const currentInv = await storage.getInventoryItem(row.productId, parsed.data.storeId);
+          const unitCost = Number((currentInv as any)?.avgCost) || 0;
+
           await storage.adjustInventory(
             row.productId,
             parsed.data.storeId,
@@ -1219,6 +1222,25 @@ export async function registerPosRoutes(app: Express) {
             ret.id,
             `POS return - ${row.quantity} units restocked`,
           );
+
+          // Restore cost layer for FIFO tracking
+          if (unitCost > 0) {
+            await storage.restoreCostLayer(
+              parsed.data.storeId,
+              row.productId,
+              row.quantity,
+              unitCost,
+              'pos_return',
+              ret.id,
+              `Restocked from return ${ret.id}`,
+            );
+            logger.info('POS Return: Cost layer restored', {
+              productId: row.productId,
+              quantity: row.quantity,
+              unitCost,
+            });
+          }
+
           logger.info('POS Return: Inventory restocked successfully', { 
             productId: row.productId, 
             quantity: row.quantity 
