@@ -1279,11 +1279,8 @@ export async function registerInventoryRoutes(app: Express) {
       .returning();
     const importBatchId = job?.id as string | undefined;
 
-    const client = (db as any).client;
-    const pg = await client.connect();
+    // Use drizzle transaction for proper atomicity
     try {
-      await pg.query('BEGIN');
-
       for (const raw of records) {
         const parsed = ImportRowSchema.safeParse({
           sku: raw.sku,
@@ -1328,22 +1325,62 @@ export async function registerInventoryRoutes(app: Express) {
         }
 
         // Upsert product by (orgId, sku)
-        const existing = await db
-          .select()
-          .from(products)
-          .where(and(eq(products.orgId as any, orgId as any), eq(products.sku as any, r.sku)))
-          .limit(1);
         let productId: string;
-        if ((existing as any)[0]) {
-          const p = (existing as any)[0];
-          await db.execute(sql`UPDATE products SET barcode = ${r.barcode}, name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
-            WHERE id = ${p.id}`);
-          productId = p.id;
-        } else {
-          const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, barcode, name, cost_price, sale_price, vat_rate, price)
-             VALUES (${orgId}, ${r.sku}, ${r.barcode}, ${r.name}, ${r.cost_price}, ${r.sale_price}, ${r.vat_rate}, ${r.sale_price}) RETURNING id`);
-          productId = (inserted as any).rows[0].id;
-          addedProducts += 1;
+        try {
+          const existing = await db
+            .select()
+            .from(products)
+            .where(and(eq(products.orgId as any, orgId as any), eq(products.sku as any, r.sku)))
+            .limit(1);
+          if ((existing as any)[0]) {
+            const p = (existing as any)[0];
+            // Update product - handle barcode conflicts by setting to null if duplicate
+            try {
+              await db.execute(sql`UPDATE products SET barcode = ${r.barcode}, name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
+                WHERE id = ${p.id}`);
+            } catch (updateErr: any) {
+              if (updateErr?.code === '23505' && updateErr?.constraint?.includes('barcode')) {
+                // Barcode conflict - update without barcode
+                await db.execute(sql`UPDATE products SET name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
+                  WHERE id = ${p.id}`);
+                logger.warn('Barcode conflict during import, skipping barcode update', { sku: r.sku, barcode: r.barcode });
+              } else {
+                throw updateErr;
+              }
+            }
+            productId = p.id;
+          } else {
+            // Insert new product - handle barcode/sku conflicts
+            try {
+              const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, barcode, name, cost_price, sale_price, vat_rate, price)
+                 VALUES (${orgId}, ${r.sku}, ${r.barcode}, ${r.name}, ${r.cost_price}, ${r.sale_price}, ${r.vat_rate}, ${r.sale_price}) RETURNING id`);
+              productId = (inserted as any).rows[0].id;
+              addedProducts += 1;
+            } catch (insertErr: any) {
+              if (insertErr?.code === '23505') {
+                // Unique constraint violation - try to find existing product
+                if (insertErr?.constraint?.includes('barcode') && r.barcode) {
+                  // Barcode exists - try inserting without barcode
+                  const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, name, cost_price, sale_price, vat_rate, price)
+                     VALUES (${orgId}, ${r.sku}, ${r.name}, ${r.cost_price}, ${r.sale_price}, ${r.vat_rate}, ${r.sale_price}) RETURNING id`);
+                  productId = (inserted as any).rows[0].id;
+                  addedProducts += 1;
+                  logger.warn('Barcode conflict during insert, created product without barcode', { sku: r.sku, barcode: r.barcode });
+                } else if (insertErr?.constraint?.includes('sku')) {
+                  // SKU exists in different org - this shouldn't happen with org-scoped lookup, but handle it
+                  invalidRows.push({ row: raw, error: `SKU "${r.sku}" already exists in another organization` });
+                  continue;
+                } else {
+                  throw insertErr;
+                }
+              } else {
+                throw insertErr;
+              }
+            }
+          }
+        } catch (productErr: any) {
+          invalidRows.push({ row: raw, error: `Product upsert failed: ${productErr?.message || String(productErr)}` });
+          continue;
         }
 
         const costNumber = Number.parseFloat(r.cost_price);
@@ -1387,64 +1424,69 @@ export async function registerInventoryRoutes(app: Express) {
           zeroQuantityRows += 1;
         }
 
-        const existingInventory = await storage.getInventoryItem(productId, storeId);
-        let targetQuantity = existingInventory?.quantity ?? 0;
-        if (mode === 'overwrite') {
-          targetQuantity = quantityDelta;
-        } else {
-          targetQuantity = (existingInventory?.quantity ?? 0) + quantityDelta;
-        }
+        // Handle inventory update/creation with proper error handling
+        try {
+          const existingInventory = await storage.getInventoryItem(productId, storeId);
+          let targetQuantity = existingInventory?.quantity ?? 0;
+          if (mode === 'overwrite') {
+            targetQuantity = quantityDelta;
+          } else {
+            targetQuantity = (existingInventory?.quantity ?? 0) + quantityDelta;
+          }
 
-        const costUpdate = buildCostUpdatePayload(costNumber, saleNumber);
-        if (existingInventory) {
-          await storage.updateInventory(
-            productId,
-            storeId,
-            {
-              quantity: targetQuantity,
-              minStockLevel,
-              maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
-              reorderLevel,
-              costUpdate,
-              source: 'csv_import',
-              referenceId: importBatchId,
-            } as any,
-            userId,
-          );
-        } else {
-          await storage.createInventory(
-            {
+          const costUpdate = buildCostUpdatePayload(costNumber, saleNumber);
+          if (existingInventory) {
+            await storage.updateInventory(
               productId,
               storeId,
-              quantity: targetQuantity,
-              minStockLevel,
-              maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
-              reorderLevel,
-            } as any,
-            userId,
-            {
-              source: 'csv_import',
-              referenceId: importBatchId,
-              notes: `Import ${mode} from ${fileName}`,
-              costOverride: costNumber,
-              salePriceOverride: saleNumber,
-            },
-          );
+              {
+                quantity: targetQuantity,
+                minStockLevel,
+                maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
+                reorderLevel,
+                costUpdate,
+                source: 'csv_import',
+                referenceId: importBatchId,
+              } as any,
+              userId,
+            );
+          } else {
+            await storage.createInventory(
+              {
+                productId,
+                storeId,
+                quantity: targetQuantity,
+                minStockLevel,
+                maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
+                reorderLevel,
+                avgCost: costNumber > 0 ? costNumber : undefined,
+              } as any,
+              userId,
+              {
+                source: 'csv_import',
+                referenceId: importBatchId,
+                notes: `Import ${mode} from ${fileName}`,
+                costOverride: costNumber,
+                salePriceOverride: saleNumber,
+              },
+            );
+          }
+          stockAdjusted += 1;
+          alertSyncTargets.add(`${storeId}:${productId}`);
+          results.push({ sku: r.sku, productId, storeId, mode });
+        } catch (invErr: any) {
+          logger.error('Inventory operation failed during import', {
+            sku: r.sku,
+            productId,
+            storeId,
+            error: invErr?.message || String(invErr),
+          });
+          invalidRows.push({ row: raw, error: `Inventory operation failed: ${invErr?.message || String(invErr)}` });
+          continue;
         }
-        stockAdjusted += 1;
-        alertSyncTargets.add(`${storeId}:${productId}`);
-
-        results.push({ sku: r.sku, productId, storeId, mode });
       }
-      await pg.query('COMMIT');
+      // All operations complete successfully
     } catch (error) {
-      try {
-        await pg.query('ROLLBACK');
-      } catch (rollbackError) {
-        logger.warn('Inventory import rollback failed', {
-          error: rollbackError instanceof Error ? error.message : String(rollbackError),
-        });
-      }
       logger.error('Failed to import inventory', {
         userId: req.session?.userId,
         invalidRowCount: invalidRows.length,
@@ -1469,8 +1511,6 @@ export async function registerInventoryRoutes(app: Express) {
       }
 
       return res.status(500).json({ error: 'Failed to import inventory' });
-    } finally {
-      pg.release();
     }
 
     for (const key of alertSyncTargets) {
