@@ -320,6 +320,7 @@ export default function Inventory() {
   // Margin warning state
   const [showMarginWarning, setShowMarginWarning] = useState(false);
   const [marginAnalysis, setMarginAnalysis] = useState<MarginAnalysis | null>(null);
+  const [instantMarginWarning, setInstantMarginWarning] = useState<{ belowCost: boolean; avgCost: number } | null>(null);
 
   const [confirmAction, setConfirmAction] = useState<"remove" | "drop" | null>(null);
   const [pendingRemovalPayload, setPendingRemovalPayload] = useState<RemoveStockPayload | null>(null);
@@ -638,6 +639,7 @@ export default function Inventory() {
     setRemovalNotes("");
     setShowMarginWarning(false);
     setMarginAnalysis(null);
+    setInstantMarginWarning(null);
   };
 
   // Fetch cost layers when editing an item
@@ -656,6 +658,19 @@ export default function Inventory() {
   // Debounced margin check for better performance
   const marginCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Get effective cost for instant margin checks (from cost layers or inventory avgCost)
+  const getEffectiveCost = useCallback((): number => {
+    // Prefer cost layer data if available
+    if (costLayerData && costLayerData.weightedAverageCost > 0) {
+      return costLayerData.weightedAverageCost;
+    }
+    // Fallback to inventory item avgCost
+    if (editingItem) {
+      return getInventoryUnitCost(editingItem);
+    }
+    return 0;
+  }, [costLayerData, editingItem]);
+
   const checkMargin = useCallback((proposedPrice: number) => {
     // Clear any pending check
     if (marginCheckTimeoutRef.current) {
@@ -665,10 +680,19 @@ export default function Inventory() {
     if (!editingItem || !storeId || proposedPrice <= 0) {
       setShowMarginWarning(false);
       setMarginAnalysis(null);
+      setInstantMarginWarning(null);
       return;
     }
 
-    // Debounce margin check to reduce API calls during typing
+    // INSTANT client-side check using available cost data (no API call needed)
+    const effectiveCost = getEffectiveCost();
+    if (effectiveCost > 0 && proposedPrice < effectiveCost) {
+      setInstantMarginWarning({ belowCost: true, avgCost: effectiveCost });
+    } else {
+      setInstantMarginWarning(null);
+    }
+
+    // Debounced API call for detailed layer analysis (reduced to 150ms for faster response)
     marginCheckTimeoutRef.current = setTimeout(async () => {
       try {
         const csrfToken = await getCsrfToken();
@@ -686,12 +710,16 @@ export default function Inventory() {
           const analysis = await response.json() as MarginAnalysis;
           setMarginAnalysis(analysis);
           setShowMarginWarning(analysis.layersAtLoss > 0);
+          // Clear instant warning if API provides more accurate data
+          if (analysis.layersAtLoss === 0) {
+            setInstantMarginWarning(null);
+          }
         }
       } catch (error) {
         console.error("Failed to analyze margin", error);
       }
-    }, 400); // 400ms debounce delay
-  }, [editingItem, storeId]);
+    }, 150); // Reduced debounce for faster response
+  }, [editingItem, storeId, getEffectiveCost]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -714,6 +742,7 @@ export default function Inventory() {
     setEditSalePrice(saleValue ? String(saleValue) : "");
     setShowMarginWarning(false);
     setMarginAnalysis(null);
+    setInstantMarginWarning(null);
   };
 
   const updateInventoryMutation = useMutation({
@@ -1643,32 +1672,62 @@ export default function Inventory() {
           </DialogHeader>
 
           {/* Cost Layer Summary - shown in edit mode */}
-          {!isRemovalMode && costLayerData && costLayerData.layers.length > 0 && (
+          {!isRemovalMode && (
             <div className="bg-slate-50 rounded-lg p-3 space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                <Layers className="w-4 h-4" />
-                Cost Layers (FIFO)
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                <div>
-                  <span className="font-medium">Total Units:</span> {costLayerData.totalQuantity}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <Layers className="w-4 h-4" />
+                  Cost Layers (FIFO)
                 </div>
-                <div>
-                  <span className="font-medium">Avg Cost:</span> {formatFlexibleCurrency(costLayerData.weightedAverageCost, currency)}
-                </div>
+                {costLayerData?.layers.some(l => l.source === 'legacy_inventory' || l.source === 'product_cost_fallback') && (
+                  <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+                    Derived from inventory
+                  </Badge>
+                )}
               </div>
-              {costLayerData.layers.length > 1 && (
-                <div className="text-xs text-slate-500 space-y-1 max-h-20 overflow-auto">
-                  {costLayerData.layers.slice(0, 5).map((layer, idx) => (
-                    <div key={layer.id} className="flex justify-between">
-                      <span>Layer {idx + 1}: {layer.quantityRemaining} units</span>
-                      <span>{formatFlexibleCurrency(layer.unitCost, currency)}/unit</span>
+              {costLayerData && costLayerData.totalQuantity > 0 ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <div>
+                      <span className="font-medium">Total Units:</span> {costLayerData.totalQuantity}
+                      {editingItem && costLayerData.totalQuantity !== getInventoryQuantity(editingItem) && (
+                        <span className="text-amber-600 ml-1">(stock: {getInventoryQuantity(editingItem)})</span>
+                      )}
                     </div>
-                  ))}
-                  {costLayerData.layers.length > 5 && (
-                    <div className="text-slate-400">...and {costLayerData.layers.length - 5} more layers</div>
+                    <div>
+                      <span className="font-medium">Avg Cost:</span> {formatFlexibleCurrency(costLayerData.weightedAverageCost, currency)}
+                    </div>
+                  </div>
+                  {costLayerData.layers.length > 0 && (
+                    <div className="text-xs text-slate-500 space-y-1 max-h-24 overflow-auto">
+                      {costLayerData.layers.slice(0, 5).map((layer, idx) => (
+                        <div key={layer.id} className="flex justify-between items-center">
+                          <span className="flex items-center gap-1">
+                            Layer {idx + 1}: {layer.quantityRemaining} units
+                            {layer.source && !['initial_inventory', 'csv_import', 'manual'].includes(layer.source) && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0">{layer.source}</Badge>
+                            )}
+                          </span>
+                          <span className="font-medium">{formatFlexibleCurrency(layer.unitCost, currency)}/unit</span>
+                        </div>
+                      ))}
+                      {costLayerData.layers.length > 5 && (
+                        <div className="text-slate-400">...and {costLayerData.layers.length - 5} more layers</div>
+                      )}
+                    </div>
                   )}
+                </>
+              ) : editingItem && getInventoryUnitCost(editingItem) > 0 ? (
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                  <div>
+                    <span className="font-medium">Stock:</span> {getInventoryQuantity(editingItem)} units
+                  </div>
+                  <div>
+                    <span className="font-medium">Avg Cost:</span> {formatFlexibleCurrency(getInventoryUnitCost(editingItem), currency)}
+                  </div>
                 </div>
+              ) : (
+                <p className="text-xs text-slate-500">No cost information available for this product.</p>
               )}
               {/* Current Selling Price */}
               <div className="pt-2 border-t border-slate-200">
@@ -1784,7 +1843,30 @@ export default function Inventory() {
                 </div>
               </div>
 
-              {/* Margin Warning */}
+              {/* Instant Margin Warning - shows immediately when price is below cost */}
+              {instantMarginWarning?.belowCost && !showMarginWarning && (
+                <Alert variant="destructive" className="bg-red-50 border-red-200">
+                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-800">
+                    <strong>Price Below Cost!</strong> The selling price ({formatFlexibleCurrency(Number(editSalePrice), currency)}) is below your average cost ({formatFlexibleCurrency(instantMarginWarning.avgCost, currency)}).
+                    <br />
+                    <span className="text-xs">You will lose money on every sale at this price.</span>
+                    <div className="mt-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setEditSalePrice(String((instantMarginWarning.avgCost * 1.1).toFixed(2)))}
+                        className="text-xs border-red-300 text-red-700 hover:bg-red-100"
+                      >
+                        Set to cost + 10% ({formatFlexibleCurrency(instantMarginWarning.avgCost * 1.1, currency)})
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Detailed Margin Warning - shows after API analysis */}
               {showMarginWarning && marginAnalysis && (
                 <Alert variant="destructive" className="bg-amber-50 border-amber-200">
                   <AlertTriangle className="h-4 w-4 text-amber-600" />

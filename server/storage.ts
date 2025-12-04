@@ -2285,6 +2285,30 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // Create initial cost layer if quantity > 0 and cost is provided
+    const initialQuantity = parseNumeric((item as any).quantity, 0);
+    const initialCost = parseNumeric((item as any).avgCost, 0);
+    if (initialQuantity > 0 && initialCost > 0) {
+      const layerPayload = {
+        storeId: item.storeId,
+        productId: item.productId,
+        quantityRemaining: initialQuantity,
+        unitCost: toDecimalString(initialCost, 4),
+        source: options?.source || 'initial_inventory',
+        referenceId: options?.referenceId ?? null,
+        notes: options?.notes || 'Initial inventory creation',
+      } as typeof inventoryCostLayers.$inferInsert;
+
+      if (this.isTestEnv) {
+        const key = `${item.storeId}:${item.productId}`;
+        const existing = this.mem.inventoryCostLayers.get(key) || [];
+        existing.push({ id: this.generateId(), createdAt: new Date(), ...layerPayload });
+        this.mem.inventoryCostLayers.set(key, existing);
+      } else {
+        await db.insert(inventoryCostLayers).values(layerPayload);
+      }
+    }
+
     await this.syncLowStockAlertState(item.storeId, item.productId);
     return item;
   }
@@ -2987,13 +3011,51 @@ export class DatabaseStorage implements IStorage {
       }));
     }
 
-    // Calculate summary stats
+    // Calculate summary stats from existing layers
     let totalQuantity = 0;
     let totalCostValue = 0;
 
     for (const layer of layers) {
       totalQuantity += layer.quantityRemaining;
       totalCostValue += layer.quantityRemaining * layer.unitCost;
+    }
+
+    // If no cost layers exist but inventory has stock with avgCost, create a synthetic layer
+    // This handles legacy data or edge cases where cost layers weren't properly created
+    if (layers.length === 0) {
+      const inventoryItem = await this.getInventoryItem(productId, storeId);
+      const invQuantity = parseNumeric(inventoryItem?.quantity, 0);
+      const invAvgCost = parseNumeric((inventoryItem as any)?.avgCost, 0);
+      
+      if (invQuantity > 0 && invAvgCost > 0) {
+        // Create a synthetic layer representing the current inventory state
+        const syntheticLayer: CostLayerInfo = {
+          id: `synthetic-${productId}-${storeId}`,
+          quantityRemaining: invQuantity,
+          unitCost: invAvgCost,
+          source: 'legacy_inventory',
+          createdAt: (inventoryItem as any)?.updatedAt ?? (inventoryItem as any)?.createdAt ?? null,
+        };
+        layers = [syntheticLayer];
+        totalQuantity = invQuantity;
+        totalCostValue = invQuantity * invAvgCost;
+      } else if (invQuantity > 0) {
+        // Check product for cost fallback
+        const product = await this.getProduct(productId);
+        const productCost = parseNumeric((product as any)?.cost ?? (product as any)?.costPrice, 0);
+        if (productCost > 0) {
+          const syntheticLayer: CostLayerInfo = {
+            id: `synthetic-${productId}-${storeId}`,
+            quantityRemaining: invQuantity,
+            unitCost: productCost,
+            source: 'product_cost_fallback',
+            createdAt: null,
+          };
+          layers = [syntheticLayer];
+          totalQuantity = invQuantity;
+          totalCostValue = invQuantity * productCost;
+        }
+      }
     }
 
     const weightedAverageCost = totalQuantity > 0 ? totalCostValue / totalQuantity : 0;
