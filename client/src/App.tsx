@@ -20,6 +20,7 @@ const ForgotPassword = lazy(() => import("@/components/auth/forgot-password"));
 const ResetPassword = lazy(() => import("@/components/auth/reset-password"));
 const ForcePasswordReset = lazy(() => import("./components/auth/force-password-reset"));
 const MainLayout = lazy(() => import("@/components/layout/main-layout"));
+const CashierLayout = lazy(() => import("@/components/layout/cashier-layout"));
 
 // Lazy load pages for better performance
 const Landing = lazy(() => import("@/pages/landing"));
@@ -137,14 +138,14 @@ function Dashboard({ userRole }: { userRole: string }) {
           <Route path="/login" component={POS} />
           <Route path="/pos" component={POS} />
           <Route path="/returns">{() => (
-            <MainLayout userRole={role}>
+            <CashierLayout>
               <Returns />
-            </MainLayout>
+            </CashierLayout>
           )}</Route>
           <Route path="/settings">{() => (
-            <MainLayout userRole={role}>
+            <CashierLayout>
               <Settings />
-            </MainLayout>
+            </CashierLayout>
           )}</Route>
           <Route component={NotFound} />
         </Switch>

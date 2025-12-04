@@ -320,12 +320,11 @@ export default function POSV2() {
     return () => clearTimeout(timeout);
   }, [searchQuery, handleSearch]);
 
-  // Loyalty lookup - tries multiple sources
+  // Loyalty lookup - uses currentPoints from customers table directly
   const handleLookupCustomer = async () => {
     if (!customerPhone.trim()) return;
     setLoyaltyLoading(true);
     try {
-      // First try: Look up in legacy customers table and get loyalty account
       const res = await fetch(`/api/customers?phone=${encodeURIComponent(customerPhone)}&storeId=${selectedStore}`, {
         credentials: "include",
       });
@@ -333,22 +332,16 @@ export default function POSV2() {
       if (res.ok) {
         const customer = await res.json();
         if (customer?.id) {
+          const points = Number(customer.currentPoints ?? 0);
           setLoyaltyCustomer({ id: customer.id, name: customer.name || customerPhone });
-          
-          // Try to get loyalty points from loyalty account
-          const loyaltyRes = await fetch(`/api/loyalty/${customer.id}`, { credentials: "include" });
-          if (loyaltyRes.ok) {
-            const data = await loyaltyRes.json();
-            const points = Number(data?.points ?? 0);
-            setLoyaltyBalance(points);
-            setLoyaltySyncStatus({ state: "online", updatedAt: Date.now() });
-            toast({ title: "Customer found", description: `${customer.name || customerPhone} - ${points} points` });
-            return;
-          }
+          setLoyaltyBalance(points);
+          setLoyaltySyncStatus({ state: "online", updatedAt: Date.now() });
+          toast({ title: "Customer found", description: `${customer.name} - ${points} points` });
+          return;
         }
       }
       
-      // Second try: Check local cache for customer data
+      // Fallback: Check local cache for customer data
       try {
         const { getCustomerByPhone } = await import("@/lib/idb-catalog");
         const cached = await getCustomerByPhone(customerPhone);
@@ -364,7 +357,7 @@ export default function POSV2() {
         // Cache lookup failed, continue
       }
       
-      // Customer not found in any source
+      // Customer not found
       toast({ title: "Customer not found", description: "No loyalty account found for this phone number.", variant: "destructive" });
       setLoyaltySyncStatus({ state: "error", message: "Customer not found" });
     } catch (err) {
@@ -651,7 +644,7 @@ export default function POSV2() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-3 p-3 min-h-0 overflow-hidden">
+      <div className={cn("flex-1 flex flex-col lg:flex-row gap-3 p-3", isFullscreen ? "min-h-0 overflow-hidden" : "min-h-fit")}>
         {/* Left: Scan + Cart */}
         <div className="flex-1 flex flex-col gap-3 min-h-0 lg:min-w-0">
           {/* Scan Bar */}

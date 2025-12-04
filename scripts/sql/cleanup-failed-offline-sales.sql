@@ -5,6 +5,15 @@
 -- Run this AFTER you have already adjusted inventory for these items.
 --
 -- IMPORTANT: Review the SELECT statements first before running DELETE!
+--
+-- NOTE: If "1 pending" still shows after running this script, the pending
+-- item is stored in the BROWSER's IndexedDB, not the database.
+-- To clear browser-side pending sales:
+--   1. Open browser DevTools (F12)
+--   2. Go to Application tab > Storage > IndexedDB
+--   3. Find "chainsync_catalog" database
+--   4. Delete the "offline_queue" object store entries
+--   OR clear all site data via Application > Storage > Clear site data
 -- ============================================================================
 
 -- QUICK OPTION: WIPE ALL SALES DATA (transactions + legacy sales)

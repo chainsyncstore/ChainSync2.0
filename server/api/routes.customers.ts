@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { legacyCustomers as customers, users, stores } from '@shared/schema';
+import { customers, users } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { requireAuth, enforceIpWhitelist, requireRole } from '../middleware/authz';
@@ -15,29 +15,38 @@ const CreateCustomerSchema = z.object({
 });
 
 export async function registerCustomerRoutes(app: Express) {
-  // GET /customers?phone=
+  // GET /customers?phone= - lookup loyalty customer by phone
   app.get('/api/customers', requireAuth, enforceIpWhitelist, async (req: Request, res: Response) => {
     try {
-      const userId = req.session?.userId as string | undefined;
-      let orgId: string | undefined;
-      if (userId) {
-        const [me] = await db.select().from(users).where(eq(users.id, userId));
-        orgId = me?.orgId || undefined;
-      }
-      if (!orgId) {
-        const storeId = String(req.query.storeId || '').trim();
-        if (storeId) {
-          const s = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
-          orgId = s[0]?.orgId;
-        }
-      }
-      if (!orgId) return res.status(400).json({ error: 'Missing org' });
+      const storeId = String(req.query.storeId || '').trim();
+      if (!storeId) return res.status(400).json({ error: 'storeId is required' });
 
       const phone = String(req.query.phone || '').trim();
       if (!phone) return res.status(400).json({ error: 'phone is required' });
 
-      const rows = await db.select().from(customers).where(and(eq(customers.orgId, orgId), eq(customers.phone, phone))).limit(1);
-      res.json(rows[0] || null);
+      // Query the loyalty customers table by storeId and phone
+      const rows = await db.select({
+        id: customers.id,
+        phone: customers.phone,
+        name: customers.firstName,
+        firstName: customers.firstName,
+        lastName: customers.lastName,
+        email: customers.email,
+        currentPoints: customers.currentPoints,
+        lifetimePoints: customers.lifetimePoints,
+        loyaltyNumber: customers.loyaltyNumber,
+      }).from(customers).where(and(eq(customers.storeId, storeId), eq(customers.phone, phone))).limit(1);
+      
+      const customer = rows[0];
+      if (customer) {
+        // Return with a computed name field for backward compatibility
+        res.json({
+          ...customer,
+          name: `${customer.firstName} ${customer.lastName}`.trim() || customer.phone,
+        });
+      } else {
+        res.json(null);
+      }
     } catch (error) {
       logger.error('Failed to search customers', {
         userId: req.session?.userId,
@@ -48,33 +57,31 @@ export async function registerCustomerRoutes(app: Express) {
     }
   });
 
-  // POST /customers
+  // POST /customers - create a new loyalty customer
   app.post('/api/customers', requireAuth, enforceIpWhitelist, async (req: Request, res: Response) => {
     const parsed = CreateCustomerSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
     try {
-      const userId = req.session?.userId as string | undefined;
-      let orgId: string | undefined;
-      if (userId) {
-        const [me] = await db.select().from(users).where(eq(users.id, userId));
-        orgId = me?.orgId || undefined;
-      }
-      if (!orgId && (req.body?.storeId || req.query?.storeId)) {
-        const storeId = String(req.body?.storeId || (req.query as any)?.storeId || '').trim();
-        const s = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
-        orgId = s[0]?.orgId;
-      }
-      if (!orgId) return res.status(400).json({ error: 'Missing org' });
+      const storeId = String(req.body?.storeId || (req.query as any)?.storeId || '').trim();
+      if (!storeId) return res.status(400).json({ error: 'storeId is required' });
 
-      // Upsert by (orgId, phone)
-      const existing = await db.select().from(customers).where(and(eq(customers.orgId, orgId), eq(customers.phone, parsed.data.phone))).limit(1);
+      // Check if customer already exists by phone
+      const existing = await db.select().from(customers).where(and(eq(customers.storeId, storeId), eq(customers.phone, parsed.data.phone))).limit(1);
       if (existing[0]) return res.json(existing[0]);
 
+      // Parse name into firstName/lastName
+      const nameParts = (parsed.data.name || '').trim().split(' ');
+      const firstName = nameParts[0] || 'Customer';
+      const lastName = nameParts.slice(1).join(' ') || '';
+
       const [created] = await db.insert(customers).values({
-        orgId,
+        storeId,
         phone: parsed.data.phone,
-        name: parsed.data.name || null,
-      } as unknown as typeof customers.$inferInsert).returning();
+        firstName,
+        lastName,
+        currentPoints: 0,
+        lifetimePoints: 0,
+      } as typeof customers.$inferInsert).returning();
 
       return res.status(201).json(created);
     } catch (error) {
@@ -123,8 +130,8 @@ export async function registerCustomerRoutes(app: Express) {
         const userId = req.session?.userId as string | undefined;
         if (!userId) return res.status(401).json({ error: 'Not authenticated' });
         const [me] = await db.select().from(users).where(eq(users.id, userId));
-        const orgId = me?.orgId as string | undefined;
-        if (!orgId) return res.status(400).json({ error: 'Organization could not be resolved' });
+        const storeId = me?.storeId as string | undefined;
+        if (!storeId) return res.status(400).json({ error: 'Store could not be resolved' });
 
         const text = uploaded.buffer.toString('utf-8');
         const records: any[] = [];
@@ -175,7 +182,7 @@ export async function registerCustomerRoutes(app: Express) {
             const byPhone = await db
               .select()
               .from(customers)
-              .where(and(eq(customers.orgId, orgId), eq(customers.phone, record.phone)))
+              .where(and(eq(customers.storeId, storeId), eq(customers.phone, record.phone)))
               .limit(1);
             if (byPhone[0]) {
               existingRow = byPhone[0];
@@ -183,7 +190,7 @@ export async function registerCustomerRoutes(app: Express) {
               const byEmail = await db
                 .select()
                 .from(customers)
-                .where(and(eq(customers.orgId, orgId), eq(customers.email, emailValue)))
+                .where(and(eq(customers.storeId, storeId), eq(customers.email, emailValue)))
                 .limit(1);
               existingRow = byEmail[0] ?? null;
             }
@@ -195,8 +202,15 @@ export async function registerCustomerRoutes(app: Express) {
               }
 
               const updatePayload: Record<string, any> = {};
-              if (nameValue && existingRow.name !== nameValue) {
-                updatePayload.name = nameValue;
+              // Parse name into firstName/lastName
+              const nameParts = (nameValue || '').trim().split(' ');
+              const firstName = nameParts[0] || existingRow.firstName;
+              const lastName = nameParts.slice(1).join(' ') || existingRow.lastName;
+              if (firstName !== existingRow.firstName) {
+                updatePayload.firstName = firstName;
+              }
+              if (lastName !== existingRow.lastName) {
+                updatePayload.lastName = lastName;
               }
               if (emailValue && existingRow.email !== emailValue) {
                 updatePayload.email = emailValue;
@@ -214,9 +228,13 @@ export async function registerCustomerRoutes(app: Express) {
 
               updated += 1;
             } else {
+              // Parse name into firstName/lastName
+              const nameParts = (nameValue || '').trim().split(' ');
+              const firstName = nameParts[0] || 'Customer';
+              const lastName = nameParts.slice(1).join(' ') || '';
               await db
                 .insert(customers)
-                .values({ orgId, phone: record.phone, email: emailValue ?? null, name: nameValue } as any);
+                .values({ storeId, phone: record.phone, email: emailValue ?? null, firstName, lastName, currentPoints: 0, lifetimePoints: 0 } as typeof customers.$inferInsert);
               created += 1;
             }
           } catch (processingError) {
