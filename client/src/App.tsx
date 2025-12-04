@@ -23,7 +23,7 @@ const MainLayout = lazy(() => import("@/components/layout/main-layout"));
 
 // Lazy load pages for better performance
 const Landing = lazy(() => import("@/pages/landing"));
-const POS = lazy(() => import("@/pages/pos"));
+const POS = lazy(() => import("@/pages/pos-v2"));
 const Inventory = lazy(() => import("@/pages/inventory"));
 const Analytics = lazy(() => import("@/pages/analytics-v2"));  
 const Returns = lazy(() => import("@/pages/returns"));
@@ -128,21 +128,27 @@ function Dashboard({ userRole }: { userRole: string }) {
     );
   }
   
-  // Cashier role (default) - redirect directly to POS
+  // Cashier role (default) - full-screen POS without MainLayout
   return (
     <ScannerProvider>
-      <MainLayout userRole={role}>
-        <Suspense fallback={<PageLoader />}>
-          <Switch>
-            <Route path="/" component={POS} /> {/* Cashier sees POS as default */}
-            <Route path="/login" component={POS} /> {/* Redirect login to default */}
-            <Route path="/pos" component={POS} />
-            <Route path="/returns" component={Returns} />
-            <Route path="/settings" component={Settings} />
-            <Route component={NotFound} />
-          </Switch>
-        </Suspense>
-      </MainLayout>
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/" component={POS} />
+          <Route path="/login" component={POS} />
+          <Route path="/pos" component={POS} />
+          <Route path="/returns">{() => (
+            <MainLayout userRole={role}>
+              <Returns />
+            </MainLayout>
+          )}</Route>
+          <Route path="/settings">{() => (
+            <MainLayout userRole={role}>
+              <Settings />
+            </MainLayout>
+          )}</Route>
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
     </ScannerProvider>
   );
 }
