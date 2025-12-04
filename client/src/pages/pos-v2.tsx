@@ -320,26 +320,53 @@ export default function POSV2() {
     return () => clearTimeout(timeout);
   }, [searchQuery, handleSearch]);
 
-  // Loyalty lookup
+  // Loyalty lookup - tries multiple sources
   const handleLookupCustomer = async () => {
     if (!customerPhone.trim()) return;
     setLoyaltyLoading(true);
     try {
+      // First try: Look up in legacy customers table and get loyalty account
       const res = await fetch(`/api/customers?phone=${encodeURIComponent(customerPhone)}&storeId=${selectedStore}`, {
         credentials: "include",
       });
-      if (!res.ok) throw new Error("CUSTOMER_NOT_FOUND");
-      const customer = await res.json();
-      if (!customer?.id) throw new Error("CUSTOMER_NOT_FOUND");
-      setLoyaltyCustomer({ id: customer.id, name: customer.name });
-      const loyaltyRes = await fetch(`/api/loyalty/${customer.id}`, { credentials: "include" });
-      if (loyaltyRes.ok) {
-        const data = await loyaltyRes.json();
-        setLoyaltyBalance(Number(data?.points ?? 0));
-        setLoyaltySyncStatus({ state: "online", updatedAt: Date.now() });
-      } else {
-        setLoyaltyBalance(0);
+      
+      if (res.ok) {
+        const customer = await res.json();
+        if (customer?.id) {
+          setLoyaltyCustomer({ id: customer.id, name: customer.name || customerPhone });
+          
+          // Try to get loyalty points from loyalty account
+          const loyaltyRes = await fetch(`/api/loyalty/${customer.id}`, { credentials: "include" });
+          if (loyaltyRes.ok) {
+            const data = await loyaltyRes.json();
+            const points = Number(data?.points ?? 0);
+            setLoyaltyBalance(points);
+            setLoyaltySyncStatus({ state: "online", updatedAt: Date.now() });
+            toast({ title: "Customer found", description: `${customer.name || customerPhone} - ${points} points` });
+            return;
+          }
+        }
       }
+      
+      // Second try: Check local cache for customer data
+      try {
+        const { getCustomerByPhone } = await import("@/lib/idb-catalog");
+        const cached = await getCustomerByPhone(customerPhone);
+        if (cached) {
+          const points = Number(cached.loyaltyPoints ?? 0);
+          setLoyaltyCustomer({ id: cached.id, name: cached.name || customerPhone });
+          setLoyaltyBalance(points);
+          setLoyaltySyncStatus({ state: "cached", updatedAt: Date.now(), message: "Using cached data" });
+          toast({ title: "Customer found (cached)", description: `${cached.name || customerPhone} - ${points} points` });
+          return;
+        }
+      } catch {
+        // Cache lookup failed, continue
+      }
+      
+      // Customer not found in any source
+      toast({ title: "Customer not found", description: "No loyalty account found for this phone number.", variant: "destructive" });
+      setLoyaltySyncStatus({ state: "error", message: "Customer not found" });
     } catch (err) {
       toast({ title: "Lookup failed", description: getErrorMessage(err), variant: "destructive" });
       setLoyaltySyncStatus({ state: "error", message: getErrorMessage(err) });
@@ -511,7 +538,7 @@ export default function POSV2() {
       (payment.method === "digital" && !!payment.walletReference?.trim()));
 
   return (
-    <div ref={containerRef} className="h-screen w-screen bg-slate-100 flex flex-col overflow-hidden select-none">
+    <div ref={containerRef} className={cn("h-screen w-screen bg-slate-100 flex flex-col select-none", isFullscreen ? "overflow-hidden" : "overflow-auto")}>
       {/* Header Bar */}
       <header className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -522,7 +549,7 @@ export default function POSV2() {
                 <Menu className="w-5 h-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-72 p-0">
+            <SheetContent side="left" className="w-72 p-0" container={containerRef.current}>
               <div className="flex flex-col h-full">
                 <div className="p-4 border-b bg-primary text-white">
                   <h2 className="font-bold text-lg">ChainSync POS</h2>
