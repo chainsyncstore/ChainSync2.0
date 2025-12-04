@@ -3,9 +3,13 @@ type ProductRow = { id: string; name: string; barcode?: string; price: string };
 type InventoryRow = { storeId: string; productId: string; quantity: number };
 type CustomerRow = { id: string; phone: string; name?: string; loyaltyPoints?: number; updatedAt?: number };
 type StoreRow = { id: string; name?: string; currency?: string; taxRate?: number; updatedAt: number };
+type CatalogSyncMeta = { storeId: string; lastSyncAt: number; productCount: number };
+
+// Refresh interval in milliseconds (2 minutes)
+export const CATALOG_REFRESH_INTERVAL_MS = 2 * 60 * 1000;
 
 const DB_NAME = 'chainsync_catalog';
-const VERSION = 2;
+const VERSION = 3;
 
 function openDb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -28,6 +32,9 @@ function openDb(): Promise<IDBDatabase | null> {
       }
       if (!db.objectStoreNames.contains('stores')) {
         db.createObjectStore('stores', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('syncMeta')) {
+        db.createObjectStore('syncMeta', { keyPath: 'storeId' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -179,6 +186,62 @@ export async function listStores(): Promise<StoreRow[]> {
   });
 }
 
-export type { ProductRow, InventoryRow, CustomerRow, StoreRow };
+// Catalog sync metadata helpers
+export async function getCatalogSyncMeta(storeId: string): Promise<CatalogSyncMeta | null> {
+  const db = await openDb();
+  if (!db) return null;
+  return await new Promise((resolve) => {
+    const tx = db.transaction('syncMeta', 'readonly');
+    const req = tx.objectStore('syncMeta').get(storeId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  });
+}
+
+export async function setCatalogSyncMeta(meta: CatalogSyncMeta): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('syncMeta', 'readwrite');
+    tx.objectStore('syncMeta').put(meta);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+// Clear all products (used before full refresh to remove stale items)
+export async function clearProducts(): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('products', 'readwrite');
+    tx.objectStore('products').clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+// Clear inventory for a specific store
+export async function clearInventoryForStore(storeId: string): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('inventory', 'readwrite');
+    const store = tx.objectStore('inventory');
+    const idx = store.index('storeId');
+    const cursorReq = idx.openCursor(IDBKeyRange.only(storeId));
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+export type { ProductRow, InventoryRow, CustomerRow, StoreRow, CatalogSyncMeta };
 
 

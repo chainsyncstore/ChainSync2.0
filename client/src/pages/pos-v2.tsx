@@ -74,6 +74,8 @@ export default function POSV2() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [queuedCount, setQueuedCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [catalogLastSync, setCatalogLastSync] = useState<number | null>(null);
+  const [isCatalogRefreshing, setIsCatalogRefreshing] = useState(false);
   const [selectedStore, setSelectedStore] = useState("");
   const [barcodeInput, setBarcodeInput] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -132,30 +134,74 @@ export default function POSV2() {
     }
   }, [stores, selectedStore]);
 
-  // Sync inventory snapshot on login/mount
+  // Catalog refresh function - fetches latest products and updates IndexedDB
+  const refreshCatalog = useCallback(async (force = false) => {
+    if (!selectedStore || isCatalogRefreshing) return;
+    
+    try {
+      setIsCatalogRefreshing(true);
+      const { getCatalogSyncMeta, setCatalogSyncMeta, clearProducts, putProducts, CATALOG_REFRESH_INTERVAL_MS } = await import("@/lib/idb-catalog");
+      
+      // Check if refresh is needed (skip if recently synced, unless forced)
+      if (!force) {
+        const meta = await getCatalogSyncMeta(selectedStore);
+        if (meta && Date.now() - meta.lastSyncAt < CATALOG_REFRESH_INTERVAL_MS) {
+          setCatalogLastSync(meta.lastSyncAt);
+          return;
+        }
+      }
+      
+      const res = await fetch(`/api/stores/${selectedStore}/products?limit=1000`, { credentials: "include" });
+      if (res.ok) {
+        const products = await res.json();
+        
+        // Clear old products and insert fresh data to remove stale items
+        await clearProducts();
+        await putProducts(
+          products.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            barcode: p.barcode || "",
+            price: String(p.salePrice || p.price || "0"),
+          }))
+        );
+        
+        // Update sync metadata
+        const now = Date.now();
+        await setCatalogSyncMeta({ storeId: selectedStore, lastSyncAt: now, productCount: products.length });
+        setCatalogLastSync(now);
+      }
+    } catch (err) {
+      console.warn("Failed to refresh catalog", err);
+      // On failure, load last sync time from metadata so UI can show cached state
+      try {
+        const { getCatalogSyncMeta } = await import("@/lib/idb-catalog");
+        const meta = await getCatalogSyncMeta(selectedStore);
+        if (meta) setCatalogLastSync(meta.lastSyncAt);
+      } catch {
+        // Ignore
+      }
+    } finally {
+      setIsCatalogRefreshing(false);
+    }
+  }, [selectedStore, isCatalogRefreshing]);
+
+  // Sync inventory snapshot on login/mount and start background refresh interval
   useEffect(() => {
     if (!selectedStore) return;
-    const syncInventorySnapshot = async () => {
-      try {
-        const res = await fetch(`/api/stores/${selectedStore}/products?limit=1000`, { credentials: "include" });
-        if (res.ok) {
-          const products = await res.json();
-          const { putProducts } = await import("@/lib/idb-catalog");
-          await putProducts(
-            products.map((p: any) => ({
-              id: p.id,
-              name: p.name,
-              barcode: p.barcode || "",
-              price: String(p.salePrice || p.price || "0"),
-            }))
-          );
-        }
-      } catch (err) {
-        console.warn("Failed to sync inventory snapshot", err);
+    
+    // Initial sync
+    void refreshCatalog(true);
+    
+    // Background refresh interval (every 2 minutes when online)
+    const intervalId = setInterval(() => {
+      if (navigator.onLine) {
+        void refreshCatalog();
       }
-    };
-    void syncInventorySnapshot();
-  }, [selectedStore]);
+    }, 2 * 60 * 1000);
+    
+    return () => clearInterval(intervalId);
+  }, [selectedStore, refreshCatalog]);
 
   // Apply loyalty settings
   useEffect(() => {
@@ -191,8 +237,11 @@ export default function POSV2() {
   useEffect(() => {
     const handleOnline = async () => {
       setIsOnline(true);
-      toast({ title: "Back online", description: "Syncing pending sales..." });
+      toast({ title: "Back online", description: "Syncing pending sales and refreshing catalog..." });
+      // Sync pending sales
       await handleSyncNow();
+      // Refresh catalog immediately when back online
+      await refreshCatalog(true);
     };
     const handleOffline = () => {
       setIsOnline(false);
@@ -204,7 +253,7 @@ export default function POSV2() {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [toast, handleSyncNow]);
+  }, [toast, handleSyncNow, refreshCatalog]);
 
   // Load queued count
   useEffect(() => {
@@ -530,8 +579,33 @@ export default function POSV2() {
       (payment.method === "cash" && payment.amountReceived && payment.amountReceived >= summary.total) ||
       (payment.method === "digital" && !!payment.walletReference?.trim()));
 
+  // Format last sync time for display
+  const formatLastSync = (timestamp: number | null) => {
+    if (!timestamp) return null;
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - timestamp;
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return "just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (date.toDateString() === now.toDateString()) {
+      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    return date.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+
   return (
     <div ref={containerRef} className={cn("h-screen w-screen bg-slate-100 flex flex-col select-none", isFullscreen ? "overflow-hidden" : "overflow-auto")}>
+      {/* Offline Banner */}
+      {!isOnline && catalogLastSync && (
+        <div className="bg-amber-500 text-white px-3 py-1.5 text-center text-sm flex items-center justify-center gap-2 flex-shrink-0">
+          <WifiOff className="w-4 h-4" />
+          <span>Working offline — catalog from {formatLastSync(catalogLastSync)}</span>
+          {isCatalogRefreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
+        </div>
+      )}
+
       {/* Header Bar */}
       <header className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -595,12 +669,29 @@ export default function POSV2() {
                     <span className={isOnline ? "text-green-600" : "text-amber-600"}>{isOnline ? "Online" : "Offline"}</span>
                     {queuedCount > 0 && <span className="text-amber-600">{queuedCount} pending</span>}
                   </div>
-                  {queuedCount > 0 && (
-                    <Button size="sm" variant="outline" className="w-full" onClick={handleSyncNow} disabled={isSyncing}>
-                      <RefreshCw className={cn("w-4 h-4 mr-2", isSyncing && "animate-spin")} />
-                      {isSyncing ? "Syncing..." : "Sync Now"}
-                    </Button>
+                  {catalogLastSync && (
+                    <p className="text-xs text-slate-500 mb-2">
+                      Catalog: {formatLastSync(catalogLastSync)}
+                    </p>
                   )}
+                  <div className="space-y-2">
+                    {queuedCount > 0 && (
+                      <Button size="sm" variant="outline" className="w-full" onClick={handleSyncNow} disabled={isSyncing}>
+                        <RefreshCw className={cn("w-4 h-4 mr-2", isSyncing && "animate-spin")} />
+                        {isSyncing ? "Syncing..." : "Sync Sales"}
+                      </Button>
+                    )}
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="w-full" 
+                      onClick={() => refreshCatalog(true)} 
+                      disabled={isCatalogRefreshing || !isOnline}
+                    >
+                      <Package className={cn("w-4 h-4 mr-2", isCatalogRefreshing && "animate-pulse")} />
+                      {isCatalogRefreshing ? "Refreshing..." : "Refresh Catalog"}
+                    </Button>
+                  </div>
                 </div>
                 {/* Logout */}
                 <div className="p-3 border-t">
