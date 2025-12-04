@@ -67,6 +67,8 @@ export default function StoreStaff() {
     return (user.role || "").toLowerCase();
   }, [user]);
 
+  const canAccessMultiStore = effectiveRole === "admin";
+
   const allowedRoles = useMemo<ReadonlyArray<{ label: string; value: CreateStaffPayload["role"] }>>(() => {
     if (effectiveRole === "admin") {
       return [
@@ -220,9 +222,11 @@ export default function StoreStaff() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <Button variant="ghost" className="flex items-center gap-2 pl-0" onClick={() => setLocation("/multi-store")}>
-        <ArrowLeft className="h-4 w-4" /> Back to Multi-Store
-      </Button>
+      {canAccessMultiStore && (
+        <Button variant="ghost" className="flex items-center gap-2 pl-0" onClick={() => setLocation("/multi-store")}>
+          <ArrowLeft className="h-4 w-4" /> Back to Multi-Store
+        </Button>
+      )}
 
       <div className="space-y-1">
         <h1 className="text-3xl font-bold">Store Staff</h1>
