@@ -250,7 +250,7 @@ export default function POSV2() {
   // Barcode scanning
   const handleBarcodeSubmit = useCallback(
     async (barcode: string) => {
-      if (!barcode.trim()) return;
+      if (!barcode || !barcode.trim()) return;
       try {
         const res = await fetch(`/api/products/barcode/${encodeURIComponent(barcode)}`, { credentials: "include" });
         if (res.ok) {
@@ -322,7 +322,7 @@ export default function POSV2() {
 
   // Loyalty lookup - uses currentPoints from customers table directly
   const handleLookupCustomer = async () => {
-    if (!customerPhone.trim()) return;
+    if (!customerPhone || !customerPhone.trim()) return;
     setLoyaltyLoading(true);
     try {
       const res = await fetch(`/api/customers?phone=${encodeURIComponent(customerPhone)}&storeId=${selectedStore}`, {
