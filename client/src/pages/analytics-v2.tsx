@@ -291,12 +291,6 @@ function formatDelta(delta: number | null | undefined): { label: string; positiv
   return { label, positive: delta > 0, negative: delta < 0 };
 }
 
-function formatDateRange(start: Date | null, end: Date | null): string {
-  if (!start || !end) return "Select date range";
-  const fmt = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
-  return `${fmt.format(start)} – ${fmt.format(end)}`;
-}
-
 function getPresetRange(preset: DatePreset): DateRange {
   if (preset === "custom") return { start: null, end: null };
   const end = new Date();
@@ -383,7 +377,8 @@ function ScopeControls({
   dateRange,
   onDateRangeChange,
 }: ScopeControlsProps) {
-  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [startOpen, setStartOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
 
   const presetOptions = [
     { value: "7", label: "Last 7 Days" },
@@ -392,6 +387,11 @@ function ScopeControls({
     { value: "365", label: "Last Year" },
     { value: "custom", label: "Custom" },
   ];
+
+  const formatSingleDate = (date: Date | null) => {
+    if (!date) return "Select date";
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  };
 
   return (
     <div className="flex flex-wrap items-end gap-4">
@@ -416,53 +416,77 @@ function ScopeControls({
       </div>
 
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-semibold uppercase text-muted-foreground">Date Range</span>
-        <div className="flex items-center gap-2">
-          <Select
-            value={datePreset}
-            onValueChange={(v) => {
-              onPresetChange(v as DatePreset);
-              if (v !== "custom") {
-                onDateRangeChange(getPresetRange(v as DatePreset));
-              }
-            }}
-          >
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {presetOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <CalendarIcon className="h-4 w-4" />
-                <span className="text-sm">{formatDateRange(dateRange.start, dateRange.end)}</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="range"
-                numberOfMonths={2}
-                defaultMonth={dateRange.start || undefined}
-                selected={{ from: dateRange.start || undefined, to: dateRange.end || undefined }}
-                onSelect={(range) => {
-                  onDateRangeChange({ start: range?.from || null, end: range?.to || null });
-                  if (range?.from && range?.to) {
-                    onPresetChange("custom");
-                    setCalendarOpen(false);
-                  }
-                }}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
+        <span className="text-xs font-semibold uppercase text-muted-foreground">Preset</span>
+        <Select
+          value={datePreset}
+          onValueChange={(v) => {
+            onPresetChange(v as DatePreset);
+            if (v !== "custom") {
+              onDateRangeChange(getPresetRange(v as DatePreset));
+            }
+          }}
+        >
+          <SelectTrigger className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {presetOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-semibold uppercase text-muted-foreground">Start Date</span>
+        <Popover open={startOpen} onOpenChange={setStartOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-40 justify-start gap-2">
+              <CalendarIcon className="h-4 w-4" />
+              <span className="text-sm">{formatSingleDate(dateRange.start)}</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={dateRange.start || undefined}
+              onSelect={(date) => {
+                onDateRangeChange({ ...dateRange, start: date || null });
+                onPresetChange("custom");
+                setStartOpen(false);
+              }}
+              toDate={dateRange.end || undefined}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-semibold uppercase text-muted-foreground">End Date</span>
+        <Popover open={endOpen} onOpenChange={setEndOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-40 justify-start gap-2">
+              <CalendarIcon className="h-4 w-4" />
+              <span className="text-sm">{formatSingleDate(dateRange.end)}</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={dateRange.end || undefined}
+              onSelect={(date) => {
+                onDateRangeChange({ ...dateRange, end: date || null });
+                onPresetChange("custom");
+                setEndOpen(false);
+              }}
+              fromDate={dateRange.start || undefined}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
       </div>
     </div>
   );
