@@ -805,6 +805,83 @@ export async function registerPosRoutes(app: Express) {
     }
   });
 
+  // GET sale by ID for returns page lookup
+  app.get('/api/pos/sales/:saleId', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const saleId = String(req.params.saleId ?? '').trim();
+    const storeId = String(req.query.storeId ?? '').trim();
+
+    if (!saleId) {
+      return res.status(400).json({ error: 'saleId is required' });
+    }
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId query parameter is required' });
+    }
+
+    try {
+      // Fetch sale
+      const saleRows = await db.select().from(sales).where(and(eq(sales.id, saleId), eq(sales.storeId, storeId)));
+      const sale = saleRows[0];
+      if (!sale) {
+        return res.status(404).json({ error: 'Sale not found', message: 'No sale matches the provided ID for this store.' });
+      }
+
+      // Fetch store currency
+      const storeRow = await db.select({ currency: stores.currency }).from(stores).where(eq(stores.id, storeId)).limit(1);
+      const currency = storeRow[0]?.currency || 'USD';
+
+      // Fetch sale items with product info
+      const itemRows = await db
+        .select({
+          id: saleItems.id,
+          productId: saleItems.productId,
+          quantity: saleItems.quantity,
+          unitPrice: saleItems.unitPrice,
+          lineDiscount: saleItems.lineDiscount,
+          lineTotal: saleItems.lineTotal,
+          name: products.name,
+          sku: products.sku,
+          barcode: products.barcode,
+        })
+        .from(saleItems)
+        .leftJoin(products, eq(saleItems.productId, products.id))
+        .where(eq(saleItems.saleId, saleId));
+
+      const response = {
+        sale: {
+          id: sale.id,
+          storeId: sale.storeId,
+          subtotal: Number(sale.subtotal) || 0,
+          discount: Number((sale as any).discount) || 0,
+          tax: Number(sale.tax) || 0,
+          total: Number(sale.total) || 0,
+          occurredAt: (sale as any).occurredAt || (sale as any).createdAt || new Date().toISOString(),
+          status: (sale as any).status || 'COMPLETED',
+          currency,
+        },
+        items: itemRows.map((item) => ({
+          id: item.id,
+          productId: item.productId,
+          quantity: Number(item.quantity) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          lineDiscount: Number(item.lineDiscount) || 0,
+          lineTotal: Number(item.lineTotal) || 0,
+          name: item.name || null,
+          sku: item.sku || null,
+          barcode: item.barcode || null,
+        })),
+      };
+
+      return res.json(response);
+    } catch (error) {
+      logger.error('Failed to fetch sale for returns', {
+        saleId,
+        storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to fetch sale' });
+    }
+  });
+
   app.get('/api/pos/returns', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const { storeId, saleId } = req.query as { storeId?: string; saleId?: string };
     const limit = Number((req.query?.limit as string) ?? 25);
