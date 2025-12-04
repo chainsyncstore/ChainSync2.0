@@ -350,7 +350,7 @@ function ScopeControls() {
 
 function AnalyticsKpiBar({ cards }: { cards: KpiCardConfig[] }) {
   return (
-    <div className="grid auto-rows-fr grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <div className="grid auto-rows-fr grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {cards.map((card) => {
         const Icon = card.icon;
         const deltaClass = card.delta
