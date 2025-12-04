@@ -5,7 +5,7 @@ import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
 import { z } from 'zod';
-import { importJobs, products, stores, users, lowStockAlerts } from '@shared/schema';
+import { importJobs, products, stores, users, lowStockAlerts, inventory } from '@shared/schema';
 import { db } from '../db';
 import { logger, extractLogContext } from '../lib/logger';
 import { securityAuditService } from '../lib/security-audit';
@@ -79,7 +79,10 @@ export async function registerInventoryRoutes(app: Express) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    const price = (product as any).price ?? (product as any).salePrice ?? (product as any).costPrice ?? '0';
+    // Prefer salePrice for POS, fall back to price
+    const salePrice = (product as any).salePrice;
+    const basePrice = (product as any).price;
+    const price = salePrice || String(basePrice || '0');
 
     return res.json({
       id: product.id,
@@ -87,6 +90,8 @@ export async function registerInventoryRoutes(app: Express) {
       barcode: product.barcode ?? barcode,
       sku: (product as any).sku ?? null,
       price,
+      salePrice,
+      basePrice: String(basePrice || '0'),
     });
   });
 
@@ -112,6 +117,60 @@ export async function registerInventoryRoutes(app: Express) {
 
     const results = await storage.searchProducts(query);
     return res.json(results.slice(0, 15));
+  });
+
+  // Store-scoped products endpoint for POS - returns products with current prices and stock
+  app.get('/api/stores/:storeId/products', requireAuth, async (req: Request, res: Response) => {
+    const storeId = String(req.params.storeId ?? '').trim();
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId is required' });
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 1000, 2000);
+
+    try {
+      // Join products with inventory to get current stock and use the latest price
+      const rows = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          sku: products.sku,
+          barcode: products.barcode,
+          price: products.price,
+          salePrice: products.salePrice,
+          category: products.category,
+          brand: products.brand,
+          quantity: inventory.quantity,
+        })
+        .from(products)
+        .leftJoin(inventory, and(
+          eq(inventory.productId, products.id),
+          eq(inventory.storeId, storeId)
+        ))
+        .where(eq(products.isActive, true))
+        .limit(limit);
+
+      // Transform to return the best available price
+      const result = rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        sku: row.sku,
+        barcode: row.barcode,
+        // Prefer salePrice if set, otherwise use price
+        price: row.salePrice || String(row.price || '0'),
+        category: row.category,
+        brand: row.brand,
+        quantity: row.quantity ?? 0,
+      }));
+
+      return res.json(result);
+    } catch (error) {
+      logger.error('Failed to fetch store products', {
+        storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to fetch products' });
+    }
   });
 
   const ManualProductSchema = z.object({
