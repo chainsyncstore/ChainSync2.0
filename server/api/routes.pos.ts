@@ -675,6 +675,9 @@ export async function registerPosRoutes(app: Express) {
       }
 
       const normalizedPaymentMethod = normalizePaymentMethod(parsed.data.paymentMethod);
+      
+      // Insert into transactions table for analytics
+      logger.info('POS: Inserting transaction for analytics', { storeId: parsed.data.storeId, total: adjustedTotal });
       const [tx] = await db
         .insert(prdTransactions)
         .values({
@@ -691,6 +694,7 @@ export async function registerPosRoutes(app: Express) {
           receiptNumber: sale.id,
         } as any)
         .returning();
+      logger.info('POS: Transaction inserted', { transactionId: tx.id, storeId: parsed.data.storeId });
 
       for (const item of parsed.data.items) {
         await db
@@ -703,9 +707,11 @@ export async function registerPosRoutes(app: Express) {
             totalPrice: item.lineTotal,
           } as any);
       }
+      logger.info('POS: Transaction items inserted', { transactionId: tx.id, itemCount: parsed.data.items.length });
 
       // Loyalty: update customer points directly (new schema uses currentPoints on customers table)
       if (customerId) {
+        logger.info('POS: Processing loyalty for customer', { customerId, customerPhone, customerPoints });
         let newPoints = customerPoints;
         // Redeem first
         if (redeemDiscount > 0 && redeemPoints > 0) {
