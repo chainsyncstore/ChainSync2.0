@@ -2943,8 +2943,9 @@ export class DatabaseStorage implements IStorage {
       },
     });
 
-    // Log inventory revaluation event if there was a loss
-    if (lossAmount > 0) {
+    // Log inventory revaluation event for any stock removal (loss OR refund)
+    // This is needed for P&L tracking - even full refunds need to be recorded
+    if (lossAmount > 0 || refundAmount > 0) {
       const revaluationPayload = {
         storeId,
         productId,
@@ -2963,6 +2964,7 @@ export class DatabaseStorage implements IStorage {
           refundType: options.refundType,
           refundAmount,
           lossAmount,
+          costOfRemovedItems,
         },
         occurredAt: new Date(),
       } as InsertInventoryRevaluationEvent;

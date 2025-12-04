@@ -1163,6 +1163,28 @@ function AnalyticsContent() {
                   <span className="text-muted-foreground">Inventory Adjustments</span>
                   <span className="font-semibold text-amber-600">{formatCurrency(displayInventoryAdj)}</span>
                 </div>
+                {displayStockRemovalLoss.amount > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      Stock Losses
+                      <span title="Value of stock removed due to damage, expiry, theft, etc.">
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
+                      </span>
+                    </span>
+                    <span className="font-semibold text-red-500">-{formatCurrency(displayStockRemovalLoss)}</span>
+                  </div>
+                )}
+                {displayManufacturerRefunds.amount > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      Manufacturer Refunds
+                      <span title="Reimbursements received from manufacturers for returned/damaged stock">
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
+                      </span>
+                    </span>
+                    <span className="font-semibold text-emerald-600">+{formatCurrency(displayManufacturerRefunds)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Net Cost</span>
                   <span className="font-semibold text-slate-900">{formatCurrency(displayNetCost)}</span>
