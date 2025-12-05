@@ -371,8 +371,13 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
     .from(transactionItems).innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
     .where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'REFUND'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
-  const [refundRow] = await db.select({ amount: sql`COALESCE(SUM(${transactions.total}), 0)`, count: sql`COUNT(*)` })
-    .from(transactions).where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'REFUND'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
+  // Refund amounts: subtotal (product), taxAmount (tax refunded), total
+  const [refundRow] = await db.select({ 
+    productAmount: sql`COALESCE(SUM(${transactions.subtotal}), 0)`,
+    taxAmount: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`,
+    total: sql`COALESCE(SUM(${transactions.total}), 0)`, 
+    count: sql`COUNT(*)` 
+  }).from(transactions).where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'REFUND'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
   // Inventory adjustments: ONLY price changes (not product imports, which are asset purchases not expenses)
   const [adjRow] = await db.select({ delta: sql`COALESCE(SUM(${inventoryRevaluationEvents.deltaValue}), 0)` })
@@ -393,17 +398,22 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
   }
 
   const grossRevenue = Number(salesRow?.revenue || 0);
-  const taxCollected = Number(salesRow?.taxCollected || 0);
+  const salesTax = Number(salesRow?.taxCollected || 0);
   const transactionCount = Number(salesRow?.transactionCount || 0);
   const salesCogs = Number(salesCogsRow?.cogs || 0);
   const refundCogs = Number(refundCogsRow?.cogs || 0);
   const cogs = salesCogs - refundCogs; // Net COGS = sales cost - refunded items cost
-  const refundAmount = Number(refundRow?.amount || 0);
+  const refundProductAmount = Number(refundRow?.productAmount || 0); // Product portion of refunds
+  const refundTaxAmount = Number(refundRow?.taxAmount || 0); // Tax portion of refunds
+  const refundAmount = Number(refundRow?.total || 0); // Total refund (for display)
   const refundCount = Number(refundRow?.count || 0);
   const inventoryAdjustments = Number(adjRow?.delta || 0);
+  // Net tax = tax collected from sales minus tax refunded
+  const taxCollected = salesTax - refundTaxAmount;
   // Net revenue excludes tax (tax is pass-through, not income)
-  const revenueExcludingTax = grossRevenue - taxCollected;
-  const netRevenue = revenueExcludingTax - refundAmount;
+  const revenueExcludingTax = grossRevenue - salesTax;
+  // Subtract only the product portion of refunds (tax portion already handled via taxCollected)
+  const netRevenue = revenueExcludingTax - refundProductAmount;
   const netCost = cogs + inventoryAdjustments;
   const netProfit = netRevenue - netCost - stockRemovalLoss + manufacturerRefunds;
   const marginPercent = revenueExcludingTax > 0 ? roundAmount((netProfit / revenueExcludingTax) * 100) : 0;

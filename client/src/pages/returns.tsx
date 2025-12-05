@@ -154,6 +154,13 @@ export default function ReturnsPage() {
     return item.lineTotal / item.quantity;
   };
 
+  // Calculate tax rate from the sale (tax / subtotal)
+  const taxRate = useMemo(() => {
+    if (!saleData) return 0;
+    const subtotal = saleData.sale.subtotal || 0;
+    return subtotal > 0 ? saleData.sale.tax / subtotal : 0;
+  }, [saleData]);
+
   const computeRefundForItem = (item: SaleItemResponse) => {
     const draftEntry = draft[item.id];
     if (!draftEntry) return 0;
@@ -168,9 +175,21 @@ export default function ReturnsPage() {
     return Math.min(requested, unitValue * quantity);
   };
 
-  const totalRefund = saleData
+  // Calculate proportional tax refund for an item
+  const computeTaxRefundForItem = (item: SaleItemResponse) => {
+    const productRefund = computeRefundForItem(item);
+    return productRefund * taxRate;
+  };
+
+  const totalProductRefund = saleData
     ? saleData.items.reduce((sum, item) => sum + computeRefundForItem(item), 0)
     : 0;
+
+  const totalTaxRefund = saleData
+    ? saleData.items.reduce((sum, item) => sum + computeTaxRefundForItem(item), 0)
+    : 0;
+
+  const totalRefund = totalProductRefund + totalTaxRefund;
 
   const processReturnMutation = useMutation({
     mutationFn: async () => {
@@ -463,22 +482,36 @@ export default function ReturnsPage() {
                         </TableCell>
                         <TableCell>
                           {entry.refundType === 'PARTIAL' ? (
-                            <Input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={entry.refundAmount}
-                              data-testid={`refund-amount-${item.id}`}
-                              onChange={(event) =>
-                                handleDraftChange(item.id, (current) => ({
-                                  ...current,
-                                  refundAmount: event.target.value,
-                                }))
-                              }
-                            />
+                            <div className="space-y-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={entry.refundAmount}
+                                data-testid={`refund-amount-${item.id}`}
+                                onChange={(event) =>
+                                  handleDraftChange(item.id, (current) => ({
+                                    ...current,
+                                    refundAmount: event.target.value,
+                                  }))
+                                }
+                              />
+                              {taxRate > 0 && (
+                                <div className="text-xs text-amber-600">
+                                  + {formatCurrency(computeTaxRefundForItem(item), saleData.sale.currency as any)} tax
+                                </div>
+                              )}
+                            </div>
                           ) : (
-                            <div className="text-sm font-medium text-slate-800">
-                              {formatCurrency(computeRefundForItem(item), saleData.sale.currency as any)}
+                            <div>
+                              <div className="text-sm font-medium text-slate-800">
+                                {formatCurrency(computeRefundForItem(item), saleData.sale.currency as any)}
+                              </div>
+                              {taxRate > 0 && computeRefundForItem(item) > 0 && (
+                                <div className="text-xs text-amber-600">
+                                  + {formatCurrency(computeTaxRefundForItem(item), saleData.sale.currency as any)} tax
+                                </div>
+                              )}
                             </div>
                           )}
                         </TableCell>
@@ -505,12 +538,30 @@ export default function ReturnsPage() {
                   onChange={(event) => setReason(event.target.value)}
                 />
               </div>
-              <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs uppercase text-slate-500">Total refund</p>
-                  <p className="text-2xl font-semibold text-slate-900">
-                    {formatCurrency(totalRefund, saleData.sale.currency as any)}
-                  </p>
+              <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <p className="text-xs uppercase text-slate-500">Product refund</p>
+                      <p className="text-lg font-medium text-slate-700">
+                        {formatCurrency(totalProductRefund, saleData.sale.currency as any)}
+                      </p>
+                    </div>
+                    <div className="text-slate-400">+</div>
+                    <div>
+                      <p className="text-xs uppercase text-amber-600">Tax refund</p>
+                      <p className="text-lg font-medium text-amber-600">
+                        {formatCurrency(totalTaxRefund, saleData.sale.currency as any)}
+                      </p>
+                    </div>
+                    <div className="text-slate-400">=</div>
+                    <div>
+                      <p className="text-xs uppercase text-slate-500">Total refund</p>
+                      <p className="text-2xl font-semibold text-slate-900">
+                        {formatCurrency(totalRefund, saleData.sale.currency as any)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
                 <Button
                   className="min-w-[180px]"
