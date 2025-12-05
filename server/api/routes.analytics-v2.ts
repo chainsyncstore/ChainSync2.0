@@ -277,10 +277,7 @@ async function registerAnalyticsV2RoutesExtended(app: Express) {
         refunds: metrics.refundAmount,
         netRevenue: metrics.netRevenue,
         cogs: metrics.cogs,
-        inventoryAdjustments: metrics.inventoryAdjustments,
-        netCost: toMoney(metrics.cogs.amount + metrics.inventoryAdjustments.amount, currency),
         stockRemovalLoss: metrics.stockRemovalLoss,
-        manufacturerRefunds: metrics.manufacturerRefunds,
         netProfit: metrics.netProfit,
         marginPercent: metrics.marginPercent,
       });
@@ -379,22 +376,15 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
     count: sql`COUNT(*)` 
   }).from(transactions).where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'REFUND'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
-  // Inventory adjustments: ONLY price changes (not product imports, which are asset purchases not expenses)
-  const [adjRow] = await db.select({ delta: sql`COALESCE(SUM(${inventoryRevaluationEvents.deltaValue}), 0)` })
-    .from(inventoryRevaluationEvents).where(and(
-      inArray(inventoryRevaluationEvents.storeId, storeIds),
-      gte(inventoryRevaluationEvents.occurredAt, window.start),
-      lt(inventoryRevaluationEvents.occurredAt, window.end),
-      sql`${inventoryRevaluationEvents.source} = 'price_change'`
-    ));
-
+  // Stock removal events - get net losses (lossAmount is already cost minus any refund)
   const stockRemovalEvents = await db.select({ metadata: inventoryRevaluationEvents.metadata })
     .from(inventoryRevaluationEvents).where(and(inArray(inventoryRevaluationEvents.storeId, storeIds), gte(inventoryRevaluationEvents.occurredAt, window.start), lt(inventoryRevaluationEvents.occurredAt, window.end), sql`${inventoryRevaluationEvents.source} LIKE 'stock_removal_%'`));
 
-  let stockRemovalLoss = 0, manufacturerRefunds = 0;
+  let stockRemovalLoss = 0;
   for (const e of stockRemovalEvents) {
     const m = e.metadata as Record<string, any> | null;
-    if (m) { stockRemovalLoss += Number(m.lossAmount || 0); manufacturerRefunds += Number(m.refundAmount || 0); }
+    // lossAmount is already net of refunds (cost - refund), so we only sum actual losses
+    if (m && Number(m.lossAmount || 0) > 0) { stockRemovalLoss += Number(m.lossAmount); }
   }
 
   const grossRevenue = Number(salesRow?.revenue || 0);
@@ -407,23 +397,22 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
   const refundTaxAmount = Number(refundRow?.taxAmount || 0); // Tax portion of refunds
   const refundAmount = Number(refundRow?.total || 0); // Total refund (for display)
   const refundCount = Number(refundRow?.count || 0);
-  const inventoryAdjustments = Number(adjRow?.delta || 0);
   // Net tax = tax collected from sales minus tax refunded
   const taxCollected = salesTax - refundTaxAmount;
   // Net revenue excludes tax (tax is pass-through, not income)
   const revenueExcludingTax = grossRevenue - salesTax;
   // Subtract only the product portion of refunds (tax portion already handled via taxCollected)
   const netRevenue = revenueExcludingTax - refundProductAmount;
-  const netCost = cogs + inventoryAdjustments;
-  const netProfit = netRevenue - netCost - stockRemovalLoss + manufacturerRefunds;
+  // Profit = Net Revenue - COGS - Stock Losses (losses already net of any manufacturer refunds)
+  const netProfit = netRevenue - cogs - stockRemovalLoss;
   const marginPercent = revenueExcludingTax > 0 ? roundAmount((netProfit / revenueExcludingTax) * 100) : 0;
 
   return {
     grossRevenue: toMoney(grossRevenue, currency), netRevenue: toMoney(netRevenue, currency), transactionCount,
     taxCollected: toMoney(taxCollected, currency),
     refundAmount: toMoney(refundAmount, currency), refundCount, cogs: toMoney(cogs, currency),
-    inventoryAdjustments: toMoney(inventoryAdjustments, currency), stockRemovalLoss: toMoney(stockRemovalLoss, currency),
-    manufacturerRefunds: toMoney(manufacturerRefunds, currency), netProfit: toMoney(netProfit, currency), marginPercent,
+    stockRemovalLoss: toMoney(stockRemovalLoss, currency),
+    netProfit: toMoney(netProfit, currency), marginPercent,
   };
 }
 
