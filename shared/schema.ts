@@ -324,24 +324,6 @@ export const transactionItems = pgTable("transaction_items", {
   productIdIdx: index("transaction_items_product_id_idx").on(table.productId),
 }));
 
-// Tax Remittances table - tracks tax payments to government
-export const taxRemittances = pgTable("tax_remittances", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: uuid("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
-  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
-  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
-  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
-  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
-  remittedAt: timestamp("remitted_at", { withTimezone: true }).notNull(),
-  reference: varchar("reference", { length: 255 }),
-  notes: text("notes"),
-  recordedBy: uuid("recorded_by").references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-}, (table) => ({
-  storeIdIdx: index("tax_remittances_store_id_idx").on(table.storeId),
-  periodIdx: index("tax_remittances_period_idx").on(table.storeId, table.periodStart, table.periodEnd),
-}));
-
 // Legacy POS sales tables (production-aligned)
 export const legacySales = pgTable("sales", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -1,5 +1,5 @@
 import { parse as csvParse } from 'csv-parse';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql, inArray } from 'drizzle-orm';
 import type { Express, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -702,7 +702,7 @@ export async function registerPosRoutes(app: Express) {
       const inventoryCosts = await db
         .select({ productId: inventory.productId, avgCost: inventory.avgCost })
         .from(inventory)
-        .where(and(eq(inventory.storeId, parsed.data.storeId), sql`${inventory.productId} = ANY(${productIds})`));
+        .where(and(eq(inventory.storeId, parsed.data.storeId), inArray(inventory.productId, productIds)));
       const costMap = new Map<string, number>();
       for (const row of inventoryCosts) {
         costMap.set(row.productId, parseFloat(String(row.avgCost || '0')));

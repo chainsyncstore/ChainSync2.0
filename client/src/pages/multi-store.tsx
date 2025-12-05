@@ -62,6 +62,7 @@ type StoreComparisonRow = {
   currency: Money["currency"];
   transactions: number;
   revenue: Money;
+  taxCollected: Money;
   refunds: Money;
   netRevenue: Money;
   averageOrder: Money;
@@ -262,6 +263,7 @@ export default function MultiStore() {
 
           const payload = await res.json();
           const revenue: Money = payload.total ?? { amount: 0, currency: store.currency };
+          const taxCollected: Money = payload.taxCollected ?? { amount: 0, currency: revenue.currency };
           const refunds: Money = payload.refunds?.total ?? { amount: 0, currency: revenue.currency };
           const net: Money = payload.net?.total ?? { amount: revenue.amount - refunds.amount, currency: revenue.currency };
           const transactions: number = typeof payload.transactions === "number" ? payload.transactions : 0;
@@ -274,6 +276,7 @@ export default function MultiStore() {
             storeName: store.name,
             currency: revenue.currency,
             revenue,
+            taxCollected,
             refunds,
             netRevenue: net,
             transactions,
@@ -292,10 +295,11 @@ export default function MultiStore() {
   );
 
   const aggregatedTotals = useMemo(() => {
-    const totals = new Map<Money["currency"], { revenue: number; refunds: number; net: number; transactions: number }>();
+    const totals = new Map<Money["currency"], { revenue: number; taxCollected: number; refunds: number; net: number; transactions: number }>();
     comparisonRows.forEach((row) => {
-      const current = totals.get(row.currency) ?? { revenue: 0, refunds: 0, net: 0, transactions: 0 };
+      const current = totals.get(row.currency) ?? { revenue: 0, taxCollected: 0, refunds: 0, net: 0, transactions: 0 };
       current.revenue += row.revenue.amount;
+      current.taxCollected += row.taxCollected.amount;
       current.refunds += row.refunds.amount;
       current.net += row.netRevenue.amount;
       current.transactions += row.transactions;
@@ -448,11 +452,12 @@ export default function MultiStore() {
       return;
     }
 
-    const header = ["Store", "Transactions", "Revenue", "Refunds", "Net Revenue", "Average Order", "Currency"];
+    const header = ["Store", "Transactions", "Revenue", "Tax Collected", "Refunds", "Net Revenue", "Average Order", "Currency"];
     const rows = comparisonRows.map((row) => [
       row.storeName,
       row.transactions.toString(),
       row.revenue.amount.toFixed(2),
+      row.taxCollected.amount.toFixed(2),
       row.refunds.amount.toFixed(2),
       row.netRevenue.amount.toFixed(2),
       row.averageOrder.amount.toFixed(2),
@@ -815,6 +820,10 @@ export default function MultiStore() {
                                 <span className="font-medium">{formatCurrency({ amount: totals.revenue, currency })}</span>
                               </div>
                               <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground text-amber-600">Tax Collected</span>
+                                <span className="font-medium text-amber-600">{formatCurrency({ amount: totals.taxCollected, currency })}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
                                 <span className="text-muted-foreground">Refunds</span>
                                 <span className="font-medium">{formatCurrency({ amount: totals.refunds, currency })}</span>
                               </div>
@@ -838,6 +847,7 @@ export default function MultiStore() {
                               <th className="p-3 font-medium">Store</th>
                               <th className="p-3 font-medium text-right">Transactions</th>
                               <th className="p-3 font-medium text-right">Revenue</th>
+                              <th className="p-3 font-medium text-right text-amber-600">Tax Collected</th>
                               <th className="p-3 font-medium text-right">Refunds</th>
                               <th className="p-3 font-medium text-right">Net revenue</th>
                               <th className="p-3 font-medium text-right">Avg. order</th>
@@ -850,6 +860,7 @@ export default function MultiStore() {
                                 <td className="p-3 font-medium">{row.storeName}</td>
                                 <td className="p-3 text-right">{row.transactions.toLocaleString()}</td>
                                 <td className="p-3 text-right">{formatCurrency(row.revenue)}</td>
+                                <td className="p-3 text-right text-amber-600">{formatCurrency(row.taxCollected)}</td>
                                 <td className="p-3 text-right">{formatCurrency(row.refunds)}</td>
                                 <td className="p-3 text-right">{formatCurrency(row.netRevenue)}</td>
                                 <td className="p-3 text-right">{formatCurrency(row.averageOrder)}</td>

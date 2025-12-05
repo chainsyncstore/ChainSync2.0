@@ -17,6 +17,7 @@ import {
   Calendar as CalendarIcon,
   DollarSign,
   Package,
+  Receipt,
   RotateCcw,
   TrendingDown,
   TrendingUp,
@@ -70,6 +71,7 @@ interface OverviewData {
   period: { start: string; end: string };
   currency: CurrencyCode;
   revenue: { gross: Money; net: Money; transactionCount: number; delta: number | null };
+  taxCollected: Money;
   refunds: { amount: Money; count: number; isNative: boolean };
   profit: { netProfit: Money; marginPercent: number; delta: number | null };
   inventory: { value: Money; itemCount: number };
@@ -121,6 +123,9 @@ interface ProfitLossData {
   period: { start: string; end: string };
   currency: CurrencyCode;
   revenue: Money;
+  taxCollected: Money;
+  refunds: Money;
+  netRevenue: Money;
   cogs: Money;
   inventoryAdjustments: Money;
   netCost: Money;
@@ -537,6 +542,15 @@ function OverviewTab({ data, isLoading }: OverviewTabProps) {
           subtitle="After refunds"
           badge={data.currency}
         />
+        {data.taxCollected && (
+          <KpiCard
+            title="Tax Collected"
+            value={formatMoney(data.taxCollected)}
+            icon={<Receipt className="h-4 w-4 text-slate-500" />}
+            subtitle="Pass-through liability"
+            badge={data.currency}
+          />
+        )}
         <KpiCard
           title="Refunds"
           value={formatMoney(data.refunds.amount)}
@@ -713,11 +727,26 @@ function SalesTab({ salesData, timeseriesData, popularProducts, profitLoss, isLo
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
+                {/* Revenue Section */}
                 <div className="flex justify-between">
-                  <span>Revenue</span>
+                  <span>Gross Revenue</span>
                   <span className="font-medium">{formatMoney(profitLoss.revenue)}</span>
                 </div>
+                <div className="flex justify-between text-amber-600">
+                  <span>Tax Collected</span>
+                  <span>−{formatMoney(profitLoss.taxCollected)}</span>
+                </div>
                 <div className="flex justify-between text-muted-foreground">
+                  <span>Refunds</span>
+                  <span>−{formatMoney(profitLoss.refunds)}</span>
+                </div>
+                <div className="flex justify-between border-t pt-2">
+                  <span className="font-medium">Net Revenue</span>
+                  <span className="font-medium">{formatMoney(profitLoss.netRevenue)}</span>
+                </div>
+
+                {/* Cost Section */}
+                <div className="flex justify-between text-muted-foreground mt-2">
                   <span>COGS</span>
                   <span>−{formatMoney(profitLoss.cogs)}</span>
                 </div>
@@ -725,18 +754,16 @@ function SalesTab({ salesData, timeseriesData, popularProducts, profitLoss, isLo
                   <span>Inventory Adjustments</span>
                   <span>{profitLoss.inventoryAdjustments.amount >= 0 ? "+" : ""}{formatMoney(profitLoss.inventoryAdjustments)}</span>
                 </div>
-                {profitLoss.stockRemovalLoss.amount > 0 && (
-                  <div className="flex justify-between text-red-600">
-                    <span>Stock Removal Loss</span>
-                    <span>−{formatMoney(profitLoss.stockRemovalLoss)}</span>
-                  </div>
-                )}
-                {profitLoss.manufacturerRefunds.amount > 0 && (
-                  <div className="flex justify-between text-emerald-600">
-                    <span>Manufacturer Refunds</span>
-                    <span>+{formatMoney(profitLoss.manufacturerRefunds)}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-red-600">
+                  <span>Stock Removal Loss</span>
+                  <span>−{formatMoney(profitLoss.stockRemovalLoss)}</span>
+                </div>
+                <div className="flex justify-between text-emerald-600">
+                  <span>Manufacturer Refunds</span>
+                  <span>+{formatMoney(profitLoss.manufacturerRefunds)}</span>
+                </div>
+
+                {/* Profit Section */}
                 <div className="border-t pt-2 flex justify-between font-bold">
                   <span>Net Profit</span>
                   <span className={profitLoss.netProfit.amount >= 0 ? "text-emerald-600" : "text-red-600"}>
