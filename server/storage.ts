@@ -203,6 +203,7 @@ type StockMovementWithProduct = StockMovement & {
   productName?: string | null;
   productSku?: string | null;
   productBarcode?: string | null;
+  userName?: string | null;
 };
 
 // Cost layer info for UI display
@@ -2175,9 +2176,11 @@ export class DatabaseStorage implements IStorage {
         stock_movements.created_at AS "createdAt",
         products.name AS "productName",
         products.sku AS "productSku",
-        products.barcode AS "productBarcode"
+        products.barcode AS "productBarcode",
+        users.name AS "userName"
       FROM stock_movements
       LEFT JOIN products ON products.id = stock_movements.product_id
+      LEFT JOIN users ON users.id = stock_movements.user_id
       WHERE ${whereSql}
       ORDER BY stock_movements.occurred_at DESC
       LIMIT ${limit}

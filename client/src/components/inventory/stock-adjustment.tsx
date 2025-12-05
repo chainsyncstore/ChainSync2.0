@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Package, Plus, Minus, Edit, AlertTriangle, History, Save } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Package, Plus, Minus, Edit, AlertTriangle, History, Save, Loader2 } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -367,51 +368,145 @@ export default function StockAdjustment({ inventory, product, onSuccess }: Stock
             History
           </Button>
         </DialogTrigger>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Stock Adjustment History</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-              <Package className="w-6 h-6 text-blue-600" />
-              <div>
-                <p className="font-medium">{product.name}</p>
-                <p className="text-sm text-gray-600">Current Stock: {currentStock}</p>
-              </div>
-            </div>
-            
-            {/* Mock history data - in real app, fetch from API */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p className="font-medium text-green-600">+25 units added</p>
-                  <p className="text-sm text-gray-600">Stock Count - John Doe</p>
-                  <p className="text-xs text-gray-500">2 hours ago</p>
-                </div>
-                <Badge variant="outline">100 → 125</Badge>
-              </div>
-              
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p className="font-medium text-red-600">-5 units removed</p>
-                  <p className="text-sm text-gray-600">Damaged Goods - Alice Johnson</p>
-                  <p className="text-xs text-gray-500">1 day ago</p>
-                </div>
-                <Badge variant="outline">105 → 100</Badge>
-              </div>
-              
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p className="font-medium text-blue-600">Stock level set to 105</p>
-                  <p className="text-sm text-gray-600">Inventory Audit - Manager</p>
-                  <p className="text-xs text-gray-500">3 days ago</p>
-                </div>
-                <Badge variant="outline">95 → 105</Badge>
-              </div>
-            </div>
-          </div>
+          <StockHistoryContent
+            productId={product.id}
+            storeId={inventory.storeId}
+            productName={product.name}
+            currentStock={currentStock}
+          />
         </DialogContent>
       </Dialog>
     </>
   );
-} 
+}
+
+interface StockHistoryContentProps {
+  productId: string;
+  storeId: string;
+  productName: string;
+  currentStock: number;
+}
+
+interface StockMovement {
+  id: string;
+  quantityBefore: number;
+  quantityAfter: number;
+  delta: number;
+  actionType: string;
+  source: string | null;
+  notes: string | null;
+  userName: string | null;
+  occurredAt: string | null;
+  timestamp: string | null;
+}
+
+function StockHistoryContent({ productId, storeId, productName, currentStock }: StockHistoryContentProps) {
+  const { data, isLoading, error } = useQuery<{ data: StockMovement[]; meta: { count: number } }>({
+    queryKey: ["/api/inventory", productId, storeId, "history"],
+    queryFn: async () => {
+      const res = await fetch(`/api/inventory/${productId}/${storeId}/history?limit=50`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch history");
+      return res.json();
+    },
+  });
+
+  const formatSource = (source: string | null, actionType: string): string => {
+    if (!source) return actionType || "Unknown";
+    const sourceMap: Record<string, string> = {
+      pos_sale: "POS Sale",
+      pos_void: "POS Void",
+      pos_return: "Return",
+      csv_import: "CSV Import",
+      manual: "Manual Adjustment",
+      adjustment: "Stock Adjustment",
+      removal: "Stock Removal",
+    };
+    return sourceMap[source] || source.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  const getMovementColor = (delta: number): string => {
+    if (delta > 0) return "text-green-600";
+    if (delta < 0) return "text-red-600";
+    return "text-gray-600";
+  };
+
+  const formatDelta = (delta: number): string => {
+    if (delta > 0) return `+${delta} units`;
+    if (delta < 0) return `${delta} units`;
+    return "No change";
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+        <Package className="w-6 h-6 text-blue-600" />
+        <div>
+          <p className="font-medium">{productName}</p>
+          <p className="text-sm text-gray-600">Current Stock: {currentStock}</p>
+        </div>
+      </div>
+
+      {isLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          <span className="ml-2 text-gray-500">Loading history...</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="p-4 bg-red-50 text-red-700 rounded-lg">
+          Failed to load stock history. Please try again.
+        </div>
+      )}
+
+      {data && data.data.length === 0 && (
+        <div className="p-4 text-center text-gray-500">
+          No stock movements recorded for this product.
+        </div>
+      )}
+
+      {data && data.data.length > 0 && (
+        <div className="space-y-2">
+          {data.data.map((movement) => {
+            const timestamp = movement.timestamp || movement.occurredAt;
+            const timeAgo = timestamp
+              ? formatDistanceToNow(new Date(timestamp), { addSuffix: true })
+              : "Unknown time";
+
+            return (
+              <div
+                key={movement.id}
+                className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
+              >
+                <div className="space-y-0.5">
+                  <p className={`font-medium ${getMovementColor(movement.delta)}`}>
+                    {formatDelta(movement.delta)}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {formatSource(movement.source, movement.actionType)}
+                    {movement.userName && ` - ${movement.userName}`}
+                  </p>
+                  {movement.notes && (
+                    <p className="text-xs text-gray-500 truncate max-w-[300px]">
+                      {movement.notes}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400">{timeAgo}</p>
+                </div>
+                <Badge variant="outline">
+                  {movement.quantityBefore} → {movement.quantityAfter}
+                </Badge>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
