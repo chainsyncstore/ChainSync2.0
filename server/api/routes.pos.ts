@@ -1317,7 +1317,31 @@ export async function registerPosRoutes(app: Express) {
         } as any)
         .returning();
       logger.info('POS Return: Refund transaction created', { refundTxId: refundTx?.id, taxRefunded: totalTaxRefund });
-      void refundTx;
+
+      // Insert transaction items for the refund (for COGS tracking)
+      if (refundTx?.id) {
+        for (const row of rowsToInsert) {
+          // Get cost from inventory for this product
+          const inv = await storage.getInventoryItem(row.productId, parsed.data.storeId);
+          const unitCost = Number((inv as any)?.avgCost) || 0;
+          const totalCost = unitCost * row.quantity;
+          const unitPrice = row.refundAmount / row.quantity || 0;
+          
+          await db.insert(prdTransactionItems).values({
+            transactionId: refundTx.id,
+            productId: row.productId,
+            quantity: row.quantity,
+            unitPrice: String(unitPrice.toFixed(4)),
+            totalPrice: String(row.refundAmount.toFixed(2)),
+            unitCost: String(unitCost.toFixed(4)),
+            totalCost: String(totalCost.toFixed(4)),
+          } as any);
+        }
+        logger.info('POS Return: Transaction items inserted for COGS', { 
+          refundTxId: refundTx.id, 
+          itemCount: rowsToInsert.length 
+        });
+      }
 
       if (hasTx2 && pg2) await pg2.query('COMMIT');
       res.status(201).json({ ok: true, return: ret, items: insertedItems });

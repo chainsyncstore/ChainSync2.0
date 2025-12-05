@@ -361,15 +361,27 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
     transactionCount: sql`COUNT(*)`,
   }).from(transactions).where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'SALE'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
-  const [cogsRow] = await db.select({ cogs: sql`COALESCE(SUM(${transactionItems.totalCost}), 0)` })
+  // COGS from sales
+  const [salesCogsRow] = await db.select({ cogs: sql`COALESCE(SUM(${transactionItems.totalCost}), 0)` })
     .from(transactionItems).innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
     .where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'SALE'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
+
+  // Cost of refunded items (to subtract from COGS)
+  const [refundCogsRow] = await db.select({ cogs: sql`COALESCE(SUM(${transactionItems.totalCost}), 0)` })
+    .from(transactionItems).innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
+    .where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'REFUND'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
   const [refundRow] = await db.select({ amount: sql`COALESCE(SUM(${transactions.total}), 0)`, count: sql`COUNT(*)` })
     .from(transactions).where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'REFUND'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
+  // Inventory adjustments: ONLY price changes (not product imports, which are asset purchases not expenses)
   const [adjRow] = await db.select({ delta: sql`COALESCE(SUM(${inventoryRevaluationEvents.deltaValue}), 0)` })
-    .from(inventoryRevaluationEvents).where(and(inArray(inventoryRevaluationEvents.storeId, storeIds), gte(inventoryRevaluationEvents.occurredAt, window.start), lt(inventoryRevaluationEvents.occurredAt, window.end), sql`${inventoryRevaluationEvents.source} NOT LIKE 'stock_removal_%'`));
+    .from(inventoryRevaluationEvents).where(and(
+      inArray(inventoryRevaluationEvents.storeId, storeIds),
+      gte(inventoryRevaluationEvents.occurredAt, window.start),
+      lt(inventoryRevaluationEvents.occurredAt, window.end),
+      sql`${inventoryRevaluationEvents.source} = 'price_change'`
+    ));
 
   const stockRemovalEvents = await db.select({ metadata: inventoryRevaluationEvents.metadata })
     .from(inventoryRevaluationEvents).where(and(inArray(inventoryRevaluationEvents.storeId, storeIds), gte(inventoryRevaluationEvents.occurredAt, window.start), lt(inventoryRevaluationEvents.occurredAt, window.end), sql`${inventoryRevaluationEvents.source} LIKE 'stock_removal_%'`));
@@ -383,7 +395,9 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
   const grossRevenue = Number(salesRow?.revenue || 0);
   const taxCollected = Number(salesRow?.taxCollected || 0);
   const transactionCount = Number(salesRow?.transactionCount || 0);
-  const cogs = Number(cogsRow?.cogs || 0);
+  const salesCogs = Number(salesCogsRow?.cogs || 0);
+  const refundCogs = Number(refundCogsRow?.cogs || 0);
+  const cogs = salesCogs - refundCogs; // Net COGS = sales cost - refunded items cost
   const refundAmount = Number(refundRow?.amount || 0);
   const refundCount = Number(refundRow?.count || 0);
   const inventoryAdjustments = Number(adjRow?.delta || 0);
