@@ -56,10 +56,24 @@ const corsOptions: CorsOptions = {
 
 
 
+// Endpoints exempt from global rate limiting (high-frequency POS operations)
+const rateLimitExemptPaths = [
+  '/stores/', // Store products endpoint for POS catalog
+  '/pos/sales', // POS sales
+  '/auth/me', // Session checks
+  '/auth/csrf-token', // CSRF token refresh
+];
+const shouldSkipRateLimit = (req: Request): boolean => {
+  if (process.env.NODE_ENV === 'test') return true;
+  // Skip rate limiting for authenticated high-frequency POS requests
+  const path = req.path;
+  return rateLimitExemptPaths.some(p => path.includes(p));
+};
+
 // Global rate limiting (configurable via env)
 export const globalRateLimit = rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS || 15 * 60 * 1000),
-  max: Number(process.env.RATE_LIMIT_GLOBAL_MAX || 200),
+  max: Number(process.env.RATE_LIMIT_GLOBAL_MAX || 500), // Increased from 200 for POS workloads
   message: {
     error: 'Too many requests from this IP, please try again later.',
     retryAfter: Math.ceil(15 * 60 / 60) // minutes
@@ -68,8 +82,8 @@ export const globalRateLimit = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   // IPv6-safe key generation
   keyGenerator: deriveRateLimitKey,
-  // Disable rate limiting during tests
-  skip: () => process.env.NODE_ENV === 'test',
+  // Skip rate limiting for tests and high-frequency POS endpoints
+  skip: shouldSkipRateLimit,
   handler: (req: Request, res: Response) => {
     logger.warn('Rate limit exceeded', {
       ip: req.ip,
@@ -265,13 +279,15 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   }
   // Bypass CSRF for POS sales with idempotency key (service worker offline sync)
   // The idempotency key provides replay protection, session cookie validates auth
-  if (req.method === 'POST' && req.path === '/api/pos/sales') {
+  // Note: req.path is '/pos/sales' when middleware is mounted at '/api', so check both
+  if (req.method === 'POST' && (req.path === '/pos/sales' || originalUrl === '/api/pos/sales')) {
     const idempotencyKey = req.get('Idempotency-Key');
     if (idempotencyKey && idempotencyKey.length > 0) {
       logger.debug('Bypassing CSRF for POS sale with idempotency key', {
         idempotencyKey,
         ip: req.ip,
         path: req.path,
+        originalUrl,
       });
       return next();
     }
