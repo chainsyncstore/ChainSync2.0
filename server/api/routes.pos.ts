@@ -840,8 +840,6 @@ export async function registerPosRoutes(app: Express) {
       if (!sale) {
         return res.status(404).json({ error: 'Sale not found', message: 'No sale matches the provided ID for this store.' });
       }
-
-      // Fetch store currency
       const storeRow = await db.select({ currency: stores.currency }).from(stores).where(eq(stores.id, storeId)).limit(1);
       const currency = storeRow[0]?.currency || 'USD';
 
@@ -862,6 +860,39 @@ export async function registerPosRoutes(app: Express) {
         .leftJoin(products, eq(saleItems.productId, products.id))
         .where(eq(saleItems.saleId, saleId));
 
+      // Calculate already-returned quantities per item
+      const priorReturns = await db
+        .select({ id: returns.id })
+        .from(returns)
+        .where(eq(returns.saleId, saleId));
+      const priorReturnIds = new Set<string>((priorReturns as any[]).map((r: any) => r.id));
+
+      const returnedQtyMap = new Map<string, number>();
+      if (priorReturnIds.size > 0) {
+        const allReturnItems = await db.select().from(returnItems);
+        for (const ri of allReturnItems as any[]) {
+          if (!priorReturnIds.has(ri.returnId)) continue;
+          const sid = ri.saleItemId as string;
+          const qty = Number(ri.quantity || 0);
+          returnedQtyMap.set(sid, (returnedQtyMap.get(sid) || 0) + qty);
+        }
+      }
+
+      // Check if sale is fully returned (all item quantities consumed)
+      const isFullyReturned = itemRows.length > 0 && itemRows.every((item) => {
+        const originalQty = Number(item.quantity) || 0;
+        const returnedQty = returnedQtyMap.get(item.id) || 0;
+        return returnedQty >= originalQty;
+      });
+
+      // Block lookup if fully returned
+      if (isFullyReturned) {
+        return res.status(409).json({
+          error: 'Sale already fully returned',
+          message: 'All items from this sale have already been returned.',
+        });
+      }
+
       const response = {
         sale: {
           id: sale.id,
@@ -874,17 +905,24 @@ export async function registerPosRoutes(app: Express) {
           status: (sale as any).status || 'COMPLETED',
           currency,
         },
-        items: itemRows.map((item) => ({
-          id: item.id,
-          productId: item.productId,
-          quantity: Number(item.quantity) || 0,
-          unitPrice: Number(item.unitPrice) || 0,
-          lineDiscount: Number(item.lineDiscount) || 0,
-          lineTotal: Number(item.lineTotal) || 0,
-          name: item.name || null,
-          sku: item.sku || null,
-          barcode: item.barcode || null,
-        })),
+        items: itemRows.map((item) => {
+          const originalQty = Number(item.quantity) || 0;
+          const returnedQty = returnedQtyMap.get(item.id) || 0;
+          const remainingQty = Math.max(0, originalQty - returnedQty);
+          return {
+            id: item.id,
+            productId: item.productId,
+            quantity: originalQty,
+            quantityReturned: returnedQty,
+            quantityRemaining: remainingQty,
+            unitPrice: Number(item.unitPrice) || 0,
+            lineDiscount: Number(item.lineDiscount) || 0,
+            lineTotal: Number(item.lineTotal) || 0,
+            name: item.name || null,
+            sku: item.sku || null,
+            barcode: item.barcode || null,
+          };
+        }),
       };
 
       return res.json(response);

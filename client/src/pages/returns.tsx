@@ -25,6 +25,8 @@ interface SaleItemResponse {
   id: string;
   productId: string;
   quantity: number;
+  quantityReturned: number;
+  quantityRemaining: number;
   unitPrice: number;
   lineDiscount: number;
   lineTotal: number;
@@ -97,11 +99,15 @@ export default function ReturnsPage() {
   const initializeDraft = (response: SaleLookupResponse) => {
     const next: ReturnDraftState = {};
     response.items.forEach((item) => {
+      // Use remaining quantity (after prior returns) not original quantity
+      const remainingQty = item.quantityRemaining ?? item.quantity;
+      const unitValue = item.quantity > 0 ? item.lineTotal / item.quantity : 0;
+      const remainingValue = unitValue * remainingQty;
       next[item.id] = {
-        quantity: item.quantity,
+        quantity: remainingQty,
         restockAction: "RESTOCK",
-        refundType: "FULL",
-        refundAmount: item.lineTotal.toFixed(2),
+        refundType: remainingQty > 0 ? "FULL" : "NONE",
+        refundAmount: remainingValue.toFixed(2),
       };
     });
     setDraft(next);
@@ -122,7 +128,19 @@ export default function ReturnsPage() {
         credentials: "include",
       });
       if (!res.ok) {
-        throw new Error(String(res.status));
+        const errorData = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          toast({ 
+            title: "Sale already fully returned", 
+            description: errorData.message || "All items from this sale have already been returned.", 
+            variant: "destructive" 
+          });
+          setSaleData(null);
+          setDraft({});
+          setFetchingSale(false);
+          return;
+        }
+        throw new Error(errorData.message || String(res.status));
       }
       const payload = (await res.json()) as SaleLookupResponse;
       setSaleData(payload);
@@ -414,29 +432,42 @@ export default function ReturnsPage() {
                   {saleData.items.map((item) => {
                     const entry = draft[item.id];
                     if (!entry) return null;
-                    const maxQty = item.quantity;
+                    const maxQty = item.quantityRemaining ?? item.quantity;
+                    const alreadyReturned = item.quantityReturned ?? 0;
+                    const isFullyReturned = maxQty <= 0;
                     return (
-                      <TableRow key={item.id} data-testid={`return-row-${item.id}`}>
+                      <TableRow key={item.id} data-testid={`return-row-${item.id}`} className={isFullyReturned ? "opacity-50" : ""}>
                         <TableCell>
                           <div className="font-medium text-slate-800">{item.name || 'Product'}</div>
                           <div className="text-xs text-slate-500">SKU: {item.sku || '–'}</div>
+                          {alreadyReturned > 0 && (
+                            <div className="text-xs text-amber-600 mt-1">
+                              {alreadyReturned} of {item.quantity} already returned
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={maxQty}
-                            value={entry.quantity}
-                            data-testid={`return-qty-${item.id}`}
-                            onChange={(event) => {
-                              const nextQty = Math.max(0, Math.min(Number(event.target.value) || 0, maxQty));
-                              handleDraftChange(item.id, (current) => ({
-                                ...current,
-                                quantity: nextQty,
-                              }));
-                            }}
-                          />
-                          <div className="text-xs text-slate-500 mt-1">Max {maxQty}</div>
+                          {isFullyReturned ? (
+                            <div className="text-sm text-slate-500">Fully returned</div>
+                          ) : (
+                            <>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={maxQty}
+                                value={entry.quantity}
+                                data-testid={`return-qty-${item.id}`}
+                                onChange={(event) => {
+                                  const nextQty = Math.max(0, Math.min(Number(event.target.value) || 0, maxQty));
+                                  handleDraftChange(item.id, (current) => ({
+                                    ...current,
+                                    quantity: nextQty,
+                                  }));
+                                }}
+                              />
+                              <div className="text-xs text-slate-500 mt-1">Max {maxQty}</div>
+                            </>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Select
