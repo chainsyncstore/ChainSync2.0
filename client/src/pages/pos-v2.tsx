@@ -347,22 +347,28 @@ export default function POSV2() {
     }
     setIsSearching(true);
     try {
-      // Local first
+      // Local first (from IndexedDB cache)
       const { searchProductsLocally } = await import("@/lib/idb-catalog");
       const local = await searchProductsLocally(query, 20);
       setSearchResults(local);
-      // Then remote
-      const res = await fetch(`/api/products?query=${encodeURIComponent(query)}`, { credentials: "include" });
-      if (res.ok) {
-        const remote = await res.json();
-        setSearchResults(remote);
+      
+      // Then remote - use store-scoped endpoint to only get products with inventory
+      if (selectedStore) {
+        const res = await fetch(
+          `/api/stores/${selectedStore}/products?query=${encodeURIComponent(query)}&limit=20`,
+          { credentials: "include" }
+        );
+        if (res.ok) {
+          const remote = await res.json();
+          setSearchResults(remote);
+        }
       }
     } catch {
       // Keep local results
     } finally {
       setIsSearching(false);
     }
-  }, []);
+  }, [selectedStore]);
 
   useEffect(() => {
     const timeout = setTimeout(() => handleSearch(searchQuery), 300);

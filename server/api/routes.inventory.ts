@@ -1,5 +1,5 @@
 import { parse as csvParse } from 'csv-parse';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, or } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import fs from 'fs';
 import multer from 'multer';
@@ -119,7 +119,7 @@ export async function registerInventoryRoutes(app: Express) {
     return res.json(results.slice(0, 15));
   });
 
-  // Store-scoped products endpoint for POS - returns products with current prices and stock
+  // Store-scoped products endpoint for POS - returns ONLY products with inventory in the store
   app.get('/api/stores/:storeId/products', requireAuth, async (req: Request, res: Response) => {
     const storeId = String(req.params.storeId ?? '').trim();
     if (!storeId) {
@@ -127,10 +127,11 @@ export async function registerInventoryRoutes(app: Express) {
     }
 
     const limit = Math.min(Number(req.query.limit) || 1000, 2000);
+    const query = String(req.query.query ?? '').trim().toLowerCase();
 
     try {
-      // Join products with inventory to get current stock and use the latest price
-      const rows = await db
+      // INNER JOIN with inventory - only return products that have inventory in this store
+      let queryBuilder = db
         .select({
           id: products.id,
           name: products.name,
@@ -143,12 +144,25 @@ export async function registerInventoryRoutes(app: Express) {
           quantity: inventory.quantity,
         })
         .from(products)
-        .leftJoin(inventory, and(
+        .innerJoin(inventory, and(
           eq(inventory.productId, products.id),
           eq(inventory.storeId, storeId)
         ))
         .where(eq(products.isActive, true))
-        .limit(limit);
+        .$dynamic();
+
+      // Add search filter if query provided
+      if (query.length >= 2) {
+        queryBuilder = queryBuilder.where(
+          or(
+            sql`LOWER(${products.name}) LIKE ${'%' + query + '%'}`,
+            sql`${products.barcode} LIKE ${'%' + query + '%'}`,
+            sql`LOWER(${products.sku}) LIKE ${'%' + query + '%'}`
+          )
+        );
+      }
+
+      const rows = await queryBuilder.limit(limit);
 
       // Return both price fields so frontend can choose
       const result = rows.map(row => ({
