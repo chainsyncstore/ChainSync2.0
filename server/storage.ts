@@ -161,8 +161,6 @@ type ProfitLossResult = {
   taxCollected: number;
   cost: number;
   cogsFromSales: number;
-  inventoryAdjustments: number;
-  netCost: number;
   refundAmount: number;
   refundCount: number;
   profit: number;
@@ -4602,20 +4600,6 @@ export class DatabaseStorage implements IStorage {
       )
     );
 
-    // Get inventory adjustments EXCLUDING stock removal events (those are handled separately)
-    const [revaluationRow] = await db.select({
-      deltaValue: sql`COALESCE(SUM(${inventoryRevaluationEvents.deltaValue}), 0)`,
-    })
-    .from(inventoryRevaluationEvents)
-    .where(
-      and(
-        eq(inventoryRevaluationEvents.storeId, storeId),
-        gte(inventoryRevaluationEvents.occurredAt, startDate),
-        lt(inventoryRevaluationEvents.occurredAt, endDate),
-        sql`${inventoryRevaluationEvents.source} NOT LIKE 'stock_removal_%'`
-      )
-    );
-
     const [priceChangeRow] = await db.select({
       changeCount: sql`COUNT(*)`,
       deltaValue: sql`COALESCE(SUM(COALESCE(${priceChangeEvents.newCost}, 0) - COALESCE(${priceChangeEvents.oldCost}, 0)), 0)`,
@@ -4672,25 +4656,21 @@ export class DatabaseStorage implements IStorage {
     const revenue = parseFloat(String(salesRow?.revenue || "0"));
     const taxCollected = parseFloat(String(salesRow?.taxCollected || "0"));
     const cogsFromSales = parseFloat(String(salesRow?.cogs || "0"));
-    const inventoryAdjustments = parseFloat(String(revaluationRow?.deltaValue || "0"));
-    const netCost = cogsFromSales + inventoryAdjustments;
     const refundAmount = parseFloat(String(refundRow?.refundAmount || "0"));
     const refundCount = parseInt(String(refundRow?.refundCount || "0"));
     // Net revenue excludes tax (tax is pass-through, not income)
     const revenueExcludingTax = revenue - taxCollected;
     const netRevenue = revenueExcludingTax - refundAmount;
-    // Adjust profit calculation: subtract stock removal losses, add manufacturer refunds (they offset losses)
-    const adjustedProfit = (netRevenue - netCost) - stockRemovalLoss + manufacturerRefunds;
+    // Profit = Net Revenue - COGS - Stock Losses + Manufacturer Refunds
+    const adjustedProfit = (netRevenue - cogsFromSales) - stockRemovalLoss + manufacturerRefunds;
     const priceChangeCount = parseInt(String(priceChangeRow?.changeCount || "0"));
     const priceChangeDelta = parseFloat(String(priceChangeRow?.deltaValue || "0"));
 
     return {
       revenue,
       taxCollected,
-      cost: netCost,
+      cost: cogsFromSales,
       cogsFromSales,
-      inventoryAdjustments,
-      netCost,
       refundAmount,
       refundCount,
       profit: adjustedProfit,

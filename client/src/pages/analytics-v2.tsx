@@ -127,8 +127,6 @@ interface ProfitLossData {
   refunds: Money;
   netRevenue: Money;
   cogs: Money;
-  inventoryAdjustments: Money;
-  netCost: Money;
   stockRemovalLoss: Money;
   manufacturerRefunds: Money;
   netProfit: Money;
@@ -237,8 +235,6 @@ interface PriceTrendDetailData {
   summary: {
     priceChangeCount: number;
     cogs: Money;
-    inventoryAdjustments: Money;
-    netCost: Money;
   };
   currentSnapshot: {
     quantity: number;
@@ -749,10 +745,6 @@ function SalesTab({ salesData, timeseriesData, popularProducts, profitLoss, isLo
                 <div className="flex justify-between text-muted-foreground mt-2">
                   <span>COGS</span>
                   <span>−{formatMoney(profitLoss.cogs)}</span>
-                </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Inventory Adjustments</span>
-                  <span>{profitLoss.inventoryAdjustments.amount >= 0 ? "+" : ""}{formatMoney(profitLoss.inventoryAdjustments)}</span>
                 </div>
                 <div className="flex justify-between text-red-600">
                   <span>Stock Removal Loss</span>
@@ -1334,14 +1326,6 @@ function PriceAnalysisTab({
                 <div className="flex justify-between">
                   <span>COGS (Period)</span>
                   <span className="font-medium">{formatMoney(productDetail.summary.cogs)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Inventory Adjustments</span>
-                  <span className="font-medium">{formatMoney(productDetail.summary.inventoryAdjustments)}</span>
-                </div>
-                <div className="border-t pt-2 flex justify-between font-bold">
-                  <span>Net Cost</span>
-                  <span>{formatMoney(productDetail.summary.netCost)}</span>
                 </div>
                 <div className="border-t pt-2 mt-2">
                   <p className="text-sm text-muted-foreground">Current Snapshot</p>

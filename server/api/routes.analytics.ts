@@ -706,8 +706,6 @@ export async function registerAnalyticsRoutes(app: Express) {
     const revenueMoney = toMoney(profitLoss.revenue, storeCurrency);
     const taxCollectedMoney = toMoney(profitLoss.taxCollected, storeCurrency);
     const cogsMoney = toMoney(profitLoss.cogsFromSales, storeCurrency);
-    const inventoryAdjMoney = toMoney(profitLoss.inventoryAdjustments, storeCurrency);
-    const netCostMoney = toMoney(profitLoss.netCost, storeCurrency);
     const refundMoney = toMoney(profitLoss.refundAmount, storeCurrency);
     // Net revenue excludes tax (tax is pass-through)
     const revenueExcludingTax = profitLoss.revenue - profitLoss.taxCollected;
@@ -721,8 +719,6 @@ export async function registerAnalyticsRoutes(app: Express) {
       revenue: revenueMoney,
       taxCollected: taxCollectedMoney,
       cogs: cogsMoney,
-      inventoryAdjustments: inventoryAdjMoney,
-      netCost: netCostMoney,
       profit: profitMoney,
       refunds: refundMoney,
       netRevenue: netRevenueMoney,
@@ -741,8 +737,6 @@ export async function registerAnalyticsRoutes(app: Express) {
           revenue: await convertForOrg(revenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           taxCollected: await convertForOrg(taxCollectedMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           cogs: await convertForOrg(cogsMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          inventoryAdjustments: await convertForOrg(inventoryAdjMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          netCost: await convertForOrg(netCostMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           profit: await convertForOrg(profitMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           refunds: await convertForOrg(refundMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           netRevenue: await convertForOrg(netRevenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
