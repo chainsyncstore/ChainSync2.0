@@ -166,11 +166,9 @@ type ProfitLossResult = {
   profit: number;
   priceChangeCount: number;
   priceChangeDelta: number;
-  // Stock removal losses tracking
+  // Stock removal losses tracking (net of any refunds received)
   stockRemovalLoss: number;
   stockRemovalCount: number;
-  manufacturerRefunds: number;
-  manufacturerRefundCount: number;
 };
 
 type StockMovementLogParams = {
@@ -4629,26 +4627,19 @@ export class DatabaseStorage implements IStorage {
       )
     );
 
-    // Parse metadata to extract loss and refund amounts
+    // Parse metadata to extract net loss amounts (already accounts for refunds)
     let stockRemovalLoss = 0;
     let stockRemovalCount = 0;
-    let manufacturerRefunds = 0;
-    let manufacturerRefundCount = 0;
 
     for (const event of stockRemovalEvents) {
       const meta = event.metadata as Record<string, unknown> | null;
       if (meta) {
+        // lossAmount is already net of refunds (cost - refund)
         const lossAmount = parseFloat(String(meta.lossAmount || 0));
-        const refundAmount = parseFloat(String(meta.refundAmount || 0));
         
         if (lossAmount > 0) {
           stockRemovalLoss += lossAmount;
           stockRemovalCount++;
-        }
-        
-        if (refundAmount > 0) {
-          manufacturerRefunds += refundAmount;
-          manufacturerRefundCount++;
         }
       }
     }
@@ -4661,8 +4652,8 @@ export class DatabaseStorage implements IStorage {
     // Net revenue excludes tax (tax is pass-through, not income)
     const revenueExcludingTax = revenue - taxCollected;
     const netRevenue = revenueExcludingTax - refundAmount;
-    // Profit = Net Revenue - COGS - Stock Losses + Manufacturer Refunds
-    const adjustedProfit = (netRevenue - cogsFromSales) - stockRemovalLoss + manufacturerRefunds;
+    // Profit = Net Revenue - COGS - Stock Losses (net losses already account for refunds)
+    const adjustedProfit = (netRevenue - cogsFromSales) - stockRemovalLoss;
     const priceChangeCount = parseInt(String(priceChangeRow?.changeCount || "0"));
     const priceChangeDelta = parseFloat(String(priceChangeRow?.deltaValue || "0"));
 
@@ -4678,8 +4669,6 @@ export class DatabaseStorage implements IStorage {
       priceChangeDelta,
       stockRemovalLoss,
       stockRemovalCount,
-      manufacturerRefunds,
-      manufacturerRefundCount,
     };
   }
 

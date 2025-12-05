@@ -128,7 +128,6 @@ interface ProfitLossData {
   netRevenue: Money;
   cogs: Money;
   stockRemovalLoss: Money;
-  manufacturerRefunds: Money;
   netProfit: Money;
   marginPercent: number;
 }
@@ -749,10 +748,6 @@ function SalesTab({ salesData, timeseriesData, popularProducts, profitLoss, isLo
                 <div className="flex justify-between text-red-600">
                   <span>Stock Removal Loss</span>
                   <span>−{formatMoney(profitLoss.stockRemovalLoss)}</span>
-                </div>
-                <div className="flex justify-between text-emerald-600">
-                  <span>Manufacturer Refunds</span>
-                  <span>+{formatMoney(profitLoss.manufacturerRefunds)}</span>
                 </div>
 
                 {/* Profit Section */}
