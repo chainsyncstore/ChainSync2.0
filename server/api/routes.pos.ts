@@ -16,6 +16,7 @@ import {
   transactions as prdTransactions,
   transactionItems as prdTransactionItems,
   importJobs,
+  inventory,
 } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
@@ -696,7 +697,20 @@ export async function registerPosRoutes(app: Express) {
         .returning();
       logger.info('POS: Transaction inserted', { transactionId: tx.id, storeId: parsed.data.storeId });
 
+            // Fetch inventory costs for COGS tracking
+      const productIds = parsed.data.items.map(i => i.productId);
+      const inventoryCosts = await db
+        .select({ productId: inventory.productId, avgCost: inventory.avgCost })
+        .from(inventory)
+        .where(and(eq(inventory.storeId, parsed.data.storeId), sql`${inventory.productId} = ANY(${productIds})`));
+      const costMap = new Map<string, number>();
+      for (const row of inventoryCosts) {
+        costMap.set(row.productId, parseFloat(String(row.avgCost || '0')));
+      }
+
       for (const item of parsed.data.items) {
+        const unitCost = costMap.get(item.productId) || 0;
+        const totalCost = unitCost * item.quantity;
         await db
           .insert(prdTransactionItems)
           .values({
@@ -705,9 +719,11 @@ export async function registerPosRoutes(app: Express) {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             totalPrice: item.lineTotal,
+            unitCost: String(unitCost.toFixed(4)),
+            totalCost: String(totalCost.toFixed(4)),
           } as any);
       }
-      logger.info('POS: Transaction items inserted', { transactionId: tx.id, itemCount: parsed.data.items.length });
+      logger.info('POS: Transaction items inserted with COGS', { transactionId: tx.id, itemCount: parsed.data.items.length });
 
       // Loyalty: update customer points directly (new schema uses currentPoints on customers table)
       if (customerId) {
@@ -1089,7 +1105,12 @@ export async function registerPosRoutes(app: Express) {
           eq(prdTransactions.receiptNumber, sale.id),
         ),
       )
-      .limit(1);
+            .limit(1);
+
+    // Calculate tax rate from original sale for proportional tax refunds
+    const saleSubtotal = Number(sale.subtotal || 0);
+    const saleTax = Number(sale.tax || 0);
+    const taxRate = saleSubtotal > 0 ? saleTax / saleSubtotal : 0;
 
     const rowsToInsert: Array<{
       saleItemId: string;
@@ -1098,6 +1119,7 @@ export async function registerPosRoutes(app: Express) {
       restockAction: 'RESTOCK' | 'DISCARD';
       refundType: 'NONE' | 'FULL' | 'PARTIAL';
       refundAmount: number;
+      taxRefundAmount: number;
       notes?: string;
     }> = [];
 
@@ -1125,13 +1147,23 @@ export async function registerPosRoutes(app: Express) {
         if (!qty) return total;
         return total / qty;
       })();
-      const baseRefund = unitValue * item.quantity;
+            const baseRefund = unitValue * item.quantity;
+      // Calculate proportional tax for this item
+      const baseTaxRefund = baseRefund * taxRate;
       const requestedAmount = Number.parseFloat(item.refundAmount ?? '0');
       const refundAmount = (() => {
         if (item.refundType === 'NONE') return 0;
         if (item.refundType === 'FULL') return baseRefund;
         if (!Number.isFinite(requestedAmount) || requestedAmount < 0) return 0;
         return Math.min(requestedAmount, baseRefund);
+      })();
+      // Tax refund: full for FULL refunds, proportional for PARTIAL, none for NONE
+      const taxRefundAmount = (() => {
+        if (item.refundType === 'NONE') return 0;
+        if (item.refundType === 'FULL') return baseTaxRefund;
+        // For partial, calculate proportional tax based on refund ratio
+        const ratio = baseRefund > 0 ? refundAmount / baseRefund : 0;
+        return baseTaxRefund * ratio;
       })();
 
       rowsToInsert.push({
@@ -1141,14 +1173,19 @@ export async function registerPosRoutes(app: Express) {
         restockAction: item.restockAction,
         refundType: item.refundType,
         refundAmount,
+        taxRefundAmount,
         notes: item.notes || undefined,
       });
     }
 
-    let totalRefund = 0;
+        let totalProductRefund = 0;
+    let totalTaxRefund = 0;
     for (const row of rowsToInsert) {
-      totalRefund += row.refundAmount;
+      totalProductRefund += row.refundAmount;
+      totalTaxRefund += row.taxRefundAmount;
     }
+    // Total refund includes both product and tax amounts
+    const totalRefund = totalProductRefund + totalTaxRefund;
 
     let aggregateRefundType: 'NONE' | 'FULL' | 'PARTIAL' = 'NONE';
     if (totalRefund > 0) {
@@ -1256,7 +1293,11 @@ export async function registerPosRoutes(app: Express) {
         }
       }
 
-      logger.info('POS Return: Creating refund transaction');
+            logger.info('POS Return: Creating refund transaction', { 
+        productRefund: totalProductRefund, 
+        taxRefund: totalTaxRefund, 
+        totalRefund 
+      });
       const refundPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod as string | undefined);
       const [refundTx] = await db
         .insert(prdTransactions)
@@ -1265,8 +1306,8 @@ export async function registerPosRoutes(app: Express) {
           cashierId: sessionUserId,
           status: 'completed',
           kind: 'REFUND',
-          subtotal: String(totalRefund.toFixed(2)),
-          taxAmount: '0',
+          subtotal: String(totalProductRefund.toFixed(2)),
+          taxAmount: String(totalTaxRefund.toFixed(2)),
           total: String(totalRefund.toFixed(2)),
           paymentMethod: refundPaymentMethod,
           amountReceived: '0',
@@ -1275,7 +1316,7 @@ export async function registerPosRoutes(app: Express) {
           originTransactionId: originTx?.id ?? null,
         } as any)
         .returning();
-      logger.info('POS Return: Refund transaction created', { refundTxId: refundTx?.id });
+      logger.info('POS Return: Refund transaction created', { refundTxId: refundTx?.id, taxRefunded: totalTaxRefund });
       void refundTx;
 
       if (hasTx2 && pg2) await pg2.query('COMMIT');

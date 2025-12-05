@@ -158,6 +158,7 @@ export type OrganizationInventorySummary = {
 
 type ProfitLossResult = {
   revenue: number;
+  taxCollected: number;
   cost: number;
   cogsFromSales: number;
   inventoryAdjustments: number;
@@ -2640,7 +2641,12 @@ export class DatabaseStorage implements IStorage {
     // Log inventory revaluation event for P&L tracking
     // Calculate monetary impact: quantityChange * avgCost
     const deltaValue = quantityChange * nextAvgCost;
-    if (deltaValue !== 0 && source !== 'pos_sale' && source !== 'pos_void' && !source?.startsWith('stock_removal_')) {
+    // Only log adjustments that aren't already tracked elsewhere:
+    // - pos_sale: COGS tracked via transaction items
+    // - pos_void: reverses pos_sale
+    // - pos_return: restocking already-expensed inventory (no additional cost)
+    // - stock_removal_*: handled separately with loss/refund metadata
+    if (deltaValue !== 0 && source !== 'pos_sale' && source !== 'pos_void' && source !== 'pos_return' && !source?.startsWith('stock_removal_')) {
       // Only log adjustments that aren't already tracked elsewhere (sales, voids, stock removals)
       await this.logInventoryRevaluationEvent({
         storeId,
@@ -4563,6 +4569,7 @@ export class DatabaseStorage implements IStorage {
   async getStoreProfitLoss(storeId: string, startDate: Date, endDate: Date): Promise<ProfitLossResult> {
     const [salesRow] = await db.select({
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+      taxCollected: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`,
       cogs: sql`COALESCE(SUM(${transactionItems.totalCost}), 0)`,
     })
     .from(transactions)
@@ -4660,12 +4667,15 @@ export class DatabaseStorage implements IStorage {
     }
 
     const revenue = parseFloat(String(salesRow?.revenue || "0"));
+    const taxCollected = parseFloat(String(salesRow?.taxCollected || "0"));
     const cogsFromSales = parseFloat(String(salesRow?.cogs || "0"));
     const inventoryAdjustments = parseFloat(String(revaluationRow?.deltaValue || "0"));
     const netCost = cogsFromSales + inventoryAdjustments;
     const refundAmount = parseFloat(String(refundRow?.refundAmount || "0"));
     const refundCount = parseInt(String(refundRow?.refundCount || "0"));
-    const netRevenue = revenue - refundAmount;
+    // Net revenue excludes tax (tax is pass-through, not income)
+    const revenueExcludingTax = revenue - taxCollected;
+    const netRevenue = revenueExcludingTax - refundAmount;
     // Adjust profit calculation: subtract stock removal losses, add manufacturer refunds (they offset losses)
     const adjustedProfit = (netRevenue - netCost) - stockRemovalLoss + manufacturerRefunds;
     const priceChangeCount = parseInt(String(priceChangeRow?.changeCount || "0"));
@@ -4673,6 +4683,7 @@ export class DatabaseStorage implements IStorage {
 
     return {
       revenue,
+      taxCollected,
       cost: netCost,
       cogsFromSales,
       inventoryAdjustments,

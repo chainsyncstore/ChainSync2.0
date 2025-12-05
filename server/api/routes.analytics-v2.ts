@@ -353,6 +353,7 @@ async function registerAnalyticsV2RoutesExtended(app: Express) {
 async function computeMetrics(storeIds: string[], window: { start: Date; end: Date }, currency: CurrencyCode) {
   const [salesRow] = await db.select({
     revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+    taxCollected: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`,
     transactionCount: sql`COUNT(*)`,
   }).from(transactions).where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'SALE'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
@@ -376,18 +377,22 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
   }
 
   const grossRevenue = Number(salesRow?.revenue || 0);
+  const taxCollected = Number(salesRow?.taxCollected || 0);
   const transactionCount = Number(salesRow?.transactionCount || 0);
   const cogs = Number(cogsRow?.cogs || 0);
   const refundAmount = Number(refundRow?.amount || 0);
   const refundCount = Number(refundRow?.count || 0);
   const inventoryAdjustments = Number(adjRow?.delta || 0);
-  const netRevenue = grossRevenue - refundAmount;
+  // Net revenue excludes tax (tax is pass-through, not income)
+  const revenueExcludingTax = grossRevenue - taxCollected;
+  const netRevenue = revenueExcludingTax - refundAmount;
   const netCost = cogs + inventoryAdjustments;
   const netProfit = netRevenue - netCost - stockRemovalLoss + manufacturerRefunds;
-  const marginPercent = grossRevenue > 0 ? roundAmount((netProfit / grossRevenue) * 100) : 0;
+  const marginPercent = revenueExcludingTax > 0 ? roundAmount((netProfit / revenueExcludingTax) * 100) : 0;
 
   return {
     grossRevenue: toMoney(grossRevenue, currency), netRevenue: toMoney(netRevenue, currency), transactionCount,
+    taxCollected: toMoney(taxCollected, currency),
     refundAmount: toMoney(refundAmount, currency), refundCount, cogs: toMoney(cogs, currency),
     inventoryAdjustments: toMoney(inventoryAdjustments, currency), stockRemovalLoss: toMoney(stockRemovalLoss, currency),
     manufacturerRefunds: toMoney(manufacturerRefunds, currency), netProfit: toMoney(netProfit, currency), marginPercent,

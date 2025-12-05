@@ -1,8 +1,9 @@
-import { and, eq, gte, lte, sql, inArray } from 'drizzle-orm';
+import { and, eq, gte, lte, sql, inArray, desc } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
+import { z } from 'zod';
 import type { CurrencyCode, Money } from '@shared/lib/currency';
-import { organizations, legacySales as sales, legacyReturns as returns, users, userRoles, stores, scheduledReports, products, transactions } from '@shared/schema';
+import { organizations, legacySales as sales, legacyReturns as returns, users, userRoles, stores, scheduledReports, products, transactions, taxRemittances } from '@shared/schema';
 import { db } from '../db';
 import { sendEmail } from '../email';
 import { getDefaultRates, convertAmount, StaticCurrencyRateProvider } from '../lib/currency';
@@ -692,11 +693,14 @@ export async function registerAnalyticsRoutes(app: Express) {
     const profitLoss = await storage.getStoreProfitLoss(storeId, startDate, endDate);
 
     const revenueMoney = toMoney(profitLoss.revenue, storeCurrency);
+    const taxCollectedMoney = toMoney(profitLoss.taxCollected, storeCurrency);
     const cogsMoney = toMoney(profitLoss.cogsFromSales, storeCurrency);
     const inventoryAdjMoney = toMoney(profitLoss.inventoryAdjustments, storeCurrency);
     const netCostMoney = toMoney(profitLoss.netCost, storeCurrency);
     const refundMoney = toMoney(profitLoss.refundAmount, storeCurrency);
-    const netRevenueMoney = toMoney(profitLoss.revenue - profitLoss.refundAmount, storeCurrency);
+    // Net revenue excludes tax (tax is pass-through)
+    const revenueExcludingTax = profitLoss.revenue - profitLoss.taxCollected;
+    const netRevenueMoney = toMoney(revenueExcludingTax - profitLoss.refundAmount, storeCurrency);
     const profitMoney = toMoney(profitLoss.profit, storeCurrency);
     const priceChangeDeltaMoney = toMoney(profitLoss.priceChangeDelta, storeCurrency);
     const stockRemovalLossMoney = toMoney(profitLoss.stockRemovalLoss, storeCurrency);
@@ -704,6 +708,7 @@ export async function registerAnalyticsRoutes(app: Express) {
 
     const totals = {
       revenue: revenueMoney,
+      taxCollected: taxCollectedMoney,
       cogs: cogsMoney,
       inventoryAdjustments: inventoryAdjMoney,
       netCost: netCostMoney,
@@ -723,6 +728,7 @@ export async function registerAnalyticsRoutes(app: Express) {
       ? {
           baseCurrency,
           revenue: await convertForOrg(revenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+          taxCollected: await convertForOrg(taxCollectedMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           cogs: await convertForOrg(cogsMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           inventoryAdjustments: await convertForOrg(inventoryAdjMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
           netCost: await convertForOrg(netCostMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
@@ -1489,6 +1495,194 @@ export async function registerAnalyticsRoutes(app: Express) {
         error: error instanceof Error ? error.message : String(error),
       });
       res.status(500).json({ error: 'Failed to deactivate report schedule' });
+    }
+  });
+
+  // ==================== TAX REMITTANCES ====================
+
+  const TaxRemittanceSchema = z.object({
+    storeId: z.string().uuid(),
+    amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'amount must be a valid currency string'),
+    currency: z.string().max(8).default('NGN'),
+    periodStart: z.string().datetime({ offset: true }),
+    periodEnd: z.string().datetime({ offset: true }),
+    remittedAt: z.string().datetime({ offset: true }),
+    reference: z.string().max(255).optional(),
+    notes: z.string().optional(),
+  });
+
+  // POST /api/stores/:storeId/tax-remittances - Record a tax payment to government
+  app.post('/api/stores/:storeId/tax-remittances', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { storeId } = req.params;
+      const userId = req.session?.userId as string | undefined;
+      if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+      // Verify store access
+      const storeRows = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
+      const store = storeRows[0];
+      if (!store) return res.status(404).json({ error: 'Store not found' });
+
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user || user.orgId !== store.orgId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const parsed = TaxRemittanceSchema.safeParse({ ...req.body, storeId });
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid payload', details: parsed.error.errors });
+      }
+
+      const [inserted] = await db
+        .insert(taxRemittances)
+        .values({
+          storeId: parsed.data.storeId,
+          amount: parsed.data.amount,
+          currency: parsed.data.currency,
+          periodStart: new Date(parsed.data.periodStart),
+          periodEnd: new Date(parsed.data.periodEnd),
+          remittedAt: new Date(parsed.data.remittedAt),
+          reference: parsed.data.reference,
+          notes: parsed.data.notes,
+          recordedBy: userId,
+        } as any)
+        .returning();
+
+      logger.info('Tax remittance recorded', { 
+        storeId, 
+        amount: parsed.data.amount, 
+        periodStart: parsed.data.periodStart,
+        periodEnd: parsed.data.periodEnd,
+        recordedBy: userId 
+      });
+
+      res.status(201).json({ ok: true, taxRemittance: inserted });
+    } catch (error) {
+      logger.error('Failed to record tax remittance', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({ error: 'Failed to record tax remittance' });
+    }
+  });
+
+  // GET /api/stores/:storeId/tax-remittances - List tax remittances for a store
+  app.get('/api/stores/:storeId/tax-remittances', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { storeId } = req.params;
+      const userId = req.session?.userId as string | undefined;
+      if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+      // Verify store access
+      const storeRows = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
+      const store = storeRows[0];
+      if (!store) return res.status(404).json({ error: 'Store not found' });
+
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user || user.orgId !== store.orgId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const limit = Math.min(Number(req.query.limit) || 50, 100);
+      const offset = Number(req.query.offset) || 0;
+
+      const rows = await db
+        .select()
+        .from(taxRemittances)
+        .where(eq(taxRemittances.storeId, storeId))
+        .orderBy(desc(taxRemittances.remittedAt))
+        .limit(limit)
+        .offset(offset);
+
+      // Get total count
+      const [countRow] = await db
+        .select({ count: sql`COUNT(*)` })
+        .from(taxRemittances)
+        .where(eq(taxRemittances.storeId, storeId));
+      const total = Number(countRow?.count || 0);
+
+      res.json({ ok: true, data: rows, pagination: { limit, offset, total } });
+    } catch (error) {
+      logger.error('Failed to fetch tax remittances', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({ error: 'Failed to fetch tax remittances' });
+    }
+  });
+
+  // GET /api/stores/:storeId/tax-summary - Get tax collected vs remitted summary
+  app.get('/api/stores/:storeId/tax-summary', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { storeId } = req.params;
+      const userId = req.session?.userId as string | undefined;
+      if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+      // Verify store access
+      const storeRows = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
+      const store = storeRows[0];
+      if (!store) return res.status(404).json({ error: 'Store not found' });
+
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user || user.orgId !== store.orgId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(new Date().getFullYear(), 0, 1);
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+
+      // Get tax collected from sales
+      const [collectedRow] = await db
+        .select({ taxCollected: sql`COALESCE(SUM(${transactions.taxAmount}), 0)` })
+        .from(transactions)
+        .where(and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, 'completed'),
+          eq(transactions.kind, 'SALE'),
+          gte(transactions.createdAt, startDate),
+          lte(transactions.createdAt, endDate)
+        ));
+
+      // Get tax refunded
+      const [refundedRow] = await db
+        .select({ taxRefunded: sql`COALESCE(SUM(${transactions.taxAmount}), 0)` })
+        .from(transactions)
+        .where(and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, 'completed'),
+          eq(transactions.kind, 'REFUND'),
+          gte(transactions.createdAt, startDate),
+          lte(transactions.createdAt, endDate)
+        ));
+
+      // Get tax remitted to government
+      const [remittedRow] = await db
+        .select({ taxRemitted: sql`COALESCE(SUM(${taxRemittances.amount}), 0)` })
+        .from(taxRemittances)
+        .where(and(
+          eq(taxRemittances.storeId, storeId),
+          gte(taxRemittances.periodStart, startDate),
+          lte(taxRemittances.periodEnd, endDate)
+        ));
+
+      const taxCollected = parseFloat(String(collectedRow?.taxCollected || '0'));
+      const taxRefunded = parseFloat(String(refundedRow?.taxRefunded || '0'));
+      const taxRemitted = parseFloat(String(remittedRow?.taxRemitted || '0'));
+      const netTaxCollected = taxCollected - taxRefunded;
+      const taxOwed = netTaxCollected - taxRemitted;
+
+      res.json({
+        ok: true,
+        period: { start: startDate.toISOString(), end: endDate.toISOString() },
+        taxCollected: toMoney(taxCollected, store.currency as CurrencyCode || 'NGN'),
+        taxRefunded: toMoney(taxRefunded, store.currency as CurrencyCode || 'NGN'),
+        netTaxCollected: toMoney(netTaxCollected, store.currency as CurrencyCode || 'NGN'),
+        taxRemitted: toMoney(taxRemitted, store.currency as CurrencyCode || 'NGN'),
+        taxOwed: toMoney(taxOwed, store.currency as CurrencyCode || 'NGN'),
+      });
+    } catch (error) {
+      logger.error('Failed to fetch tax summary', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({ error: 'Failed to fetch tax summary' });
     }
   });
 }
