@@ -1,4 +1,4 @@
-import { LogOut, Menu, RefreshCw, ScanLine, Settings, Undo2 } from "lucide-react";
+import { ArrowRightLeft, LogOut, Menu, RefreshCw, ScanLine, Settings } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 
@@ -41,7 +41,7 @@ export default function CashierLayout({ children }: CashierLayoutProps) {
 
   const navItems = [
     { href: "/pos", label: "Point of Sale", icon: ScanLine },
-    { href: "/returns", label: "Returns", icon: Undo2 },
+    { href: "/returns", label: "Returns & Swaps", icon: ArrowRightLeft },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
 
@@ -110,7 +110,7 @@ export default function CashierLayout({ children }: CashierLayoutProps) {
             </SheetContent>
           </Sheet>
           <h1 className="font-semibold text-lg text-slate-800">
-            {location === "/returns" ? "Returns" : location === "/settings" ? "Settings" : "Point of Sale"}
+            {location === "/returns" ? "Returns & Swaps" : location === "/settings" ? "Settings" : "Point of Sale"}
           </h1>
         </div>
       </header>

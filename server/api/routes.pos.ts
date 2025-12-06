@@ -1417,6 +1417,260 @@ export async function registerPosRoutes(app: Express) {
     }
   });
 
+  // Product swap endpoint
+  const SwapSchema = z.object({
+    saleId: z.string().uuid(),
+    storeId: z.string().uuid(),
+    originalSaleItemId: z.string().uuid(),
+    originalProductId: z.string().uuid(),
+    originalQuantity: z.number().int().positive(),
+    originalUnitPrice: z.number().positive(),
+    newProductId: z.string().uuid(),
+    newQuantity: z.number().int().positive(),
+    newUnitPrice: z.number().positive(),
+    restockAction: z.enum(['RESTOCK', 'DISCARD']),
+    notes: z.string().optional(),
+  });
+
+  app.post('/api/pos/swaps', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const parsed = SwapSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.errors });
+    }
+
+    const sessionUserId = req.session?.userId as string | undefined;
+    if (!sessionUserId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const { saleId, storeId, originalSaleItemId, originalProductId, originalQuantity, originalUnitPrice, 
+            newProductId, newQuantity, newUnitPrice, restockAction, notes } = parsed.data;
+
+    // Verify sale exists
+    const saleRows = await db.select().from(sales).where(eq(sales.id, saleId));
+    const sale = saleRows[0];
+    if (!sale) return res.status(404).json({ error: 'Sale not found' });
+    if (sale.storeId !== storeId) {
+      return res.status(400).json({ error: 'Store mismatch for sale' });
+    }
+
+    // Get store currency and tax rate
+    const storeRow = await db
+      .select({ currency: stores.currency, taxRate: stores.taxRate })
+      .from(stores)
+      .where(eq(stores.id, storeId))
+      .limit(1);
+    const storeCurrency = storeRow[0]?.currency || 'USD';
+    const taxRate = Number(storeRow[0]?.taxRate || 0) / 100; // Convert percentage to decimal
+
+    // Verify new product exists and get its details
+    const newProductRow = await db.select().from(products).where(eq(products.id, newProductId)).limit(1);
+    if (!newProductRow[0]) {
+      return res.status(404).json({ error: 'New product not found' });
+    }
+
+    // Check inventory for new product
+    const newProductInv = await storage.getInventoryItem(newProductId, storeId);
+    if (!newProductInv || Number(newProductInv.quantity || 0) < newQuantity) {
+      return res.status(400).json({ error: 'Insufficient inventory for new product' });
+    }
+
+    // Calculate amounts
+    const originalTotal = originalUnitPrice * originalQuantity;
+    const newTotal = newUnitPrice * newQuantity;
+    const priceDifference = newTotal - originalTotal;
+
+    // Calculate tax on the difference only
+    // If priceDifference > 0: customer pays tax on the extra amount
+    // If priceDifference < 0: refund includes tax on the excess
+    // If priceDifference = 0: no tax change
+    const taxDifference = priceDifference * taxRate;
+    const totalDifference = priceDifference + taxDifference;
+
+    const client = (db as any).client;
+    const hasTx = !!client;
+    const pg = hasTx ? await client.connect() : null;
+
+    try {
+      if (hasTx && pg) await pg.query('BEGIN');
+      
+      logger.info('POS Swap: Starting swap processing', { 
+        saleId, 
+        originalProductId, 
+        newProductId,
+        priceDifference,
+        taxDifference,
+        totalDifference
+      });
+
+      // 1. Create a return record for the original item
+      const [returnRecord] = await db.insert(returns).values({
+        saleId,
+        storeId,
+        reason: notes || 'Product swap',
+        processedBy: sessionUserId,
+        refundType: 'SWAP',
+        totalRefund: String(originalTotal.toFixed(2)),
+        currency: storeCurrency,
+      } as any).returning();
+
+      // 2. Create return item for the original product
+      await db.insert(returnItems).values({
+        returnId: returnRecord.id,
+        saleItemId: originalSaleItemId,
+        productId: originalProductId,
+        quantity: originalQuantity,
+        restockAction,
+        refundType: 'SWAP',
+        refundAmount: String(originalTotal.toFixed(2)),
+        currency: storeCurrency,
+        notes: notes || `Swapped for product ${newProductRow[0].name}`,
+      } as any);
+
+      // 3. Handle inventory for returned product
+      if (restockAction === 'RESTOCK') {
+        try {
+          const currentInv = await storage.getInventoryItem(originalProductId, storeId);
+          const unitCost = Number((currentInv as any)?.avgCost) || 0;
+
+          await storage.adjustInventory(
+            originalProductId,
+            storeId,
+            originalQuantity,
+            sessionUserId,
+            'pos_swap_return',
+            returnRecord.id,
+            `Product swap - ${originalQuantity} units restocked`,
+          );
+
+          // Restore cost layer if applicable
+          if (unitCost > 0) {
+            await storage.restoreCostLayer(
+              storeId,
+              originalProductId,
+              originalQuantity,
+              unitCost,
+              'pos_swap_return',
+              returnRecord.id,
+              `Restocked from swap ${returnRecord.id}`,
+            );
+          }
+          logger.info('POS Swap: Original product restocked', { productId: originalProductId, quantity: originalQuantity });
+        } catch (restockErr) {
+          logger.error('POS Swap: Failed to restock original product', {
+            productId: originalProductId,
+            error: restockErr instanceof Error ? restockErr.message : String(restockErr),
+          });
+        }
+      } else {
+        // DISCARD - record as loss
+        logger.info('POS Swap: Original product discarded', { productId: originalProductId, quantity: originalQuantity });
+      }
+
+      // 4. Reduce inventory for new product
+      try {
+        await storage.adjustInventory(
+          newProductId,
+          storeId,
+          -newQuantity,
+          sessionUserId,
+          'pos_swap_out',
+          returnRecord.id,
+          `Product swap - ${newQuantity} units out`,
+        );
+        logger.info('POS Swap: New product inventory reduced', { productId: newProductId, quantity: newQuantity });
+      } catch (invErr) {
+        logger.error('POS Swap: Failed to reduce new product inventory', {
+          productId: newProductId,
+          error: invErr instanceof Error ? invErr.message : String(invErr),
+        });
+      }
+
+      // 5. Create transaction record for the swap
+      const normalizedPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod);
+      const kind = priceDifference >= 0 ? 'SWAP_CHARGE' : 'SWAP_REFUND';
+      
+      const [swapTx] = await db
+        .insert(prdTransactions)
+        .values({
+          storeId,
+          cashierId: sessionUserId,
+          status: 'completed',
+          kind,
+          subtotal: String(Math.abs(priceDifference).toFixed(2)),
+          taxAmount: String(Math.abs(taxDifference).toFixed(2)),
+          total: String(Math.abs(totalDifference).toFixed(2)),
+          paymentMethod: normalizedPaymentMethod,
+          amountReceived: priceDifference >= 0 ? String(Math.abs(totalDifference).toFixed(2)) : '0',
+          changeDue: '0',
+          receiptNumber: `SWAP-${returnRecord.id.slice(-8)}`,
+          notes: `Swap: ${newProductRow[0].name} for original item`,
+        } as any)
+        .returning();
+
+      // 6. Insert transaction items
+      const newProductCost = Number((newProductInv as any)?.avgCost) || 0;
+      await db.insert(prdTransactionItems).values({
+        transactionId: swapTx.id,
+        productId: newProductId,
+        quantity: newQuantity,
+        unitPrice: String(newUnitPrice.toFixed(4)),
+        totalPrice: String(newTotal.toFixed(2)),
+        unitCost: String(newProductCost.toFixed(4)),
+        totalCost: String((newProductCost * newQuantity).toFixed(4)),
+      } as any);
+
+      if (hasTx && pg) await pg.query('COMMIT');
+
+      const response = {
+        ok: true,
+        swap: {
+          id: returnRecord.id,
+          saleId,
+          storeId,
+          originalProduct: {
+            productId: originalProductId,
+            quantity: originalQuantity,
+            unitPrice: originalUnitPrice,
+            total: originalTotal,
+            restockAction,
+          },
+          newProduct: {
+            productId: newProductId,
+            name: newProductRow[0].name,
+            quantity: newQuantity,
+            unitPrice: newUnitPrice,
+            total: newTotal,
+          },
+          priceDifference,
+          taxDifference,
+          totalDifference,
+          currency: storeCurrency,
+          transactionId: swapTx.id,
+          receiptNumber: swapTx.receiptNumber,
+        },
+      };
+
+      logger.info('POS Swap: Completed successfully', response.swap);
+      return res.status(201).json(response);
+
+    } catch (error) {
+      if (hasTx && pg) {
+        try { await pg.query('ROLLBACK'); } catch (rollbackErr) {
+          logger.warn('POS Swap: Rollback failed', {
+            error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+          });
+        }
+      }
+      logger.error('POS Swap: Failed to process swap', {
+        saleId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      return res.status(500).json({ error: 'Failed to process swap' });
+    } finally {
+      if (hasTx && pg) pg.release();
+    }
+  });
+
   // POS Sync health - lightweight observability endpoint
   app.get('/api/pos/sync/health', requireAuth, requireRole('CASHIER'), async (_req: Request, res: Response) => {
     try {

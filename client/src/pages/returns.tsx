@@ -1,15 +1,23 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Loader2, RefreshCcw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowRightLeft, Loader2, RefreshCcw, Search, Undo2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SyncCenter from "@/components/pos/sync-center";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useOfflineSyncIndicator } from "@/hooks/use-offline-sync-indicator";
@@ -63,6 +71,25 @@ interface ReturnDraftState {
 type DraftEntryUpdater = (entry: ReturnDraftState[string]) => ReturnDraftState[string];
 /* eslint-enable no-unused-vars */
 
+interface ProductSearchResult {
+  id: string;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  salePrice: number;
+  quantity?: number;
+}
+
+interface SwapState {
+  saleReference: string;
+  saleData: SaleLookupResponse | null;
+  selectedItem: SaleItemResponse | null;
+  newProduct: ProductSearchResult | null;
+  newQuantity: number;
+  restockAction: RestockAction;
+  notes: string;
+}
+
 export default function ReturnsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -74,6 +101,24 @@ export default function ReturnsPage() {
   const [reason, setReason] = useState("");
   const [draft, setDraft] = useState<ReturnDraftState>({});
   const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"returns" | "swaps">("returns");
+
+  // Swap modal state
+  const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
+  const [swapState, setSwapState] = useState<SwapState>({
+    saleReference: "",
+    saleData: null,
+    selectedItem: null,
+    newProduct: null,
+    newQuantity: 1,
+    restockAction: "RESTOCK",
+    notes: "",
+  });
+  const [fetchingSwapSale, setFetchingSwapSale] = useState(false);
+  const [swapProductSearch, setSwapProductSearch] = useState("");
+  const [swapSearchResults, setSwapSearchResults] = useState<ProductSearchResult[]>([]);
+  const [isSearchingProducts, setIsSearchingProducts] = useState(false);
+  const [swapBarcodeInput, setSwapBarcodeInput] = useState("");
 
   const { data: stores = [], isLoading: loadingStores } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
@@ -281,6 +326,233 @@ export default function ReturnsPage() {
 
   const lockedStore = useMemo(() => stores.find((store) => store.id === lockedStoreId) || null, [lockedStoreId, stores]);
 
+  // Get current store for tax rate
+  const currentStore = useMemo(() => stores.find((s) => s.id === selectedStore), [stores, selectedStore]);
+  const storeTaxRate = useMemo(() => {
+    const rate = Number((currentStore as any)?.taxRate || 0);
+    return rate / 100; // Convert percentage to decimal
+  }, [currentStore]);
+
+  // Swap modal functions
+  const handleSwapLookupSale = async () => {
+    if (!selectedStore) {
+      toast({ title: "Select a store", variant: "destructive" });
+      return;
+    }
+    if (!swapState.saleReference.trim()) {
+      toast({ title: "Enter sale ID or receipt", variant: "destructive" });
+      return;
+    }
+    setFetchingSwapSale(true);
+    try {
+      const res = await fetch(`/api/pos/sales/${swapState.saleReference.trim()}?storeId=${selectedStore}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || String(res.status));
+      }
+      const payload = (await res.json()) as SaleLookupResponse;
+      setSwapState((prev) => ({
+        ...prev,
+        saleData: payload,
+        selectedItem: null,
+        newProduct: null,
+        newQuantity: 1,
+      }));
+    } catch (error) {
+      console.error("Failed to fetch sale for swap", error);
+      toast({ title: "Sale not found", description: "Check the sale ID and try again.", variant: "destructive" });
+    } finally {
+      setFetchingSwapSale(false);
+    }
+  };
+
+  const handleSearchProducts = useCallback(async (query: string) => {
+    if (query.length < 2) {
+      setSwapSearchResults([]);
+      return;
+    }
+    setIsSearchingProducts(true);
+    try {
+      const res = await fetch(
+        `/api/stores/${selectedStore}/products?query=${encodeURIComponent(query)}&limit=10`,
+        { credentials: "include" }
+      );
+      if (res.ok) {
+        const products = await res.json();
+        setSwapSearchResults(products.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          sku: p.sku || null,
+          barcode: p.barcode || null,
+          salePrice: Number(p.salePrice || p.price || 0),
+          quantity: p.quantity,
+        })));
+      }
+    } catch (err) {
+      console.error("Product search failed", err);
+    } finally {
+      setIsSearchingProducts(false);
+    }
+  }, [selectedStore]);
+
+  const handleSwapBarcodeSubmit = useCallback(async (barcode: string) => {
+    if (!barcode || !barcode.trim()) return;
+    setIsSearchingProducts(true);
+    try {
+      const res = await fetch(`/api/products/barcode/${encodeURIComponent(barcode)}`, { credentials: "include" });
+      if (res.ok) {
+        const product = await res.json();
+        const newProduct: ProductSearchResult = {
+          id: product.id,
+          name: product.name,
+          sku: product.sku || null,
+          barcode: product.barcode || null,
+          salePrice: Number(product.salePrice || product.price || 0),
+          quantity: product.quantity,
+        };
+        setSwapState((prev) => ({
+          ...prev,
+          newProduct,
+          newQuantity: 1,
+        }));
+        setSwapProductSearch("");
+        setSwapSearchResults([]);
+        toast({ title: "Product found", description: newProduct.name });
+      } else {
+        toast({ title: "Product not found", description: "Check the barcode and try again.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Barcode lookup failed", variant: "destructive" });
+    } finally {
+      setIsSearchingProducts(false);
+      setSwapBarcodeInput("");
+    }
+  }, [toast]);
+
+  // Search products with debounce
+  useEffect(() => {
+    const timeout = setTimeout(() => handleSearchProducts(swapProductSearch), 300);
+    return () => clearTimeout(timeout);
+  }, [swapProductSearch, handleSearchProducts]);
+
+  // Calculate swap amounts
+  const swapCalculations = useMemo(() => {
+    if (!swapState.selectedItem || !swapState.newProduct) {
+      return { originalTotal: 0, newTotal: 0, priceDifference: 0, taxDifference: 0, totalDifference: 0 };
+    }
+    
+    const originalUnitPrice = swapState.selectedItem.unitPrice;
+    const originalQuantity = swapState.selectedItem.quantityRemaining || 1;
+    const originalTotal = originalUnitPrice * Math.min(swapState.newQuantity, originalQuantity);
+    
+    const newTotal = swapState.newProduct.salePrice * swapState.newQuantity;
+    const priceDifference = newTotal - originalTotal;
+    
+    // Tax only on the difference
+    const taxDifference = priceDifference * storeTaxRate;
+    const totalDifference = priceDifference + taxDifference;
+    
+    return { originalTotal, newTotal, priceDifference, taxDifference, totalDifference };
+  }, [swapState.selectedItem, swapState.newProduct, swapState.newQuantity, storeTaxRate]);
+
+  const processSwapMutation = useMutation({
+    mutationFn: async () => {
+      if (!swapState.saleData || !swapState.selectedItem || !swapState.newProduct) {
+        throw new Error("Missing swap data");
+      }
+
+      const payload = {
+        saleId: swapState.saleData.sale.id,
+        storeId: selectedStore,
+        originalSaleItemId: swapState.selectedItem.id,
+        originalProductId: swapState.selectedItem.productId,
+        originalQuantity: Math.min(swapState.newQuantity, swapState.selectedItem.quantityRemaining || 1),
+        originalUnitPrice: swapState.selectedItem.unitPrice,
+        newProductId: swapState.newProduct.id,
+        newQuantity: swapState.newQuantity,
+        newUnitPrice: swapState.newProduct.salePrice,
+        restockAction: swapState.restockAction,
+        notes: swapState.notes.trim() || undefined,
+      };
+
+      const csrfToken = await getCsrfToken().catch(() => null);
+      const res = await fetch("/api/pos/swaps", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Swap failed with status ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const diff = data.swap?.totalDifference || 0;
+      const description = diff > 0 
+        ? `Customer charged ${formatCurrency(diff, (currentStore as any)?.currency || "USD")}`
+        : diff < 0 
+        ? `Customer refunded ${formatCurrency(Math.abs(diff), (currentStore as any)?.currency || "USD")}`
+        : "Even swap - no payment required";
+      
+      toast({ 
+        title: "Swap processed successfully", 
+        description,
+      });
+      
+      // Reset swap state
+      setSwapState({
+        saleReference: "",
+        saleData: null,
+        selectedItem: null,
+        newProduct: null,
+        newQuantity: 1,
+        restockAction: "RESTOCK",
+        notes: "",
+      });
+      setSwapProductSearch("");
+      setSwapSearchResults([]);
+      setIsSwapModalOpen(false);
+    },
+    onError: (error) => {
+      console.error("Swap failed", error);
+      toast({ 
+        title: "Swap failed", 
+        description: error instanceof Error ? error.message : "Please verify inputs and try again.", 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const canSubmitSwap = Boolean(
+    swapState.saleData &&
+    swapState.selectedItem &&
+    swapState.newProduct &&
+    swapState.newQuantity > 0 &&
+    !processSwapMutation.isPending
+  );
+
+  const resetSwapModal = () => {
+    setSwapState({
+      saleReference: "",
+      saleData: null,
+      selectedItem: null,
+      newProduct: null,
+      newQuantity: 1,
+      restockAction: "RESTOCK",
+      notes: "",
+    });
+    setSwapProductSearch("");
+    setSwapSearchResults([]);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -314,11 +586,24 @@ export default function ReturnsPage() {
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Product Returns</CardTitle>
-          <CardDescription>Look up a sale and capture the return details for audit + inventory sync.</CardDescription>
-        </CardHeader>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "returns" | "swaps")} className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="returns" className="flex items-center gap-2">
+            <Undo2 className="h-4 w-4" />
+            Returns
+          </TabsTrigger>
+          <TabsTrigger value="swaps" className="flex items-center gap-2">
+            <ArrowRightLeft className="h-4 w-4" />
+            Product Swaps
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="returns" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Product Returns</CardTitle>
+              <CardDescription>Look up a sale and capture the return details for audit + inventory sync.</CardDescription>
+            </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
@@ -608,7 +893,356 @@ export default function ReturnsPage() {
             </CardContent>
           </Card>
         </>
-      )}
+          )}
+        </TabsContent>
+
+        <TabsContent value="swaps" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Product Swaps</CardTitle>
+              <CardDescription>
+                Exchange a purchased product for a different product. Customer pays/receives the difference.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <p className="text-sm text-slate-600 mb-2">
+                    Process a product swap when a customer wants to exchange their purchase for a different item.
+                    The price difference (including tax on the difference) will be calculated automatically.
+                  </p>
+                  <ul className="text-sm text-slate-500 list-disc list-inside space-y-1">
+                    <li>Customer pays extra if new product costs more</li>
+                    <li>Customer receives refund if new product costs less</li>
+                    <li>Even swap if prices are equal (no payment needed)</li>
+                  </ul>
+                </div>
+                <Button
+                  onClick={() => {
+                    resetSwapModal();
+                    setIsSwapModalOpen(true);
+                  }}
+                  className="min-w-[180px]"
+                >
+                  <ArrowRightLeft className="mr-2 h-4 w-4" />
+                  Start Swap
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Swap Modal */}
+      <Dialog open={isSwapModalOpen} onOpenChange={(open) => {
+        if (!open) resetSwapModal();
+        setIsSwapModalOpen(open);
+      }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="h-5 w-5" />
+              Process Product Swap
+            </DialogTitle>
+            <DialogDescription>
+              Enter the receipt ID, select the product to swap, and choose the replacement product.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Step 1: Lookup Sale */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-sm font-medium">1</div>
+                <h3 className="font-medium">Look up original sale</h3>
+              </div>
+              <div className="flex gap-2 ml-8">
+                <Input
+                  placeholder="Enter receipt/sale ID"
+                  value={swapState.saleReference}
+                  onChange={(e) => setSwapState((prev) => ({ ...prev, saleReference: e.target.value }))}
+                />
+                <Button onClick={handleSwapLookupSale} disabled={fetchingSwapSale || !selectedStore}>
+                  {fetchingSwapSale ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                  Fetch
+                </Button>
+              </div>
+              {swapState.saleData && (
+                <div className="ml-8 text-sm text-green-600">
+                  ✓ Sale found - {formatDateTime(new Date(swapState.saleData.sale.occurredAt))}
+                </div>
+              )}
+            </div>
+
+            {/* Step 2: Select Item to Swap */}
+            {swapState.saleData && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-sm font-medium">2</div>
+                  <h3 className="font-medium">Select item to swap</h3>
+                </div>
+                <div className="ml-8 space-y-2">
+                  {swapState.saleData.items.filter(item => (item.quantityRemaining ?? item.quantity) > 0).map((item) => (
+                    <div
+                      key={item.id}
+                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                        swapState.selectedItem?.id === item.id
+                          ? "border-primary bg-primary/5"
+                          : "border-slate-200 hover:border-slate-300"
+                      }`}
+                      onClick={() => setSwapState((prev) => ({
+                        ...prev,
+                        selectedItem: item,
+                        newQuantity: Math.min(1, item.quantityRemaining ?? item.quantity),
+                      }))}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium">{item.name || "Product"}</div>
+                          <div className="text-sm text-slate-500">SKU: {item.sku || "–"}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium">
+                            {formatCurrency(item.unitPrice, swapState.saleData!.sale.currency as any)}
+                          </div>
+                          <div className="text-sm text-slate-500">
+                            {item.quantityRemaining ?? item.quantity} available
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Select New Product */}
+            {swapState.selectedItem && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-sm font-medium">3</div>
+                  <h3 className="font-medium">Select replacement product</h3>
+                </div>
+                <div className="ml-8 space-y-3">
+                  {/* Barcode Input */}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Scan barcode..."
+                      value={swapBarcodeInput}
+                      onChange={(e) => setSwapBarcodeInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && swapBarcodeInput.trim()) {
+                          void handleSwapBarcodeSubmit(swapBarcodeInput.trim());
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleSwapBarcodeSubmit(swapBarcodeInput.trim())}
+                      disabled={!swapBarcodeInput.trim() || isSearchingProducts}
+                    >
+                      Scan
+                    </Button>
+                  </div>
+                  
+                  {/* Product Search */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Input
+                      placeholder="Search products by name..."
+                      className="pl-10"
+                      value={swapProductSearch}
+                      onChange={(e) => setSwapProductSearch(e.target.value)}
+                    />
+                    {isSearchingProducts && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-400" />
+                    )}
+                  </div>
+
+                  {/* Search Results */}
+                  {swapSearchResults.length > 0 && !swapState.newProduct && (
+                    <div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
+                      {swapSearchResults.map((product) => (
+                        <div
+                          key={product.id}
+                          className="p-2 hover:bg-slate-50 cursor-pointer"
+                          onClick={() => {
+                            setSwapState((prev) => ({ ...prev, newProduct: product, newQuantity: 1 }));
+                            setSwapProductSearch("");
+                            setSwapSearchResults([]);
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-medium text-sm">{product.name}</div>
+                              <div className="text-xs text-slate-500">
+                                {product.sku && `SKU: ${product.sku}`} 
+                                {product.quantity !== undefined && ` • ${product.quantity} in stock`}
+                              </div>
+                            </div>
+                            <div className="font-medium text-sm">
+                              {formatCurrency(product.salePrice, (currentStore as any)?.currency || "USD")}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Selected New Product */}
+                  {swapState.newProduct && (
+                    <div className="p-3 border border-green-200 bg-green-50 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium text-green-800">{swapState.newProduct.name}</div>
+                          <div className="text-sm text-green-600">
+                            {swapState.newProduct.sku && `SKU: ${swapState.newProduct.sku}`}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium text-green-800">
+                            {formatCurrency(swapState.newProduct.salePrice, (currentStore as any)?.currency || "USD")}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-green-600 hover:text-red-600"
+                            onClick={() => setSwapState((prev) => ({ ...prev, newProduct: null }))}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Configure Swap */}
+            {swapState.newProduct && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-sm font-medium">4</div>
+                  <h3 className="font-medium">Configure swap</h3>
+                </div>
+                <div className="ml-8 space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Quantity to swap</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={swapState.selectedItem?.quantityRemaining ?? 1}
+                        value={swapState.newQuantity}
+                        onChange={(e) => setSwapState((prev) => ({
+                          ...prev,
+                          newQuantity: Math.max(1, Math.min(Number(e.target.value) || 1, prev.selectedItem?.quantityRemaining ?? 1)),
+                        }))}
+                      />
+                      <div className="text-xs text-slate-500">
+                        Max: {swapState.selectedItem?.quantityRemaining ?? 1}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Returned item action</Label>
+                      <Select
+                        value={swapState.restockAction}
+                        onValueChange={(value: RestockAction) => setSwapState((prev) => ({ ...prev, restockAction: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="RESTOCK">Restock (item is sellable)</SelectItem>
+                          <SelectItem value="DISCARD">Discard (item is damaged/unsellable)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Notes (optional)</Label>
+                    <Textarea
+                      placeholder="Reason for swap, customer feedback, etc."
+                      value={swapState.notes}
+                      onChange={(e) => setSwapState((prev) => ({ ...prev, notes: e.target.value }))}
+                    />
+                  </div>
+
+                  {/* Price Calculation Summary */}
+                  <div className="p-4 bg-slate-50 rounded-lg space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Original product value:</span>
+                      <span className="font-medium">
+                        {formatCurrency(swapCalculations.originalTotal, (currentStore as any)?.currency || "USD")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>New product value:</span>
+                      <span className="font-medium">
+                        {formatCurrency(swapCalculations.newTotal, (currentStore as any)?.currency || "USD")}
+                      </span>
+                    </div>
+                    <div className="border-t pt-2">
+                      <div className="flex justify-between text-sm">
+                        <span>Price difference:</span>
+                        <span className={`font-medium ${swapCalculations.priceDifference >= 0 ? "text-slate-800" : "text-green-600"}`}>
+                          {swapCalculations.priceDifference >= 0 ? "+" : ""}
+                          {formatCurrency(swapCalculations.priceDifference, (currentStore as any)?.currency || "USD")}
+                        </span>
+                      </div>
+                      {swapCalculations.taxDifference !== 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-amber-600">Tax on difference:</span>
+                          <span className={`font-medium ${swapCalculations.taxDifference >= 0 ? "text-amber-600" : "text-green-600"}`}>
+                            {swapCalculations.taxDifference >= 0 ? "+" : ""}
+                            {formatCurrency(swapCalculations.taxDifference, (currentStore as any)?.currency || "USD")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="border-t pt-2">
+                      <div className="flex justify-between">
+                        <span className="font-medium">
+                          {swapCalculations.totalDifference > 0 
+                            ? "Customer pays:" 
+                            : swapCalculations.totalDifference < 0 
+                            ? "Refund to customer:" 
+                            : "Even swap:"}
+                        </span>
+                        <span className={`text-lg font-bold ${
+                          swapCalculations.totalDifference > 0 
+                            ? "text-blue-600" 
+                            : swapCalculations.totalDifference < 0 
+                            ? "text-green-600" 
+                            : "text-slate-600"
+                        }`}>
+                          {formatCurrency(Math.abs(swapCalculations.totalDifference), (currentStore as any)?.currency || "USD")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Submit */}
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button variant="outline" onClick={() => setIsSwapModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => processSwapMutation.mutate()}
+                disabled={!canSubmitSwap}
+              >
+                {processSwapMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Process Swap
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <SyncCenter open={isSyncCenterOpen} onClose={() => setIsSyncCenterOpen(false)} />
     </div>
