@@ -82,6 +82,15 @@ const parseNullableNumeric = (value: any): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const toDateOrNull = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+  const parsed = new Date(value as string);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 const costUpdateSchema = z.object({
   cost: z.number().min(0).optional(),
   salePrice: z.number().min(0).optional(),
@@ -2188,6 +2197,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInventory(insertInventory: InsertInventory, userId?: string, options?: InventoryCreateOptions): Promise<Inventory> {
+    const quantityValue = parseNumeric((insertInventory as any).quantity, 0);
+    const providedRestock = toDateOrNull((insertInventory as any).lastRestocked);
+    const restockTimestamp = providedRestock ?? (quantityValue > 0 ? new Date() : null);
+
     if (this.isTestEnv) {
       const avgCost = options?.costOverride ?? parseNumeric((insertInventory as any).avgCost, 0);
       const item: any = {
@@ -2197,6 +2210,7 @@ export class DatabaseStorage implements IStorage {
         totalCostValue: parseNumeric((insertInventory as any).quantity, 0) * avgCost,
         lastCostUpdate: new Date(),
         updatedAt: new Date(),
+        lastRestocked: restockTimestamp,
       };
       this.mem.inventory.set(`${(insertInventory as any).storeId}:${(insertInventory as any).productId}`, item);
       await this.syncLowStockAlertState((insertInventory as any).storeId, (insertInventory as any).productId);
@@ -2248,8 +2262,9 @@ export class DatabaseStorage implements IStorage {
       const payload = {
         ...insertInventory,
         avgCost: options?.costOverride ?? parseNumeric((insertInventory as any).avgCost, 0),
-        totalCostValue: parseNumeric((insertInventory as any).quantity, 0) * (options?.costOverride ?? parseNumeric((insertInventory as any).avgCost, 0)),
+        totalCostValue: quantityValue * (options?.costOverride ?? parseNumeric((insertInventory as any).avgCost, 0)),
         lastCostUpdate: new Date(),
+        lastRestocked: restockTimestamp,
       } as typeof inventory.$inferInsert;
       [item] = await db
         .insert(inventory)
@@ -2384,6 +2399,9 @@ export class DatabaseStorage implements IStorage {
 
     const nextQuantity = updateInventory.quantity != null ? parseNumeric(updateInventory.quantity, 0) : quantityBefore;
     const quantityDelta = nextQuantity - quantityBefore;
+    const restockTimestamp = quantityDelta > 0 ? new Date() : null;
+    const previousRestock = (current as any)?.lastRestocked ?? null;
+    const nextLastRestocked = restockTimestamp ?? previousRestock;
     const computeNextCostState = (): { avgCost: number; totalCostValue: number } => {
       if (nextQuantity <= 0) {
         return { avgCost: 0, totalCostValue: 0 };
@@ -2448,6 +2466,7 @@ export class DatabaseStorage implements IStorage {
         storeId,
         productId,
         updatedAt: new Date(),
+        lastRestocked: nextLastRestocked,
       };
       delete updated.costUpdate;
       this.mem.inventory.set(key, updated);
@@ -2474,6 +2493,9 @@ export class DatabaseStorage implements IStorage {
         }
         if (updateInventory.reorderLevel != null) {
           payload.reorderLevel = parseNumeric(updateInventory.reorderLevel, 0);
+        }
+        if (restockTimestamp) {
+          payload.lastRestocked = restockTimestamp;
         }
         [item] = await db
           .update(inventory)
@@ -2567,6 +2589,9 @@ export class DatabaseStorage implements IStorage {
       : await this.getInventoryItem(productId, storeId);
     const quantityBefore = current?.quantity || 0;
     const nextQuantity = quantityBefore + quantityChange;
+    const restockTimestamp = quantityChange > 0 ? new Date() : null;
+    const previousRestock = (current as any)?.lastRestocked ?? null;
+    const nextLastRestocked = restockTimestamp ?? previousRestock;
     const parsedCostUpdate = costUpdate ? costUpdateSchema.safeParse(costUpdate) : null;
     if (parsedCostUpdate && !parsedCostUpdate.success) {
       throw new Error(parsedCostUpdate.error.issues.map((issue) => issue.message).join(', '));
@@ -2586,6 +2611,7 @@ export class DatabaseStorage implements IStorage {
         avgCost: nextAvgCost,
         totalCostValue: nextTotalCost,
         updatedAt: new Date(),
+        lastRestocked: nextLastRestocked,
       };
       this.mem.inventory.set(key, updated);
       item = updated;
@@ -2611,6 +2637,9 @@ export class DatabaseStorage implements IStorage {
           totalCostValue: toDecimalString(nextTotalCost, 4),
           updatedAt: new Date(),
         };
+        if (restockTimestamp) {
+          payload.lastRestocked = restockTimestamp;
+        }
         [item] = await db
           .update(inventory)
           .set(payload as typeof inventory.$inferInsert)
