@@ -2182,7 +2182,7 @@ export class DatabaseStorage implements IStorage {
         products.name AS "productName",
         products.sku AS "productSku",
         products.barcode AS "productBarcode",
-        users.name AS "userName"
+        COALESCE(users.username, users.first_name, users.email) AS "userName"
       FROM stock_movements
       LEFT JOIN products ON products.id = stock_movements.product_id
       LEFT JOIN users ON users.id = stock_movements.user_id

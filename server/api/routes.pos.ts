@@ -631,7 +631,6 @@ export async function registerPosRoutes(app: Express) {
         return res.status(400).json({ error: 'walletReference is required for digital payments' });
       }
 
-// ...
       if (parsed.data.paymentMethod === 'split') {
         if (!paymentBreakdown.length) {
           if (hasTx && pg) await pg.query('ROLLBACK');
