@@ -182,6 +182,18 @@ const parseMaybeNumber = (value: number | string | null | undefined): number | n
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const normalizeStockMovementResponse = (payload: unknown): StockMovementApiResponse => {
+  if (Array.isArray(payload)) {
+    return { data: payload };
+  }
+
+  if (payload && Array.isArray((payload as StockMovementApiResponse).data)) {
+    return payload as StockMovementApiResponse;
+  }
+
+  return { data: [] };
+};
+
 const getInventoryQuantity = (item: InventoryWithProduct): number => {
   return parseMaybeNumber(item.quantity) ?? 0;
 };
@@ -447,7 +459,8 @@ export default function Inventory() {
       if (!response.ok) {
         throw new Error("Failed to load stock history");
       }
-      return (await response.json()) as StockMovementApiResponse;
+      const payload = await response.json();
+      return normalizeStockMovementResponse(payload);
     },
   });
 
@@ -456,11 +469,16 @@ export default function Inventory() {
     queryKey: ["/api/inventory", historyProduct?.productId, selectedHistoryStoreId, "history"],
     enabled: Boolean(historyProduct && selectedHistoryStoreId),
     queryFn: async () => {
-      const response = await fetch(`/api/inventory/${historyProduct?.productId}/${selectedHistoryStoreId}/history?limit=200`);
+      const params = new URLSearchParams({ limit: "50" });
+      const query = params.toString();
+      const response = await fetch(
+        `/api/inventory/${historyProduct?.productId}/${selectedHistoryStoreId}/history${query ? `?${query}` : ""}`,
+      );
       if (!response.ok) {
         throw new Error("Failed to load product history");
       }
-      return (await response.json()) as StockMovementApiResponse;
+      const payload = await response.json();
+      return normalizeStockMovementResponse(payload);
     },
   });
 
