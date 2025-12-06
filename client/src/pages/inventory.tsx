@@ -446,18 +446,21 @@ export default function Inventory() {
     [storeId, historyFilters],
   );
 
-  const { data: stockMovementsResponse, isLoading: isHistoryLoading } = useQuery<StockMovementApiResponse>({
+  const { data: stockMovementsResponse, isLoading: isHistoryLoading, isError: isHistoryError, error: historyError } = useQuery<StockMovementApiResponse>({
     queryKey: historyQueryKey,
     enabled: shouldFetchHistory,
+    retry: 1,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (historyFilters.actionType !== "all") params.set("actionType", historyFilters.actionType);
       if (historyFilters.startDate) params.set("startDate", historyFilters.startDate);
       if (historyFilters.endDate) params.set("endDate", historyFilters.endDate);
       const query = params.toString();
-      const response = await fetch(`/api/stores/${storeId}/stock-movements${query ? `?${query}` : ""}`);
+      const url = `/api/stores/${storeId}/stock-movements${query ? `?${query}` : ""}`;
+      const response = await fetch(url, { credentials: "include" });
       if (!response.ok) {
-        throw new Error("Failed to load stock history");
+        const text = await response.text().catch(() => "");
+        throw new Error(`Failed to load stock history: ${response.status} ${text}`);
       }
       const payload = await response.json();
       return normalizeStockMovementResponse(payload);
@@ -473,6 +476,7 @@ export default function Inventory() {
       const query = params.toString();
       const response = await fetch(
         `/api/inventory/${historyProduct?.productId}/${selectedHistoryStoreId}/history${query ? `?${query}` : ""}`,
+        { credentials: "include" },
       );
       if (!response.ok) {
         throw new Error("Failed to load product history");
@@ -1623,6 +1627,8 @@ export default function Inventory() {
                 <CardContent>
                   {isHistoryLoading ? (
                     <p className="text-sm text-muted-foreground">Loading stock history...</p>
+                  ) : isHistoryError ? (
+                    <p className="text-sm text-red-600">Failed to load stock history: {historyError instanceof Error ? historyError.message : "Unknown error"}</p>
                   ) : stockMovements.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No stock history found for the selected filters.</p>
                   ) : (
