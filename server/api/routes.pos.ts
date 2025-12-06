@@ -579,26 +579,36 @@ export async function registerPosRoutes(app: Express) {
       if (!Number.isFinite(subtotalNum)) return res.status(400).json({ error: 'Invalid subtotal amount' });
       if (!Number.isFinite(discountNum) || discountNum < 0) return res.status(400).json({ error: 'Invalid discount amount' });
       if (!Number.isFinite(taxNum) || taxNum < 0) return res.status(400).json({ error: 'Invalid tax amount' });
+
       // Load or create customer if phone provided (using new customers table with storeId)
       let customerId: string | null = null;
       let customerPoints = 0;
       if (customerPhone) {
         const storeId = parsed.data.storeId;
-        const existingCust = await db.select().from(customers).where(and(eq(customers.storeId, storeId), eq(customers.phone, customerPhone)));
-        let customer = existingCust[0];
-        if (!customer) {
-          const created = await db.insert(customers).values({
-            storeId,
-            phone: customerPhone,
-            firstName: 'Customer',
-            lastName: '',
-            currentPoints: 0,
-            lifetimePoints: 0,
-          } as typeof customers.$inferInsert).returning();
-          customer = created[0];
+        const customerRows = await db
+          .select({
+            id: customers.id,
+            currentPoints: customers.currentPoints,
+          })
+          .from(customers)
+          .where(and(eq(customers.storeId, storeId), eq(customers.phone, customerPhone)))
+          .limit(1);
+
+        const existingCustomer = customerRows[0];
+        if (existingCustomer) {
+          customerId = existingCustomer.id;
+          customerPoints = Number(existingCustomer.currentPoints ?? 0);
+        } else {
+          const newCustomer = await db
+            .insert(customers)
+            .values({
+              storeId,
+              phone: customerPhone,
+              currentPoints: 0,
+            } as any)
+            .returning();
+          customerId = newCustomer[0].id;
         }
-        customerId = customer.id;
-        customerPoints = customer.currentPoints ?? 0;
       }
 
       // Apply redeem discount if requested and customer has points
@@ -609,13 +619,19 @@ export async function registerPosRoutes(app: Express) {
           return res.status(400).json({ error: 'Insufficient loyalty points' });
         }
       }
-      const effectiveDiscount = discountNum + redeemDiscount;
+      let manualDiscount = Math.max(0, discountNum);
+      if (redeemDiscount > 0 && manualDiscount >= redeemDiscount - 0.01) {
+        manualDiscount = manualDiscount - redeemDiscount;
+      }
+      const effectiveDiscount = manualDiscount + redeemDiscount;
       const adjustedTotal = Math.max(0, subtotalNum - effectiveDiscount + taxNum);
+
       if (parsed.data.paymentMethod === 'digital' && !walletReference) {
         if (hasTx && pg) await pg.query('ROLLBACK');
         return res.status(400).json({ error: 'walletReference is required for digital payments' });
       }
 
+// ...
       if (parsed.data.paymentMethod === 'split') {
         if (!paymentBreakdown.length) {
           if (hasTx && pg) await pg.query('ROLLBACK');
