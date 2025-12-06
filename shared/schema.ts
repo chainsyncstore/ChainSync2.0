@@ -21,7 +21,7 @@ import { z } from "zod";
 export const roleEnum = pgEnum("role", ["ADMIN", "MANAGER", "CASHIER"]);
 export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "voided", "held"]);
 export const paymentMethodEnum = pgEnum("payment_method", ["cash", "card", "digital"]);
-export const transactionKindEnum = pgEnum("transaction_kind", ["SALE", "REFUND", "ADJUSTMENT"]);
+export const transactionKindEnum = pgEnum("transaction_kind", ["SALE", "REFUND", "ADJUSTMENT", "SWAP_CHARGE", "SWAP_REFUND"]);
 export const saleStatusEnum = pgEnum("sale_status", ["COMPLETED", "RETURNED"]);
 
 // Subscription Enums
