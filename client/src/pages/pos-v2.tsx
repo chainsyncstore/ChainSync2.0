@@ -20,7 +20,7 @@ import {
   Users,
   LogOut,
   Settings,
-  Undo2,
+  ArrowRightLeft,
   Package,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -637,8 +637,8 @@ export default function POSV2() {
                   </Link>
                   <Link href="/returns" onClick={() => setIsMenuOpen(false)}>
                     <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-100">
-                      <Undo2 className="w-5 h-5" />
-                      <span>Returns</span>
+                      <ArrowRightLeft className="w-5 h-5" />
+                      <span>Returns & Swaps</span>
                     </div>
                   </Link>
                   <Link href="/settings" onClick={() => setIsMenuOpen(false)}>

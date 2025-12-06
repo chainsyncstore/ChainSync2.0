@@ -21,9 +21,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useOfflineSyncIndicator } from "@/hooks/use-offline-sync-indicator";
+import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
 import { formatCurrency, formatDateTime } from "@/lib/pos-utils";
+import type { ReceiptPrintJob } from "@/lib/printer";
 import type { Store } from "@shared/schema";
 
 type RestockAction = "RESTOCK" | "DISCARD";
@@ -93,6 +95,7 @@ interface SwapState {
 export default function ReturnsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { printReceipt } = useReceiptPrinter();
   const lockedStoreId = user?.role === "cashier" ? user.storeId ?? null : null;
   const [selectedStore, setSelectedStore] = useState<string>(lockedStoreId ?? "");
   const [saleReference, setSaleReference] = useState("");
@@ -494,13 +497,57 @@ export default function ReturnsPage() {
       }
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       const diff = data.swap?.totalDifference || 0;
+      const currency = (currentStore as any)?.currency || "USD";
       const description = diff > 0 
-        ? `Customer charged ${formatCurrency(diff, (currentStore as any)?.currency || "USD")}`
+        ? `Customer charged ${formatCurrency(diff, currency)}`
         : diff < 0 
-        ? `Customer refunded ${formatCurrency(Math.abs(diff), (currentStore as any)?.currency || "USD")}`
+        ? `Customer refunded ${formatCurrency(Math.abs(diff), currency)}`
         : "Even swap - no payment required";
+      
+      // Build and print swap receipt
+      const swapReceipt: ReceiptPrintJob = {
+        receiptNumber: data.swap?.receiptNumber || `SWAP-${Date.now()}`,
+        storeName: currentStore?.name || "Store",
+        storeAddress: (currentStore as any)?.address,
+        cashier: user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : user?.username,
+        timestamp: new Date().toISOString(),
+        items: [
+          {
+            name: `RETURN: ${swapState.selectedItem?.name || "Original Product"}`,
+            quantity: swapState.newQuantity,
+            unitPrice: -(swapState.selectedItem?.unitPrice || 0),
+            total: -swapCalculations.originalTotal,
+          },
+          {
+            name: `NEW: ${swapState.newProduct?.name || "New Product"}`,
+            quantity: swapState.newQuantity,
+            unitPrice: swapState.newProduct?.salePrice || 0,
+            total: swapCalculations.newTotal,
+          },
+        ],
+        totals: {
+          subtotal: swapCalculations.priceDifference,
+          discount: 0,
+          tax: swapCalculations.taxDifference,
+          total: swapCalculations.totalDifference,
+          currency,
+          paymentMethod: diff > 0 ? "CHARGE" : diff < 0 ? "REFUND" : "EVEN",
+        },
+        footerNote: `Product Swap - ${swapState.restockAction === "RESTOCK" ? "Item Restocked" : "Item Discarded"}`,
+      };
+
+      try {
+        await printReceipt(swapReceipt);
+      } catch (err) {
+        console.error("Failed to print swap receipt", err);
+        toast({
+          title: "Receipt print failed",
+          description: "Swap was successful but receipt could not be printed.",
+          variant: "destructive",
+        });
+      }
       
       toast({ 
         title: "Swap processed successfully", 
