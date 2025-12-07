@@ -1479,11 +1479,34 @@ export async function registerPosRoutes(app: Express) {
     const priceDifference = newTotal - originalTotal;
 
     // Calculate tax on the difference only
-    // If priceDifference > 0: customer pays tax on the extra amount
-    // If priceDifference < 0: refund includes tax on the excess
-    // If priceDifference = 0: no tax change
     const taxDifference = priceDifference * taxRate;
     const totalDifference = priceDifference + taxDifference;
+
+    // Get new product cost for COGS
+    const newProductCost = Number((newProductInv as any)?.avgCost) || 0;
+    const newTotalCost = newProductCost * newQuantity;
+
+    // Find the original transaction for this sale (used for analytics)
+    const originalTxRows = await db
+      .select()
+      .from(prdTransactions)
+      .where(and(eq(prdTransactions.receiptNumber, saleId), eq(prdTransactions.kind, 'SALE')))
+      .limit(1);
+    const originalTx = originalTxRows[0];
+
+    // Find the original transaction item to update
+    let originalTxItem: any = null;
+    if (originalTx) {
+      const txItemRows = await db
+        .select()
+        .from(prdTransactionItems)
+        .where(and(
+          eq(prdTransactionItems.transactionId, originalTx.id),
+          eq(prdTransactionItems.productId, originalProductId)
+        ))
+        .limit(1);
+      originalTxItem = txItemRows[0];
+    }
 
     const client = (db as any).client;
     const hasTx = !!client;
@@ -1498,21 +1521,23 @@ export async function registerPosRoutes(app: Express) {
         newProductId,
         priceDifference,
         taxDifference,
-        totalDifference
+        totalDifference,
+        originalTxId: originalTx?.id,
+        originalTxItemId: originalTxItem?.id,
       });
 
-      // 1. Create a return record for the original item
+      // 1. Create a return record for audit trail
       const [returnRecord] = await db.insert(returns).values({
         saleId,
         storeId,
         reason: notes || 'Product swap',
         processedBy: sessionUserId,
         refundType: 'SWAP',
-        totalRefund: String(originalTotal.toFixed(2)),
+        totalRefund: String(Math.abs(totalDifference).toFixed(2)),
         currency: storeCurrency,
       } as any).returning();
 
-      // 2. Create return item for the original product
+      // 2. Create return item for audit trail
       await db.insert(returnItems).values({
         returnId: returnRecord.id,
         saleItemId: originalSaleItemId,
@@ -1520,7 +1545,7 @@ export async function registerPosRoutes(app: Express) {
         quantity: originalQuantity,
         restockAction,
         refundType: 'SWAP',
-        refundAmount: String(originalTotal.toFixed(2)),
+        refundAmount: String(Math.abs(totalDifference).toFixed(2)),
         currency: storeCurrency,
         notes: notes || `Swapped for product ${newProductRow[0].name}`,
       } as any);
@@ -1584,39 +1609,123 @@ export async function registerPosRoutes(app: Express) {
         });
       }
 
-      // 5. Create transaction record for the swap
-      const normalizedPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod);
-      const kind = priceDifference >= 0 ? 'SWAP_CHARGE' : 'SWAP_REFUND';
-      
-      const [swapTx] = await db
-        .insert(prdTransactions)
-        .values({
-          storeId,
-          cashierId: sessionUserId,
-          status: 'completed',
-          kind,
-          subtotal: String(Math.abs(priceDifference).toFixed(2)),
-          taxAmount: String(Math.abs(taxDifference).toFixed(2)),
-          total: String(Math.abs(totalDifference).toFixed(2)),
-          paymentMethod: normalizedPaymentMethod,
-          amountReceived: priceDifference >= 0 ? String(Math.abs(totalDifference).toFixed(2)) : '0',
-          changeDue: '0',
-          receiptNumber: `SWAP-${returnRecord.id.slice(-8)}`,
-          notes: `Swap: ${newProductRow[0].name} for original item`,
-        } as any)
-        .returning();
+      // 5. OVERWRITE the original transaction item with new product data for analytics
+      // This makes the new product's COGS and revenue the "truth" for this sale
+      let swapTxId = originalTx?.id;
+      let swapReceiptNumber = saleId;
 
-      // 6. Insert transaction items
-      const newProductCost = Number((newProductInv as any)?.avgCost) || 0;
-      await db.insert(prdTransactionItems).values({
-        transactionId: swapTx.id,
-        productId: newProductId,
-        quantity: newQuantity,
-        unitPrice: String(newUnitPrice.toFixed(4)),
-        totalPrice: String(newTotal.toFixed(2)),
-        unitCost: String(newProductCost.toFixed(4)),
-        totalCost: String((newProductCost * newQuantity).toFixed(4)),
-      } as any);
+      if (originalTxItem && originalTx) {
+        // Update the transaction item to reflect the new product
+        await db
+          .update(prdTransactionItems)
+          .set({
+            productId: newProductId,
+            quantity: newQuantity,
+            unitPrice: String(newUnitPrice.toFixed(4)),
+            totalPrice: String(newTotal.toFixed(2)),
+            unitCost: String(newProductCost.toFixed(4)),
+            totalCost: String(newTotalCost.toFixed(4)),
+          } as any)
+          .where(eq(prdTransactionItems.id, originalTxItem.id));
+
+        logger.info('POS Swap: Updated original transaction item with new product data', {
+          txItemId: originalTxItem.id,
+          oldProductId: originalProductId,
+          newProductId,
+          newUnitPrice,
+          newUnitCost: newProductCost,
+        });
+
+        // Update the original transaction totals
+        const oldSubtotal = Number(originalTx.subtotal) || 0;
+        const oldTax = Number(originalTx.taxAmount) || 0;
+        const oldTotal = Number(originalTx.total) || 0;
+
+        // Calculate new totals by adjusting for the price difference
+        const newSubtotal = oldSubtotal + priceDifference;
+        const newTax = oldTax + taxDifference;
+        const newTotalAmount = oldTotal + totalDifference;
+
+        await db
+          .update(prdTransactions)
+          .set({
+            subtotal: String(newSubtotal.toFixed(2)),
+            taxAmount: String(newTax.toFixed(2)),
+            total: String(newTotalAmount.toFixed(2)),
+            amountReceived: String(newTotalAmount.toFixed(2)),
+          } as any)
+          .where(eq(prdTransactions.id, originalTx.id));
+
+        logger.info('POS Swap: Updated original transaction totals', {
+          txId: originalTx.id,
+          oldTotal,
+          newTotalAmount,
+          priceDifference,
+        });
+
+        swapReceiptNumber = `SWAP-${returnRecord.id.slice(-8)}`;
+      } else {
+        // No original transaction found - create a new SALE transaction with corrected values
+        logger.warn('POS Swap: Original transaction not found, creating new transaction', { saleId });
+        
+        const normalizedPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod);
+        const [newTx] = await db
+          .insert(prdTransactions)
+          .values({
+            storeId,
+            cashierId: sessionUserId,
+            status: 'completed',
+            kind: 'SALE',
+            subtotal: String(newTotal.toFixed(2)),
+            taxAmount: String((newTotal * taxRate).toFixed(2)),
+            total: String((newTotal + newTotal * taxRate).toFixed(2)),
+            paymentMethod: normalizedPaymentMethod,
+            amountReceived: String((newTotal + newTotal * taxRate).toFixed(2)),
+            changeDue: '0',
+            receiptNumber: saleId,
+            notes: `Swap correction: ${newProductRow[0].name}`,
+          } as any)
+          .returning();
+
+        await db.insert(prdTransactionItems).values({
+          transactionId: newTx.id,
+          productId: newProductId,
+          quantity: newQuantity,
+          unitPrice: String(newUnitPrice.toFixed(4)),
+          totalPrice: String(newTotal.toFixed(2)),
+          unitCost: String(newProductCost.toFixed(4)),
+          totalCost: String(newTotalCost.toFixed(4)),
+        } as any);
+
+        swapTxId = newTx.id;
+        swapReceiptNumber = `SWAP-${returnRecord.id.slice(-8)}`;
+      }
+
+      // 6. If there's a negative price difference (customer gets refund), create a REFUND transaction
+      // This records the actual cash refund while keeping the analytics correct
+      if (priceDifference < 0) {
+        const normalizedPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod);
+        await db
+          .insert(prdTransactions)
+          .values({
+            storeId,
+            cashierId: sessionUserId,
+            status: 'completed',
+            kind: 'REFUND',
+            subtotal: String(Math.abs(priceDifference).toFixed(2)),
+            taxAmount: String(Math.abs(taxDifference).toFixed(2)),
+            total: String(Math.abs(totalDifference).toFixed(2)),
+            paymentMethod: normalizedPaymentMethod,
+            amountReceived: '0',
+            changeDue: '0',
+            receiptNumber: `SWAP-REFUND-${returnRecord.id.slice(-8)}`,
+            notes: `Swap refund: Difference for ${newProductRow[0].name}`,
+          } as any);
+
+        logger.info('POS Swap: Created refund transaction for price difference', {
+          refundAmount: Math.abs(totalDifference),
+        });
+      }
 
       if (hasTx && pg) await pg.query('COMMIT');
 
@@ -1639,17 +1748,19 @@ export async function registerPosRoutes(app: Express) {
             quantity: newQuantity,
             unitPrice: newUnitPrice,
             total: newTotal,
+            unitCost: newProductCost,
+            totalCost: newTotalCost,
           },
           priceDifference,
           taxDifference,
           totalDifference,
           currency: storeCurrency,
-          transactionId: swapTx.id,
-          receiptNumber: swapTx.receiptNumber,
+          transactionId: swapTxId,
+          receiptNumber: swapReceiptNumber,
         },
       };
 
-      logger.info('POS Swap: Completed successfully', response.swap);
+      logger.info('POS Swap: Completed successfully - Analytics updated', response.swap);
       return res.status(201).json(response);
 
     } catch (error) {
