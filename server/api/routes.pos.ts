@@ -1459,7 +1459,10 @@ export async function registerPosRoutes(app: Express) {
       .where(eq(stores.id, storeId))
       .limit(1);
     const storeCurrency = storeRow[0]?.currency || 'USD';
-    const taxRate = Number(storeRow[0]?.taxRate || 0) / 100; // Convert percentage to decimal
+    // Calculate tax rate from original sale (fixes double-division bug)
+    const saleSubtotal = Number(sale.subtotal || 0);
+    const saleTax = Number(sale.tax || 0);
+    const taxRate = saleSubtotal > 0 ? saleTax / saleSubtotal : 0;
 
     // Verify new product exists and get its details
     const newProductRow = await db.select().from(products).where(eq(products.id, newProductId)).limit(1);
@@ -1615,33 +1618,73 @@ export async function registerPosRoutes(app: Express) {
       let swapReceiptNumber = saleId;
 
       if (originalTxItem && originalTx) {
-        // Update the transaction item to reflect the new product
-        await db
-          .update(prdTransactionItems)
-          .set({
+        // Handle partial vs full swap
+        const originalItemQty = Number(originalTxItem.quantity) || 0;
+        const remainingQty = originalItemQty - originalQuantity;
+        const originalItemUnitPrice = Number(originalTxItem.unitPrice) || 0;
+        const originalItemUnitCost = Number(originalTxItem.unitCost) || 0;
+
+        if (remainingQty > 0) {
+          // PARTIAL SWAP: Reduce original item qty, add new item for swapped product
+          const remainingTotalPrice = originalItemUnitPrice * remainingQty;
+          const remainingTotalCost = originalItemUnitCost * remainingQty;
+
+          await db
+            .update(prdTransactionItems)
+            .set({
+              quantity: remainingQty,
+              totalPrice: String(remainingTotalPrice.toFixed(2)),
+              totalCost: String(remainingTotalCost.toFixed(4)),
+            } as any)
+            .where(eq(prdTransactionItems.id, originalTxItem.id));
+
+          logger.info('POS Swap: Reduced original item qty for partial swap', {
+            txItemId: originalTxItem.id,
+            originalQty: originalItemQty,
+            swappedQty: originalQuantity,
+            remainingQty,
+          });
+
+          await db.insert(prdTransactionItems).values({
+            transactionId: originalTx.id,
             productId: newProductId,
             quantity: newQuantity,
             unitPrice: String(newUnitPrice.toFixed(4)),
             totalPrice: String(newTotal.toFixed(2)),
             unitCost: String(newProductCost.toFixed(4)),
             totalCost: String(newTotalCost.toFixed(4)),
-          } as any)
-          .where(eq(prdTransactionItems.id, originalTxItem.id));
+          } as any);
 
-        logger.info('POS Swap: Updated original transaction item with new product data', {
-          txItemId: originalTxItem.id,
-          oldProductId: originalProductId,
-          newProductId,
-          newUnitPrice,
-          newUnitCost: newProductCost,
-        });
+          logger.info('POS Swap: Added new item for swapped product', {
+            transactionId: originalTx.id,
+            newProductId,
+            newQuantity,
+          });
+        } else {
+          // FULL SWAP: Replace original item entirely
+          await db
+            .update(prdTransactionItems)
+            .set({
+              productId: newProductId,
+              quantity: newQuantity,
+              unitPrice: String(newUnitPrice.toFixed(4)),
+              totalPrice: String(newTotal.toFixed(2)),
+              unitCost: String(newProductCost.toFixed(4)),
+              totalCost: String(newTotalCost.toFixed(4)),
+            } as any)
+            .where(eq(prdTransactionItems.id, originalTxItem.id));
 
-        // Update the original transaction totals
+          logger.info('POS Swap: Full swap - replaced original item', {
+            txItemId: originalTxItem.id,
+            oldProductId: originalProductId,
+            newProductId,
+          });
+        }
+
+        // Update transaction totals
         const oldSubtotal = Number(originalTx.subtotal) || 0;
         const oldTax = Number(originalTx.taxAmount) || 0;
         const oldTotal = Number(originalTx.total) || 0;
-
-        // Calculate new totals by adjusting for the price difference
         const newSubtotal = oldSubtotal + priceDifference;
         const newTax = oldTax + taxDifference;
         const newTotalAmount = oldTotal + totalDifference;
@@ -1656,7 +1699,7 @@ export async function registerPosRoutes(app: Express) {
           } as any)
           .where(eq(prdTransactions.id, originalTx.id));
 
-        logger.info('POS Swap: Updated original transaction totals', {
+        logger.info('POS Swap: Updated transaction totals', {
           txId: originalTx.id,
           oldTotal,
           newTotalAmount,
