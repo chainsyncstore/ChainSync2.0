@@ -65,20 +65,17 @@ export function useCart() {
     });
   }, [setItems]);
 
-  const updateQuantity = useCallback((itemId: string, quantity: number) => {
-    if (quantity <= 0) {
-      removeItem(itemId);
-      return;
-    }
-    
+  const updateQuantity = useCallback((itemId: string, quantity: number | undefined) => {
+    // Allow undefined/0 for editing, but don't auto-remove
+    // User must explicitly delete or leave empty (blocked at checkout)
     setItems(currentItems =>
       currentItems.map(item =>
         item.id === itemId
-          ? { ...item, quantity, total: quantity * item.price }
+          ? { ...item, quantity: quantity, total: (quantity ?? 0) * item.price }
           : item
       )
     );
-  }, [removeItem]);
+  }, []);
 
   const clearCart = useCallback(() => {
     setItems([]);

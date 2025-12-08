@@ -579,8 +579,10 @@ export default function POSV2() {
   };
 
   const changeDue = payment.method === "cash" && payment.amountReceived ? Math.max(0, payment.amountReceived - summary.total) : 0;
+  const allQuantitiesValid = items.every(item => (item.quantity ?? 0) > 0);
   const canComplete =
     items.length > 0 &&
+    allQuantitiesValid &&
     (payment.method === "card" ||
       (payment.method === "cash" && payment.amountReceived && payment.amountReceived >= summary.total) ||
       (payment.method === "digital" && !!payment.walletReference?.trim()));
@@ -795,21 +797,34 @@ export default function POSV2() {
                         <p className="font-medium text-slate-800 truncate">{item.name}</p>
                         <p className="text-sm text-slate-500">{formatCurrency(item.price, currency)} each</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
                         <Button
                           variant="outline"
                           size="icon"
                           className="w-8 h-8"
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          onClick={() => updateQuantity(item.id, Math.max(1, (item.quantity ?? 1) - 1))}
                         >
                           <Minus className="w-4 h-4" />
                         </Button>
-                        <span className="w-8 text-center font-medium">{item.quantity}</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={item.quantity ?? ""}
+                          className="w-12 h-8 text-center font-medium px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "") {
+                              updateQuantity(item.id, undefined);
+                            } else {
+                              updateQuantity(item.id, Math.max(1, parseInt(val) || 1));
+                            }
+                          }}
+                        />
                         <Button
                           variant="outline"
                           size="icon"
                           className="w-8 h-8"
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          onClick={() => updateQuantity(item.id, (item.quantity ?? 0) + 1)}
                         >
                           <Plus className="w-4 h-4" />
                         </Button>

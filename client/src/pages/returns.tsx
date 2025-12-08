@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRightLeft, Banknote, CreditCard, Loader2, Plus, RefreshCcw, Search, Smartphone, Trash2, Undo2 } from "lucide-react";
+import { ArrowRightLeft, Banknote, CreditCard, Loader2, Minus, Plus, RefreshCcw, Search, Smartphone, Trash2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SyncCenter from "@/components/pos/sync-center";
@@ -94,7 +94,7 @@ interface SwapState {
   saleData: SaleLookupResponse | null;
   selectedItem: SaleItemResponse | null;
   newProducts: NewSwapProduct[]; // Array of new products with quantities
-  swapQuantity: number; // Quantity of original item to swap
+  swapQuantity: number | undefined; // Quantity of original item to swap
   restockAction: RestockAction;
   paymentMethod: PaymentMethod;
   notes: string;
@@ -464,7 +464,7 @@ export default function ReturnsPage() {
     
     const originalUnitPrice = swapState.selectedItem.unitPrice;
     const maxSwapQty = swapState.selectedItem.quantityRemaining || 1;
-    const actualSwapQty = Math.min(swapState.swapQuantity, maxSwapQty);
+    const actualSwapQty = Math.min(swapState.swapQuantity ?? 0, maxSwapQty);
     const originalTotal = originalUnitPrice * actualSwapQty;
     
     // Sum all new products' totals (treat undefined as 0)
@@ -492,7 +492,7 @@ export default function ReturnsPage() {
         storeId: selectedStore,
         originalSaleItemId: swapState.selectedItem.id,
         originalProductId: swapState.selectedItem.productId,
-        originalQuantity: Math.min(swapState.swapQuantity, swapState.selectedItem.quantityRemaining || 1),
+        originalQuantity: Math.min(swapState.swapQuantity ?? 0, swapState.selectedItem.quantityRemaining || 1),
         originalUnitPrice: swapState.selectedItem.unitPrice,
         // Support multiple new products
         newProducts: swapState.newProducts.map(item => ({
@@ -535,7 +535,7 @@ export default function ReturnsPage() {
       const receiptItems = [
         {
           name: `RETURN: ${swapState.selectedItem?.name || "Original Product"}`,
-          quantity: swapState.swapQuantity,
+          quantity: swapState.swapQuantity ?? 0,
           unitPrice: -(swapState.selectedItem?.unitPrice || 0),
           total: -swapCalculations.originalTotal,
         },
@@ -610,7 +610,7 @@ export default function ReturnsPage() {
     swapState.selectedItem &&
     swapState.newProducts.length > 0 &&
     swapState.newProducts.every(p => (p.quantity ?? 0) > 0) &&
-    swapState.swapQuantity > 0 &&
+    (swapState.swapQuantity ?? 0) > 0 &&
     !processSwapMutation.isPending
   );
 
@@ -1201,14 +1201,29 @@ export default function ReturnsPage() {
                                   {formatCurrency(item.product.salePrice, (currentStore as any)?.currency || "USD")} each
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => {
+                                    const newQty = Math.max(1, (item.quantity ?? 1) - 1);
+                                    setSwapState((prev) => ({
+                                      ...prev,
+                                      newProducts: prev.newProducts.map((p, i) => 
+                                        i === idx ? { ...p, quantity: newQty } : p
+                                      ),
+                                    }));
+                                  }}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </Button>
                                 <Input
                                   type="number"
                                   min={1}
                                   max={item.product.quantity ?? 99}
                                   value={item.quantity ?? ""}
-                                  placeholder=""
-                                  className="w-20 h-8"
+                                  className="w-12 h-8 text-center font-medium px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                   onChange={(e) => {
                                     const val = e.target.value;
                                     if (val === "") {
@@ -1229,6 +1244,23 @@ export default function ReturnsPage() {
                                     }
                                   }}
                                 />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => {
+                                    const maxQty = item.product.quantity ?? 99;
+                                    const newQty = Math.min(maxQty, (item.quantity ?? 0) + 1);
+                                    setSwapState((prev) => ({
+                                      ...prev,
+                                      newProducts: prev.newProducts.map((p, i) => 
+                                        i === idx ? { ...p, quantity: newQty } : p
+                                      ),
+                                    }));
+                                  }}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </Button>
                                 <div className="text-sm font-medium text-green-800 w-20 text-right">
                                   {formatCurrency(item.product.salePrice * (item.quantity ?? 0), (currentStore as any)?.currency || "USD")}
                                 </div>
@@ -1265,16 +1297,52 @@ export default function ReturnsPage() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Quantity to swap (original item)</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={swapState.selectedItem?.quantityRemaining ?? 1}
-                        value={swapState.swapQuantity}
-                        onChange={(e) => setSwapState((prev) => ({
-                          ...prev,
-                          swapQuantity: Math.max(1, Math.min(Number(e.target.value) || 1, prev.selectedItem?.quantityRemaining ?? 1)),
-                        }))}
-                      />
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10"
+                          onClick={() => setSwapState((prev) => ({
+                            ...prev,
+                            swapQuantity: Math.max(1, (prev.swapQuantity ?? 1) - 1),
+                          }))}
+                        >
+                          <Minus className="h-4 w-4" />
+                        </Button>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={swapState.selectedItem?.quantityRemaining ?? 1}
+                          value={swapState.swapQuantity ?? ""}
+                          className="flex-1 h-10 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "") {
+                              setSwapState((prev) => ({ ...prev, swapQuantity: undefined }));
+                            } else {
+                              const max = swapState.selectedItem?.quantityRemaining ?? 1;
+                              setSwapState((prev) => ({
+                                ...prev,
+                                swapQuantity: Math.max(1, Math.min(Number(val) || 1, max)),
+                              }));
+                            }
+                          }}
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10"
+                          onClick={() => {
+                            const max = swapState.selectedItem?.quantityRemaining ?? 1;
+                            setSwapState((prev) => ({
+                              ...prev,
+                              swapQuantity: Math.min(max, (prev.swapQuantity ?? 0) + 1),
+                            }));
+                          }}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
                       <div className="text-xs text-slate-500">
                         Max: {swapState.selectedItem?.quantityRemaining ?? 1}
                       </div>

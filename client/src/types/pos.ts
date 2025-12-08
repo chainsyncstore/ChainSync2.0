@@ -4,7 +4,7 @@ export interface CartItem {
   name: string;
   barcode: string;
   price: number;
-  quantity: number;
+  quantity: number | undefined;
   total: number;
 }
 
