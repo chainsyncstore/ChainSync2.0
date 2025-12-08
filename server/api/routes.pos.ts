@@ -1751,31 +1751,55 @@ export async function registerPosRoutes(app: Express) {
         } as any);
 
         swapTxId = newTx.id;
-        swapReceiptNumber = `SWAP-${returnRecord.id.slice(-8)}`;
       }
 
-      // 6. If there's a negative price difference (customer gets refund), create a REFUND transaction
-      // This records the actual cash refund while keeping the analytics correct
+      // 6. Record cash movement for swap price differences
+      // SWAP_REFUND/SWAP_CHARGE are cash drawer events only - NOT profit/loss events
+      // The original sale transaction was already updated with new product values above,
+      // so analytics reflects the correct revenue/COGS. These transactions just track cash flow.
       if (priceDifference < 0) {
+        // Customer gets change back (new product cheaper than returned product)
         await db
           .insert(prdTransactions)
           .values({
             storeId,
             cashierId: sessionUserId,
             status: 'completed',
-            kind: 'REFUND',
+            kind: 'SWAP_REFUND',
             subtotal: String(Math.abs(priceDifference).toFixed(2)),
             taxAmount: String(Math.abs(taxDifference).toFixed(2)),
             total: String(Math.abs(totalDifference).toFixed(2)),
             paymentMethod: paymentMethod.toLowerCase(),
             amountReceived: '0',
-            changeDue: '0',
+            changeDue: String(Math.abs(totalDifference).toFixed(2)),
             receiptNumber: `SWAP-REFUND-${returnRecord.id.slice(-8)}`,
-            notes: `Swap refund: Difference for ${newProductRow[0].name}`,
+            notes: `Swap change returned: ${newProductRow[0].name}`,
           } as any);
 
-        logger.info('POS Swap: Created refund transaction for price difference', {
-          refundAmount: Math.abs(totalDifference),
+        logger.info('POS Swap: Created SWAP_REFUND transaction (cash drawer event)', {
+          changeAmount: Math.abs(totalDifference),
+        });
+      } else if (priceDifference > 0) {
+        // Customer pays additional amount (new product more expensive)
+        await db
+          .insert(prdTransactions)
+          .values({
+            storeId,
+            cashierId: sessionUserId,
+            status: 'completed',
+            kind: 'SWAP_CHARGE',
+            subtotal: String(priceDifference.toFixed(2)),
+            taxAmount: String(taxDifference.toFixed(2)),
+            total: String(totalDifference.toFixed(2)),
+            paymentMethod: paymentMethod.toLowerCase(),
+            amountReceived: String(totalDifference.toFixed(2)),
+            changeDue: '0',
+            receiptNumber: `SWAP-CHARGE-${returnRecord.id.slice(-8)}`,
+            notes: `Swap charge received: ${newProductRow[0].name}`,
+          } as any);
+
+        logger.info('POS Swap: Created SWAP_CHARGE transaction (cash drawer event)', {
+          chargeAmount: totalDifference,
         });
       }
 
