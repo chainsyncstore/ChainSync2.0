@@ -447,7 +447,8 @@ export interface IStorage {
   removeStock(productId: string, storeId: string, quantity: number, options: StockRemovalOptions, userId?: string): Promise<{ inventory: Inventory; lossAmount: number; refundAmount: number }>;
   // Records a loss for items already out of inventory (e.g., discarded during return/swap)
   // Does NOT reduce inventory quantity - only logs the loss for P&L tracking
-  recordDiscardLoss(productId: string, storeId: string, quantity: number, unitCost: number, options: { reason: string; notes?: string; referenceId?: string }, userId?: string): Promise<{ lossAmount: number }>;
+  // saleContext provides meaningful before/after for display: originalQtySold → remainingGoodQty
+  recordDiscardLoss(productId: string, storeId: string, quantity: number, unitCost: number, options: { reason: string; notes?: string; referenceId?: string; saleContext?: { originalQtySold: number; remainingGoodQty: number } }, userId?: string): Promise<{ lossAmount: number }>;
   getCostLayers(productId: string, storeId: string): Promise<CostLayerSummary>;
   analyzeMargin(productId: string, storeId: string, proposedSalePrice: number): Promise<MarginAnalysis>;
   getLowStockItems(storeId: string): Promise<Inventory[]>;
@@ -3065,17 +3066,24 @@ export class DatabaseStorage implements IStorage {
     storeId: string,
     quantity: number,
     unitCost: number,
-    options: { reason: string; notes?: string; referenceId?: string },
+    options: { reason: string; notes?: string; referenceId?: string; saleContext?: { originalQtySold: number; remainingGoodQty: number } },
     userId?: string,
   ): Promise<{ lossAmount: number }> {
     const lossAmount = quantity * unitCost;
 
-    // Record stock movement for audit trail (no quantity change)
+    // Use sale context for meaningful before/after display
+    // Before = original qty sold, After = remaining good qty from that sale
+    const saleCtx = options.saleContext;
+    const quantityBefore = saleCtx?.originalQtySold ?? quantity;
+    const quantityAfter = saleCtx?.remainingGoodQty ?? 0;
+
+    // Record stock movement for audit trail
+    // Δ Qty shows quantity discarded, Before/After shows sale context
     await this.recordStockMovement({
       storeId,
       productId,
-      quantityBefore: 0, // Not applicable - item already out
-      quantityAfter: 0,  // Not applicable - item already out
+      quantityBefore,
+      quantityAfter,
       actionType: 'discard_loss',
       source: `discard_${options.reason}`,
       userId,
@@ -3086,6 +3094,7 @@ export class DatabaseStorage implements IStorage {
         quantityDiscarded: quantity,
         unitCost,
         lossAmount,
+        saleContext: saleCtx || null,
       },
     });
 
@@ -3095,8 +3104,8 @@ export class DatabaseStorage implements IStorage {
       productId,
       userId: userId ?? null,
       source: `stock_removal_${options.reason}`,
-      quantityBefore: 0,
-      quantityAfter: 0,
+      quantityBefore,
+      quantityAfter,
       revaluedQuantity: quantity,
       avgCostBefore: null,
       avgCostAfter: null,
@@ -3109,7 +3118,8 @@ export class DatabaseStorage implements IStorage {
         refundAmount: 0,
         lossAmount,
         costOfRemovedItems: lossAmount,
-        isDiscardFromReturn: true, // Flag to indicate this is from return/swap, not physical removal
+        isDiscardFromReturn: true,
+        saleContext: saleCtx || null,
       },
       occurredAt: new Date(),
     } as InsertInventoryRevaluationEvent;

@@ -1359,6 +1359,11 @@ export async function registerPosRoutes(app: Express) {
           const inv = await storage.getInventoryItem(row.productId, parsed.data.storeId);
           const unitCost = Number((inv as any)?.avgCost) || 0;
 
+          // Get original sale item to provide meaningful sale context
+          const originalSaleItem = saleItemMap.get(row.saleItemId);
+          const originalQtySold = Number(originalSaleItem?.quantity || row.quantity);
+          const remainingGoodQty = originalQtySold - row.quantity;
+
           // Record loss without reducing inventory (item was already sold)
           const lossResult = await storage.recordDiscardLoss(
             row.productId,
@@ -1369,6 +1374,10 @@ export async function registerPosRoutes(app: Express) {
               reason: 'damaged',
               referenceId: ret.id,
               notes: row.notes || 'Discarded during return - product not sellable',
+              saleContext: {
+                originalQtySold,
+                remainingGoodQty,
+              },
             },
             sessionUserId,
           );
@@ -1376,6 +1385,7 @@ export async function registerPosRoutes(app: Express) {
             productId: row.productId, 
             quantity: row.quantity,
             lossAmount: lossResult.lossAmount,
+            saleContext: { originalQtySold, remainingGoodQty },
           });
         } catch (lossErr) {
           logger.error('POS Return: Failed to record discarded stock loss', {
@@ -1648,6 +1658,10 @@ export async function registerPosRoutes(app: Express) {
           const origInv = await storage.getInventoryItem(originalProductId, storeId);
           const origUnitCost = Number((origInv as any)?.avgCost) || 0;
 
+          // Get sale context: original qty sold from transaction item, remaining after discard
+          const originalQtySold = Number(originalTxItem?.quantity || originalQuantity);
+          const remainingGoodQty = originalQtySold - originalQuantity;
+
           // Record loss without reducing inventory (item was already sold)
           const lossResult = await storage.recordDiscardLoss(
             originalProductId,
@@ -1658,6 +1672,10 @@ export async function registerPosRoutes(app: Express) {
               reason: 'damaged',
               referenceId: returnRecord.id,
               notes: notes || 'Discarded during swap - product not sellable',
+              saleContext: {
+                originalQtySold,
+                remainingGoodQty,
+              },
             },
             sessionUserId,
           );
@@ -1665,6 +1683,7 @@ export async function registerPosRoutes(app: Express) {
             productId: originalProductId,
             quantity: originalQuantity,
             lossAmount: lossResult.lossAmount,
+            saleContext: { originalQtySold, remainingGoodQty },
           });
         } catch (lossErr) {
           logger.error('POS Swap: Failed to record discarded product loss', {
