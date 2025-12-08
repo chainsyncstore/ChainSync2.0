@@ -472,7 +472,9 @@ export default function POSV2() {
       );
       const { cacheCompletedSale, updateLocalInventory } = await import("@/lib/idb-catalog");
       const idempotencyKey = generateIdempotencyKey();
-      const csrfToken = await getCsrfToken().catch(() => null);
+      
+      // Check offline status FIRST before any network calls
+      const isCurrentlyOffline = !navigator.onLine;
 
       const payload = {
         storeId: selectedStore,
@@ -535,10 +537,13 @@ export default function POSV2() {
         return { id: localId, offline: true, idempotencyKey };
       };
 
-      // If already offline, skip network attempt entirely
-      if (!navigator.onLine) {
+      // If already offline, skip network attempt entirely (no CSRF fetch needed)
+      if (isCurrentlyOffline) {
         return processOffline("Sale saved locally. Will sync when connection returns.");
       }
+
+      // Only fetch CSRF token when online (with timeout protection)
+      const csrfToken = await getCsrfToken().catch(() => null);
 
       // Try network with timeout to prevent hanging
       try {

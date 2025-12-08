@@ -1,12 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRightLeft, Banknote, CreditCard, Loader2, Minus, Plus, RefreshCcw, Search, Smartphone, Trash2, Undo2, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CachedSale, CachedSaleItem, OfflineReturnRecord } from "@/lib/idb-catalog";
 
 import SyncCenter from "@/components/pos/sync-center";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,6 +13,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +34,7 @@ import { useOfflineSyncIndicator } from "@/hooks/use-offline-sync-indicator";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
+import type { CachedSale, CachedSaleItem, OfflineReturnRecord } from "@/lib/idb-catalog";
 import { formatCurrency, formatDateTime } from "@/lib/pos-utils";
 import type { ReceiptPrintJob } from "@/lib/printer";
 import type { Store } from "@shared/schema";
@@ -409,12 +409,6 @@ export default function ReturnsPage() {
     const requested = Number.parseFloat(draftEntry.refundAmount || "0");
     if (!Number.isFinite(requested) || requested < 0) return 0;
     return Math.min(requested, unitValue * quantity);
-  };
-
-  // Calculate proportional tax refund for an item
-  const computeTaxRefundForItem = (item: SaleItemResponse) => {
-    const productRefund = computeRefundForItem(item);
-    return productRefund * taxRate;
   };
 
   // Compute refund for cached item (offline mode)
@@ -2211,7 +2205,7 @@ export default function ReturnsPage() {
             <AlertDialogDescription className="space-y-3">
               <p>
                 You are about to process this {pendingOfflineAction === "swap" ? "swap" : "return"} while offline. 
-                This will be queued and synced when you're back online.
+                This will be queued and synced when you are back online.
               </p>
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                 <p className="font-semibold">⚠️ Duplicate Risk Warning</p>
