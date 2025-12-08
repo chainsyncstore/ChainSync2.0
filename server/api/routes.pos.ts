@@ -1417,7 +1417,13 @@ export async function registerPosRoutes(app: Express) {
     }
   });
 
-  // Product swap endpoint
+  // Product swap endpoint - supports multiple new products
+  const NewSwapProductSchema = z.object({
+    productId: z.string().uuid(),
+    quantity: z.number().int().positive(),
+    unitPrice: z.number().positive(),
+  });
+
   const SwapSchema = z.object({
     saleId: z.string().uuid(),
     storeId: z.string().uuid(),
@@ -1425,9 +1431,7 @@ export async function registerPosRoutes(app: Express) {
     originalProductId: z.string().uuid(),
     originalQuantity: z.number().int().positive(),
     originalUnitPrice: z.number().positive(),
-    newProductId: z.string().uuid(),
-    newQuantity: z.number().int().positive(),
-    newUnitPrice: z.number().positive(),
+    newProducts: z.array(NewSwapProductSchema).min(1),
     restockAction: z.enum(['RESTOCK', 'DISCARD']),
     paymentMethod: z.enum(['CASH', 'CARD', 'DIGITAL']).optional().default('CASH'),
     notes: z.string().optional(),
@@ -1443,7 +1447,13 @@ export async function registerPosRoutes(app: Express) {
     if (!sessionUserId) return res.status(401).json({ error: 'Not authenticated' });
 
     const { saleId, storeId, originalSaleItemId, originalProductId, originalQuantity, originalUnitPrice, 
-            newProductId, newQuantity, newUnitPrice, restockAction, paymentMethod, notes } = parsed.data;
+            newProducts, restockAction, paymentMethod, notes } = parsed.data;
+    
+    // For compatibility, use first product for single-product operations
+    const firstNewProduct = newProducts[0];
+    const newProductId = firstNewProduct.productId;
+    const newQuantity = firstNewProduct.quantity;
+    const newUnitPrice = firstNewProduct.unitPrice;
 
     // Verify sale exists
     const saleRows = await db.select().from(sales).where(eq(sales.id, saleId));

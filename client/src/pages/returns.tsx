@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRightLeft, Loader2, RefreshCcw, Search, Undo2, X } from "lucide-react";
+import { ArrowRightLeft, Banknote, CreditCard, Loader2, Plus, RefreshCcw, Search, Smartphone, Trash2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SyncCenter from "@/components/pos/sync-center";
@@ -84,13 +84,17 @@ interface ProductSearchResult {
 
 type PaymentMethod = "CASH" | "CARD" | "DIGITAL";
 
+interface NewSwapProduct {
+  product: ProductSearchResult;
+  quantity: number;
+}
+
 interface SwapState {
   saleReference: string;
   saleData: SaleLookupResponse | null;
   selectedItem: SaleItemResponse | null;
-  newProduct: ProductSearchResult | null;
+  newProducts: NewSwapProduct[]; // Array of new products with quantities
   swapQuantity: number; // Quantity of original item to swap
-  newProductQuantity: number; // Quantity of new product to receive
   restockAction: RestockAction;
   paymentMethod: PaymentMethod;
   notes: string;
@@ -116,9 +120,8 @@ export default function ReturnsPage() {
     saleReference: "",
     saleData: null,
     selectedItem: null,
-    newProduct: null,
+    newProducts: [],
     swapQuantity: 1,
-    newProductQuantity: 1,
     restockAction: "RESTOCK",
     paymentMethod: "CASH",
     notes: "",
@@ -422,14 +425,20 @@ export default function ReturnsPage() {
           salePrice: Number(product.salePrice || product.price || 0),
           quantity: product.quantity,
         };
-        setSwapState((prev) => ({
-          ...prev,
-          newProduct,
-          newProductQuantity: 1,
-        }));
+        // Add to array if not already present, otherwise increment quantity
+        setSwapState((prev) => {
+          const existingIdx = prev.newProducts.findIndex(p => p.product.id === newProduct.id);
+          if (existingIdx >= 0) {
+            // Product already in list - increment quantity
+            const updated = [...prev.newProducts];
+            updated[existingIdx] = { ...updated[existingIdx], quantity: updated[existingIdx].quantity + 1 };
+            return { ...prev, newProducts: updated };
+          }
+          return { ...prev, newProducts: [...prev.newProducts, { product: newProduct, quantity: 1 }] };
+        });
         setSwapProductSearch("");
         setSwapSearchResults([]);
-        toast({ title: "Product found", description: newProduct.name });
+        toast({ title: "Product added", description: newProduct.name });
       } else {
         toast({ title: "Product not found", description: "Check the barcode and try again.", variant: "destructive" });
       }
@@ -449,7 +458,7 @@ export default function ReturnsPage() {
 
   // Calculate swap amounts - use original sale's tax rate for accuracy
   const swapCalculations = useMemo(() => {
-    if (!swapState.selectedItem || !swapState.newProduct) {
+    if (!swapState.selectedItem || swapState.newProducts.length === 0) {
       return { originalTotal: 0, newTotal: 0, priceDifference: 0, taxDifference: 0, totalDifference: 0 };
     }
     
@@ -458,7 +467,8 @@ export default function ReturnsPage() {
     const actualSwapQty = Math.min(swapState.swapQuantity, maxSwapQty);
     const originalTotal = originalUnitPrice * actualSwapQty;
     
-    const newTotal = swapState.newProduct.salePrice * swapState.newProductQuantity;
+    // Sum all new products' totals
+    const newTotal = swapState.newProducts.reduce((sum, item) => sum + (item.product.salePrice * item.quantity), 0);
     const priceDifference = newTotal - originalTotal;
     
     // Calculate tax rate from original sale (not store) for accuracy
@@ -469,11 +479,11 @@ export default function ReturnsPage() {
     const totalDifference = priceDifference + taxDifference;
     
     return { originalTotal, newTotal, priceDifference, taxDifference, totalDifference };
-  }, [swapState.selectedItem, swapState.newProduct, swapState.swapQuantity, swapState.newProductQuantity, swapState.saleData, storeTaxRate]);
+  }, [swapState.selectedItem, swapState.newProducts, swapState.swapQuantity, swapState.saleData, storeTaxRate]);
 
   const processSwapMutation = useMutation({
     mutationFn: async () => {
-      if (!swapState.saleData || !swapState.selectedItem || !swapState.newProduct) {
+      if (!swapState.saleData || !swapState.selectedItem || swapState.newProducts.length === 0) {
         throw new Error("Missing swap data");
       }
 
@@ -484,9 +494,12 @@ export default function ReturnsPage() {
         originalProductId: swapState.selectedItem.productId,
         originalQuantity: Math.min(swapState.swapQuantity, swapState.selectedItem.quantityRemaining || 1),
         originalUnitPrice: swapState.selectedItem.unitPrice,
-        newProductId: swapState.newProduct.id,
-        newQuantity: swapState.newProductQuantity,
-        newUnitPrice: swapState.newProduct.salePrice,
+        // Support multiple new products
+        newProducts: swapState.newProducts.map(item => ({
+          productId: item.product.id,
+          quantity: item.quantity,
+          unitPrice: item.product.salePrice,
+        })),
         restockAction: swapState.restockAction,
         paymentMethod: swapState.paymentMethod,
         notes: swapState.notes.trim() || undefined,
@@ -519,26 +532,27 @@ export default function ReturnsPage() {
         : "Even swap - no payment required";
       
       // Build and print swap receipt
+      const receiptItems = [
+        {
+          name: `RETURN: ${swapState.selectedItem?.name || "Original Product"}`,
+          quantity: swapState.swapQuantity,
+          unitPrice: -(swapState.selectedItem?.unitPrice || 0),
+          total: -swapCalculations.originalTotal,
+        },
+        ...swapState.newProducts.map(item => ({
+          name: `NEW: ${item.product.name}`,
+          quantity: item.quantity,
+          unitPrice: item.product.salePrice,
+          total: item.product.salePrice * item.quantity,
+        })),
+      ];
       const swapReceipt: ReceiptPrintJob = {
         receiptNumber: data.swap?.receiptNumber || `SWAP-${Date.now()}`,
         storeName: currentStore?.name || "Store",
         storeAddress: (currentStore as any)?.address,
         cashier: user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : user?.username,
         timestamp: new Date().toISOString(),
-        items: [
-          {
-            name: `RETURN: ${swapState.selectedItem?.name || "Original Product"}`,
-            quantity: swapState.swapQuantity,
-            unitPrice: -(swapState.selectedItem?.unitPrice || 0),
-            total: -swapCalculations.originalTotal,
-          },
-          {
-            name: `NEW: ${swapState.newProduct?.name || "New Product"}`,
-            quantity: swapState.newProductQuantity,
-            unitPrice: swapState.newProduct?.salePrice || 0,
-            total: swapCalculations.newTotal,
-          },
-        ],
+        items: receiptItems,
         totals: {
           subtotal: swapCalculations.priceDifference,
           discount: 0,
@@ -571,9 +585,8 @@ export default function ReturnsPage() {
         saleReference: "",
         saleData: null,
         selectedItem: null,
-        newProduct: null,
+        newProducts: [],
         swapQuantity: 1,
-        newProductQuantity: 1,
         restockAction: "RESTOCK",
         paymentMethod: "CASH",
         notes: "",
@@ -595,9 +608,9 @@ export default function ReturnsPage() {
   const canSubmitSwap = Boolean(
     swapState.saleData &&
     swapState.selectedItem &&
-    swapState.newProduct &&
+    swapState.newProducts.length > 0 &&
+    swapState.newProducts.every(p => p.quantity > 0) &&
     swapState.swapQuantity > 0 &&
-    swapState.newProductQuantity > 0 &&
     !processSwapMutation.isPending
   );
 
@@ -606,9 +619,8 @@ export default function ReturnsPage() {
       saleReference: "",
       saleData: null,
       selectedItem: null,
-      newProduct: null,
+      newProducts: [],
       swapQuantity: 1,
-      newProductQuantity: 1,
       restockAction: "RESTOCK",
       paymentMethod: "CASH",
       notes: "",
@@ -1124,58 +1136,106 @@ export default function ReturnsPage() {
                   </div>
 
                   {/* Search Results */}
-                  {swapSearchResults.length > 0 && !swapState.newProduct && (
+                  {swapSearchResults.length > 0 && (
                     <div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
-                      {swapSearchResults.map((product) => (
-                        <div
-                          key={product.id}
-                          className="p-2 hover:bg-slate-50 cursor-pointer"
-                          onClick={() => {
-                            setSwapState((prev) => ({ ...prev, newProduct: product, newProductQuantity: 1 }));
-                            setSwapProductSearch("");
-                            setSwapSearchResults([]);
-                          }}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-medium text-sm">{product.name}</div>
-                              <div className="text-xs text-slate-500">
-                                {product.sku && `SKU: ${product.sku}`} 
-                                {product.quantity !== undefined && ` • ${product.quantity} in stock`}
+                      {swapSearchResults.map((product) => {
+                        const alreadyAdded = swapState.newProducts.some(p => p.product.id === product.id);
+                        return (
+                          <div
+                            key={product.id}
+                            className={`p-2 cursor-pointer ${alreadyAdded ? "bg-green-50" : "hover:bg-slate-50"}`}
+                            onClick={() => {
+                              if (alreadyAdded) {
+                                // Increment quantity
+                                setSwapState((prev) => ({
+                                  ...prev,
+                                  newProducts: prev.newProducts.map(p => 
+                                    p.product.id === product.id 
+                                      ? { ...p, quantity: p.quantity + 1 }
+                                      : p
+                                  ),
+                                }));
+                              } else {
+                                // Add new product
+                                setSwapState((prev) => ({
+                                  ...prev,
+                                  newProducts: [...prev.newProducts, { product, quantity: 1 }],
+                                }));
+                              }
+                              setSwapProductSearch("");
+                              setSwapSearchResults([]);
+                            }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Plus className="h-4 w-4 text-slate-400" />
+                                <div>
+                                  <div className="font-medium text-sm">{product.name}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {product.sku && `SKU: ${product.sku}`} 
+                                    {product.quantity !== undefined && ` • ${product.quantity} in stock`}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="font-medium text-sm">
+                                {formatCurrency(product.salePrice, (currentStore as any)?.currency || "USD")}
                               </div>
                             </div>
-                            <div className="font-medium text-sm">
-                              {formatCurrency(product.salePrice, (currentStore as any)?.currency || "USD")}
-                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
-                  {/* Selected New Product */}
-                  {swapState.newProduct && (
-                    <div className="p-3 border border-green-200 bg-green-50 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-medium text-green-800">{swapState.newProduct.name}</div>
-                          <div className="text-sm text-green-600">
-                            {swapState.newProduct.sku && `SKU: ${swapState.newProduct.sku}`}
+                  {/* Selected New Products List */}
+                  {swapState.newProducts.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm text-slate-600">Products to swap to ({swapState.newProducts.length})</Label>
+                      <div className="border rounded-lg divide-y">
+                        {swapState.newProducts.map((item, idx) => (
+                          <div key={item.product.id} className="p-3 bg-green-50">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-green-800 truncate">{item.product.name}</div>
+                                <div className="text-xs text-green-600">
+                                  {formatCurrency(item.product.salePrice, (currentStore as any)?.currency || "USD")} each
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={item.product.quantity ?? 99}
+                                  value={item.quantity}
+                                  className="w-20 h-8"
+                                  onChange={(e) => {
+                                    const qty = Math.max(1, Math.min(Number(e.target.value) || 1, item.product.quantity ?? 99));
+                                    setSwapState((prev) => ({
+                                      ...prev,
+                                      newProducts: prev.newProducts.map((p, i) => 
+                                        i === idx ? { ...p, quantity: qty } : p
+                                      ),
+                                    }));
+                                  }}
+                                />
+                                <div className="text-sm font-medium text-green-800 w-20 text-right">
+                                  {formatCurrency(item.product.salePrice * item.quantity, (currentStore as any)?.currency || "USD")}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => setSwapState((prev) => ({
+                                    ...prev,
+                                    newProducts: prev.newProducts.filter((_, i) => i !== idx),
+                                  }))}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="font-medium text-green-800">
-                            {formatCurrency(swapState.newProduct.salePrice, (currentStore as any)?.currency || "USD")}
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-green-600 hover:text-red-600"
-                            onClick={() => setSwapState((prev) => ({ ...prev, newProduct: null }))}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -1184,7 +1244,7 @@ export default function ReturnsPage() {
             )}
 
             {/* Step 4: Configure Swap */}
-            {swapState.newProduct && (
+            {swapState.newProducts.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-sm font-medium">4</div>
@@ -1209,25 +1269,6 @@ export default function ReturnsPage() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label>Quantity of new product</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={swapState.newProduct?.quantity ?? 99}
-                        value={swapState.newProductQuantity}
-                        onChange={(e) => setSwapState((prev) => ({
-                          ...prev,
-                          newProductQuantity: Math.max(1, Math.min(Number(e.target.value) || 1, prev.newProduct?.quantity ?? 99)),
-                        }))}
-                      />
-                      <div className="text-xs text-slate-500">
-                        In stock: {swapState.newProduct?.quantity ?? "N/A"}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
                       <Label>Returned item action</Label>
                       <Select
                         value={swapState.restockAction}
@@ -1242,21 +1283,38 @@ export default function ReturnsPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Payment method</Label>
-                      <div className="flex gap-2">
-                        {(["CASH", "CARD", "DIGITAL"] as const).map((method) => (
-                          <Button
-                            key={method}
-                            type="button"
-                            variant={swapState.paymentMethod === method ? "default" : "outline"}
-                            className="flex-1"
-                            onClick={() => setSwapState((prev) => ({ ...prev, paymentMethod: method }))}
-                          >
-                            {method === "CASH" ? "💵 Cash" : method === "CARD" ? "💳 Card" : "📱 Digital"}
-                          </Button>
-                        ))}
-                      </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Payment method</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button
+                        type="button"
+                        variant={swapState.paymentMethod === "CASH" ? "default" : "outline"}
+                        className="h-14 flex-col gap-1"
+                        onClick={() => setSwapState((prev) => ({ ...prev, paymentMethod: "CASH" }))}
+                      >
+                        <Banknote className="w-5 h-5" />
+                        <span className="text-xs">Cash</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={swapState.paymentMethod === "CARD" ? "default" : "outline"}
+                        className="h-14 flex-col gap-1"
+                        onClick={() => setSwapState((prev) => ({ ...prev, paymentMethod: "CARD" }))}
+                      >
+                        <CreditCard className="w-5 h-5" />
+                        <span className="text-xs">Card</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={swapState.paymentMethod === "DIGITAL" ? "default" : "outline"}
+                        className="h-14 flex-col gap-1"
+                        onClick={() => setSwapState((prev) => ({ ...prev, paymentMethod: "DIGITAL" }))}
+                      >
+                        <Smartphone className="w-5 h-5" />
+                        <span className="text-xs">Digital</span>
+                      </Button>
                     </div>
                   </div>
                   
