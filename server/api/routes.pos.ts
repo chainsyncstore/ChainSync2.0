@@ -1355,28 +1355,34 @@ export async function registerPosRoutes(app: Express) {
           quantity: row.quantity 
         });
         try {
-          const removalResult = await storage.removeStock(
+          // Get cost from current inventory for loss calculation
+          const inv = await storage.getInventoryItem(row.productId, parsed.data.storeId);
+          const unitCost = Number((inv as any)?.avgCost) || 0;
+
+          // Record loss without reducing inventory (item was already sold)
+          const lossResult = await storage.recordDiscardLoss(
             row.productId,
             parsed.data.storeId,
             row.quantity,
+            unitCost,
             {
               reason: 'damaged',
-              refundType: 'none',
-              notes: row.notes || `Discarded during return - product not sellable`,
+              referenceId: ret.id,
+              notes: row.notes || 'Discarded during return - product not sellable',
             },
             sessionUserId,
           );
           logger.info('POS Return: Discarded stock loss recorded', { 
             productId: row.productId, 
             quantity: row.quantity,
-            lossAmount: removalResult.lossAmount,
+            lossAmount: lossResult.lossAmount,
           });
-        } catch (removalErr) {
+        } catch (lossErr) {
           logger.error('POS Return: Failed to record discarded stock loss', {
             productId: row.productId,
             storeId: parsed.data.storeId,
             quantity: row.quantity,
-            error: removalErr instanceof Error ? removalErr.message : String(removalErr),
+            error: lossErr instanceof Error ? lossErr.message : String(lossErr),
           });
           // Don't throw - continue with the return even if loss recording fails
         }
@@ -1636,28 +1642,34 @@ export async function registerPosRoutes(app: Express) {
           });
         }
       } else {
-        // DISCARD - record as stock removal loss (damaged/unsellable)
+        // DISCARD - record loss only (inventory already reduced from original sale)
         try {
-          const removalResult = await storage.removeStock(
+          // Get original product cost for loss calculation
+          const origInv = await storage.getInventoryItem(originalProductId, storeId);
+          const origUnitCost = Number((origInv as any)?.avgCost) || 0;
+
+          // Record loss without reducing inventory (item was already sold)
+          const lossResult = await storage.recordDiscardLoss(
             originalProductId,
             storeId,
             originalQuantity,
+            origUnitCost,
             {
               reason: 'damaged',
-              refundType: 'none',
-              notes: notes || `Discarded during swap - product not sellable`,
+              referenceId: returnRecord.id,
+              notes: notes || 'Discarded during swap - product not sellable',
             },
             sessionUserId,
           );
-          logger.info('POS Swap: Original product discarded and loss recorded', {
+          logger.info('POS Swap: Original product discarded and loss recorded (no inventory change)', {
             productId: originalProductId,
             quantity: originalQuantity,
-            lossAmount: removalResult.lossAmount,
+            lossAmount: lossResult.lossAmount,
           });
-        } catch (removalErr) {
+        } catch (lossErr) {
           logger.error('POS Swap: Failed to record discarded product loss', {
             productId: originalProductId,
-            error: removalErr instanceof Error ? removalErr.message : String(removalErr),
+            error: lossErr instanceof Error ? lossErr.message : String(lossErr),
           });
         }
       }

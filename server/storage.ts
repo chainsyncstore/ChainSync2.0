@@ -445,6 +445,9 @@ export interface IStorage {
   adjustInventory(productId: string, storeId: string, quantityChange: number, userId?: string, source?: string, referenceId?: string, notes?: string, metadata?: Record<string, unknown>): Promise<Inventory>;
   deleteInventory(productId: string, storeId: string, userId?: string, reason?: string): Promise<void>;
   removeStock(productId: string, storeId: string, quantity: number, options: StockRemovalOptions, userId?: string): Promise<{ inventory: Inventory; lossAmount: number; refundAmount: number }>;
+  // Records a loss for items already out of inventory (e.g., discarded during return/swap)
+  // Does NOT reduce inventory quantity - only logs the loss for P&L tracking
+  recordDiscardLoss(productId: string, storeId: string, quantity: number, unitCost: number, options: { reason: string; notes?: string; referenceId?: string }, userId?: string): Promise<{ lossAmount: number }>;
   getCostLayers(productId: string, storeId: string): Promise<CostLayerSummary>;
   analyzeMargin(productId: string, storeId: string, proposedSalePrice: number): Promise<MarginAnalysis>;
   getLowStockItems(storeId: string): Promise<Inventory[]>;
@@ -3050,6 +3053,69 @@ export class DatabaseStorage implements IStorage {
       lossAmount,
       refundAmount,
     };
+  }
+
+  /**
+   * Records a loss for items already out of inventory (e.g., discarded during return/swap).
+   * Does NOT reduce inventory quantity - only logs the loss for P&L tracking.
+   * Use this when the item was already sold/removed and is now being marked as unsellable.
+   */
+  async recordDiscardLoss(
+    productId: string,
+    storeId: string,
+    quantity: number,
+    unitCost: number,
+    options: { reason: string; notes?: string; referenceId?: string },
+    userId?: string,
+  ): Promise<{ lossAmount: number }> {
+    const lossAmount = quantity * unitCost;
+
+    // Record stock movement for audit trail (no quantity change)
+    await this.recordStockMovement({
+      storeId,
+      productId,
+      quantityBefore: 0, // Not applicable - item already out
+      quantityAfter: 0,  // Not applicable - item already out
+      actionType: 'discard_loss',
+      source: `discard_${options.reason}`,
+      userId,
+      referenceId: options.referenceId,
+      notes: options.notes || `Discarded: ${options.reason}`,
+      metadata: {
+        reason: options.reason,
+        quantityDiscarded: quantity,
+        unitCost,
+        lossAmount,
+      },
+    });
+
+    // Log inventory revaluation event for P&L tracking
+    const revaluationPayload = {
+      storeId,
+      productId,
+      userId: userId ?? null,
+      source: `stock_removal_${options.reason}`,
+      quantityBefore: 0,
+      quantityAfter: 0,
+      revaluedQuantity: quantity,
+      avgCostBefore: null,
+      avgCostAfter: null,
+      totalCostBefore: null,
+      totalCostAfter: null,
+      deltaValue: toOptionalDecimalString(-lossAmount, 4),
+      metadata: {
+        reason: options.reason,
+        refundType: 'none',
+        refundAmount: 0,
+        lossAmount,
+        costOfRemovedItems: lossAmount,
+        isDiscardFromReturn: true, // Flag to indicate this is from return/swap, not physical removal
+      },
+      occurredAt: new Date(),
+    } as InsertInventoryRevaluationEvent;
+    await this.logInventoryRevaluationEvent(revaluationPayload);
+
+    return { lossAmount };
   }
 
   async getCostLayers(productId: string, storeId: string): Promise<CostLayerSummary> {
