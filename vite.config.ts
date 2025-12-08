@@ -1,7 +1,8 @@
 import react from "@vitejs/plugin-react";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 // Compute a base directory that's safe across CJS and ESM runtimes
 const baseDir = (typeof __dirname !== 'undefined')
@@ -18,9 +19,38 @@ function safePathResolve(...pathsArr: string[]): string {
   }
 }
 
+// Plugin to generate asset-manifest.json for service worker precaching
+function assetManifestPlugin(): Plugin {
+  return {
+    name: 'asset-manifest',
+    apply: 'build',
+    writeBundle(options, bundle) {
+      const outDir = options.dir || safePathResolve("dist", "public");
+      const assets: string[] = [];
+      
+      for (const [fileName, chunk] of Object.entries(bundle)) {
+        // Include JS and CSS files
+        if (fileName.endsWith('.js') || fileName.endsWith('.css')) {
+          assets.push(`/${fileName}`);
+        }
+      }
+      
+      const manifest = {
+        files: assets,
+        timestamp: Date.now(),
+      };
+      
+      const manifestPath = path.join(outDir, 'asset-manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      console.log(`Asset manifest generated with ${assets.length} files`);
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
+    assetManifestPlugin(),
   ],
   resolve: {
     alias: {
