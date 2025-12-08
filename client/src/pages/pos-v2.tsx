@@ -470,6 +470,7 @@ export default function POSV2() {
       const { generateIdempotencyKey, validateSalePayload, enqueueOfflineSale, getOfflineQueueCount } = await import(
         "@/lib/offline-queue"
       );
+      const { cacheCompletedSale, updateLocalInventory } = await import("@/lib/idb-catalog");
       const idempotencyKey = generateIdempotencyKey();
       const csrfToken = await getCsrfToken().catch(() => null);
 
@@ -492,7 +493,58 @@ export default function POSV2() {
         })),
       };
 
+      // Pre-validate payload before attempting network
+      const validation = validateSalePayload(payload);
+      if (!validation.valid) throw new Error(validation.errors[0]);
+
+      // Helper to process sale offline
+      const processOffline = async (reason: string) => {
+        await enqueueOfflineSale({ url: "/api/pos/sales", payload, idempotencyKey });
+        setQueuedCount(await getOfflineQueueCount());
+        
+        // Update local inventory optimistically (reduce quantities)
+        for (const item of payload.items) {
+          await updateLocalInventory(selectedStore, item.productId, -item.quantity);
+        }
+        
+        // Cache the sale locally for offline return/swap lookup
+        const localId = `local_${Date.now()}_${idempotencyKey.slice(0, 8)}`;
+        await cacheCompletedSale({
+          id: localId,
+          idempotencyKey,
+          storeId: selectedStore,
+          subtotal: summary.subtotal,
+          discount: summary.redeemDiscount,
+          tax: summary.tax,
+          total: summary.total,
+          paymentMethod: payment.method,
+          items: payload.items.map((item, idx) => ({
+            id: `${localId}_item_${idx}`,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.unitPrice),
+            lineTotal: parseFloat(item.lineTotal),
+            name: items[idx]?.name || null,
+          })),
+          occurredAt: new Date().toISOString(),
+          isOffline: true,
+          syncedAt: null,
+        });
+        
+        toast({ title: "Saved offline", description: reason });
+        return { id: localId, offline: true, idempotencyKey };
+      };
+
+      // If already offline, skip network attempt entirely
+      if (!navigator.onLine) {
+        return processOffline("Sale saved locally. Will sync when connection returns.");
+      }
+
+      // Try network with timeout to prevent hanging
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
         const res = await fetch("/api/pos/sales", {
           method: "POST",
           headers: {
@@ -502,17 +554,44 @@ export default function POSV2() {
           },
           body: JSON.stringify(payload),
           credentials: "include",
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
+
         if (!res.ok) throw new Error(`${res.status}`);
-        return await res.json();
-      } catch {
-        // Offline fallback
-        const v = validateSalePayload(payload);
-        if (!v.valid) throw new Error(v.errors[0]);
-        await enqueueOfflineSale({ url: "/api/pos/sales", payload, idempotencyKey });
-        setQueuedCount(await getOfflineQueueCount());
-        toast({ title: "Saved offline", description: "Sale will sync when connection returns." });
-        return { id: `local_${Date.now()}`, offline: true };
+        const saleResult = await res.json();
+        
+        // Cache the completed sale for offline return/swap lookup
+        await cacheCompletedSale({
+          id: saleResult.id,
+          idempotencyKey,
+          storeId: selectedStore,
+          subtotal: summary.subtotal,
+          discount: summary.redeemDiscount,
+          tax: summary.tax,
+          total: summary.total,
+          paymentMethod: payment.method,
+          items: payload.items.map((item, idx) => ({
+            id: saleResult.items?.[idx]?.id || `${saleResult.id}_item_${idx}`,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.unitPrice),
+            lineTotal: parseFloat(item.lineTotal),
+            name: items[idx]?.name || null,
+          })),
+          occurredAt: saleResult.occurredAt || new Date().toISOString(),
+          isOffline: false,
+          syncedAt: new Date().toISOString(),
+        });
+        
+        return saleResult;
+      } catch (err) {
+        // Network failed - process offline
+        const isTimeout = err instanceof Error && err.name === "AbortError";
+        const reason = isTimeout 
+          ? "Connection timed out. Sale saved locally."
+          : "Network unavailable. Sale saved locally.";
+        return processOffline(reason);
       }
     },
     onSuccess: async (sale) => {

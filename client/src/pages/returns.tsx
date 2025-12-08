@@ -1,11 +1,22 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRightLeft, Banknote, CreditCard, Loader2, Minus, Plus, RefreshCcw, Search, Smartphone, Trash2, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Banknote, CreditCard, Loader2, Minus, Plus, RefreshCcw, Search, Smartphone, Trash2, Undo2, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CachedSale, CachedSaleItem, OfflineReturnRecord } from "@/lib/idb-catalog";
 
 import SyncCenter from "@/components/pos/sync-center";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -132,6 +143,14 @@ export default function ReturnsPage() {
   const [isSearchingProducts, setIsSearchingProducts] = useState(false);
   const [swapBarcodeInput, setSwapBarcodeInput] = useState("");
 
+  // Offline handling state
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [cachedSaleData, setCachedSaleData] = useState<CachedSale | null>(null);
+  const [showOfflineWarning, setShowOfflineWarning] = useState(false);
+  const [pendingOfflineAction, setPendingOfflineAction] = useState<"return" | "swap" | null>(null);
+  const [offlineReturnCount, setOfflineReturnCount] = useState(0);
+
   const { data: stores = [], isLoading: loadingStores } = useQuery<Store[]>({
     queryKey: ["/api/stores"],
   });
@@ -151,7 +170,60 @@ export default function ReturnsPage() {
   useEffect(() => {
     setSaleData(null);
     setDraft({});
+    setCachedSaleData(null);
+    setIsOfflineMode(false);
   }, [selectedStore]);
+
+  // Online/offline detection
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      toast({ title: "Back online", description: "Returns will sync to server." });
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      toast({ title: "You're offline", description: "Returns will be saved locally and synced later.", variant: "destructive" });
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [toast]);
+
+  // Track offline return count
+  useEffect(() => {
+    const loadOfflineCount = async () => {
+      try {
+        const { getOfflineReturns } = await import("@/lib/idb-catalog");
+        const returns = await getOfflineReturns(selectedStore);
+        setOfflineReturnCount(returns.length);
+      } catch {
+        // Ignore
+      }
+    };
+    void loadOfflineCount();
+    const interval = setInterval(loadOfflineCount, 10000);
+    return () => clearInterval(interval);
+  }, [selectedStore]);
+
+  // Helper to initialize draft from cached sale
+  const initializeDraftFromCached = (sale: CachedSale) => {
+    const next: ReturnDraftState = {};
+    sale.items.forEach((item) => {
+      const remainingQty = item.quantity - (item.quantityReturned || 0);
+      const unitValue = item.quantity > 0 ? item.lineTotal / item.quantity : 0;
+      const remainingValue = unitValue * remainingQty;
+      next[item.id] = {
+        quantity: remainingQty,
+        restockAction: "RESTOCK",
+        refundType: remainingQty > 0 ? "FULL" : "NONE",
+        refundAmount: remainingValue.toFixed(2),
+      };
+    });
+    setDraft(next);
+  };
 
   const initializeDraft = (response: SaleLookupResponse) => {
     const next: ReturnDraftState = {};
@@ -180,10 +252,80 @@ export default function ReturnsPage() {
       return;
     }
     setFetchingSale(true);
+    setIsOfflineMode(false);
+    setCachedSaleData(null);
+
+    // Helper to try local cache lookup
+    const tryLocalCache = async (): Promise<CachedSale | null> => {
+      try {
+        const { getCachedSale, getSalesForStore } = await import("@/lib/idb-catalog");
+        // Try direct ID match first
+        let cached = await getCachedSale(saleReference.trim());
+        if (cached && cached.storeId === selectedStore) return cached;
+        
+        // Try searching all cached sales for this store
+        const allSales = await getSalesForStore(selectedStore);
+        cached = allSales.find(s => 
+          s.id === saleReference.trim() || 
+          s.idempotencyKey === saleReference.trim() ||
+          s.serverId === saleReference.trim()
+        ) || null;
+        return cached;
+      } catch {
+        return null;
+      }
+    };
+
+    // If offline, try local cache only
+    if (!navigator.onLine) {
+      const cached = await tryLocalCache();
+      if (cached) {
+        // Check if fully returned locally
+        const allReturned = cached.items.every(item => (item.quantityReturned || 0) >= item.quantity);
+        if (allReturned) {
+          toast({ 
+            title: "Sale already fully returned", 
+            description: "All items from this sale have already been returned.", 
+            variant: "destructive" 
+          });
+          setSaleData(null);
+          setDraft({});
+          setFetchingSale(false);
+          return;
+        }
+        
+        setCachedSaleData(cached);
+        setIsOfflineMode(true);
+        initializeDraftFromCached(cached);
+        setReason("");
+        toast({ 
+          title: "Using cached sale data", 
+          description: "You're offline. Return will be queued for sync.", 
+        });
+      } else {
+        toast({ 
+          title: "Sale not found in cache", 
+          description: "This sale isn't cached locally. Try again when online.", 
+          variant: "destructive" 
+        });
+        setSaleData(null);
+        setDraft({});
+      }
+      setFetchingSale(false);
+      return;
+    }
+
+    // Online: try network with timeout, fallback to cache
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
       const res = await fetch(`/api/pos/sales/${saleReference.trim()}?storeId=${selectedStore}`, {
         credentials: "include",
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         if (res.status === 409) {
@@ -205,9 +347,23 @@ export default function ReturnsPage() {
       setReason("");
     } catch (error) {
       console.error("Failed to fetch sale", error);
-      setSaleData(null);
-      setDraft({});
-      toast({ title: "Sale not found", description: "Check the sale ID and try again.", variant: "destructive" });
+      
+      // Try local cache as fallback
+      const cached = await tryLocalCache();
+      if (cached) {
+        setCachedSaleData(cached);
+        setIsOfflineMode(true);
+        initializeDraftFromCached(cached);
+        setReason("");
+        toast({ 
+          title: "Network unavailable", 
+          description: "Using cached sale data. Return will be queued for sync.", 
+        });
+      } else {
+        setSaleData(null);
+        setDraft({});
+        toast({ title: "Sale not found", description: "Check the sale ID and try again.", variant: "destructive" });
+      }
     } finally {
       setFetchingSale(false);
     }
@@ -229,12 +385,16 @@ export default function ReturnsPage() {
     return item.lineTotal / item.quantity;
   };
 
-  // Calculate tax rate from the sale (tax / subtotal)
+  // Calculate tax rate from the sale (tax / subtotal) - works for both online and cached sales
   const taxRate = useMemo(() => {
+    if (isOfflineMode && cachedSaleData) {
+      const subtotal = cachedSaleData.subtotal || 0;
+      return subtotal > 0 ? cachedSaleData.tax / subtotal : 0;
+    }
     if (!saleData) return 0;
     const subtotal = saleData.sale.subtotal || 0;
     return subtotal > 0 ? saleData.sale.tax / subtotal : 0;
-  }, [saleData]);
+  }, [saleData, cachedSaleData, isOfflineMode]);
 
   const computeRefundForItem = (item: SaleItemResponse) => {
     const draftEntry = draft[item.id];
@@ -257,18 +417,111 @@ export default function ReturnsPage() {
     return productRefund * taxRate;
   };
 
-  const totalProductRefund = saleData
+  // Compute refund for cached item (offline mode)
+  const computeRefundForCachedItem = (item: CachedSaleItem) => {
+    const draftEntry = draft[item.id];
+    if (!draftEntry) return 0;
+    const remainingQty = item.quantity - (item.quantityReturned || 0);
+    const unitValue = item.quantity > 0 ? item.lineTotal / item.quantity : 0;
+    const entryQty = draftEntry.quantity ?? 0;
+    const quantity = Math.min(Math.max(entryQty, 0), remainingQty);
+    if (draftEntry.refundType === "NONE") return 0;
+    if (draftEntry.refundType === "FULL") {
+      return unitValue * quantity;
+    }
+    const requested = Number.parseFloat(draftEntry.refundAmount || "0");
+    if (!Number.isFinite(requested) || requested < 0) return 0;
+    return Math.min(requested, unitValue * quantity);
+  };
+
+  const totalProductRefund = isOfflineMode && cachedSaleData
+    ? cachedSaleData.items.reduce((sum, item) => sum + computeRefundForCachedItem(item), 0)
+    : saleData
     ? saleData.items.reduce((sum, item) => sum + computeRefundForItem(item), 0)
     : 0;
 
-  const totalTaxRefund = saleData
-    ? saleData.items.reduce((sum, item) => sum + computeTaxRefundForItem(item), 0)
-    : 0;
+  const totalTaxRefund = totalProductRefund * taxRate;
 
   const totalRefund = totalProductRefund + totalTaxRefund;
 
+  // Process offline return - queues for later sync
+  const processOfflineReturn = async () => {
+    if (!cachedSaleData) throw new Error("No cached sale data");
+    
+    const { enqueueOfflineReturn, markItemsReturned, updateLocalInventory, getOfflineReturns } = await import("@/lib/idb-catalog");
+    
+    const itemsPayload = cachedSaleData.items
+      .map((item) => ({ draftEntry: draft[item.id], item }))
+      .filter(({ draftEntry }) => Boolean(draftEntry))
+      .map(({ draftEntry, item }) => ({ draftEntry: draftEntry!, item }))
+      .filter(({ draftEntry, item }) => {
+        const remainingQty = item.quantity - (item.quantityReturned || 0);
+        return (draftEntry.quantity ?? 0) > 0 && (draftEntry.quantity ?? 0) <= remainingQty;
+      })
+      .map(({ draftEntry, item }) => {
+        const remainingQty = item.quantity - (item.quantityReturned || 0);
+        const unitValue = item.quantity > 0 ? item.lineTotal / item.quantity : 0;
+        const returnQty = Math.min(Math.max(draftEntry.quantity ?? 0, 0), remainingQty);
+        return {
+          saleItemId: item.id,
+          productId: item.productId,
+          quantity: returnQty,
+          restockAction: draftEntry.restockAction as "RESTOCK" | "DISCARD",
+          refundType: draftEntry.refundType as "NONE" | "FULL" | "PARTIAL",
+          refundAmount: draftEntry.refundType === "PARTIAL"
+            ? Math.min(Number.parseFloat(draftEntry.refundAmount || "0") || 0, unitValue * returnQty)
+            : draftEntry.refundType === "FULL" ? unitValue * returnQty : 0,
+        };
+      });
+
+    if (!itemsPayload.length) {
+      throw new Error("No items selected for return");
+    }
+
+    // Calculate potential loss (total refund amount - could be duplicate)
+    const potentialLoss = itemsPayload.reduce((sum, item) => sum + item.refundAmount, 0);
+
+    const offlineReturn: OfflineReturnRecord = {
+      id: `offline_return_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      saleId: cachedSaleData.id,
+      storeId: cachedSaleData.storeId,
+      type: "RETURN",
+      items: itemsPayload,
+      reason: reason.trim() || undefined,
+      notes: `Processed offline. Original sale: ${cachedSaleData.isOffline ? "also offline" : "synced"}`,
+      createdAt: new Date().toISOString(),
+      potentialLoss,
+      syncedAt: null,
+    };
+
+    // Queue the offline return
+    await enqueueOfflineReturn(offlineReturn);
+
+    // Update local tracking: mark items as returned in cached sale
+    await markItemsReturned(cachedSaleData.id, itemsPayload.map(i => ({ saleItemId: i.saleItemId, quantity: i.quantity })));
+
+    // Update local inventory optimistically (add back for restocked items)
+    for (const item of itemsPayload) {
+      if (item.restockAction === "RESTOCK") {
+        await updateLocalInventory(cachedSaleData.storeId, item.productId, item.quantity);
+      }
+    }
+
+    // Update offline return count
+    const returns = await getOfflineReturns(selectedStore);
+    setOfflineReturnCount(returns.length);
+
+    return { offline: true, id: offlineReturn.id, potentialLoss };
+  };
+
   const processReturnMutation = useMutation({
     mutationFn: async () => {
+      // Offline mode - queue return for later sync
+      if (isOfflineMode && cachedSaleData) {
+        return processOfflineReturn();
+      }
+
+      // Online mode - regular API call
       if (!saleData) throw new Error("No sale selected");
       const itemsPayload = saleData.items
         .map((item) => ({ draftEntry: draft[item.id], item }))
@@ -303,25 +556,75 @@ export default function ReturnsPage() {
         items: itemsPayload,
       };
 
-      const csrfToken = await getCsrfToken().catch(() => null);
-      const res = await fetch("/api/pos/returns", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        throw new Error(`Return failed with status ${res.status}`);
+      // Try network with timeout, fallback to offline queue
+      try {
+        const csrfToken = await getCsrfToken().catch(() => null);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const res = await fetch("/api/pos/returns", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+          },
+          credentials: "include",
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          throw new Error(`Return failed with status ${res.status}`);
+        }
+        return res.json();
+      } catch (err) {
+        // Network failed - if we have cached data, offer to process offline
+        if (cachedSaleData || saleData) {
+          // Convert saleData to cached format if needed
+          if (!cachedSaleData && saleData) {
+            const tempCached: CachedSale = {
+              id: saleData.sale.id,
+              storeId: saleData.sale.storeId,
+              subtotal: saleData.sale.subtotal,
+              discount: saleData.sale.discount,
+              tax: saleData.sale.tax,
+              total: saleData.sale.total,
+              paymentMethod: "unknown",
+              items: saleData.items.map(item => ({
+                id: item.id,
+                productId: item.productId,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                lineTotal: item.lineTotal,
+                name: item.name,
+                quantityReturned: item.quantityReturned,
+              })),
+              occurredAt: saleData.sale.occurredAt,
+              isOffline: false,
+              syncedAt: null,
+            };
+            setCachedSaleData(tempCached);
+            setIsOfflineMode(true);
+          }
+          throw new Error("NETWORK_FAILED");
+        }
+        throw err;
       }
-      return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Return processed", description: "Inventory and refunds updated." });
+    onSuccess: (result) => {
+      if (result?.offline) {
+        toast({ 
+          title: "Return queued offline", 
+          description: `Will sync when back online. Potential duplicate risk: ${formatCurrency(result.potentialLoss, (currentStore as any)?.currency || "USD")}`,
+        });
+      } else {
+        toast({ title: "Return processed", description: "Inventory and refunds updated." });
+      }
       setSaleReference("");
       setSaleData(null);
+      setCachedSaleData(null);
+      setIsOfflineMode(false);
       setDraft({});
       setReason("");
     },
@@ -331,14 +634,42 @@ export default function ReturnsPage() {
     },
   });
 
+  // canSubmit works for both online (saleData) and offline (cachedSaleData) modes
   const canSubmit = Boolean(
-    saleData &&
-      saleData.items.some((item) => {
-        const entry = draft[item.id];
-        return entry && entry.quantity > 0;
-      }) &&
+    (saleData || (isOfflineMode && cachedSaleData)) &&
+      ((isOfflineMode && cachedSaleData
+        ? cachedSaleData.items.some((item) => {
+            const entry = draft[item.id];
+            const remainingQty = item.quantity - (item.quantityReturned || 0);
+            return entry && (entry.quantity ?? 0) > 0 && (entry.quantity ?? 0) <= remainingQty;
+          })
+        : saleData?.items.some((item) => {
+            const entry = draft[item.id];
+            return entry && entry.quantity > 0;
+          }))) &&
       !processReturnMutation.isPending
   );
+
+  // Handler to initiate return with offline warning if needed
+  const handleProcessReturn = () => {
+    if (isOfflineMode) {
+      setPendingOfflineAction("return");
+      setShowOfflineWarning(true);
+    } else {
+      processReturnMutation.mutate();
+    }
+  };
+
+  // Confirm offline action (after warning acknowledged)
+  const confirmOfflineAction = () => {
+    setShowOfflineWarning(false);
+    if (pendingOfflineAction === "return") {
+      processReturnMutation.mutate();
+    } else if (pendingOfflineAction === "swap") {
+      processSwapMutation.mutate();
+    }
+    setPendingOfflineAction(null);
+  };
 
   const lockedStore = useMemo(() => stores.find((store) => store.id === lockedStoreId) || null, [lockedStoreId, stores]);
 
@@ -348,6 +679,10 @@ export default function ReturnsPage() {
     const rate = Number((currentStore as any)?.taxRate || 0);
     return rate / 100; // Convert percentage to decimal
   }, [currentStore]);
+
+  // Swap offline mode state
+  const [isSwapOfflineMode, setIsSwapOfflineMode] = useState(false);
+  const [cachedSwapSale, setCachedSwapSale] = useState<CachedSale | null>(null);
 
   // Swap modal functions
   const handleSwapLookupSale = async () => {
@@ -360,10 +695,87 @@ export default function ReturnsPage() {
       return;
     }
     setFetchingSwapSale(true);
+    setIsSwapOfflineMode(false);
+    setCachedSwapSale(null);
+    
+    // Helper to convert cached sale to SaleLookupResponse format
+    const cachedToSaleData = (cached: CachedSale): SaleLookupResponse => ({
+      sale: {
+        id: cached.serverId || cached.id,
+        storeId: cached.storeId,
+        subtotal: cached.subtotal,
+        discount: cached.discount,
+        tax: cached.tax,
+        total: cached.total,
+        occurredAt: cached.occurredAt,
+        status: cached.isOffline ? "PENDING_SYNC" : "COMPLETED",
+        currency: (currentStore as any)?.currency || "USD",
+      },
+      items: cached.items.map(item => ({
+        id: item.id,
+        productId: item.productId,
+        quantity: item.quantity,
+        quantityReturned: item.quantityReturned || 0,
+        quantityRemaining: item.quantity - (item.quantityReturned || 0),
+        unitPrice: item.unitPrice,
+        lineDiscount: 0,
+        lineTotal: item.lineTotal,
+        name: item.name || null,
+        sku: null,
+        barcode: null,
+      })),
+    });
+    
+    // Helper to try local cache
+    const tryLocalCache = async (): Promise<CachedSale | null> => {
+      try {
+        const { getCachedSale, getSalesForStore } = await import("@/lib/idb-catalog");
+        let cached = await getCachedSale(swapState.saleReference.trim());
+        if (cached && cached.storeId === selectedStore) return cached;
+        
+        const allSales = await getSalesForStore(selectedStore);
+        cached = allSales.find(s => 
+          s.id === swapState.saleReference.trim() || 
+          s.idempotencyKey === swapState.saleReference.trim() ||
+          s.serverId === swapState.saleReference.trim()
+        ) || null;
+        return cached;
+      } catch {
+        return null;
+      }
+    };
+    
+    // If offline, try local cache
+    if (!navigator.onLine) {
+      const cached = await tryLocalCache();
+      if (cached) {
+        setCachedSwapSale(cached);
+        setIsSwapOfflineMode(true);
+        setSwapState((prev) => ({
+          ...prev,
+          saleData: cachedToSaleData(cached),
+          selectedItem: null,
+          swapQuantity: 1,
+        }));
+        toast({ title: "Using cached sale data", description: "You're offline. Swap will be queued for sync." });
+      } else {
+        toast({ title: "Sale not found in cache", description: "Try again when online.", variant: "destructive" });
+      }
+      setFetchingSwapSale(false);
+      return;
+    }
+    
+    // Online: try network with timeout, fallback to cache
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
       const res = await fetch(`/api/pos/sales/${swapState.saleReference.trim()}?storeId=${selectedStore}`, {
         credentials: "include",
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+      
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.message || String(res.status));
@@ -379,7 +791,22 @@ export default function ReturnsPage() {
       }));
     } catch (error) {
       console.error("Failed to fetch sale for swap", error);
-      toast({ title: "Sale not found", description: "Check the sale ID and try again.", variant: "destructive" });
+      
+      // Try local cache as fallback
+      const cached = await tryLocalCache();
+      if (cached) {
+        setCachedSwapSale(cached);
+        setIsSwapOfflineMode(true);
+        setSwapState((prev) => ({
+          ...prev,
+          saleData: cachedToSaleData(cached),
+          selectedItem: null,
+          swapQuantity: 1,
+        }));
+        toast({ title: "Network unavailable", description: "Using cached sale data." });
+      } else {
+        toast({ title: "Sale not found", description: "Check the sale ID and try again.", variant: "destructive" });
+      }
     } finally {
       setFetchingSwapSale(false);
     }
@@ -392,21 +819,40 @@ export default function ReturnsPage() {
     }
     setIsSearchingProducts(true);
     try {
-      const res = await fetch(
-        `/api/stores/${selectedStore}/products?query=${encodeURIComponent(query)}&limit=10`,
-        { credentials: "include" }
-      );
-      if (res.ok) {
-        const products = await res.json();
-        setSwapSearchResults(products.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          sku: p.sku || null,
-          barcode: p.barcode || null,
-          salePrice: Number(p.salePrice || p.price || 0),
-          quantity: p.quantity,
-        })));
+      // Try online first, fallback to local cache
+      if (navigator.onLine) {
+        const res = await fetch(
+          `/api/stores/${selectedStore}/products?query=${encodeURIComponent(query)}&limit=10`,
+          { credentials: "include" }
+        );
+        if (res.ok) {
+          const products = await res.json();
+          setSwapSearchResults(products.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            sku: p.sku || null,
+            barcode: p.barcode || null,
+            salePrice: Number(p.salePrice || p.price || 0),
+            quantity: p.quantity,
+          })));
+          return;
+        }
       }
+      
+      // Offline or network failed - use local cache
+      const { searchProductsLocally, getInventoryForStore } = await import("@/lib/idb-catalog");
+      const products = await searchProductsLocally(query, 10);
+      const inventory = await getInventoryForStore(selectedStore);
+      const inventoryMap = new Map(inventory.map(i => [i.productId, i.quantity]));
+      
+      setSwapSearchResults(products.map(p => ({
+        id: p.id,
+        name: p.name,
+        sku: null, // ProductRow doesn't have sku
+        barcode: p.barcode || null,
+        salePrice: Number(p.price || 0),
+        quantity: inventoryMap.get(p.id) ?? 0,
+      })));
     } catch (err) {
       console.error("Product search failed", err);
     } finally {
@@ -417,32 +863,54 @@ export default function ReturnsPage() {
   const handleSwapBarcodeSubmit = useCallback(async (barcode: string) => {
     if (!barcode || !barcode.trim()) return;
     setIsSearchingProducts(true);
+    
+    const addProduct = (newProduct: ProductSearchResult) => {
+      setSwapState((prev) => {
+        const existingIdx = prev.newProducts.findIndex(p => p.product.id === newProduct.id);
+        if (existingIdx >= 0) {
+          const updated = [...prev.newProducts];
+          updated[existingIdx] = { ...updated[existingIdx], quantity: (updated[existingIdx].quantity ?? 0) + 1 };
+          return { ...prev, newProducts: updated };
+        }
+        return { ...prev, newProducts: [...prev.newProducts, { product: newProduct, quantity: 1 }] };
+      });
+      setSwapProductSearch("");
+      setSwapSearchResults([]);
+      toast({ title: "Product added", description: newProduct.name });
+    };
+    
     try {
-      const res = await fetch(`/api/products/barcode/${encodeURIComponent(barcode)}`, { credentials: "include" });
-      if (res.ok) {
-        const product = await res.json();
-        const newProduct: ProductSearchResult = {
+      // Try online first
+      if (navigator.onLine) {
+        const res = await fetch(`/api/products/barcode/${encodeURIComponent(barcode)}`, { credentials: "include" });
+        if (res.ok) {
+          const product = await res.json();
+          addProduct({
+            id: product.id,
+            name: product.name,
+            sku: product.sku || null,
+            barcode: product.barcode || null,
+            salePrice: Number(product.salePrice || product.price || 0),
+            quantity: product.quantity,
+          });
+          return;
+        }
+      }
+      
+      // Offline or network failed - use local cache
+      const { getProductByBarcodeLocally, getInventoryForStore } = await import("@/lib/idb-catalog");
+      const product = await getProductByBarcodeLocally(barcode.trim());
+      if (product) {
+        const inventory = await getInventoryForStore(selectedStore);
+        const invRecord = inventory.find(i => i.productId === product.id);
+        addProduct({
           id: product.id,
           name: product.name,
-          sku: product.sku || null,
+          sku: null, // ProductRow doesn't have sku
           barcode: product.barcode || null,
-          salePrice: Number(product.salePrice || product.price || 0),
-          quantity: product.quantity,
-        };
-        // Add to array if not already present, otherwise increment quantity
-        setSwapState((prev) => {
-          const existingIdx = prev.newProducts.findIndex(p => p.product.id === newProduct.id);
-          if (existingIdx >= 0) {
-            // Product already in list - increment quantity
-            const updated = [...prev.newProducts];
-            updated[existingIdx] = { ...updated[existingIdx], quantity: (updated[existingIdx].quantity ?? 0) + 1 };
-            return { ...prev, newProducts: updated };
-          }
-          return { ...prev, newProducts: [...prev.newProducts, { product: newProduct, quantity: 1 }] };
+          salePrice: Number(product.price || 0),
+          quantity: invRecord?.quantity ?? 0,
         });
-        setSwapProductSearch("");
-        setSwapSearchResults([]);
-        toast({ title: "Product added", description: newProduct.name });
       } else {
         toast({ title: "Product not found", description: "Check the barcode and try again.", variant: "destructive" });
       }
@@ -452,7 +920,7 @@ export default function ReturnsPage() {
       setIsSearchingProducts(false);
       setSwapBarcodeInput("");
     }
-  }, [toast]);
+  }, [toast, selectedStore]);
 
   // Search products with debounce
   useEffect(() => {
@@ -485,8 +953,82 @@ export default function ReturnsPage() {
     return { originalTotal, newTotal, priceDifference, taxDifference, totalDifference };
   }, [swapState.selectedItem, swapState.newProducts, swapState.swapQuantity, swapState.saleData, storeTaxRate]);
 
+  // Process offline swap - queues for later sync
+  const processOfflineSwap = async () => {
+    if (!swapState.saleData || !swapState.selectedItem || swapState.newProducts.length === 0) {
+      throw new Error("Missing swap data");
+    }
+    
+    const { enqueueOfflineReturn, markItemsReturned, updateLocalInventory, getOfflineReturns } = await import("@/lib/idb-catalog");
+    
+    const originalQty = Math.min(swapState.swapQuantity ?? 0, swapState.selectedItem.quantityRemaining || 1);
+    
+    // Calculate potential loss (refund value if it's a negative swap)
+    const potentialLoss = swapCalculations.totalDifference < 0 ? Math.abs(swapCalculations.totalDifference) : 0;
+    
+    const offlineSwap: OfflineReturnRecord = {
+      id: `offline_swap_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      saleId: cachedSwapSale?.id || swapState.saleData.sale.id,
+      storeId: selectedStore,
+      type: "SWAP",
+      items: [{
+        saleItemId: swapState.selectedItem.id,
+        productId: swapState.selectedItem.productId,
+        quantity: originalQty,
+        restockAction: swapState.restockAction as "RESTOCK" | "DISCARD",
+        refundType: "FULL",
+        refundAmount: swapCalculations.originalTotal,
+      }],
+      reason: swapState.notes.trim() || undefined,
+      notes: `Offline swap. New products: ${swapState.newProducts.map(p => `${p.product.name} x${p.quantity}`).join(", ")}`,
+      createdAt: new Date().toISOString(),
+      potentialLoss,
+      syncedAt: null,
+      // Store swap-specific data in notes for server processing
+      swapData: {
+        newProducts: swapState.newProducts.map(item => ({
+          productId: item.product.id,
+          quantity: item.quantity ?? 0,
+          unitPrice: item.product.salePrice,
+          name: item.product.name,
+        })),
+        paymentMethod: swapState.paymentMethod,
+        totalDifference: swapCalculations.totalDifference,
+      },
+    };
+    
+    // Queue the offline swap
+    await enqueueOfflineReturn(offlineSwap);
+    
+    // Update local tracking
+    if (cachedSwapSale) {
+      await markItemsReturned(cachedSwapSale.id, [{ saleItemId: swapState.selectedItem.id, quantity: originalQty }]);
+    }
+    
+    // Update local inventory optimistically
+    // Add back original product if restocking
+    if (swapState.restockAction === "RESTOCK") {
+      await updateLocalInventory(selectedStore, swapState.selectedItem.productId, originalQty);
+    }
+    // Subtract new products from inventory
+    for (const item of swapState.newProducts) {
+      await updateLocalInventory(selectedStore, item.product.id, -(item.quantity ?? 0));
+    }
+    
+    // Update offline return count
+    const returns = await getOfflineReturns(selectedStore);
+    setOfflineReturnCount(returns.length);
+    
+    return { offline: true, id: offlineSwap.id, potentialLoss, totalDifference: swapCalculations.totalDifference };
+  };
+
   const processSwapMutation = useMutation({
     mutationFn: async () => {
+      // Offline mode - queue swap for later sync
+      if (isSwapOfflineMode || !navigator.onLine) {
+        return processOfflineSwap();
+      }
+      
       if (!swapState.saleData || !swapState.selectedItem || swapState.newProducts.length === 0) {
         throw new Error("Missing swap data");
       }
@@ -498,7 +1040,6 @@ export default function ReturnsPage() {
         originalProductId: swapState.selectedItem.productId,
         originalQuantity: Math.min(swapState.swapQuantity ?? 0, swapState.selectedItem.quantityRemaining || 1),
         originalUnitPrice: swapState.selectedItem.unitPrice,
-        // Support multiple new products
         newProducts: swapState.newProducts.map(item => ({
           productId: item.product.id,
           quantity: item.quantity ?? 0,
@@ -509,26 +1050,68 @@ export default function ReturnsPage() {
         notes: swapState.notes.trim() || undefined,
       };
 
-      const csrfToken = await getCsrfToken().catch(() => null);
-      const res = await fetch("/api/pos/swaps", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+      // Try network with timeout
+      try {
+        const csrfToken = await getCsrfToken().catch(() => null);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const res = await fetch("/api/pos/swaps", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+          },
+          credentials: "include",
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Swap failed with status ${res.status}`);
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.error || `Swap failed with status ${res.status}`);
+        }
+        return res.json();
+      } catch (err) {
+        // Network failed - try offline processing
+        if ((err as Error).name === "AbortError" || !navigator.onLine) {
+          setIsSwapOfflineMode(true);
+          return processOfflineSwap();
+        }
+        throw err;
       }
-      return res.json();
     },
     onSuccess: async (data) => {
-      const diff = data.swap?.totalDifference || 0;
       const currency = (currentStore as any)?.currency || "USD";
+      
+      // Handle offline result
+      if (data?.offline) {
+        const diff = data.totalDifference || 0;
+        toast({ 
+          title: "Swap queued offline", 
+          description: `Will sync when back online. ${diff < 0 ? `Potential refund: ${formatCurrency(Math.abs(diff), currency)}` : ""}`,
+        });
+        // Reset state
+        setSwapState({
+          saleReference: "",
+          saleData: null,
+          selectedItem: null,
+          newProducts: [],
+          swapQuantity: 1,
+          restockAction: "RESTOCK",
+          paymentMethod: "CASH",
+          notes: "",
+        });
+        setSwapProductSearch("");
+        setSwapSearchResults([]);
+        setIsSwapModalOpen(false);
+        setIsSwapOfflineMode(false);
+        setCachedSwapSale(null);
+        return;
+      }
+      
+      const diff = data.swap?.totalDifference || 0;
       const description = diff > 0 
         ? `Customer charged ${formatCurrency(diff, currency)}`
         : diff < 0 
@@ -637,7 +1220,15 @@ export default function ReturnsPage() {
     <div className="space-y-4">
       <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs uppercase text-slate-500">Sync status</p>
+          <p className="text-xs uppercase text-slate-500 flex items-center gap-2">
+            Sync status
+            {!isOnline && (
+              <span className="inline-flex items-center gap-1 text-red-600">
+                <WifiOff className="h-3 w-3" />
+                Offline
+              </span>
+            )}
+          </p>
           <p className="text-sm text-slate-700">
             {lastSync ? (
               <>
@@ -652,7 +1243,12 @@ export default function ReturnsPage() {
           <Badge variant={queuedCount > 0 ? "secondary" : "outline"} className={queuedCount > 0 ? "bg-amber-100 text-amber-900 border-amber-200" : "text-slate-600"}>
             {queuedCount > 0 ? `${queuedCount} pending sale${queuedCount > 1 ? "s" : ""}` : "Queue clear"}
           </Badge>
-          <Button size="sm" variant="outline" onClick={handleSyncNow}>
+          {offlineReturnCount > 0 && (
+            <Badge variant="secondary" className="bg-orange-100 text-orange-900 border-orange-200">
+              {offlineReturnCount} pending return{offlineReturnCount > 1 ? "s" : ""}
+            </Badge>
+          )}
+          <Button size="sm" variant="outline" onClick={handleSyncNow} disabled={!isOnline}>
             Sync now
           </Button>
           <Button size="sm" variant="outline" onClick={() => setIsSyncCenterOpen(true)}>
@@ -660,6 +1256,12 @@ export default function ReturnsPage() {
           </Button>
         </div>
       </div>
+      {!isOnline && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 flex items-center gap-2">
+          <WifiOff className="h-4 w-4" />
+          You are offline. Returns and swaps will be queued locally and synced when you reconnect.
+        </div>
+      )}
       {escalations > 0 && (
         <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           Some queued sales have retried multiple times. Check connection or contact support if this persists.
@@ -737,41 +1339,74 @@ export default function ReturnsPage() {
         </CardContent>
       </Card>
 
-      {saleData && (
+      {/* Sale Summary - works for both online (saleData) and offline (cachedSaleData) */}
+      {(saleData || (isOfflineMode && cachedSaleData)) && (
         <>
+          {isOfflineMode && cachedSaleData && (
+            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 flex items-center gap-2">
+              <WifiOff className="h-4 w-4" />
+              <span>
+                <strong>Offline Mode:</strong> Using cached sale data. 
+                {cachedSaleData.isOffline && " This sale was also created offline and may not be synced yet."}
+              </span>
+            </div>
+          )}
           <Card>
             <CardHeader>
               <CardTitle>Sale summary</CardTitle>
               <CardDescription>
-                Processed {formatDateTime(new Date(saleData.sale.occurredAt))} · Status
-                <Badge variant="secondary" className="ml-2 uppercase">
-                  {saleData.sale.status}
-                </Badge>
+                {isOfflineMode && cachedSaleData ? (
+                  <>
+                    Processed {formatDateTime(new Date(cachedSaleData.occurredAt))} · 
+                    <Badge variant="secondary" className="ml-2 uppercase">
+                      {cachedSaleData.isOffline ? "PENDING SYNC" : "CACHED"}
+                    </Badge>
+                  </>
+                ) : saleData ? (
+                  <>
+                    Processed {formatDateTime(new Date(saleData.sale.occurredAt))} · Status
+                    <Badge variant="secondary" className="ml-2 uppercase">
+                      {saleData.sale.status}
+                    </Badge>
+                  </>
+                ) : null}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-4">
               <div>
                 <p className="text-xs text-slate-500">Subtotal</p>
                 <p className="text-base font-semibold text-slate-800">
-                  {formatCurrency(saleData.sale.subtotal, saleData.sale.currency as any)}
+                  {formatCurrency(
+                    isOfflineMode && cachedSaleData ? cachedSaleData.subtotal : saleData?.sale.subtotal || 0,
+                    (isOfflineMode && cachedSaleData ? (currentStore as any)?.currency : saleData?.sale.currency) || "USD"
+                  )}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Discount</p>
                 <p className="text-base font-semibold text-slate-800">
-                  {formatCurrency(saleData.sale.discount, saleData.sale.currency as any)}
+                  {formatCurrency(
+                    isOfflineMode && cachedSaleData ? cachedSaleData.discount : saleData?.sale.discount || 0,
+                    (isOfflineMode && cachedSaleData ? (currentStore as any)?.currency : saleData?.sale.currency) || "USD"
+                  )}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Tax</p>
                 <p className="text-base font-semibold text-slate-800">
-                  {formatCurrency(saleData.sale.tax, saleData.sale.currency as any)}
+                  {formatCurrency(
+                    isOfflineMode && cachedSaleData ? cachedSaleData.tax : saleData?.sale.tax || 0,
+                    (isOfflineMode && cachedSaleData ? (currentStore as any)?.currency : saleData?.sale.currency) || "USD"
+                  )}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Total</p>
                 <p className="text-base font-semibold text-slate-800">
-                  {formatCurrency(saleData.sale.total, saleData.sale.currency as any)}
+                  {formatCurrency(
+                    isOfflineMode && cachedSaleData ? cachedSaleData.total : saleData?.sale.total || 0,
+                    (isOfflineMode && cachedSaleData ? (currentStore as any)?.currency : saleData?.sale.currency) || "USD"
+                  )}
                 </p>
               </div>
             </CardContent>
@@ -794,17 +1429,25 @@ export default function ReturnsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {saleData.items.map((item) => {
+                  {/* Render items from either online saleData or offline cachedSaleData */}
+                  {(isOfflineMode && cachedSaleData ? cachedSaleData.items : saleData?.items || []).map((item) => {
                     const entry = draft[item.id];
                     if (!entry) return null;
-                    const maxQty = item.quantityRemaining ?? item.quantity;
-                    const alreadyReturned = item.quantityReturned ?? 0;
+                    // Handle both online and offline item structures
+                    const maxQty = isOfflineMode && cachedSaleData 
+                      ? item.quantity - ((item as CachedSaleItem).quantityReturned || 0)
+                      : (item as SaleItemResponse).quantityRemaining ?? item.quantity;
+                    const alreadyReturned = isOfflineMode && cachedSaleData 
+                      ? ((item as CachedSaleItem).quantityReturned || 0)
+                      : ((item as SaleItemResponse).quantityReturned ?? 0);
                     const isFullyReturned = maxQty <= 0;
                     return (
                       <TableRow key={item.id} data-testid={`return-row-${item.id}`} className={isFullyReturned ? "opacity-50" : ""}>
                         <TableCell>
                           <div className="font-medium text-slate-800">{item.name || 'Product'}</div>
-                          <div className="text-xs text-slate-500">SKU: {item.sku || '–'}</div>
+                          <div className="text-xs text-slate-500">
+                            {isOfflineMode ? `ID: ${item.productId.slice(0, 8)}...` : `SKU: ${(item as SaleItemResponse).sku || '–'}`}
+                          </div>
                           {alreadyReturned > 0 && (
                             <div className="text-xs text-amber-600 mt-1">
                               {alreadyReturned} of {item.quantity} already returned
@@ -892,7 +1535,9 @@ export default function ReturnsPage() {
                             value={entry.refundType}
                             onValueChange={(value: RefundType) =>
                               handleDraftChange(item.id, (current) => {
-                                const baseAmount = (computeUnitRefund(item) * current.quantity).toFixed(2);
+                                // Compute unit refund based on available data
+                                const unitValue = item.quantity > 0 ? (item.lineTotal / item.quantity) : 0;
+                                const baseAmount = (unitValue * (current.quantity ?? 0)).toFixed(2);
                                 if (value === 'FULL') {
                                   return { ...current, refundType: value, refundAmount: baseAmount };
                                 }
@@ -914,39 +1559,50 @@ export default function ReturnsPage() {
                           </Select>
                         </TableCell>
                         <TableCell>
-                          {entry.refundType === 'PARTIAL' ? (
-                            <div className="space-y-1">
-                              <Input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={entry.refundAmount}
-                                data-testid={`refund-amount-${item.id}`}
-                                onChange={(event) =>
-                                  handleDraftChange(item.id, (current) => ({
-                                    ...current,
-                                    refundAmount: event.target.value,
-                                  }))
-                                }
-                              />
-                              {taxRate > 0 && (
-                                <div className="text-xs text-amber-600">
-                                  + {formatCurrency(computeTaxRefundForItem(item), saleData.sale.currency as any)} tax
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div>
-                              <div className="text-sm font-medium text-slate-800">
-                                {formatCurrency(computeRefundForItem(item), saleData.sale.currency as any)}
+                          {(() => {
+                            // Compute refund inline to work with both item types
+                            const unitValue = item.quantity > 0 ? item.lineTotal / item.quantity : 0;
+                            const entryQty = entry.quantity ?? 0;
+                            const refundAmount = entry.refundType === "NONE" ? 0 
+                              : entry.refundType === "FULL" ? unitValue * entryQty
+                              : Math.min(Number.parseFloat(entry.refundAmount || "0") || 0, unitValue * entryQty);
+                            const taxRefundAmount = refundAmount * taxRate;
+                            const currency = (isOfflineMode ? (currentStore as any)?.currency : saleData?.sale.currency) || "USD";
+                            
+                            return entry.refundType === 'PARTIAL' ? (
+                              <div className="space-y-1">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={entry.refundAmount}
+                                  data-testid={`refund-amount-${item.id}`}
+                                  onChange={(event) =>
+                                    handleDraftChange(item.id, (current) => ({
+                                      ...current,
+                                      refundAmount: event.target.value,
+                                    }))
+                                  }
+                                />
+                                {taxRate > 0 && (
+                                  <div className="text-xs text-amber-600">
+                                    + {formatCurrency(taxRefundAmount, currency)} tax
+                                  </div>
+                                )}
                               </div>
-                              {taxRate > 0 && computeRefundForItem(item) > 0 && (
-                                <div className="text-xs text-amber-600">
-                                  + {formatCurrency(computeTaxRefundForItem(item), saleData.sale.currency as any)} tax
+                            ) : (
+                              <div>
+                                <div className="text-sm font-medium text-slate-800">
+                                  {formatCurrency(refundAmount, currency)}
                                 </div>
-                              )}
-                            </div>
-                          )}
+                                {taxRate > 0 && refundAmount > 0 && (
+                                  <div className="text-xs text-amber-600">
+                                    + {formatCurrency(taxRefundAmount, currency)} tax
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                       </TableRow>
                     );
@@ -977,21 +1633,21 @@ export default function ReturnsPage() {
                     <div>
                       <p className="text-xs uppercase text-slate-500">Product refund</p>
                       <p className="text-lg font-medium text-slate-700">
-                        {formatCurrency(totalProductRefund, saleData.sale.currency as any)}
+                        {formatCurrency(totalProductRefund, (isOfflineMode ? (currentStore as any)?.currency : saleData?.sale.currency) || "USD")}
                       </p>
                     </div>
                     <div className="text-slate-400">+</div>
                     <div>
                       <p className="text-xs uppercase text-amber-600">Tax refund</p>
                       <p className="text-lg font-medium text-amber-600">
-                        {formatCurrency(totalTaxRefund, saleData.sale.currency as any)}
+                        {formatCurrency(totalTaxRefund, (isOfflineMode ? (currentStore as any)?.currency : saleData?.sale.currency) || "USD")}
                       </p>
                     </div>
                     <div className="text-slate-400">=</div>
                     <div>
                       <p className="text-xs uppercase text-slate-500">Total refund</p>
                       <p className="text-2xl font-semibold text-slate-900">
-                        {formatCurrency(totalRefund, saleData.sale.currency as any)}
+                        {formatCurrency(totalRefund, (isOfflineMode ? (currentStore as any)?.currency : saleData?.sale.currency) || "USD")}
                       </p>
                     </div>
                   </div>
@@ -999,12 +1655,14 @@ export default function ReturnsPage() {
                 <Button
                   className="min-w-[180px]"
                   disabled={!canSubmit}
-                  onClick={() => processReturnMutation.mutate()}
+                  onClick={handleProcessReturn}
                 >
                   {processReturnMutation.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : isOfflineMode ? (
+                    <WifiOff className="mr-2 h-4 w-4" />
                   ) : null}
-                  Process return
+                  {isOfflineMode ? "Queue return offline" : "Process return"}
                 </Button>
               </div>
             </CardContent>
@@ -1505,23 +2163,80 @@ export default function ReturnsPage() {
             )}
 
             {/* Submit */}
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button variant="outline" onClick={() => setIsSwapModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => processSwapMutation.mutate()}
-                disabled={!canSubmitSwap}
-              >
-                {processSwapMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Process Swap
-              </Button>
+            <div className="flex flex-col gap-2 pt-4 border-t">
+              {(isSwapOfflineMode || !isOnline) && (
+                <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 flex items-center gap-2">
+                  <WifiOff className="h-4 w-4" />
+                  <span>
+                    <strong>Offline Mode:</strong> Using cached inventory. Swap will be queued and synced when online.
+                    {swapCalculations.totalDifference < 0 && " Customer refund may be at risk of duplication."}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setIsSwapModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (isSwapOfflineMode || !isOnline) {
+                      setPendingOfflineAction("swap");
+                      setShowOfflineWarning(true);
+                    } else {
+                      processSwapMutation.mutate();
+                    }
+                  }}
+                  disabled={!canSubmitSwap}
+                >
+                  {processSwapMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {(isSwapOfflineMode || !isOnline) && <WifiOff className="mr-2 h-4 w-4" />}
+                  {(isSwapOfflineMode || !isOnline) ? "Queue Swap Offline" : "Process Swap"}
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
       <SyncCenter open={isSyncCenterOpen} onClose={() => setIsSyncCenterOpen(false)} />
+
+      {/* Offline Warning Dialog */}
+      <AlertDialog open={showOfflineWarning} onOpenChange={setShowOfflineWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Processing {pendingOfflineAction === "swap" ? "Swap" : "Return"} Offline
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>
+                You are about to process this {pendingOfflineAction === "swap" ? "swap" : "return"} while offline. 
+                This will be queued and synced when you're back online.
+              </p>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="font-semibold">⚠️ Duplicate Risk Warning</p>
+                <p className="mt-1">
+                  If the customer attempts to process this same {pendingOfflineAction === "swap" ? "swap" : "return"} again 
+                  at another location or when online, it may result in a duplicate refund. 
+                  The potential loss of <strong>{formatCurrency(totalRefund, (currentStore as any)?.currency || "USD")}</strong> will 
+                  be logged for reconciliation.
+                </p>
+              </div>
+              <p className="text-sm text-slate-600">
+                Make sure to clearly mark the receipt and inform the customer that this was processed offline.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingOfflineAction(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={confirmOfflineAction} className="bg-amber-600 hover:bg-amber-700">
+              I Understand, Process Offline
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
