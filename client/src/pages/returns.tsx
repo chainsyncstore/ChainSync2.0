@@ -86,7 +86,7 @@ type PaymentMethod = "CASH" | "CARD" | "DIGITAL";
 
 interface NewSwapProduct {
   product: ProductSearchResult;
-  quantity: number;
+  quantity: number | undefined;
 }
 
 interface SwapState {
@@ -431,10 +431,10 @@ export default function ReturnsPage() {
           if (existingIdx >= 0) {
             // Product already in list - increment quantity
             const updated = [...prev.newProducts];
-            updated[existingIdx] = { ...updated[existingIdx], quantity: updated[existingIdx].quantity + 1 };
+            updated[existingIdx] = { ...updated[existingIdx], quantity: (updated[existingIdx].quantity ?? 0) + 1 };
             return { ...prev, newProducts: updated };
           }
-          return { ...prev, newProducts: [...prev.newProducts, { product: newProduct, quantity: 1 }] };
+          return { ...prev, newProducts: [...prev.newProducts, { product: newProduct, quantity: undefined }] };
         });
         setSwapProductSearch("");
         setSwapSearchResults([]);
@@ -467,8 +467,8 @@ export default function ReturnsPage() {
     const actualSwapQty = Math.min(swapState.swapQuantity, maxSwapQty);
     const originalTotal = originalUnitPrice * actualSwapQty;
     
-    // Sum all new products' totals
-    const newTotal = swapState.newProducts.reduce((sum, item) => sum + (item.product.salePrice * item.quantity), 0);
+    // Sum all new products' totals (treat undefined as 0)
+    const newTotal = swapState.newProducts.reduce((sum, item) => sum + (item.product.salePrice * (item.quantity ?? 0)), 0);
     const priceDifference = newTotal - originalTotal;
     
     // Calculate tax rate from original sale (not store) for accuracy
@@ -497,7 +497,7 @@ export default function ReturnsPage() {
         // Support multiple new products
         newProducts: swapState.newProducts.map(item => ({
           productId: item.product.id,
-          quantity: item.quantity,
+          quantity: item.quantity ?? 0,
           unitPrice: item.product.salePrice,
         })),
         restockAction: swapState.restockAction,
@@ -541,9 +541,9 @@ export default function ReturnsPage() {
         },
         ...swapState.newProducts.map(item => ({
           name: `NEW: ${item.product.name}`,
-          quantity: item.quantity,
+          quantity: item.quantity ?? 0,
           unitPrice: item.product.salePrice,
-          total: item.product.salePrice * item.quantity,
+          total: item.product.salePrice * (item.quantity ?? 0),
         })),
       ];
       const swapReceipt: ReceiptPrintJob = {
@@ -609,7 +609,7 @@ export default function ReturnsPage() {
     swapState.saleData &&
     swapState.selectedItem &&
     swapState.newProducts.length > 0 &&
-    swapState.newProducts.every(p => p.quantity > 0) &&
+    swapState.newProducts.every(p => (p.quantity ?? 0) > 0) &&
     swapState.swapQuantity > 0 &&
     !processSwapMutation.isPending
   );
@@ -1151,7 +1151,7 @@ export default function ReturnsPage() {
                                   ...prev,
                                   newProducts: prev.newProducts.map(p => 
                                     p.product.id === product.id 
-                                      ? { ...p, quantity: p.quantity + 1 }
+                                      ? { ...p, quantity: (p.quantity ?? 0) + 1 }
                                       : p
                                   ),
                                 }));
@@ -1159,7 +1159,7 @@ export default function ReturnsPage() {
                                 // Add new product
                                 setSwapState((prev) => ({
                                   ...prev,
-                                  newProducts: [...prev.newProducts, { product, quantity: 1 }],
+                                  newProducts: [...prev.newProducts, { product, quantity: undefined }],
                                 }));
                               }
                               setSwapProductSearch("");
@@ -1206,20 +1206,31 @@ export default function ReturnsPage() {
                                   type="number"
                                   min={1}
                                   max={item.product.quantity ?? 99}
-                                  value={item.quantity}
+                                  value={item.quantity ?? ""}
+                                  placeholder=""
                                   className="w-20 h-8"
                                   onChange={(e) => {
-                                    const qty = Math.max(1, Math.min(Number(e.target.value) || 1, item.product.quantity ?? 99));
-                                    setSwapState((prev) => ({
-                                      ...prev,
-                                      newProducts: prev.newProducts.map((p, i) => 
-                                        i === idx ? { ...p, quantity: qty } : p
-                                      ),
-                                    }));
+                                    const val = e.target.value;
+                                    if (val === "") {
+                                      setSwapState((prev) => ({
+                                        ...prev,
+                                        newProducts: prev.newProducts.map((p, i) => 
+                                          i === idx ? { ...p, quantity: undefined } : p
+                                        ),
+                                      }));
+                                    } else {
+                                      const qty = Math.max(1, Math.min(Number(val) || 1, item.product.quantity ?? 99));
+                                      setSwapState((prev) => ({
+                                        ...prev,
+                                        newProducts: prev.newProducts.map((p, i) => 
+                                          i === idx ? { ...p, quantity: qty } : p
+                                        ),
+                                      }));
+                                    }
                                   }}
                                 />
                                 <div className="text-sm font-medium text-green-800 w-20 text-right">
-                                  {formatCurrency(item.product.salePrice * item.quantity, (currentStore as any)?.currency || "USD")}
+                                  {formatCurrency(item.product.salePrice * (item.quantity ?? 0), (currentStore as any)?.currency || "USD")}
                                 </div>
                                 <Button
                                   variant="ghost"
