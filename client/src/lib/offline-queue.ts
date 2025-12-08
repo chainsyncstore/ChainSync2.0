@@ -149,17 +149,24 @@ export async function enqueueOfflineSale(params: { url: string; payload: any; id
   };
   await idbAdd(record);
 
-  // Ask SW to register a background sync if supported
+  // Ask SW to register a background sync if supported (non-blocking with timeout)
   try {
-    if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.ready;
-      const regWithSync = reg as SyncCapableRegistration;
-      const registerBackgroundSync = regWithSync.sync?.register;
-      if (typeof registerBackgroundSync === 'function') {
-        await registerBackgroundSync.call(regWithSync.sync, 'background-sync');
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      // Use a timeout to prevent hanging if SW is not ready
+      const swReadyPromise = Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+      ]);
+      const reg = await swReadyPromise;
+      if (reg) {
+        const regWithSync = reg as SyncCapableRegistration;
+        const registerBackgroundSync = regWithSync.sync?.register;
+        if (typeof registerBackgroundSync === 'function') {
+          await registerBackgroundSync.call(regWithSync.sync, 'background-sync');
+        }
+        // Also ping SW to try immediate sync
+        reg.active?.postMessage({ type: 'TRY_SYNC' });
       }
-      // Also ping SW to try immediate sync
-      reg.active?.postMessage({ type: 'TRY_SYNC' });
     }
   } catch (error) {
     console.warn('Service worker sync registration failed', error);
@@ -185,13 +192,20 @@ export async function getOfflineQueueCount(): Promise<number> {
 
 export async function processQueueNow(): Promise<void> {
   try {
-    if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.ready;
-      reg.active?.postMessage({ type: 'TRY_SYNC' });
-      const regWithSync = reg as SyncCapableRegistration;
-      const registerBackgroundSync = regWithSync.sync?.register;
-      if (typeof registerBackgroundSync === 'function') {
-        await registerBackgroundSync.call(regWithSync.sync, 'background-sync');
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      // Use a timeout to prevent hanging
+      const swReadyPromise = Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+      ]);
+      const reg = await swReadyPromise;
+      if (reg) {
+        reg.active?.postMessage({ type: 'TRY_SYNC' });
+        const regWithSync = reg as SyncCapableRegistration;
+        const registerBackgroundSync = regWithSync.sync?.register;
+        if (typeof registerBackgroundSync === 'function') {
+          await registerBackgroundSync.call(regWithSync.sync, 'background-sync');
+        }
       }
     }
   } catch (error) {
