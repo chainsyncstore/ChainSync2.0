@@ -82,13 +82,17 @@ interface ProductSearchResult {
   quantity?: number;
 }
 
+type PaymentMethod = "CASH" | "CARD" | "DIGITAL";
+
 interface SwapState {
   saleReference: string;
   saleData: SaleLookupResponse | null;
   selectedItem: SaleItemResponse | null;
   newProduct: ProductSearchResult | null;
-  newQuantity: number;
+  swapQuantity: number; // Quantity of original item to swap
+  newProductQuantity: number; // Quantity of new product to receive
   restockAction: RestockAction;
+  paymentMethod: PaymentMethod;
   notes: string;
 }
 
@@ -113,8 +117,10 @@ export default function ReturnsPage() {
     saleData: null,
     selectedItem: null,
     newProduct: null,
-    newQuantity: 1,
+    swapQuantity: 1,
+    newProductQuantity: 1,
     restockAction: "RESTOCK",
+    paymentMethod: "CASH",
     notes: "",
   });
   const [fetchingSwapSale, setFetchingSwapSale] = useState(false);
@@ -361,7 +367,8 @@ export default function ReturnsPage() {
         saleData: payload,
         selectedItem: null,
         newProduct: null,
-        newQuantity: 1,
+        swapQuantity: 1,
+        newProductQuantity: 1,
       }));
     } catch (error) {
       console.error("Failed to fetch sale for swap", error);
@@ -418,7 +425,7 @@ export default function ReturnsPage() {
         setSwapState((prev) => ({
           ...prev,
           newProduct,
-          newQuantity: 1,
+          newProductQuantity: 1,
         }));
         setSwapProductSearch("");
         setSwapSearchResults([]);
@@ -440,25 +447,29 @@ export default function ReturnsPage() {
     return () => clearTimeout(timeout);
   }, [swapProductSearch, handleSearchProducts]);
 
-  // Calculate swap amounts
+  // Calculate swap amounts - use original sale's tax rate for accuracy
   const swapCalculations = useMemo(() => {
     if (!swapState.selectedItem || !swapState.newProduct) {
       return { originalTotal: 0, newTotal: 0, priceDifference: 0, taxDifference: 0, totalDifference: 0 };
     }
     
     const originalUnitPrice = swapState.selectedItem.unitPrice;
-    const originalQuantity = swapState.selectedItem.quantityRemaining || 1;
-    const originalTotal = originalUnitPrice * Math.min(swapState.newQuantity, originalQuantity);
+    const maxSwapQty = swapState.selectedItem.quantityRemaining || 1;
+    const actualSwapQty = Math.min(swapState.swapQuantity, maxSwapQty);
+    const originalTotal = originalUnitPrice * actualSwapQty;
     
-    const newTotal = swapState.newProduct.salePrice * swapState.newQuantity;
+    const newTotal = swapState.newProduct.salePrice * swapState.newProductQuantity;
     const priceDifference = newTotal - originalTotal;
     
-    // Tax only on the difference
-    const taxDifference = priceDifference * storeTaxRate;
+    // Calculate tax rate from original sale (not store) for accuracy
+    const saleTaxRate = swapState.saleData?.sale 
+      ? (Number(swapState.saleData.sale.tax || 0) / Number(swapState.saleData.sale.subtotal || 1))
+      : storeTaxRate;
+    const taxDifference = priceDifference * saleTaxRate;
     const totalDifference = priceDifference + taxDifference;
     
     return { originalTotal, newTotal, priceDifference, taxDifference, totalDifference };
-  }, [swapState.selectedItem, swapState.newProduct, swapState.newQuantity, storeTaxRate]);
+  }, [swapState.selectedItem, swapState.newProduct, swapState.swapQuantity, swapState.newProductQuantity, swapState.saleData, storeTaxRate]);
 
   const processSwapMutation = useMutation({
     mutationFn: async () => {
@@ -471,12 +482,13 @@ export default function ReturnsPage() {
         storeId: selectedStore,
         originalSaleItemId: swapState.selectedItem.id,
         originalProductId: swapState.selectedItem.productId,
-        originalQuantity: Math.min(swapState.newQuantity, swapState.selectedItem.quantityRemaining || 1),
+        originalQuantity: Math.min(swapState.swapQuantity, swapState.selectedItem.quantityRemaining || 1),
         originalUnitPrice: swapState.selectedItem.unitPrice,
         newProductId: swapState.newProduct.id,
-        newQuantity: swapState.newQuantity,
+        newQuantity: swapState.newProductQuantity,
         newUnitPrice: swapState.newProduct.salePrice,
         restockAction: swapState.restockAction,
+        paymentMethod: swapState.paymentMethod,
         notes: swapState.notes.trim() || undefined,
       };
 
@@ -516,13 +528,13 @@ export default function ReturnsPage() {
         items: [
           {
             name: `RETURN: ${swapState.selectedItem?.name || "Original Product"}`,
-            quantity: swapState.newQuantity,
+            quantity: swapState.swapQuantity,
             unitPrice: -(swapState.selectedItem?.unitPrice || 0),
             total: -swapCalculations.originalTotal,
           },
           {
             name: `NEW: ${swapState.newProduct?.name || "New Product"}`,
-            quantity: swapState.newQuantity,
+            quantity: swapState.newProductQuantity,
             unitPrice: swapState.newProduct?.salePrice || 0,
             total: swapCalculations.newTotal,
           },
@@ -560,8 +572,10 @@ export default function ReturnsPage() {
         saleData: null,
         selectedItem: null,
         newProduct: null,
-        newQuantity: 1,
+        swapQuantity: 1,
+        newProductQuantity: 1,
         restockAction: "RESTOCK",
+        paymentMethod: "CASH",
         notes: "",
       });
       setSwapProductSearch("");
@@ -582,7 +596,8 @@ export default function ReturnsPage() {
     swapState.saleData &&
     swapState.selectedItem &&
     swapState.newProduct &&
-    swapState.newQuantity > 0 &&
+    swapState.swapQuantity > 0 &&
+    swapState.newProductQuantity > 0 &&
     !processSwapMutation.isPending
   );
 
@@ -592,8 +607,10 @@ export default function ReturnsPage() {
       saleData: null,
       selectedItem: null,
       newProduct: null,
-      newQuantity: 1,
+      swapQuantity: 1,
+      newProductQuantity: 1,
       restockAction: "RESTOCK",
+      paymentMethod: "CASH",
       notes: "",
     });
     setSwapProductSearch("");
@@ -1040,7 +1057,7 @@ export default function ReturnsPage() {
                       onClick={() => setSwapState((prev) => ({
                         ...prev,
                         selectedItem: item,
-                        newQuantity: Math.min(1, item.quantityRemaining ?? item.quantity),
+                        swapQuantity: Math.min(1, item.quantityRemaining ?? item.quantity),
                       }))}
                     >
                       <div className="flex items-center justify-between">
@@ -1114,7 +1131,7 @@ export default function ReturnsPage() {
                           key={product.id}
                           className="p-2 hover:bg-slate-50 cursor-pointer"
                           onClick={() => {
-                            setSwapState((prev) => ({ ...prev, newProduct: product, newQuantity: 1 }));
+                            setSwapState((prev) => ({ ...prev, newProduct: product, newProductQuantity: 1 }));
                             setSwapProductSearch("");
                             setSwapSearchResults([]);
                           }}
@@ -1176,21 +1193,40 @@ export default function ReturnsPage() {
                 <div className="ml-8 space-y-4">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label>Quantity to swap</Label>
+                      <Label>Quantity to swap (original item)</Label>
                       <Input
                         type="number"
                         min={1}
                         max={swapState.selectedItem?.quantityRemaining ?? 1}
-                        value={swapState.newQuantity}
+                        value={swapState.swapQuantity}
                         onChange={(e) => setSwapState((prev) => ({
                           ...prev,
-                          newQuantity: Math.max(1, Math.min(Number(e.target.value) || 1, prev.selectedItem?.quantityRemaining ?? 1)),
+                          swapQuantity: Math.max(1, Math.min(Number(e.target.value) || 1, prev.selectedItem?.quantityRemaining ?? 1)),
                         }))}
                       />
                       <div className="text-xs text-slate-500">
                         Max: {swapState.selectedItem?.quantityRemaining ?? 1}
                       </div>
                     </div>
+                    <div className="space-y-2">
+                      <Label>Quantity of new product</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={swapState.newProduct?.quantity ?? 99}
+                        value={swapState.newProductQuantity}
+                        onChange={(e) => setSwapState((prev) => ({
+                          ...prev,
+                          newProductQuantity: Math.max(1, Math.min(Number(e.target.value) || 1, prev.newProduct?.quantity ?? 99)),
+                        }))}
+                      />
+                      <div className="text-xs text-slate-500">
+                        In stock: {swapState.newProduct?.quantity ?? "N/A"}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Returned item action</Label>
                       <Select
@@ -1205,6 +1241,22 @@ export default function ReturnsPage() {
                           <SelectItem value="DISCARD">Discard (item is damaged/unsellable)</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Payment method</Label>
+                      <div className="flex gap-2">
+                        {(["CASH", "CARD", "DIGITAL"] as const).map((method) => (
+                          <Button
+                            key={method}
+                            type="button"
+                            variant={swapState.paymentMethod === method ? "default" : "outline"}
+                            className="flex-1"
+                            onClick={() => setSwapState((prev) => ({ ...prev, paymentMethod: method }))}
+                          >
+                            {method === "CASH" ? "💵 Cash" : method === "CARD" ? "💳 Card" : "📱 Digital"}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                   

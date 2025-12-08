@@ -1429,6 +1429,7 @@ export async function registerPosRoutes(app: Express) {
     newQuantity: z.number().int().positive(),
     newUnitPrice: z.number().positive(),
     restockAction: z.enum(['RESTOCK', 'DISCARD']),
+    paymentMethod: z.enum(['CASH', 'CARD', 'DIGITAL']).optional().default('CASH'),
     notes: z.string().optional(),
   });
 
@@ -1442,7 +1443,7 @@ export async function registerPosRoutes(app: Express) {
     if (!sessionUserId) return res.status(401).json({ error: 'Not authenticated' });
 
     const { saleId, storeId, originalSaleItemId, originalProductId, originalQuantity, originalUnitPrice, 
-            newProductId, newQuantity, newUnitPrice, restockAction, notes } = parsed.data;
+            newProductId, newQuantity, newUnitPrice, restockAction, paymentMethod, notes } = parsed.data;
 
     // Verify sale exists
     const saleRows = await db.select().from(sales).where(eq(sales.id, saleId));
@@ -1711,7 +1712,6 @@ export async function registerPosRoutes(app: Express) {
         // No original transaction found - create a new SALE transaction with corrected values
         logger.warn('POS Swap: Original transaction not found, creating new transaction', { saleId });
         
-        const normalizedPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod);
         const [newTx] = await db
           .insert(prdTransactions)
           .values({
@@ -1722,7 +1722,7 @@ export async function registerPosRoutes(app: Express) {
             subtotal: String(newTotal.toFixed(2)),
             taxAmount: String((newTotal * taxRate).toFixed(2)),
             total: String((newTotal + newTotal * taxRate).toFixed(2)),
-            paymentMethod: normalizedPaymentMethod,
+            paymentMethod: paymentMethod.toLowerCase(),
             amountReceived: String((newTotal + newTotal * taxRate).toFixed(2)),
             changeDue: '0',
             receiptNumber: saleId,
@@ -1747,7 +1747,6 @@ export async function registerPosRoutes(app: Express) {
       // 6. If there's a negative price difference (customer gets refund), create a REFUND transaction
       // This records the actual cash refund while keeping the analytics correct
       if (priceDifference < 0) {
-        const normalizedPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod);
         await db
           .insert(prdTransactions)
           .values({
@@ -1758,7 +1757,7 @@ export async function registerPosRoutes(app: Express) {
             subtotal: String(Math.abs(priceDifference).toFixed(2)),
             taxAmount: String(Math.abs(taxDifference).toFixed(2)),
             total: String(Math.abs(totalDifference).toFixed(2)),
-            paymentMethod: normalizedPaymentMethod,
+            paymentMethod: paymentMethod.toLowerCase(),
             amountReceived: '0',
             changeDue: '0',
             receiptNumber: `SWAP-REFUND-${returnRecord.id.slice(-8)}`,
