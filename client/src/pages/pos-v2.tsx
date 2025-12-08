@@ -368,15 +368,22 @@ export default function POSV2() {
       const local = await searchProductsLocally(query, 20);
       setSearchResults(local);
       
-      // Then remote - use store-scoped endpoint to only get products with inventory
-      if (selectedStore) {
-        const res = await fetch(
-          `/api/stores/${selectedStore}/products?query=${encodeURIComponent(query)}&limit=20`,
-          { credentials: "include" }
-        );
-        if (res.ok) {
-          const remote = await res.json();
-          setSearchResults(remote);
+      // Only fetch remote if online
+      if (selectedStore && navigator.onLine) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const res = await fetch(
+            `/api/stores/${selectedStore}/products?query=${encodeURIComponent(query)}&limit=20`,
+            { credentials: "include", signal: controller.signal }
+          );
+          clearTimeout(timeoutId);
+          if (res.ok) {
+            const remote = await res.json();
+            setSearchResults(remote);
+          }
+        } catch {
+          // Network failed, keep local results
         }
       }
     } catch {
