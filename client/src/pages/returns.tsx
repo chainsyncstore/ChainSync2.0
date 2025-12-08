@@ -62,7 +62,7 @@ interface SaleLookupResponse {
 
 interface ReturnDraftState {
   [saleItemId: string]: {
-    quantity: number;
+    quantity: number | undefined;
     restockAction: RestockAction;
     refundType: RefundType;
     refundAmount: string;
@@ -240,7 +240,8 @@ export default function ReturnsPage() {
     const draftEntry = draft[item.id];
     if (!draftEntry) return 0;
     const unitValue = computeUnitRefund(item);
-    const quantity = Math.min(Math.max(draftEntry.quantity, 0), item.quantity);
+    const entryQty = draftEntry.quantity ?? 0;
+    const quantity = Math.min(Math.max(entryQty, 0), item.quantity);
     if (draftEntry.refundType === "NONE") return 0;
     if (draftEntry.refundType === "FULL") {
       return unitValue * quantity;
@@ -273,17 +274,20 @@ export default function ReturnsPage() {
         .map((item) => ({ draftEntry: draft[item.id], item }))
         .filter(({ draftEntry }) => Boolean(draftEntry))
         .map(({ draftEntry, item }) => ({ draftEntry: draftEntry!, item }))
-        .filter(({ draftEntry, item }) => draftEntry.quantity > 0 && draftEntry.quantity <= item.quantity)
+        .filter(({ draftEntry, item }) => (draftEntry.quantity ?? 0) > 0 && (draftEntry.quantity ?? 0) <= item.quantity)
         .map(({ draftEntry, item }) => ({
           saleItemId: item.id,
           productId: item.productId,
-          quantity: Math.min(Math.max(draftEntry.quantity, 0), item.quantity),
+          quantity: Math.min(Math.max(draftEntry.quantity ?? 0, 0), item.quantity),
           restockAction: draftEntry.restockAction,
           refundType: draftEntry.refundType,
           refundAmount:
             draftEntry.refundType === "PARTIAL"
               ? String(
-                  Math.min(Number.parseFloat(draftEntry.refundAmount || "0") || 0, computeUnitRefund(item) * draftEntry.quantity).toFixed(2)
+                  Math.min(
+                    Number.parseFloat(draftEntry.refundAmount || "0") || 0,
+                    computeUnitRefund(item) * (draftEntry.quantity ?? 0)
+                  ).toFixed(2)
                 )
               : String(computeRefundForItem(item).toFixed(2)),
         }));
@@ -434,7 +438,7 @@ export default function ReturnsPage() {
             updated[existingIdx] = { ...updated[existingIdx], quantity: (updated[existingIdx].quantity ?? 0) + 1 };
             return { ...prev, newProducts: updated };
           }
-          return { ...prev, newProducts: [...prev.newProducts, { product: newProduct, quantity: undefined }] };
+          return { ...prev, newProducts: [...prev.newProducts, { product: newProduct, quantity: 1 }] };
         });
         setSwapProductSearch("");
         setSwapSearchResults([]);
@@ -811,23 +815,60 @@ export default function ReturnsPage() {
                           {isFullyReturned ? (
                             <div className="text-sm text-slate-500">Fully returned</div>
                           ) : (
-                            <>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={maxQty}
-                                value={entry.quantity}
-                                data-testid={`return-qty-${item.id}`}
-                                onChange={(event) => {
-                                  const nextQty = Math.max(0, Math.min(Number(event.target.value) || 0, maxQty));
-                                  handleDraftChange(item.id, (current) => ({
-                                    ...current,
-                                    quantity: nextQty,
-                                  }));
-                                }}
-                              />
-                              <div className="text-xs text-slate-500 mt-1">Max {maxQty}</div>
-                            </>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => {
+                                    handleDraftChange(item.id, (current) => ({
+                                      ...current,
+                                      quantity: Math.max(0, (current.quantity ?? 1) - 1),
+                                    }));
+                                  }}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </Button>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={maxQty}
+                                  value={entry.quantity ?? ""}
+                                  data-testid={`return-qty-${item.id}`}
+                                  className="w-14 h-8 text-center font-medium px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  onChange={(event) => {
+                                    const val = event.target.value;
+                                    if (val === "") {
+                                      handleDraftChange(item.id, (current) => ({
+                                        ...current,
+                                        quantity: undefined,
+                                      }));
+                                    } else {
+                                      const nextQty = Math.max(0, Math.min(Number(val) || 0, maxQty));
+                                      handleDraftChange(item.id, (current) => ({
+                                        ...current,
+                                        quantity: nextQty,
+                                      }));
+                                    }
+                                  }}
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => {
+                                    handleDraftChange(item.id, (current) => ({
+                                      ...current,
+                                      quantity: Math.min(maxQty, (current.quantity ?? 0) + 1),
+                                    }));
+                                  }}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <div className="text-xs text-slate-500">Max {maxQty}</div>
+                            </div>
                           )}
                         </TableCell>
                         <TableCell>
@@ -1159,7 +1200,7 @@ export default function ReturnsPage() {
                                 // Add new product
                                 setSwapState((prev) => ({
                                   ...prev,
-                                  newProducts: [...prev.newProducts, { product, quantity: undefined }],
+                                  newProducts: [...prev.newProducts, { product, quantity: 1 }],
                                 }));
                               }
                               setSwapProductSearch("");
