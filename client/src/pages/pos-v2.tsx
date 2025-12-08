@@ -35,6 +35,25 @@ import { useHeldTransactions } from "@/hooks/use-held-transactions";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
+import { 
+  cacheCompletedSale, 
+  updateLocalInventory,
+  searchProductsLocally,
+  getProductByBarcodeLocally,
+  getCatalogSyncMeta,
+  setCatalogSyncMeta,
+  clearProducts,
+  putProducts,
+  getCustomerByPhone,
+  CATALOG_REFRESH_INTERVAL_MS,
+} from "@/lib/idb-catalog";
+import { 
+  generateIdempotencyKey, 
+  validateSalePayload, 
+  enqueueOfflineSale, 
+  getOfflineQueueCount,
+  processQueueNow,
+} from "@/lib/offline-queue";
 import { formatCurrency } from "@/lib/pos-utils";
 import type { ReceiptPrintJob } from "@/lib/printer";
 import { cn } from "@/lib/utils";
@@ -140,7 +159,6 @@ export default function POSV2() {
     
     try {
       setIsCatalogRefreshing(true);
-      const { getCatalogSyncMeta, setCatalogSyncMeta, clearProducts, putProducts, CATALOG_REFRESH_INTERVAL_MS } = await import("@/lib/idb-catalog");
       
       // Check if refresh is needed (skip if recently synced, unless forced)
       if (!force) {
@@ -191,7 +209,6 @@ export default function POSV2() {
       console.warn("Failed to refresh catalog", err);
       // On failure, load last sync time from metadata so UI can show cached state
       try {
-        const { getCatalogSyncMeta } = await import("@/lib/idb-catalog");
         const meta = await getCatalogSyncMeta(selectedStore);
         if (meta) setCatalogLastSync(meta.lastSyncAt);
       } catch {
@@ -238,7 +255,6 @@ export default function POSV2() {
   const handleSyncNow = useCallback(async () => {
     setIsSyncing(true);
     try {
-      const { processQueueNow, getOfflineQueueCount } = await import("@/lib/offline-queue");
       await processQueueNow();
       setQueuedCount(await getOfflineQueueCount());
       toast({ title: "Sync complete", description: "All pending sales have been synced." });
@@ -275,7 +291,6 @@ export default function POSV2() {
   useEffect(() => {
     const loadQueueCount = async () => {
       try {
-        const { getOfflineQueueCount } = await import("@/lib/offline-queue");
         setQueuedCount(await getOfflineQueueCount());
       } catch {
         // Ignore
@@ -324,7 +339,6 @@ export default function POSV2() {
           toast({ title: "Added", description: product.name });
         } else {
           // Try local cache
-          const { getProductByBarcodeLocally } = await import("@/lib/idb-catalog");
           const local = await getProductByBarcodeLocally(barcode);
           if (local) {
             addItem({ id: local.id, name: local.name, barcode: local.barcode || "", price: parseFloat(local.price) });
@@ -335,7 +349,6 @@ export default function POSV2() {
         }
       } catch {
         // Offline fallback
-        const { getProductByBarcodeLocally } = await import("@/lib/idb-catalog");
         const local = await getProductByBarcodeLocally(barcode);
         if (local) {
           addItem({ id: local.id, name: local.name, barcode: local.barcode || "", price: parseFloat(local.price) });
@@ -364,7 +377,6 @@ export default function POSV2() {
     setIsSearching(true);
     try {
       // Local first (from IndexedDB cache)
-      const { searchProductsLocally } = await import("@/lib/idb-catalog");
       const local = await searchProductsLocally(query, 20);
       setSearchResults(local);
       
@@ -421,7 +433,6 @@ export default function POSV2() {
       
       // Fallback: Check local cache for customer data
       try {
-        const { getCustomerByPhone } = await import("@/lib/idb-catalog");
         const cached = await getCustomerByPhone(customerPhone);
         if (cached) {
           const points = Number(cached.loyaltyPoints ?? 0);
@@ -490,14 +501,9 @@ export default function POSV2() {
   // Sale mutation
   const saleMutation = useMutation({
     mutationFn: async () => {
-      const { generateIdempotencyKey, validateSalePayload, enqueueOfflineSale, getOfflineQueueCount } = await import(
-        "@/lib/offline-queue"
-      );
-      const { cacheCompletedSale, updateLocalInventory } = await import("@/lib/idb-catalog");
-      const idempotencyKey = generateIdempotencyKey();
-      
       // Check offline status FIRST before any network calls
       const isCurrentlyOffline = !navigator.onLine;
+      const idempotencyKey = generateIdempotencyKey();
 
       const payload = {
         storeId: selectedStore,
