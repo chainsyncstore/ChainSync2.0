@@ -151,7 +151,23 @@ export default function POSV2() {
         }
       }
       
-      const res = await fetch(`/api/stores/${selectedStore}/products?limit=1000`, { credentials: "include" });
+      // Skip network request if offline - just use cached data
+      if (!navigator.onLine) {
+        const meta = await getCatalogSyncMeta(selectedStore);
+        if (meta) setCatalogLastSync(meta.lastSyncAt);
+        return;
+      }
+      
+      // Add timeout to prevent hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const res = await fetch(`/api/stores/${selectedStore}/products?limit=1000`, { 
+        credentials: "include",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      
       if (res.ok) {
         const products = await res.json();
         
