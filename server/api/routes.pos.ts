@@ -1346,7 +1346,43 @@ export async function registerPosRoutes(app: Express) {
         }
       }
 
-            logger.info('POS Return: Creating refund transaction', { 
+      // Handle DISCARD items - record as stock removal loss
+      for (const row of rowsToInsert) {
+        if (row.restockAction !== 'DISCARD') continue;
+        logger.info('POS Return: Recording discarded stock as loss', { 
+          productId: row.productId, 
+          storeId: parsed.data.storeId, 
+          quantity: row.quantity 
+        });
+        try {
+          const removalResult = await storage.removeStock(
+            row.productId,
+            parsed.data.storeId,
+            row.quantity,
+            {
+              reason: 'damaged',
+              refundType: 'none',
+              notes: row.notes || `Discarded during return - product not sellable`,
+            },
+            sessionUserId,
+          );
+          logger.info('POS Return: Discarded stock loss recorded', { 
+            productId: row.productId, 
+            quantity: row.quantity,
+            lossAmount: removalResult.lossAmount,
+          });
+        } catch (removalErr) {
+          logger.error('POS Return: Failed to record discarded stock loss', {
+            productId: row.productId,
+            storeId: parsed.data.storeId,
+            quantity: row.quantity,
+            error: removalErr instanceof Error ? removalErr.message : String(removalErr),
+          });
+          // Don't throw - continue with the return even if loss recording fails
+        }
+      }
+
+      logger.info('POS Return: Creating refund transaction', { 
         productRefund: totalProductRefund, 
         taxRefund: totalTaxRefund, 
         totalRefund 
@@ -1600,8 +1636,30 @@ export async function registerPosRoutes(app: Express) {
           });
         }
       } else {
-        // DISCARD - record as loss
-        logger.info('POS Swap: Original product discarded', { productId: originalProductId, quantity: originalQuantity });
+        // DISCARD - record as stock removal loss (damaged/unsellable)
+        try {
+          const removalResult = await storage.removeStock(
+            originalProductId,
+            storeId,
+            originalQuantity,
+            {
+              reason: 'damaged',
+              refundType: 'none',
+              notes: notes || `Discarded during swap - product not sellable`,
+            },
+            sessionUserId,
+          );
+          logger.info('POS Swap: Original product discarded and loss recorded', {
+            productId: originalProductId,
+            quantity: originalQuantity,
+            lossAmount: removalResult.lossAmount,
+          });
+        } catch (removalErr) {
+          logger.error('POS Swap: Failed to record discarded product loss', {
+            productId: originalProductId,
+            error: removalErr instanceof Error ? removalErr.message : String(removalErr),
+          });
+        }
       }
 
       // 4. Reduce inventory for new product
