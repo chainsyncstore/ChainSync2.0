@@ -104,29 +104,44 @@ export function useAuth(): AuthState & AuthActions {
           setTwoFactorEnabled(Boolean((normalizedSaved as any)?.twofaVerified));
         }
 
-        const response = await fetch("/api/auth/me", {
-          credentials: "include",
-          cache: "no-store" as RequestCache,
-        });
-
-        if (response.ok) {
-          const payload = await response.json();
-          const userData = (payload as any)?.data || payload;
-          const normalized = normalizeUserPayload(userData);
-          setUser(normalized as any);
-          setRequiresPasswordChange(Boolean((normalized as any)?.requiresPasswordChange));
-          setTwoFactorEnabled(Boolean((normalized as any)?.twofaVerified));
-          saveSession(normalized as any);
-          refreshSession();
+        // Skip network request if offline and we have saved session
+        if (!navigator.onLine && savedUser) {
+          // Already loaded from localStorage above, just finish
         } else {
-          clearSession();
-          setUser(null);
-          setTwoFactorEnabled(false);
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const response = await fetch("/api/auth/me", {
+              credentials: "include",
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+              const payload = await response.json();
+              const userData = (payload as any)?.data || payload;
+              const normalized = normalizeUserPayload(userData);
+              setUser(normalized as any);
+              setRequiresPasswordChange(Boolean((normalized as any)?.requiresPasswordChange));
+              setTwoFactorEnabled(Boolean((normalized as any)?.twofaVerified));
+              saveSession(normalized as any);
+              refreshSession();
+            } else if (response.status !== 503) {
+              // Only clear session on real auth failure, not offline 503
+              clearSession();
+              setUser(null);
+              setTwoFactorEnabled(false);
+            }
+            // If 503 (offline), keep using savedUser from localStorage
+          } catch {
+            // Network error - if we have saved user, keep using it (offline mode)
+            if (!savedUser) {
+              clearSession();
+              setUser(null);
+              setTwoFactorEnabled(false);
+            }
+          }
         }
-      } catch {
-        clearSession();
-        setUser(null);
-        setTwoFactorEnabled(false);
       } finally {
         setIsLoading(false);
       }
@@ -136,15 +151,25 @@ export function useAuth(): AuthState & AuthActions {
   }, []);
 
   const refreshUser = useCallback(async () => {
+    // Skip if offline - keep current user state
+    if (!navigator.onLine) return;
+    
     try {
-      const response = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" as RequestCache });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch("/api/auth/me", { credentials: "include", signal: controller.signal });
+      clearTimeout(timeoutId);
+      
       if (!response.ok) {
-        clearSession();
-        setUser(null);
-        setRequiresPasswordChange(false);
-        setTwoFactorEnabled(false);
-        setTwoFactorChallengeUser(null);
-        setTwoFactorError(null);
+        // Only clear on real auth failure, not offline 503
+        if (response.status !== 503) {
+          clearSession();
+          setUser(null);
+          setRequiresPasswordChange(false);
+          setTwoFactorEnabled(false);
+          setTwoFactorChallengeUser(null);
+          setTwoFactorError(null);
+        }
         return;
       }
 
@@ -158,12 +183,7 @@ export function useAuth(): AuthState & AuthActions {
       setTwoFactorChallengeUser(null);
       setTwoFactorError(null);
     } catch {
-      clearSession();
-      setUser(null);
-      setRequiresPasswordChange(false);
-      setTwoFactorEnabled(false);
-      setTwoFactorChallengeUser(null);
-      setTwoFactorError(null);
+      // Network error - don't clear session, might be offline
     }
   }, []);
 

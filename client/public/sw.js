@@ -125,7 +125,9 @@ const OFFLINE_ENDPOINTS = [
   '/api/pos/sales',
   '/api/inventory',
   '/api/products',
-  '/api/stores'
+  '/api/stores',
+  '/api/auth/me',
+  '/api/loyalty/settings'
 ];
 
 // Install event - cache essential resources
@@ -370,7 +372,9 @@ function isCacheableEndpoint(url) {
   const cacheablePatterns = [
     '/api/products',
     '/api/stores',
-    '/api/inventory'
+    '/api/inventory',
+    '/api/auth/me',
+    '/api/loyalty/settings'
   ];
   
   return cacheablePatterns.some(pattern => url.includes(pattern));
