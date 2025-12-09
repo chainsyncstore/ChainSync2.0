@@ -502,7 +502,9 @@ export default function POSV2() {
   const saleMutation = useMutation({
     mutationFn: async () => {
       // Check offline status FIRST before any network calls
-      const isCurrentlyOffline = !navigator.onLine;
+      const snapshotOnline = navigator.onLine;
+      console.log("[POS] saleMutation start", { online: snapshotOnline });
+      const isCurrentlyOffline = !snapshotOnline;
       const idempotencyKey = generateIdempotencyKey();
 
       const payload = {
@@ -530,7 +532,9 @@ export default function POSV2() {
 
       // Helper to process sale offline
       const processOffline = async (reason: string) => {
+        console.log("[POS] processOffline start", { reason });
         await enqueueOfflineSale({ url: "/api/pos/sales", payload, idempotencyKey });
+        console.log("[POS] enqueueOfflineSale completed");
         setQueuedCount(await getOfflineQueueCount());
         
         // Update local inventory optimistically (reduce quantities)
@@ -562,6 +566,7 @@ export default function POSV2() {
           syncedAt: null,
         });
         
+        console.log("[POS] processOffline finished, local sale cached");
         toast({ title: "Saved offline", description: reason });
         return { id: localId, offline: true, idempotencyKey };
       };

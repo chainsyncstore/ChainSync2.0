@@ -133,6 +133,11 @@ async function idbAdd(record: OfflineSaleRecord): Promise<void> {
 }
 
 export async function enqueueOfflineSale(params: { url: string; payload: any; idempotencyKey: string; headers?: Record<string, string> }): Promise<{ localId: string; idempotencyKey: string; }> {
+  console.log('[offline-queue] enqueueOfflineSale start', {
+    url: params.url,
+    hasPayload: !!params.payload,
+    idempotencyKey: params.idempotencyKey,
+  });
   const localId = `local_${Date.now()}_${generateRandomString()}`;
   const payloadCopy = JSON.parse(JSON.stringify(params.payload ?? {}));
   const record: OfflineSaleRecord = {
@@ -148,9 +153,11 @@ export async function enqueueOfflineSale(params: { url: string; payload: any; id
     lastError: null,
   };
   await idbAdd(record);
+  console.log('[offline-queue] idbAdd completed', { id: localId });
 
   // Ask SW to register a background sync if supported (non-blocking with timeout)
   try {
+    console.log('[offline-queue] attempting SW background sync registration');
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
       // Use a timeout to prevent hanging if SW is not ready
       const swReadyPromise = Promise.race([
@@ -163,9 +170,11 @@ export async function enqueueOfflineSale(params: { url: string; payload: any; id
         const registerBackgroundSync = regWithSync.sync?.register;
         if (typeof registerBackgroundSync === 'function') {
           await registerBackgroundSync.call(regWithSync.sync, 'background-sync');
+          console.log('[offline-queue] background sync registered');
         }
         // Also ping SW to try immediate sync
         reg.active?.postMessage({ type: 'TRY_SYNC' });
+        console.log('[offline-queue] TRY_SYNC message posted to SW');
       }
     }
   } catch (error) {
