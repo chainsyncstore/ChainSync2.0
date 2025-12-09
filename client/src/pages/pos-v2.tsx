@@ -501,10 +501,11 @@ export default function POSV2() {
   // Sale mutation
   const saleMutation = useMutation({
     mutationFn: async () => {
-      // Check offline status FIRST before any network calls
+      // Check offline status FIRST before any network calls, using app-level online state
       const snapshotOnline = navigator.onLine;
-      console.log("[POS] saleMutation start", { online: snapshotOnline });
-      const isCurrentlyOffline = !snapshotOnline;
+      const effectiveOnline = snapshotOnline && isOnline;
+      console.log("[POS] saleMutation start", { navigatorOnline: snapshotOnline, isOnline, effectiveOnline });
+      const isCurrentlyOffline = !effectiveOnline;
       const idempotencyKey = generateIdempotencyKey();
 
       const payload = {
