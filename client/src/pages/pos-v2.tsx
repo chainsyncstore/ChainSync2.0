@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Menu,
   X,
@@ -498,9 +498,25 @@ export default function POSV2() {
     [currentStore, currency, user]
   );
 
-  // Sale mutation
-  const saleMutation = useMutation({
-    mutationFn: async () => {
+  const [isCompletingSale, setIsCompletingSale] = useState(false);
+
+  const handleCompleteSale = async () => {
+    if (items.length === 0) {
+      toast({ title: "Cart empty", description: "Add items to cart first.", variant: "destructive" });
+      return;
+    }
+    if (payment.method === "cash" && (!payment.amountReceived || payment.amountReceived < summary.total)) {
+      toast({ title: "Insufficient payment", description: "Enter amount received.", variant: "destructive" });
+      return;
+    }
+    if (payment.method === "digital" && !payment.walletReference?.trim()) {
+      toast({ title: "Reference required", description: "Enter wallet reference.", variant: "destructive" });
+      return;
+    }
+    if (isCompletingSale) return;
+
+    setIsCompletingSale(true);
+    try {
       // Check offline status FIRST before any network calls, using app-level online state.
       // If the UI shows Offline (isOnline === false), we ALWAYS treat the sale as offline.
       const snapshotOnline = navigator.onLine;
@@ -607,99 +623,90 @@ export default function POSV2() {
         return { id: localId, offline: true, idempotencyKey };
       };
 
+      let sale: any;
+
       // If already offline, skip network attempt entirely (no CSRF fetch needed)
       if (isCurrentlyOffline) {
-        return processOffline("Sale saved locally. Will sync when connection returns.");
+        sale = await processOffline("Sale saved locally. Will sync when connection returns.");
+      } else {
+        // Only fetch CSRF token when online (with timeout protection)
+        const csrfToken = await getCsrfToken().catch(() => null);
+
+        // Try network with timeout to prevent hanging
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+          const res = await fetch("/api/pos/sales", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": idempotencyKey,
+              ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+            },
+            body: JSON.stringify(payload),
+            credentials: "include",
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!res.ok) throw new Error(`${res.status}`);
+          const saleResult = await res.json();
+          
+          // Cache the completed sale for offline return/swap lookup
+          await cacheCompletedSale({
+            id: saleResult.id,
+            idempotencyKey,
+            storeId: selectedStore,
+            subtotal: summary.subtotal,
+            discount: summary.redeemDiscount,
+            tax: summary.tax,
+            total: summary.total,
+            paymentMethod: payment.method,
+            items: payload.items.map((item, idx) => ({
+              id: saleResult.items?.[idx]?.id || `${saleResult.id}_item_${idx}`,
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: parseFloat(item.unitPrice),
+              lineTotal: parseFloat(item.lineTotal),
+              name: items[idx]?.name || null,
+            })),
+            occurredAt: saleResult.occurredAt || new Date().toISOString(),
+            isOffline: false,
+            syncedAt: new Date().toISOString(),
+          });
+          
+          sale = saleResult;
+        } catch (err) {
+          // Network failed - process offline
+          const isTimeout = err instanceof Error && err.name === "AbortError";
+          const reason = isTimeout 
+            ? "Connection timed out. Sale saved locally."
+            : "Network unavailable. Sale saved locally.";
+          sale = await processOffline(reason);
+        }
       }
 
-      // Only fetch CSRF token when online (with timeout protection)
-      const csrfToken = await getCsrfToken().catch(() => null);
-
-      // Try network with timeout to prevent hanging
+      // Post-success handling (print, clear cart, refresh analytics)
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-        const res = await fetch("/api/pos/sales", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-          },
-          body: JSON.stringify(payload),
-          credentials: "include",
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) throw new Error(`${res.status}`);
-        const saleResult = await res.json();
-        
-        // Cache the completed sale for offline return/swap lookup
-        await cacheCompletedSale({
-          id: saleResult.id,
-          idempotencyKey,
-          storeId: selectedStore,
-          subtotal: summary.subtotal,
-          discount: summary.redeemDiscount,
-          tax: summary.tax,
-          total: summary.total,
-          paymentMethod: payment.method,
-          items: payload.items.map((item, idx) => ({
-            id: saleResult.items?.[idx]?.id || `${saleResult.id}_item_${idx}`,
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPrice: parseFloat(item.unitPrice),
-            lineTotal: parseFloat(item.lineTotal),
-            name: items[idx]?.name || null,
-          })),
-          occurredAt: saleResult.occurredAt || new Date().toISOString(),
-          isOffline: false,
-          syncedAt: new Date().toISOString(),
-        });
-        
-        return saleResult;
+        const job = buildReceiptJob(sale, items, summary, payment.method);
+        try {
+          await printReceipt(job);
+        } catch (err) {
+          console.warn("Print failed", err);
+        }
+        clearCart();
+        clearLoyalty();
+        toast({ title: "Sale complete", description: `Total: ${formatCurrency(summary.total, currency)}` });
+        await queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"] });
       } catch (err) {
-        // Network failed - process offline
-        const isTimeout = err instanceof Error && err.name === "AbortError";
-        const reason = isTimeout 
-          ? "Connection timed out. Sale saved locally."
-          : "Network unavailable. Sale saved locally.";
-        return processOffline(reason);
+        toast({ title: "Sale failed", description: getErrorMessage(err), variant: "destructive" });
       }
-    },
-    onSuccess: async (sale) => {
-      const job = buildReceiptJob(sale, items, summary, payment.method);
-      try {
-        await printReceipt(job);
-      } catch (err) {
-        console.warn("Print failed", err);
-      }
-      clearCart();
-      clearLoyalty();
-      toast({ title: "Sale complete", description: `Total: ${formatCurrency(summary.total, currency)}` });
-      await queryClient.invalidateQueries({ queryKey: ["/api/stores", selectedStore, "analytics/daily-sales"] });
-    },
-    onError: (err) => {
+    } catch (err) {
       toast({ title: "Sale failed", description: getErrorMessage(err), variant: "destructive" });
-    },
-  });
-
-  const handleCompleteSale = () => {
-    if (items.length === 0) {
-      toast({ title: "Cart empty", description: "Add items to cart first.", variant: "destructive" });
-      return;
+    } finally {
+      setIsCompletingSale(false);
     }
-    if (payment.method === "cash" && (!payment.amountReceived || payment.amountReceived < summary.total)) {
-      toast({ title: "Insufficient payment", description: "Enter amount received.", variant: "destructive" });
-      return;
-    }
-    if (payment.method === "digital" && !payment.walletReference?.trim()) {
-      toast({ title: "Reference required", description: "Enter wallet reference.", variant: "destructive" });
-      return;
-    }
-    saleMutation.mutate();
   };
 
   const handleHoldTransaction = () => {
@@ -1134,10 +1141,10 @@ export default function POSV2() {
             <Button
               className="w-full h-14 text-lg font-semibold"
               onClick={handleCompleteSale}
-              disabled={!canComplete || saleMutation.isPending}
+              disabled={!canComplete || isCompletingSale}
             >
               <Check className="w-5 h-5 mr-2" />
-              {saleMutation.isPending ? "Processing..." : `Complete Sale`}
+              {isCompletingSale ? "Processing..." : `Complete Sale`}
             </Button>
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" className="h-12" onClick={handleHoldTransaction} disabled={items.length === 0}>
