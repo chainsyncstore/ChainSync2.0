@@ -533,40 +533,75 @@ export default function POSV2() {
       // Helper to process sale offline
       const processOffline = async (reason: string) => {
         console.log("[POS] processOffline start", { reason });
-        await enqueueOfflineSale({ url: "/api/pos/sales", payload, idempotencyKey });
-        console.log("[POS] enqueueOfflineSale completed");
-        setQueuedCount(await getOfflineQueueCount());
-        
-        // Update local inventory optimistically (reduce quantities)
-        for (const item of payload.items) {
-          await updateLocalInventory(selectedStore, item.productId, -item.quantity);
+
+        // Safely enqueue to offline queue with timeout so we never hang
+        try {
+          await Promise.race([
+            enqueueOfflineSale({ url: "/api/pos/sales", payload, idempotencyKey }),
+            new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+          ]);
+          console.log("[POS] enqueueOfflineSale completed (or timed out)");
+        } catch (err) {
+          console.warn("[POS] enqueueOfflineSale failed", err);
+        }
+
+        // Safely refresh queued count
+        try {
+          const count = await Promise.race([
+            getOfflineQueueCount(),
+            new Promise<number>((resolve) => setTimeout(() => resolve(0), 1000)),
+          ]);
+          setQueuedCount(count);
+        } catch (err) {
+          console.warn("[POS] getOfflineQueueCount failed", err);
         }
         
-        // Cache the sale locally for offline return/swap lookup
-        const localId = `local_${Date.now()}_${idempotencyKey.slice(0, 8)}`;
-        await cacheCompletedSale({
-          id: localId,
-          idempotencyKey,
-          storeId: selectedStore,
-          subtotal: summary.subtotal,
-          discount: summary.redeemDiscount,
-          tax: summary.tax,
-          total: summary.total,
-          paymentMethod: payment.method,
-          items: payload.items.map((item, idx) => ({
-            id: `${localId}_item_${idx}`,
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPrice: parseFloat(item.unitPrice),
-            lineTotal: parseFloat(item.lineTotal),
-            name: items[idx]?.name || null,
-          })),
-          occurredAt: new Date().toISOString(),
-          isOffline: true,
-          syncedAt: null,
-        });
+        // Update local inventory optimistically (reduce quantities), but never block UI
+        try {
+          await Promise.race([
+            (async () => {
+              for (const item of payload.items) {
+                await updateLocalInventory(selectedStore, item.productId, -item.quantity);
+              }
+            })(),
+            new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+          ]);
+        } catch (err) {
+          console.warn("[POS] updateLocalInventory failed", err);
+        }
         
-        console.log("[POS] processOffline finished, local sale cached");
+        // Cache the sale locally for offline return/swap lookup, but with timeout
+        const localId = `local_${Date.now()}_${idempotencyKey.slice(0, 8)}`;
+        try {
+          await Promise.race([
+            cacheCompletedSale({
+              id: localId,
+              idempotencyKey,
+              storeId: selectedStore,
+              subtotal: summary.subtotal,
+              discount: summary.redeemDiscount,
+              tax: summary.tax,
+              total: summary.total,
+              paymentMethod: payment.method,
+              items: payload.items.map((item, idx) => ({
+                id: `${localId}_item_${idx}`,
+                productId: item.productId,
+                quantity: item.quantity,
+                unitPrice: parseFloat(item.unitPrice),
+                lineTotal: parseFloat(item.lineTotal),
+                name: items[idx]?.name || null,
+              })),
+              occurredAt: new Date().toISOString(),
+              isOffline: true,
+              syncedAt: null,
+            }),
+            new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+          ]);
+        } catch (err) {
+          console.warn("[POS] cacheCompletedSale failed", err);
+        }
+        
+        console.log("[POS] processOffline finished (non-blocking)");
         toast({ title: "Saved offline", description: reason });
         return { id: localId, offline: true, idempotencyKey };
       };

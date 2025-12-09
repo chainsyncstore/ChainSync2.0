@@ -176,9 +176,15 @@ self.addEventListener('activate', (event) => {
           })
         );
       })
-      .then(() => {
+      .then(async () => {
         console.log('Service Worker activated');
-        return self.clients.claim();
+        try {
+          if (self && self.clients && typeof self.clients.claim === 'function') {
+            await self.clients.claim();
+          }
+        } catch (err) {
+          console.warn('clients.claim failed; continuing without claiming clients', err);
+        }
       })
   );
   // Lightweight heartbeat to keep SW alive and schedule periodic sync checks
