@@ -310,41 +310,6 @@ export default function ReturnsPage() {
   const handleLookupSale = async () => {
     if (!selectedStore) {
       toast({ title: "Select a store", variant: "destructive" });
-      return;
-    }
-    if (!saleReference.trim()) {
-      toast({ title: "Enter sale ID or receipt", variant: "destructive" });
-      return;
-    }
-    setFetchingSale(true);
-    setIsOfflineMode(false);
-    setCachedSaleData(null);
-
-    // Helper to try local cache lookup
-    const tryLocalCache = async (): Promise<CachedSale | null> => {
-      try {
-        const { getCachedSale, getSalesForStore } = await import("@/lib/idb-catalog");
-        // Try direct ID match first
-        let cached = await getCachedSale(saleReference.trim());
-        if (cached && cached.storeId === selectedStore) return cached;
-        
-        // Try searching all cached sales for this store
-        const allSales = await getSalesForStore(selectedStore);
-        cached = allSales.find(s => 
-          s.id === saleReference.trim() || 
-          s.idempotencyKey === saleReference.trim() ||
-          s.serverId === saleReference.trim()
-        ) || null;
-        return cached;
-      } catch {
-        return null;
-      }
-    };
-
-    // If offline, try local cache only
-    if (!navigator.onLine) {
-      const cached = await tryLocalCache();
-      if (cached) {
         // Check if fully returned locally
         const allReturned = cached.items.every(item => (item.quantityReturned || 0) >= item.quantity);
         if (allReturned) {
@@ -534,13 +499,15 @@ export default function ReturnsPage() {
 
   const totalRefund = totalProductRefund + totalTaxRefund;
 
-  // Process offline return - queues for later sync
-  const processOfflineReturn = async () => {
-    if (!cachedSaleData) throw new Error("No cached sale data");
-    
+  // Process offline return - queues for later sync. Accepts an explicit sale
+  // so we can convert online saleData to an offline-compatible snapshot
+  // without relying on state update timing.
+  const processOfflineReturn = async (sourceSale: CachedSale | null = cachedSaleData) => {
+    if (!sourceSale) throw new Error("No cached sale data");
+
     const { enqueueOfflineReturn, markItemsReturned, updateLocalInventory, getOfflineReturns } = await import("@/lib/idb-catalog");
-    
-    const itemsPayload = cachedSaleData.items
+
+    const itemsPayload = sourceSale.items
       .map((item) => ({ draftEntry: draft[item.id], item }))
       .filter(({ draftEntry }) => Boolean(draftEntry))
       .map(({ draftEntry, item }) => ({ draftEntry: draftEntry!, item }))
@@ -573,12 +540,12 @@ export default function ReturnsPage() {
 
     const offlineReturn: OfflineReturnRecord = {
       id: `offline_return_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      saleId: cachedSaleData.id,
-      storeId: cachedSaleData.storeId,
+      saleId: sourceSale.id,
+      storeId: sourceSale.storeId,
       type: "RETURN",
       items: itemsPayload,
       reason: reason.trim() || undefined,
-      notes: `Processed offline. Original sale: ${cachedSaleData.isOffline ? "also offline" : "synced"}`,
+      notes: `Processed offline. Original sale: ${sourceSale.isOffline ? "also offline" : "synced"}`,
       createdAt: new Date().toISOString(),
       potentialLoss,
       syncedAt: null,
@@ -588,12 +555,12 @@ export default function ReturnsPage() {
     await enqueueOfflineReturn(offlineReturn);
 
     // Update local tracking: mark items as returned in cached sale
-    await markItemsReturned(cachedSaleData.id, itemsPayload.map(i => ({ saleItemId: i.saleItemId, quantity: i.quantity })));
+    await markItemsReturned(sourceSale.id, itemsPayload.map(i => ({ saleItemId: i.saleItemId, quantity: i.quantity })));
 
     // Update local inventory optimistically (add back for restocked items)
     for (const item of itemsPayload) {
       if (item.restockAction === "RESTOCK") {
-        await updateLocalInventory(cachedSaleData.storeId, item.productId, item.quantity);
+        await updateLocalInventory(sourceSale.storeId, item.productId, item.quantity);
       }
     }
 
@@ -606,9 +573,39 @@ export default function ReturnsPage() {
 
   const processReturnMutation = useMutation({
     mutationFn: async () => {
-      // Offline mode - queue return for later sync
-      if (isOfflineMode && cachedSaleData) {
-        return processOfflineReturn();
+      const uiOffline = !isOnline || !navigator.onLine;
+
+      // If we're offline or explicitly in offline mode but still have online saleData,
+      // convert it to a CachedSale snapshot and process entirely locally.
+      if ((uiOffline || isOfflineMode) && (saleData || cachedSaleData)) {
+        const offlineSource: CachedSale = cachedSaleData || {
+          id: saleData!.sale.id,
+          storeId: saleData!.sale.storeId,
+          subtotal: saleData!.sale.subtotal,
+          discount: saleData!.sale.discount,
+          tax: saleData!.sale.tax,
+          total: saleData!.sale.total,
+          paymentMethod: "unknown",
+          items: saleData!.items.map((item) => ({
+            id: item.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            lineTotal: item.lineTotal,
+            name: item.name,
+            quantityReturned: item.quantityReturned,
+          })),
+          occurredAt: saleData!.sale.occurredAt,
+          isOffline: false,
+          syncedAt: null,
+          serverId: saleData!.sale.id,
+        };
+
+        // Update state so subsequent lookups reflect offline mode
+        setCachedSaleData(offlineSource);
+        setIsOfflineMode(true);
+
+        return processOfflineReturn(offlineSource);
       }
 
       // Online mode - regular API call
@@ -669,35 +666,35 @@ export default function ReturnsPage() {
         }
         return res.json();
       } catch (err) {
-        // Network failed - if we have cached data, offer to process offline
-        if (cachedSaleData || saleData) {
-          // Convert saleData to cached format if needed
-          if (!cachedSaleData && saleData) {
-            const tempCached: CachedSale = {
-              id: saleData.sale.id,
-              storeId: saleData.sale.storeId,
-              subtotal: saleData.sale.subtotal,
-              discount: saleData.sale.discount,
-              tax: saleData.sale.tax,
-              total: saleData.sale.total,
-              paymentMethod: "unknown",
-              items: saleData.items.map(item => ({
-                id: item.id,
-                productId: item.productId,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                lineTotal: item.lineTotal,
-                name: item.name,
-                quantityReturned: item.quantityReturned,
-              })),
-              occurredAt: saleData.sale.occurredAt,
-              isOffline: false,
-              syncedAt: null,
-            };
-            setCachedSaleData(tempCached);
-            setIsOfflineMode(true);
-          }
-          throw new Error("NETWORK_FAILED");
+        // Network failed - treat as offline and queue the return
+        if (saleData || cachedSaleData) {
+          const offlineSource: CachedSale = cachedSaleData || {
+            id: saleData!.sale.id,
+            storeId: saleData!.sale.storeId,
+            subtotal: saleData!.sale.subtotal,
+            discount: saleData!.sale.discount,
+            tax: saleData!.sale.tax,
+            total: saleData!.sale.total,
+            paymentMethod: "unknown",
+            items: saleData!.items.map((item) => ({
+              id: item.id,
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              lineTotal: item.lineTotal,
+              name: item.name,
+              quantityReturned: item.quantityReturned,
+            })),
+            occurredAt: saleData!.sale.occurredAt,
+            isOffline: false,
+            syncedAt: null,
+            serverId: saleData!.sale.id,
+          };
+
+          setCachedSaleData(offlineSource);
+          setIsOfflineMode(true);
+
+          return processOfflineReturn(offlineSource);
         }
         throw err;
       }
