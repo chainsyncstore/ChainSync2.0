@@ -310,33 +310,73 @@ export default function ReturnsPage() {
   const handleLookupSale = async () => {
     if (!selectedStore) {
       toast({ title: "Select a store", variant: "destructive" });
+      return;
+    }
+    if (!saleReference.trim()) {
+      toast({ title: "Enter sale ID or receipt", variant: "destructive" });
+      return;
+    }
+    setFetchingSale(true);
+    setIsOfflineMode(false);
+    setCachedSaleData(null);
+
+    // Helper to try local cache lookup
+    const tryLocalCache = async (): Promise<CachedSale | null> => {
+      try {
+        const { getCachedSale, getSalesForStore } = await import("@/lib/idb-catalog");
+
+        // Direct match on local sale id
+        let cached = await getCachedSale(saleReference.trim());
+        if (cached && cached.storeId === selectedStore) return cached;
+
+        // Fallback: scan all cached sales for this store for id / idempotencyKey / serverId match
+        const allSales = await getSalesForStore(selectedStore);
+        cached =
+          allSales.find(
+            (s) =>
+              s.id === saleReference.trim() ||
+              s.idempotencyKey === saleReference.trim() ||
+              s.serverId === saleReference.trim(),
+          ) || null;
+        return cached;
+      } catch {
+        return null;
+      }
+    };
+
+    // If offline, try local cache only
+    if (!navigator.onLine) {
+      const cached = await tryLocalCache();
+      if (cached) {
         // Check if fully returned locally
-        const allReturned = cached.items.every(item => (item.quantityReturned || 0) >= item.quantity);
+        const allReturned = cached.items.every(
+          (item) => (item.quantityReturned || 0) >= item.quantity,
+        );
         if (allReturned) {
-          toast({ 
-            title: "Sale already fully returned", 
-            description: "All items from this sale have already been returned.", 
-            variant: "destructive" 
+          toast({
+            title: "Sale already fully returned",
+            description: "All items from this sale have already been returned.",
+            variant: "destructive",
           });
           setSaleData(null);
           setDraft({});
           setFetchingSale(false);
           return;
         }
-        
+
         setCachedSaleData(cached);
         setIsOfflineMode(true);
         initializeDraftFromCached(cached);
         setReason("");
-        toast({ 
-          title: "Using cached sale data", 
-          description: "You're offline. Return will be queued for sync.", 
+        toast({
+          title: "Using cached sale data",
+          description: "You're offline. Return will be queued for sync.",
         });
       } else {
-        toast({ 
-          title: "Sale not found in cache", 
-          description: "This sale isn't cached locally. Try again when online.", 
-          variant: "destructive" 
+        toast({
+          title: "Sale not found in cache",
+          description: "This sale isn't cached locally. Try again when online.",
+          variant: "destructive",
         });
         setSaleData(null);
         setDraft({});
@@ -350,19 +390,24 @@ export default function ReturnsPage() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const res = await fetch(`/api/pos/sales/${saleReference.trim()}?storeId=${selectedStore}`, {
-        credentials: "include",
-        signal: controller.signal,
-      });
+      const res = await fetch(
+        `/api/pos/sales/${saleReference.trim()}?storeId=${selectedStore}`,
+        {
+          credentials: "include",
+          signal: controller.signal,
+        },
+      );
       clearTimeout(timeoutId);
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         if (res.status === 409) {
-          toast({ 
-            title: "Sale already fully returned", 
-            description: errorData.message || "All items from this sale have already been returned.", 
-            variant: "destructive" 
+          toast({
+            title: "Sale already fully returned",
+            description:
+              errorData.message ||
+              "All items from this sale have already been returned.",
+            variant: "destructive",
           });
           setSaleData(null);
           setDraft({});
@@ -379,7 +424,7 @@ export default function ReturnsPage() {
       setReason("");
     } catch (error) {
       console.error("Failed to fetch sale", error);
-      
+
       // Try local cache as fallback
       const cached = await tryLocalCache();
 
@@ -390,24 +435,30 @@ export default function ReturnsPage() {
           const controller2 = new AbortController();
           const timeoutId2 = setTimeout(() => controller2.abort(), 10000);
 
-          const res2 = await fetch(`/api/pos/sales/${cached.serverId}?storeId=${selectedStore}`, {
-            credentials: "include",
-            signal: controller2.signal,
-          });
+          const res2 = await fetch(
+            `/api/pos/sales/${cached.serverId}?storeId=${selectedStore}`,
+            {
+              credentials: "include",
+              signal: controller2.signal,
+            },
+          );
           clearTimeout(timeoutId2);
 
           if (res2.ok) {
-            const payload = (await res2.json()) as SaleLookupResponse;
-            setSaleData(payload);
+            const secondPayload = (await res2.json()) as SaleLookupResponse;
+            setSaleData(secondPayload);
             setCachedSaleData(null);
             setIsOfflineMode(false);
-            initializeDraft(payload);
+            initializeDraft(secondPayload);
             setReason("");
             setFetchingSale(false);
             return;
           }
         } catch (secondaryError) {
-          console.warn("Secondary sale lookup by serverId failed; falling back to cached data", secondaryError);
+          console.warn(
+            "Secondary sale lookup by serverId failed; falling back to cached data",
+            secondaryError,
+          );
         }
       }
 
@@ -416,14 +467,18 @@ export default function ReturnsPage() {
         setIsOfflineMode(true);
         initializeDraftFromCached(cached);
         setReason("");
-        toast({ 
-          title: "Network unavailable", 
-          description: "Using cached sale data. Return will be queued for sync.", 
+        toast({
+          title: "Network unavailable",
+          description: "Using cached sale data. Return will be queued for sync.",
         });
       } else {
         setSaleData(null);
         setDraft({});
-        toast({ title: "Sale not found", description: "Check the sale ID and try again.", variant: "destructive" });
+        toast({
+          title: "Sale not found",
+          description: "Check the sale ID and try again.",
+          variant: "destructive",
+        });
       }
     } finally {
       setFetchingSale(false);
@@ -874,9 +929,8 @@ export default function ReturnsPage() {
         ...prev,
         saleData: payload,
         selectedItem: null,
-        newProduct: null,
+        newProducts: [],
         swapQuantity: 1,
-        newProductQuantity: 1,
       }));
     } catch (error) {
       console.error("Failed to fetch sale for swap", error);
@@ -905,9 +959,8 @@ export default function ReturnsPage() {
               ...prev,
               saleData: payload,
               selectedItem: null,
-              newProduct: null,
+              newProducts: [],
               swapQuantity: 1,
-              newProductQuantity: 1,
             }));
             setFetchingSwapSale(false);
             return;
@@ -1147,8 +1200,10 @@ export default function ReturnsPage() {
 
   const processSwapMutation = useMutation({
     mutationFn: async () => {
+      const uiOffline = !isOnline || !navigator.onLine;
+
       // Offline mode - queue swap for later sync
-      if (isSwapOfflineMode || !navigator.onLine) {
+      if (uiOffline || isSwapOfflineMode) {
         return processOfflineSwap();
       }
       
