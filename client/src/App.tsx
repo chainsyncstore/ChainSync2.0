@@ -10,6 +10,7 @@ import { AIChatProvider } from "@/hooks/use-ai-chat";
 import { useAuth } from "@/hooks/use-auth";
 import { ScannerProvider } from "@/hooks/use-barcode-scanner";
 import { useProtectedRouteGuard } from "@/hooks/use-protected-route-guard";
+import Returns from "@/pages/returns";
 import { RECAPTCHA_SITE_KEY } from "./lib/constants";
 import { queryClient } from "./lib/queryClient";
 
@@ -22,12 +23,13 @@ const ForcePasswordReset = lazy(() => import("./components/auth/force-password-r
 const MainLayout = lazy(() => import("@/components/layout/main-layout"));
 const CashierLayout = lazy(() => import("@/components/layout/cashier-layout"));
 
-// Lazy load pages for better performance
+// Lazy load pages for better performance (except Returns, which we load eagerly
+// to ensure the offline Returns/Swaps page works even when dynamic chunks
+// cannot be fetched).
 const Landing = lazy(() => import("@/pages/landing"));
 const POS = lazy(() => import("@/pages/pos-v2"));
 const Inventory = lazy(() => import("@/pages/inventory"));
 const Analytics = lazy(() => import("@/pages/analytics-v2"));  
-const Returns = lazy(() => import("@/pages/returns"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminIp = lazy(() => import("@/pages/admin/ip-whitelist"));
 const AdminBulk = lazy(() => import("@/pages/admin/bulk-pricing"));
