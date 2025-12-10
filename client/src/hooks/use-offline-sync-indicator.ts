@@ -63,13 +63,39 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
     const onMsg = (event: MessageEvent) => {
       const type = event.data?.type;
       if (!type) return;
+
       if (type === "SYNC_COMPLETED") {
         if (event.data?.data) {
           setLastSync(event.data.data as LastSyncMeta);
         }
         void refreshCounts();
-      } else if (type === "SYNC_SALE_OK") {
-        options.onSaleSynced?.(event.data?.data);
+        return;
+      }
+
+      if (type === "SYNC_SALE_OK") {
+        const payload = event.data?.data;
+        options.onSaleSynced?.(payload);
+
+        // When an offline sale is successfully synced by the service worker,
+        // update any matching CachedSale so returns/swaps know it is online.
+        if (payload?.idempotencyKey) {
+          void (async () => {
+            try {
+              const { getCachedSaleByIdempotencyKey, updateCachedSale } = await import("@/lib/idb-catalog");
+              const cached = await getCachedSaleByIdempotencyKey(payload.idempotencyKey as string);
+              if (!cached) return;
+
+              await updateCachedSale(cached.id, {
+                isOffline: false,
+                syncedAt: new Date().toISOString(),
+                serverId: (payload.sale as any)?.id || cached.serverId,
+              });
+            } catch (err) {
+              console.warn("Failed to update cached sale after sync", err);
+            }
+          })();
+        }
+
         void refreshCounts();
       }
     };

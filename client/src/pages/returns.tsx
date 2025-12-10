@@ -315,7 +315,7 @@ export default function ReturnsPage() {
       return;
     }
 
-    // Online: try network with timeout, fallback to cache
+    // Online: try network with timeout, with intelligent cache fallback
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -343,6 +343,8 @@ export default function ReturnsPage() {
       }
       const payload = (await res.json()) as SaleLookupResponse;
       setSaleData(payload);
+      setCachedSaleData(null);
+      setIsOfflineMode(false);
       initializeDraft(payload);
       setReason("");
     } catch (error) {
@@ -350,6 +352,35 @@ export default function ReturnsPage() {
       
       // Try local cache as fallback
       const cached = await tryLocalCache();
+
+      // If we're online and the cached sale has already been synced, attempt a
+      // second lookup using its serverId so the UI reflects live status.
+      if (navigator.onLine && cached && !cached.isOffline && cached.serverId) {
+        try {
+          const controller2 = new AbortController();
+          const timeoutId2 = setTimeout(() => controller2.abort(), 10000);
+
+          const res2 = await fetch(`/api/pos/sales/${cached.serverId}?storeId=${selectedStore}`, {
+            credentials: "include",
+            signal: controller2.signal,
+          });
+          clearTimeout(timeoutId2);
+
+          if (res2.ok) {
+            const payload = (await res2.json()) as SaleLookupResponse;
+            setSaleData(payload);
+            setCachedSaleData(null);
+            setIsOfflineMode(false);
+            initializeDraft(payload);
+            setReason("");
+            setFetchingSale(false);
+            return;
+          }
+        } catch (secondaryError) {
+          console.warn("Secondary sale lookup by serverId failed; falling back to cached data", secondaryError);
+        }
+      }
+
       if (cached) {
         setCachedSaleData(cached);
         setIsOfflineMode(true);
@@ -759,7 +790,7 @@ export default function ReturnsPage() {
       return;
     }
     
-    // Online: try network with timeout, fallback to cache
+    // Online: try network with timeout, with intelligent cache fallback
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -775,6 +806,8 @@ export default function ReturnsPage() {
         throw new Error(errorData.message || String(res.status));
       }
       const payload = (await res.json()) as SaleLookupResponse;
+      setCachedSwapSale(null);
+      setIsSwapOfflineMode(false);
       setSwapState((prev) => ({
         ...prev,
         saleData: payload,
@@ -788,6 +821,40 @@ export default function ReturnsPage() {
       
       // Try local cache as fallback
       const cached = await tryLocalCache();
+
+      // If we're online and the cached sale has already been synced, attempt a
+      // second lookup using its serverId so the swap flow reflects live status.
+      if (navigator.onLine && cached && !cached.isOffline && cached.serverId) {
+        try {
+          const controller2 = new AbortController();
+          const timeoutId2 = setTimeout(() => controller2.abort(), 10000);
+
+          const res2 = await fetch(`/api/pos/sales/${cached.serverId}?storeId=${selectedStore}`, {
+            credentials: "include",
+            signal: controller2.signal,
+          });
+          clearTimeout(timeoutId2);
+
+          if (res2.ok) {
+            const payload = (await res2.json()) as SaleLookupResponse;
+            setCachedSwapSale(null);
+            setIsSwapOfflineMode(false);
+            setSwapState((prev) => ({
+              ...prev,
+              saleData: payload,
+              selectedItem: null,
+              newProduct: null,
+              swapQuantity: 1,
+              newProductQuantity: 1,
+            }));
+            setFetchingSwapSale(false);
+            return;
+          }
+        } catch (secondaryError) {
+          console.warn("Secondary swap lookup by serverId failed; falling back to cached data", secondaryError);
+        }
+      }
+
       if (cached) {
         setCachedSwapSale(cached);
         setIsSwapOfflineMode(true);
