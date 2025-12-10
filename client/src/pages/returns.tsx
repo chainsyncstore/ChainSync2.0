@@ -558,9 +558,6 @@ export default function ReturnsPage() {
 
   const totalRefund = totalProductRefund + totalTaxRefund;
 
-  // Process offline return - queues for later sync. Accepts an explicit sale
-  // so we can convert online saleData to an offline-compatible snapshot
-  // without relying on state update timing.
   const processOfflineReturn = async (sourceSale: CachedSale | null = cachedSaleData) => {
     console.log("[returns] processOfflineReturn:start", { hasSource: !!sourceSale });
     if (!sourceSale) throw new Error("No cached sale data");
@@ -632,6 +629,23 @@ export default function ReturnsPage() {
     return { offline: true, id: offlineReturn.id, potentialLoss };
   };
 
+  const processOfflineReturnWithTimeout = async (sourceSale: CachedSale) => {
+    try {
+      return await Promise.race([
+        processOfflineReturn(sourceSale),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Offline return processing timed out. The return may still be queued in the background.")),
+            2000,
+          ),
+        ),
+      ]);
+    } catch (err) {
+      console.error("[returns] processOfflineReturnWithTimeout:error", err);
+      throw err;
+    }
+  };
+
   const processReturnMutation = useMutation({
     mutationFn: async () => {
       console.log("[returns] processReturnMutation:mutationFn:start", {
@@ -678,7 +692,7 @@ export default function ReturnsPage() {
         setCachedSaleData(offlineSource);
         setIsOfflineMode(true);
 
-        const result = await processOfflineReturn(offlineSource);
+        const result = await processOfflineReturnWithTimeout(offlineSource);
         console.log("[returns] processReturnMutation:offlineBranch:completed", result);
         return result;
       }
@@ -741,15 +755,48 @@ export default function ReturnsPage() {
         clearTimeout(timeoutId);
 
         if (!res.ok) {
-          console.warn("[returns] processReturnMutation:onlineBranch:nonOkStatus", res.status);
-          throw new Error(`Return failed with status ${res.status}`);
+          const errorData = await res.json().catch(() => ({} as any));
+          if (res.status === 409) {
+            const message =
+              (errorData && (errorData as any).message) ||
+              "This sale has already been fully returned.";
+            console.warn(
+              "[returns] processReturnMutation:onlineBranch:conflict409",
+              message,
+            );
+            throw new Error(message);
+          }
+          console.warn(
+            "[returns] processReturnMutation:onlineBranch:nonOkStatus",
+            res.status,
+          );
+          throw new Error(
+            (errorData && (errorData as any).message) ||
+              `Return failed with status ${res.status}`,
+          );
         }
         const json = await res.json();
         console.log("[returns] processReturnMutation:onlineBranch:success", json);
         return json;
       } catch (err) {
-        // Network failed - treat as offline and queue the return
-        console.warn("[returns] processReturnMutation:onlineBranch:errorFallbackToOffline", err);
+        // If this is a structured HTTP error (e.g. 4xx/5xx), do not fall back
+        // to offline queuing; surface it to the user instead.
+        if (
+          err instanceof Error &&
+          /^Return failed with status \d+/.test(err.message)
+        ) {
+          console.warn(
+            "[returns] processReturnMutation:onlineBranch:httpErrorNoOfflineFallback",
+            err.message,
+          );
+          throw err;
+        }
+
+        // Network or timeout failure - treat as offline and queue the return
+        console.warn(
+          "[returns] processReturnMutation:onlineBranch:errorFallbackToOffline",
+          err,
+        );
         if (saleData || cachedSaleData) {
           const offlineSource: CachedSale = cachedSaleData || {
             id: saleData!.sale.id,
@@ -777,7 +824,7 @@ export default function ReturnsPage() {
           setCachedSaleData(offlineSource);
           setIsOfflineMode(true);
 
-          const result = await processOfflineReturn(offlineSource);
+          const result = await processOfflineReturnWithTimeout(offlineSource);
           console.log("[returns] processReturnMutation:onlineBranch:fallbackOfflineCompleted", result);
           return result;
         }
@@ -803,7 +850,14 @@ export default function ReturnsPage() {
     },
     onError: (error) => {
       console.error("[returns] processReturnMutation:onError", error);
-      toast({ title: "Return failed", description: "Please verify inputs and try again.", variant: "destructive" });
+      toast({
+        title: "Return failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Please verify inputs and try again.",
+        variant: "destructive",
+      });
     },
   });
 
