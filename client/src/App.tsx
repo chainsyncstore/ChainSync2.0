@@ -3,6 +3,7 @@ import React, { Suspense, lazy, useEffect, useCallback } from 'react';
 import { Switch, Route, useLocation } from "wouter";
 import { TwoFactorModal } from "@/components/auth/two-factor-modal";
 import { ErrorBoundary } from "@/components/error-boundary";
+import CashierLayout from "@/components/layout/cashier-layout";
 import { PageLoading } from "@/components/ui/loading";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -21,7 +22,6 @@ const ForgotPassword = lazy(() => import("@/components/auth/forgot-password"));
 const ResetPassword = lazy(() => import("@/components/auth/reset-password"));
 const ForcePasswordReset = lazy(() => import("./components/auth/force-password-reset"));
 const MainLayout = lazy(() => import("@/components/layout/main-layout"));
-const CashierLayout = lazy(() => import("@/components/layout/cashier-layout"));
 
 // Lazy load pages for better performance (except Returns, which we load eagerly
 // to ensure the offline Returns/Swaps page works even when dynamic chunks
