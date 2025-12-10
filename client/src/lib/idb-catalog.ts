@@ -73,7 +73,7 @@ export type OfflineReturnRecord = {
 export const CATALOG_REFRESH_INTERVAL_MS = 2 * 60 * 1000;
 
 // Maximum number of sales to cache per store (rolling window)
-const MAX_CACHED_SALES_PER_STORE = 500;
+const MAX_CACHED_SALES_PER_STORE = 10000;
 
 const DB_NAME = 'chainsync_catalog';
 const VERSION = 4; // Bumped for new 'sales' and 'offlineReturns' stores
@@ -335,6 +335,26 @@ export async function cacheCompletedSale(sale: CachedSale): Promise<void> {
   });
   // Prune old sales to stay within limit
   await pruneOldSales(sale.storeId);
+}
+
+// Cache a batch of sales for a store (used for rolling snapshots)
+export async function cacheSalesSnapshotForStore(storeId: string, sales: CachedSale[]): Promise<void> {
+  if (!sales.length) return;
+  const db = await openDb();
+  if (!db) return;
+
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('sales', 'readwrite');
+    const store = tx.objectStore('sales');
+    for (const sale of sales) {
+      store.put(sale);
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+
+  // Enforce rolling window per store
+  await pruneOldSales(storeId);
 }
 
 // Prune oldest sales beyond the max limit per store

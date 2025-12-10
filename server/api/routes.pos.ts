@@ -821,14 +821,16 @@ export async function registerPosRoutes(app: Express) {
       res.json(sale);
     } catch (error) {
       if (hasTx && pg) {
-        try { await pg.query('ROLLBACK'); } catch (rollbackError) {
+        try {
+          await pg.query('ROLLBACK');
+        } catch (rollbackError) {
           logger.warn('Failed to rollback sale transaction', {
-            error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+            error: rollbackError instanceof Error ? error.message : String(rollbackError),
           });
         }
       }
       logger.error('Failed to record sale', {
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
       res.status(500).json({ error: 'Failed to record sale' });
     } finally {
@@ -836,188 +838,94 @@ export async function registerPosRoutes(app: Express) {
     }
   });
 
-  // GET sale by ID for returns page lookup
-  app.get('/api/pos/sales/:saleId', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
-    const saleId = String(req.params.saleId ?? '').trim();
-    const storeId = String(req.query.storeId ?? '').trim();
+  // List recent POS sales for a store (used for offline returns/swaps snapshot)
+  app.get('/api/pos/sales', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const storeId = String((req.query.storeId ?? '')).trim();
+    const limitRaw = Number((req.query.limit as string | undefined) ?? 200);
+    const limit = Math.max(1, Math.min(limitRaw || 200, 1000));
 
-    if (!saleId) {
-      return res.status(400).json({ error: 'saleId is required' });
-    }
     if (!storeId) {
-      return res.status(400).json({ error: 'storeId query parameter is required' });
+      return res.status(400).json({ error: 'storeId is required' });
     }
 
     try {
-      // Fetch sale
-      const saleRows = await db.select().from(sales).where(and(eq(sales.id, saleId), eq(sales.storeId, storeId)));
-      const sale = saleRows[0];
-      if (!sale) {
-        return res.status(404).json({ error: 'Sale not found', message: 'No sale matches the provided ID for this store.' });
-      }
-      const storeRow = await db.select({ currency: stores.currency }).from(stores).where(eq(stores.id, storeId)).limit(1);
-      const currency = storeRow[0]?.currency || 'USD';
-
-      // Fetch sale items with product info
-      const itemRows = await db
+      const rows = await db
         .select({
-          id: saleItems.id,
+          id: sales.id,
+          storeId: sales.storeId,
+          subtotal: sales.subtotal,
+          discount: (sales as any).discount,
+          tax: sales.tax,
+          total: sales.total,
+          paymentMethod: sales.paymentMethod,
+          occurredAt: (sales as any).occurredAt,
+          createdAt: (sales as any).createdAt,
+          itemId: saleItems.id,
           productId: saleItems.productId,
           quantity: saleItems.quantity,
           unitPrice: saleItems.unitPrice,
           lineDiscount: saleItems.lineDiscount,
           lineTotal: saleItems.lineTotal,
           name: products.name,
-          sku: products.sku,
-          barcode: products.barcode,
         })
-        .from(saleItems)
+        .from(sales)
+        .leftJoin(saleItems, eq(saleItems.saleId, sales.id))
         .leftJoin(products, eq(saleItems.productId, products.id))
-        .where(eq(saleItems.saleId, saleId));
+        .where(eq(sales.storeId, storeId));
 
-      // Calculate already-returned quantities per item
-      const priorReturns = await db
-        .select({ id: returns.id })
-        .from(returns)
-        .where(eq(returns.saleId, saleId));
-      const priorReturnIds = new Set<string>((priorReturns as any[]).map((r: any) => r.id));
+      // Sort newest first using occurredAt/createdAt
+      const sorted = (rows as any[]).slice().sort((a: any, b: any) => {
+        const aTime = a.occurredAt ? new Date(a.occurredAt as Date).getTime()
+          : a.createdAt ? new Date(a.createdAt as Date).getTime()
+          : 0;
+        const bTime = b.occurredAt ? new Date(b.occurredAt as Date).getTime()
+          : b.createdAt ? new Date(b.createdAt as Date).getTime()
+          : 0;
+        return bTime - aTime;
+      });
 
-      const returnedQtyMap = new Map<string, number>();
-      if (priorReturnIds.size > 0) {
-        const allReturnItems = await db.select().from(returnItems);
-        for (const ri of allReturnItems as any[]) {
-          if (!priorReturnIds.has(ri.returnId)) continue;
-          const sid = ri.saleItemId as string;
-          const qty = Number(ri.quantity || 0);
-          returnedQtyMap.set(sid, (returnedQtyMap.get(sid) || 0) + qty);
+      const limited = sorted.slice(0, limit);
+
+      // Group items by sale
+      const saleMap = new Map<string, any>();
+      for (const row of limited) {
+        let entry = saleMap.get(row.id);
+        if (!entry) {
+          entry = {
+            id: row.id,
+            storeId: row.storeId,
+            subtotal: row.subtotal,
+            discount: row.discount,
+            tax: row.tax,
+            total: row.total,
+            paymentMethod: row.paymentMethod,
+            occurredAt: (row.occurredAt || row.createdAt || new Date().toISOString()) as string,
+            items: [] as any[],
+          };
+          saleMap.set(row.id, entry);
+        }
+
+        if (row.itemId) {
+          entry.items.push({
+            id: row.itemId,
+            productId: row.productId,
+            quantity: row.quantity,
+            unitPrice: row.unitPrice,
+            lineDiscount: row.lineDiscount,
+            lineTotal: row.lineTotal,
+            name: row.name || null,
+          });
         }
       }
 
-      // Check if sale is fully returned (all item quantities consumed)
-      const isFullyReturned = itemRows.length > 0 && itemRows.every((item) => {
-        const originalQty = Number(item.quantity) || 0;
-        const returnedQty = returnedQtyMap.get(item.id) || 0;
-        return returnedQty >= originalQty;
-      });
-
-      // Block lookup if fully returned
-      if (isFullyReturned) {
-        return res.status(409).json({
-          error: 'Sale already fully returned',
-          message: 'All items from this sale have already been returned.',
-        });
-      }
-
-      const response = {
-        sale: {
-          id: sale.id,
-          storeId: sale.storeId,
-          subtotal: Number(sale.subtotal) || 0,
-          discount: Number((sale as any).discount) || 0,
-          tax: Number(sale.tax) || 0,
-          total: Number(sale.total) || 0,
-          occurredAt: (sale as any).occurredAt || (sale as any).createdAt || new Date().toISOString(),
-          status: (sale as any).status || 'COMPLETED',
-          currency,
-        },
-        items: itemRows.map((item) => {
-          const originalQty = Number(item.quantity) || 0;
-          const returnedQty = returnedQtyMap.get(item.id) || 0;
-          const remainingQty = Math.max(0, originalQty - returnedQty);
-          return {
-            id: item.id,
-            productId: item.productId,
-            quantity: originalQty,
-            quantityReturned: returnedQty,
-            quantityRemaining: remainingQty,
-            unitPrice: Number(item.unitPrice) || 0,
-            lineDiscount: Number(item.lineDiscount) || 0,
-            lineTotal: Number(item.lineTotal) || 0,
-            name: item.name || null,
-            sku: item.sku || null,
-            barcode: item.barcode || null,
-          };
-        }),
-      };
-
-      return res.json(response);
+      return res.json({ ok: true, data: Array.from(saleMap.values()) });
     } catch (error) {
-      logger.error('Failed to fetch sale for returns', {
-        saleId,
+      logger.error('Failed to fetch sales snapshot for offline use', {
         storeId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return res.status(500).json({ error: 'Failed to fetch sale' });
+      return res.status(500).json({ error: 'Failed to fetch sales snapshot' });
     }
-  });
-
-  app.get('/api/pos/returns', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
-    const { storeId, saleId } = req.query as { storeId?: string; saleId?: string };
-    const limit = Number((req.query?.limit as string) ?? 25);
-    const offset = Number((req.query?.offset as string) ?? 0);
-
-    if (!storeId) {
-      return res.status(400).json({ error: 'storeId is required' });
-    }
-
-    const isMockTestDb = process.env.NODE_ENV === 'test' && process.env.LOYALTY_REALDB !== '1';
-
-    if (!isMockTestDb) {
-      const whereClauses = [eq(returns.storeId, storeId)];
-      if (saleId) whereClauses.push(eq(returns.saleId, saleId));
-
-      const rows = await db
-        .select({
-          id: returns.id,
-          saleId: returns.saleId,
-          storeId: returns.storeId,
-          reason: returns.reason,
-          refundType: returns.refundType,
-          totalRefund: returns.totalRefund,
-          currency: returns.currency,
-          processedBy: returns.processedBy,
-          occurredAt: returns.occurredAt,
-        })
-        .from(returns)
-        .where(and(...whereClauses))
-        .orderBy(desc(returns.occurredAt))
-        .limit(Math.max(1, Math.min(limit, 100)))
-        .offset(Math.max(0, offset));
-
-      return res.json({ ok: true, data: rows });
-    }
-
-    // Mock DB fallback: fetch all and filter/sort/deduplicate in memory
-    const all = (await db.select().from(returns)) as any[];
-    const filtered = all.filter((row: any) => {
-      const rowStoreId = (row.storeId ?? row.store_id) as string | undefined;
-      const rowSaleId = (row.saleId ?? row.sale_id) as string | undefined;
-      if (!rowStoreId || rowStoreId !== storeId) return false;
-      if (saleId && rowSaleId !== saleId) return false;
-      return true;
-    });
-
-    const sorted = filtered.sort((a, b) => {
-      const da = a.occurredAt ? new Date(a.occurredAt as any).getTime() : 0;
-      const dbt = b.occurredAt ? new Date(b.occurredAt as any).getTime() : 0;
-      return dbt - da;
-    });
-
-    const seenSaleIds = new Set<string>();
-    const deduped: any[] = [];
-    for (const row of sorted) {
-      const sid = (row.saleId ?? row.sale_id) as string | undefined;
-      if (!sid) continue;
-      if (seenSaleIds.has(sid)) continue;
-      seenSaleIds.add(sid);
-      deduped.push(row);
-    }
-
-    const start = Math.max(0, offset);
-    const end = start + Math.max(1, Math.min(limit, 100));
-    const rows = deduped.slice(start, end);
-
-    return res.json({ ok: true, data: rows });
   });
 
   app.get('/api/pos/returns/:returnId', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
