@@ -185,7 +185,7 @@ export default function ReturnsPage() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-        const res = await fetch(`/api/pos/sales?storeId=${selectedStore}&limit=200`, {
+        const res = await fetch(`/api/pos/sales?storeId=${selectedStore}&limit=1000`, {
           credentials: "include",
           signal: controller.signal,
         });

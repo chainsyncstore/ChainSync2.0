@@ -46,7 +46,9 @@ import {
   putProducts,
   getCustomerByPhone,
   CATALOG_REFRESH_INTERVAL_MS,
+  cacheSalesSnapshotForStore,
 } from "@/lib/idb-catalog";
+import type { CachedSale } from "@/lib/idb-catalog";
 import { 
   generateIdempotencyKey, 
   validateSalePayload, 
@@ -218,6 +220,73 @@ export default function POSV2() {
       setIsCatalogRefreshing(false);
     }
   }, [selectedStore, isCatalogRefreshing]);
+
+	// Rolling sales snapshot for offline returns/swaps - when online, cache
+	// recent sales for this store so Returns/Swaps can look them up by receipt
+	// ID even if they were made on another terminal.
+	useEffect(() => {
+	  if (!selectedStore || !isOnline) return;
+
+	  let cancelled = false;
+
+	  const syncRecentSalesSnapshot = async () => {
+	    try {
+	      const controller = new AbortController();
+	      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+	      const res = await fetch(`/api/pos/sales?storeId=${selectedStore}&limit=1000`, {
+	        credentials: "include",
+	        signal: controller.signal,
+	      });
+	      clearTimeout(timeoutId);
+
+	      if (!res.ok || cancelled) return;
+	      const body = await res.json().catch(() => null);
+	      if (!body || !Array.isArray(body.data) || cancelled) return;
+
+	      const nowIso = new Date().toISOString();
+	      const snapshot: CachedSale[] = (body.data as any[]).map((sale) => ({
+	        id: String(sale.id),
+	        receiptNumber: String((sale as any).receiptNumber ?? sale.id),
+	        storeId: String(sale.storeId),
+	        subtotal: Number(sale.subtotal || 0),
+	        discount: Number(sale.discount || 0),
+	        tax: Number(sale.tax || 0),
+	        total: Number(sale.total || 0),
+	        paymentMethod: String(sale.paymentMethod || "manual"),
+	        items: (sale.items || []).map((item: any) => ({
+	          id: String(item.id),
+	          productId: String(item.productId),
+	          quantity: Number(item.quantity || 0),
+	          unitPrice: Number(item.unitPrice || 0),
+	          lineTotal: Number(item.lineTotal || 0),
+	          name: item.name || null,
+	          quantityReturned: undefined,
+	        })),
+	        occurredAt: String(sale.occurredAt || nowIso),
+	        isOffline: false,
+	        syncedAt: nowIso,
+	        serverId: String(sale.id),
+	      }));
+
+	      await cacheSalesSnapshotForStore(selectedStore, snapshot);
+	    } catch (err) {
+	      console.warn("Failed to refresh sales snapshot for offline returns", err);
+	    }
+	  };
+
+	  void syncRecentSalesSnapshot();
+
+	  const intervalId = setInterval(() => {
+	    if (!navigator.onLine) return;
+	    void syncRecentSalesSnapshot();
+	  }, 5 * 60 * 1000);
+
+	  return () => {
+	    cancelled = true;
+	    clearInterval(intervalId);
+	  };
+	}, [selectedStore, isOnline]);
 
   // Sync inventory snapshot on login/mount and start background refresh interval
   useEffect(() => {
