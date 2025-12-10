@@ -19,6 +19,7 @@ export type CachedSaleItem = {
 // Cached sale for offline return/swap lookup
 export type CachedSale = {
   id: string;
+  receiptNumber?: string;
   idempotencyKey?: string;
   storeId: string;
   subtotal: number;

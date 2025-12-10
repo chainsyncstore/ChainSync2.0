@@ -200,6 +200,7 @@ export default function ReturnsPage() {
 
         const snapshot: CachedSale[] = (body.data as any[]).map((sale) => ({
           id: String(sale.id),
+          receiptNumber: String((sale as any).receiptNumber ?? sale.id),
           storeId: String(sale.storeId),
           subtotal: Number(sale.subtotal || 0),
           discount: Number(sale.discount || 0),
@@ -329,12 +330,15 @@ export default function ReturnsPage() {
         let cached = await getCachedSale(saleReference.trim());
         if (cached && cached.storeId === selectedStore) return cached;
 
-        // Fallback: scan all cached sales for this store for id / idempotencyKey / serverId match
+        // Fallback: scan all cached sales for this store for id / idempotencyKey / serverId /
+        // receiptNumber match. This lets cashiers type the human-visible receipt id from the
+        // printed receipt even when offline.
         const allSales = await getSalesForStore(selectedStore);
         cached =
           allSales.find(
             (s) =>
               s.id === saleReference.trim() ||
+              s.receiptNumber === saleReference.trim() ||
               s.idempotencyKey === saleReference.trim() ||
               s.serverId === saleReference.trim(),
           ) || null;

@@ -593,6 +593,7 @@ export default function POSV2() {
           await Promise.race([
             cacheCompletedSale({
               id: localId,
+              receiptNumber: localId,
               idempotencyKey,
               storeId: selectedStore,
               subtotal: summary.subtotal,
@@ -656,6 +657,7 @@ export default function POSV2() {
           // Cache the completed sale for offline return/swap lookup
           await cacheCompletedSale({
             id: saleResult.id,
+            receiptNumber: saleResult.receiptNumber ?? saleResult.id,
             idempotencyKey,
             storeId: selectedStore,
             subtotal: summary.subtotal,
