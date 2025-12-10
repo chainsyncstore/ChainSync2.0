@@ -558,6 +558,7 @@ export default function ReturnsPage() {
   // so we can convert online saleData to an offline-compatible snapshot
   // without relying on state update timing.
   const processOfflineReturn = async (sourceSale: CachedSale | null = cachedSaleData) => {
+    console.log("[returns] processOfflineReturn:start", { hasSource: !!sourceSale });
     if (!sourceSale) throw new Error("No cached sale data");
 
     const { enqueueOfflineReturn, markItemsReturned, updateLocalInventory, getOfflineReturns } = await import("@/lib/idb-catalog");
@@ -623,16 +624,29 @@ export default function ReturnsPage() {
     const returns = await getOfflineReturns(selectedStore);
     setOfflineReturnCount(returns.length);
 
+    console.log("[returns] processOfflineReturn:done", { id: offlineReturn.id, potentialLoss });
     return { offline: true, id: offlineReturn.id, potentialLoss };
   };
 
   const processReturnMutation = useMutation({
     mutationFn: async () => {
+      console.log("[returns] processReturnMutation:mutationFn:start", {
+        isOnline,
+        navigatorOnline: navigator.onLine,
+        hasSaleData: !!saleData,
+        hasCachedSaleData: !!cachedSaleData,
+        isOfflineMode,
+      });
       const uiOffline = !isOnline || !navigator.onLine;
 
       // If we're offline or explicitly in offline mode but still have online saleData,
       // convert it to a CachedSale snapshot and process entirely locally.
       if ((uiOffline || isOfflineMode) && (saleData || cachedSaleData)) {
+        console.log("[returns] processReturnMutation:usingOfflineBranch", {
+          uiOffline,
+          isOfflineMode,
+          from: cachedSaleData ? "cachedSaleData" : "saleData",
+        });
         const offlineSource: CachedSale = cachedSaleData || {
           id: saleData!.sale.id,
           storeId: saleData!.sale.storeId,
@@ -660,11 +674,16 @@ export default function ReturnsPage() {
         setCachedSaleData(offlineSource);
         setIsOfflineMode(true);
 
-        return processOfflineReturn(offlineSource);
+        const result = await processOfflineReturn(offlineSource);
+        console.log("[returns] processReturnMutation:offlineBranch:completed", result);
+        return result;
       }
 
       // Online mode - regular API call
-      if (!saleData) throw new Error("No sale selected");
+      if (!saleData) {
+        console.log("[returns] processReturnMutation:noSaleSelectedError");
+        throw new Error("No sale selected");
+      }
       const itemsPayload = saleData.items
         .map((item) => ({ draftEntry: draft[item.id], item }))
         .filter(({ draftEntry }) => Boolean(draftEntry))
@@ -700,6 +719,7 @@ export default function ReturnsPage() {
 
       // Try network with timeout, fallback to offline queue
       try {
+        console.log("[returns] processReturnMutation:onlineBranch:callingApi");
         const csrfToken = await getCsrfToken().catch(() => null);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -717,11 +737,15 @@ export default function ReturnsPage() {
         clearTimeout(timeoutId);
 
         if (!res.ok) {
+          console.warn("[returns] processReturnMutation:onlineBranch:nonOkStatus", res.status);
           throw new Error(`Return failed with status ${res.status}`);
         }
-        return res.json();
+        const json = await res.json();
+        console.log("[returns] processReturnMutation:onlineBranch:success", json);
+        return json;
       } catch (err) {
         // Network failed - treat as offline and queue the return
+        console.warn("[returns] processReturnMutation:onlineBranch:errorFallbackToOffline", err);
         if (saleData || cachedSaleData) {
           const offlineSource: CachedSale = cachedSaleData || {
             id: saleData!.sale.id,
@@ -749,12 +773,15 @@ export default function ReturnsPage() {
           setCachedSaleData(offlineSource);
           setIsOfflineMode(true);
 
-          return processOfflineReturn(offlineSource);
+          const result = await processOfflineReturn(offlineSource);
+          console.log("[returns] processReturnMutation:onlineBranch:fallbackOfflineCompleted", result);
+          return result;
         }
         throw err;
       }
     },
     onSuccess: (result) => {
+      console.log("[returns] processReturnMutation:onSuccess", result);
       if (result?.offline) {
         toast({ 
           title: "Return queued offline", 
@@ -771,7 +798,7 @@ export default function ReturnsPage() {
       setReason("");
     },
     onError: (error) => {
-      console.error("Return submission failed", error);
+      console.error("[returns] processReturnMutation:onError", error);
       toast({ title: "Return failed", description: "Please verify inputs and try again.", variant: "destructive" });
     },
   });
@@ -1131,7 +1158,17 @@ export default function ReturnsPage() {
 
   // Process offline swap - queues for later sync
   const processOfflineSwap = async () => {
+    console.log("[returns] processOfflineSwap:start", {
+      hasSaleData: !!swapState.saleData,
+      hasSelectedItem: !!swapState.selectedItem,
+      newProducts: swapState.newProducts.length,
+    });
     if (!swapState.saleData || !swapState.selectedItem || swapState.newProducts.length === 0) {
+      console.warn("[returns] processOfflineSwap:missingData", {
+        hasSaleData: !!swapState.saleData,
+        hasSelectedItem: !!swapState.selectedItem,
+        newProducts: swapState.newProducts.length,
+      });
       throw new Error("Missing swap data");
     }
     
@@ -1194,20 +1231,35 @@ export default function ReturnsPage() {
     // Update offline return count
     const returns = await getOfflineReturns(selectedStore);
     setOfflineReturnCount(returns.length);
-    
-    return { offline: true, id: offlineSwap.id, potentialLoss, totalDifference: swapCalculations.totalDifference };
+
+    const result = { offline: true, id: offlineSwap.id, potentialLoss, totalDifference: swapCalculations.totalDifference };
+    console.log("[returns] processOfflineSwap:done", result);
+    return result;
   };
 
   const processSwapMutation = useMutation({
     mutationFn: async () => {
+      console.log("[returns] processSwapMutation:mutationFn:start", {
+        isOnline,
+        navigatorOnline: navigator.onLine,
+        isSwapOfflineMode,
+      });
       const uiOffline = !isOnline || !navigator.onLine;
 
       // Offline mode - queue swap for later sync
       if (uiOffline || isSwapOfflineMode) {
-        return processOfflineSwap();
+        console.log("[returns] processSwapMutation:usingOfflineBranch", { uiOffline, isSwapOfflineMode });
+        const result = await processOfflineSwap();
+        console.log("[returns] processSwapMutation:offlineBranch:completed", result);
+        return result;
       }
       
       if (!swapState.saleData || !swapState.selectedItem || swapState.newProducts.length === 0) {
+        console.warn("[returns] processSwapMutation:onlineBranch:missingData", {
+          hasSaleData: !!swapState.saleData,
+          hasSelectedItem: !!swapState.selectedItem,
+          newProducts: swapState.newProducts.length,
+        });
         throw new Error("Missing swap data");
       }
 
@@ -1248,19 +1300,26 @@ export default function ReturnsPage() {
 
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({}));
+          console.warn("[returns] processSwapMutation:onlineBranch:nonOkStatus", res.status, errorData);
           throw new Error(errorData.error || `Swap failed with status ${res.status}`);
         }
-        return res.json();
+        const json = await res.json();
+        console.log("[returns] processSwapMutation:onlineBranch:success", json);
+        return json;
       } catch (err) {
         // Network failed - try offline processing
+        console.warn("[returns] processSwapMutation:onlineBranch:errorFallbackToOffline", err);
         if ((err as Error).name === "AbortError" || !navigator.onLine) {
           setIsSwapOfflineMode(true);
-          return processOfflineSwap();
+          const result = await processOfflineSwap();
+          console.log("[returns] processSwapMutation:onlineBranch:fallbackOfflineCompleted", result);
+          return result;
         }
         throw err;
       }
     },
     onSuccess: async (data) => {
+      console.log("[returns] processSwapMutation:onSuccess", data);
       const currency = (currentStore as any)?.currency || "USD";
       
       // Handle offline result
@@ -1361,7 +1420,7 @@ export default function ReturnsPage() {
       setIsSwapModalOpen(false);
     },
     onError: (error) => {
-      console.error("Swap failed", error);
+      console.error("[returns] processSwapMutation:onError", error);
       toast({ 
         title: "Swap failed", 
         description: error instanceof Error ? error.message : "Please verify inputs and try again.", 
