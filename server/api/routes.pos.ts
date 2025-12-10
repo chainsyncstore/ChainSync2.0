@@ -854,12 +854,11 @@ export async function registerPosRoutes(app: Express) {
           id: sales.id,
           storeId: sales.storeId,
           subtotal: sales.subtotal,
-          discount: (sales as any).discount,
+          discount: sales.discount,
           tax: sales.tax,
           total: sales.total,
           paymentMethod: sales.paymentMethod,
-          occurredAt: (sales as any).occurredAt,
-          createdAt: (sales as any).createdAt,
+          occurredAt: sales.occurredAt,
           itemId: saleItems.id,
           productId: saleItems.productId,
           quantity: saleItems.quantity,
@@ -873,14 +872,10 @@ export async function registerPosRoutes(app: Express) {
         .leftJoin(products, eq(saleItems.productId, products.id))
         .where(eq(sales.storeId, storeId));
 
-      // Sort newest first using occurredAt/createdAt
+      // Sort newest first using occurredAt
       const sorted = (rows as any[]).slice().sort((a: any, b: any) => {
-        const aTime = a.occurredAt ? new Date(a.occurredAt as Date).getTime()
-          : a.createdAt ? new Date(a.createdAt as Date).getTime()
-          : 0;
-        const bTime = b.occurredAt ? new Date(b.occurredAt as Date).getTime()
-          : b.createdAt ? new Date(b.createdAt as Date).getTime()
-          : 0;
+        const aTime = a.occurredAt ? new Date(a.occurredAt as Date).getTime() : 0;
+        const bTime = b.occurredAt ? new Date(b.occurredAt as Date).getTime() : 0;
         return bTime - aTime;
       });
 
@@ -899,7 +894,7 @@ export async function registerPosRoutes(app: Express) {
             tax: row.tax,
             total: row.total,
             paymentMethod: row.paymentMethod,
-            occurredAt: (row.occurredAt || row.createdAt || new Date().toISOString()) as string,
+            occurredAt: (row.occurredAt || new Date().toISOString()) as string,
             items: [] as any[],
           };
           saleMap.set(row.id, entry);
@@ -924,7 +919,10 @@ export async function registerPosRoutes(app: Express) {
         storeId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return res.status(500).json({ error: 'Failed to fetch sales snapshot' });
+      return res.status(500).json({
+        error: 'Failed to fetch sales snapshot',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
   });
 
