@@ -740,19 +740,33 @@ export default function ReturnsPage() {
         console.log("[returns] processReturnMutation:onlineBranch:callingApi");
         const csrfToken = await getCsrfToken().catch(() => null);
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const abortId = setTimeout(() => controller.abort(), 10000);
 
-        const res = await fetch("/api/pos/returns", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-          },
-          credentials: "include",
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
+        // Absolute cap so the mutation always settles even if the service worker ignores abort.
+        const res = await Promise.race([
+          fetch("/api/pos/returns", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+            },
+            credentials: "include",
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "Network timeout while submitting return. Using offline queue.",
+                  ),
+                ),
+              12000,
+            ),
+          ),
+        ]);
+        clearTimeout(abortId);
 
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({} as any));
