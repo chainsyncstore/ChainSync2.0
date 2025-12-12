@@ -655,6 +655,20 @@ export default function ReturnsPage() {
         hasCachedSaleData: !!cachedSaleData,
         isOfflineMode,
       });
+      // Global safety timeout so the mutation always settles (logs + spinner clear).
+      const overallTimeout = new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "Return processing timed out. If offline, it may still queue in background.",
+              ),
+            ),
+          15000,
+        ),
+      );
+
+      const run = async () => {
       const uiOffline = !isOnline || !navigator.onLine;
 
       // If we're offline or explicitly in offline mode but still have online saleData,
@@ -844,6 +858,9 @@ export default function ReturnsPage() {
         }
         throw err;
       }
+      };
+
+      return await Promise.race([run(), overallTimeout]);
     },
     onSuccess: (result) => {
       console.log("[returns] processReturnMutation:onSuccess", result);
@@ -893,6 +910,14 @@ export default function ReturnsPage() {
 
   // Handler to initiate return with offline warning if needed
   const handleProcessReturn = () => {
+    console.log("[returns] handleProcessReturn:click", {
+      isOfflineMode,
+      isOnline,
+      navigatorOnline: navigator.onLine,
+      hasSaleData: !!saleData,
+      hasCachedSaleData: !!cachedSaleData,
+      canSubmit,
+    });
     if (isOfflineMode) {
       setPendingOfflineAction("return");
       setShowOfflineWarning(true);
@@ -903,6 +928,12 @@ export default function ReturnsPage() {
 
   // Confirm offline action (after warning acknowledged)
   const confirmOfflineAction = () => {
+    console.log("[returns] confirmOfflineAction", {
+      pendingOfflineAction,
+      isOfflineMode,
+      isOnline,
+      navigatorOnline: navigator.onLine,
+    });
     setShowOfflineWarning(false);
     if (pendingOfflineAction === "return") {
       processReturnMutation.mutate();
