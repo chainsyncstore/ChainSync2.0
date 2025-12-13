@@ -34,6 +34,19 @@ import { useOfflineSyncIndicator } from "@/hooks/use-offline-sync-indicator";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
+import {
+  cacheSalesSnapshotForStore,
+  enqueueOfflineReturn,
+  getCachedSale,
+  getInventoryForStore,
+  getOfflineReturns,
+  getProductByBarcodeLocally,
+  getSalesForStore,
+  hasPendingOfflineReturns,
+  markItemsReturned,
+  searchProductsLocally,
+  updateLocalInventory,
+} from "@/lib/idb-catalog";
 import type { CachedSale, CachedSaleItem, OfflineReturnRecord } from "@/lib/idb-catalog";
 import { formatCurrency, formatDateTime } from "@/lib/pos-utils";
 import type { ReceiptPrintJob } from "@/lib/printer";
@@ -194,19 +207,19 @@ export default function ReturnsPage() {
         if (!res.ok || cancelled) return;
         const body = await res.json().catch(() => null);
         if (!body || !Array.isArray(body.data) || cancelled) return;
-
-        const { cacheSalesSnapshotForStore } = await import("@/lib/idb-catalog");
         const nowIso = new Date().toISOString();
 
         const snapshot: CachedSale[] = (body.data as any[]).map((sale) => ({
           id: String(sale.id),
           receiptNumber: String((sale as any).receiptNumber ?? sale.id),
+          idempotencyKey: (sale as any).idempotencyKey ? String((sale as any).idempotencyKey) : undefined,
           storeId: String(sale.storeId),
           subtotal: Number(sale.subtotal || 0),
           discount: Number(sale.discount || 0),
           tax: Number(sale.tax || 0),
           total: Number(sale.total || 0),
           paymentMethod: String(sale.paymentMethod || "manual"),
+          status: (sale as any).status === "RETURNED" ? "RETURNED" : "COMPLETED",
           items: (sale.items || []).map((item: any) => ({
             id: String(item.id),
             productId: String(item.productId),
@@ -262,7 +275,6 @@ export default function ReturnsPage() {
   useEffect(() => {
     const loadOfflineCount = async () => {
       try {
-        const { getOfflineReturns } = await import("@/lib/idb-catalog");
         const returns = await getOfflineReturns(selectedStore);
         setOfflineReturnCount(returns.length);
       } catch {
@@ -324,8 +336,6 @@ export default function ReturnsPage() {
     // Helper to try local cache lookup
     const tryLocalCache = async (): Promise<CachedSale | null> => {
       try {
-        const { getCachedSale, getSalesForStore } = await import("@/lib/idb-catalog");
-
         // Direct match on local sale id
         let cached = await getCachedSale(saleReference.trim());
         if (cached && cached.storeId === selectedStore) return cached;
@@ -353,9 +363,9 @@ export default function ReturnsPage() {
       const cached = await tryLocalCache();
       if (cached) {
         // Check if fully returned locally
-        const allReturned = cached.items.every(
-          (item) => (item.quantityReturned || 0) >= item.quantity,
-        );
+        const allReturned =
+          cached.status === "RETURNED" ||
+          cached.items.every((item) => (item.quantityReturned || 0) >= item.quantity);
         if (allReturned) {
           toast({
             title: "Sale already fully returned",
@@ -561,8 +571,15 @@ export default function ReturnsPage() {
   const processOfflineReturn = async (sourceSale: CachedSale | null = cachedSaleData) => {
     console.log("[returns] processOfflineReturn:start", { hasSource: !!sourceSale });
     if (!sourceSale) throw new Error("No cached sale data");
-
-    const { enqueueOfflineReturn, markItemsReturned, updateLocalInventory, getOfflineReturns } = await import("@/lib/idb-catalog");
+    if (sourceSale.status === "RETURNED") {
+      throw new Error("This sale has already been fully returned.");
+    }
+    const hasPending = await hasPendingOfflineReturns(sourceSale.id);
+    if (hasPending) {
+      throw new Error(
+        "A pending offline return/swap already exists for this sale. Please sync before retrying.",
+      );
+    }
 
     const itemsPayload = sourceSale.items
       .map((item) => ({ draftEntry: draft[item.id], item }))
@@ -687,6 +704,7 @@ export default function ReturnsPage() {
           tax: saleData!.sale.tax,
           total: saleData!.sale.total,
           paymentMethod: "unknown",
+          status: saleData!.sale.status === "RETURNED" ? "RETURNED" : "COMPLETED",
           items: saleData!.items.map((item) => ({
             id: item.id,
             productId: item.productId,
@@ -834,6 +852,7 @@ export default function ReturnsPage() {
             tax: saleData!.sale.tax,
             total: saleData!.sale.total,
             paymentMethod: "unknown",
+            status: saleData!.sale.status === "RETURNED" ? "RETURNED" : "COMPLETED",
             items: saleData!.items.map((item) => ({
               id: item.id,
               productId: item.productId,
@@ -980,7 +999,7 @@ export default function ReturnsPage() {
         tax: cached.tax,
         total: cached.total,
         occurredAt: cached.occurredAt,
-        status: cached.isOffline ? "PENDING_SYNC" : "COMPLETED",
+        status: cached.status || (cached.isOffline ? "PENDING_SYNC" : "COMPLETED"),
         currency: (currentStore as any)?.currency || "USD",
       },
       items: cached.items.map(item => ({
@@ -1001,7 +1020,6 @@ export default function ReturnsPage() {
     // Helper to try local cache
     const tryLocalCache = async (): Promise<CachedSale | null> => {
       try {
-        const { getCachedSale, getSalesForStore } = await import("@/lib/idb-catalog");
         let cached = await getCachedSale(swapState.saleReference.trim());
         if (cached && cached.storeId === selectedStore) return cached;
         
@@ -1021,6 +1039,18 @@ export default function ReturnsPage() {
     if (!navigator.onLine) {
       const cached = await tryLocalCache();
       if (cached) {
+        const allReturned =
+          cached.status === "RETURNED" ||
+          cached.items.every((item) => (item.quantityReturned || 0) >= item.quantity);
+        if (allReturned) {
+          toast({
+            title: "Sale already fully returned",
+            description: "All items from this sale have already been returned.",
+            variant: "destructive",
+          });
+          setFetchingSwapSale(false);
+          return;
+        }
         setCachedSwapSale(cached);
         setIsSwapOfflineMode(true);
         setSwapState((prev) => ({
@@ -1146,7 +1176,6 @@ export default function ReturnsPage() {
       }
       
       // Offline or network failed - use local cache
-      const { searchProductsLocally, getInventoryForStore } = await import("@/lib/idb-catalog");
       const products = await searchProductsLocally(query, 10);
       const inventory = await getInventoryForStore(selectedStore);
       const inventoryMap = new Map(inventory.map(i => [i.productId, i.quantity]));
@@ -1204,7 +1233,6 @@ export default function ReturnsPage() {
       }
       
       // Offline or network failed - use local cache
-      const { getProductByBarcodeLocally, getInventoryForStore } = await import("@/lib/idb-catalog");
       const product = await getProductByBarcodeLocally(barcode.trim());
       if (product) {
         const inventory = await getInventoryForStore(selectedStore);
@@ -1274,8 +1302,18 @@ export default function ReturnsPage() {
       });
       throw new Error("Missing swap data");
     }
-    
-    const { enqueueOfflineReturn, markItemsReturned, updateLocalInventory, getOfflineReturns } = await import("@/lib/idb-catalog");
+
+    if (swapState.saleData.sale.status === "RETURNED" || cachedSwapSale?.status === "RETURNED") {
+      throw new Error("This sale has already been fully returned.");
+    }
+
+    const saleIdForOffline = cachedSwapSale?.id || swapState.saleData.sale.id;
+    const hasPending = await hasPendingOfflineReturns(saleIdForOffline);
+    if (hasPending) {
+      throw new Error(
+        "A pending offline return/swap already exists for this sale. Please sync before retrying.",
+      );
+    }
     
     const originalQty = Math.min(swapState.swapQuantity ?? 0, swapState.selectedItem.quantityRemaining || 1);
     
@@ -1284,7 +1322,7 @@ export default function ReturnsPage() {
     
     const offlineSwap: OfflineReturnRecord = {
       id: `offline_swap_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      saleId: cachedSwapSale?.id || swapState.saleData.sale.id,
+      saleId: saleIdForOffline,
       storeId: selectedStore,
       type: "SWAP",
       items: [{

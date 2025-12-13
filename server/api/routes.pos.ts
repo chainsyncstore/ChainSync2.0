@@ -852,12 +852,14 @@ export async function registerPosRoutes(app: Express) {
       const rows = await db
         .select({
           id: sales.id,
+          idempotencyKey: sales.idempotencyKey,
           storeId: sales.storeId,
           subtotal: sales.subtotal,
           discount: sales.discount,
           tax: sales.tax,
           total: sales.total,
           paymentMethod: sales.paymentMethod,
+          status: sales.status,
           occurredAt: sales.occurredAt,
           itemId: saleItems.id,
           productId: saleItems.productId,
@@ -888,13 +890,19 @@ export async function registerPosRoutes(app: Express) {
         if (!entry) {
           entry = {
             id: row.id,
+            idempotencyKey: row.idempotencyKey,
             storeId: row.storeId,
             subtotal: row.subtotal,
             discount: row.discount,
             tax: row.tax,
             total: row.total,
             paymentMethod: row.paymentMethod,
-            occurredAt: (row.occurredAt || new Date().toISOString()) as string,
+            status: row.status,
+            occurredAt: row.occurredAt
+              ? row.occurredAt instanceof Date
+                ? row.occurredAt.toISOString()
+                : String(row.occurredAt)
+              : new Date().toISOString(),
             items: [] as any[],
           };
           saleMap.set(row.id, entry);
@@ -923,6 +931,139 @@ export async function registerPosRoutes(app: Express) {
         error: 'Failed to fetch sales snapshot',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
+    }
+  });
+
+  app.get('/api/pos/sales/:saleId', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const saleRef = String((req.params as any)?.saleId ?? '').trim();
+    const storeId = String((req.query.storeId ?? '')).trim();
+
+    if (!saleRef) {
+      return res.status(400).json({ error: 'saleId is required', message: 'saleId is required' });
+    }
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'storeId is required', message: 'storeId is required' });
+    }
+
+    try {
+      const isUuid = z.string().uuid().safeParse(saleRef).success;
+
+      const saleById = isUuid
+        ? await db.select().from(sales).where(eq(sales.id, saleRef as any)).limit(1)
+        : ([] as any[]);
+      let sale = (saleById as any[])[0] as any;
+
+      if (!sale) {
+        const saleByKey = await db.select().from(sales).where(eq(sales.idempotencyKey, saleRef)).limit(1);
+        sale = saleByKey[0] as any;
+      }
+
+      if (!sale) {
+        return res.status(404).json({ error: 'Sale not found', message: 'Sale not found' });
+      }
+
+      if (String((sale as any).storeId ?? (sale as any).store_id ?? '') !== storeId) {
+        return res.status(400).json({ error: 'Store mismatch for sale', message: 'Store mismatch for sale' });
+      }
+
+      const storeRow = await db
+        .select({ currency: stores.currency })
+        .from(stores)
+        .where(eq(stores.id, storeId))
+        .limit(1);
+      const storeCurrency = storeRow[0]?.currency || 'USD';
+
+      const saleItemRows = await db
+        .select({
+          id: saleItems.id,
+          productId: saleItems.productId,
+          quantity: saleItems.quantity,
+          unitPrice: saleItems.unitPrice,
+          lineDiscount: saleItems.lineDiscount,
+          lineTotal: saleItems.lineTotal,
+          name: products.name,
+          sku: products.sku,
+          barcode: products.barcode,
+        })
+        .from(saleItems)
+        .leftJoin(products, eq(saleItems.productId, products.id))
+        .where(eq(saleItems.saleId, (sale as any).id));
+
+      if (!saleItemRows.length) {
+        return res.status(404).json({ error: 'Sale has no items', message: 'Sale has no items' });
+      }
+
+      const priorReturns = await db
+        .select({ id: returns.id })
+        .from(returns)
+        .where(eq(returns.saleId, (sale as any).id));
+
+      const priorReturnIds = new Set<string>((priorReturns as any[]).map((r: any) => String(r.id ?? '')));
+      const allReturnItems = await db.select().from(returnItems);
+
+      const consumedQtyMap = new Map<string, number>();
+      for (const existing of allReturnItems as any[]) {
+        const retId = String((existing as any).returnId ?? (existing as any).return_id ?? '');
+        if (!priorReturnIds.has(retId)) continue;
+        const sid = String((existing as any).saleItemId ?? (existing as any).sale_item_id ?? '');
+        const qty = Number((existing as any).quantity || 0);
+        if (!sid) continue;
+        consumedQtyMap.set(sid, (consumedQtyMap.get(sid) || 0) + qty);
+      }
+
+      const items = (saleItemRows as any[]).map((row) => {
+        const qty = Number((row as any).quantity || 0);
+        const returnedQty = consumedQtyMap.get(String((row as any).id)) || 0;
+        const remainingQty = Math.max(0, qty - returnedQty);
+        return {
+          id: String((row as any).id),
+          productId: String((row as any).productId),
+          quantity: qty,
+          quantityReturned: returnedQty,
+          quantityRemaining: remainingQty,
+          unitPrice: Number((row as any).unitPrice || 0),
+          lineDiscount: Number((row as any).lineDiscount || 0),
+          lineTotal: Number((row as any).lineTotal || 0),
+          name: (row as any).name ?? null,
+          sku: (row as any).sku ?? null,
+          barcode: (row as any).barcode ?? null,
+        };
+      });
+
+      const allReturned = items.every((item) => item.quantityRemaining <= 0);
+      if (allReturned || String((sale as any).status || '').toUpperCase() === 'RETURNED') {
+        return res.status(409).json({ error: 'Sale already returned', message: 'Sale already fully returned' });
+      }
+
+      const occurredAtRaw = (sale as any).occurredAt ?? (sale as any).occurred_at;
+      const occurredAt = occurredAtRaw
+        ? occurredAtRaw instanceof Date
+          ? occurredAtRaw.toISOString()
+          : String(occurredAtRaw)
+        : new Date().toISOString();
+
+      return res.json({
+        sale: {
+          id: String((sale as any).id),
+          storeId: String((sale as any).storeId ?? (sale as any).store_id ?? storeId),
+          subtotal: Number((sale as any).subtotal || 0),
+          discount: Number((sale as any).discount || 0),
+          tax: Number((sale as any).tax || 0),
+          total: Number((sale as any).total || 0),
+          occurredAt,
+          status: String((sale as any).status || 'COMPLETED'),
+          currency: storeCurrency,
+        },
+        items,
+      });
+    } catch (error) {
+      logger.error('Failed to fetch sale for return lookup', {
+        saleRef,
+        storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to fetch sale', message: 'Failed to fetch sale' });
     }
   });
 
@@ -989,6 +1130,7 @@ export async function registerPosRoutes(app: Express) {
   const ReturnItemSchema = z.object({
     saleItemId: z.string().uuid().optional(),
     productId: z.string().uuid(),
+
     quantity: z.number().int().positive(),
     restockAction: z.enum(['RESTOCK', 'DISCARD']),
     refundType: z.enum(['NONE', 'FULL', 'PARTIAL']).default('NONE'),

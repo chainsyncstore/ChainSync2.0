@@ -27,6 +27,7 @@ export type CachedSale = {
   tax: number;
   total: number;
   paymentMethod: string;
+  status?: 'COMPLETED' | 'RETURNED' | 'PENDING_SYNC';
   items: CachedSaleItem[];
   occurredAt: string;
   isOffline: boolean; // true if created while offline (not yet synced)
@@ -455,8 +456,13 @@ export async function markItemsReturned(saleId: string, returnedItems: Array<{ s
     }
     return item;
   });
-  
-  await updateCachedSale(saleId, { items: updatedItems });
+
+  const isFullyReturned = updatedItems.every((item) => (item.quantityReturned || 0) >= item.quantity);
+
+  await updateCachedSale(saleId, {
+    items: updatedItems,
+    ...(isFullyReturned ? { status: 'RETURNED' as const } : null),
+  });
 }
 
 // Update local inventory quantity (for optimistic offline updates)

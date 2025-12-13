@@ -248,12 +248,14 @@ export default function POSV2() {
 	      const snapshot: CachedSale[] = (body.data as any[]).map((sale) => ({
 	        id: String(sale.id),
 	        receiptNumber: String((sale as any).receiptNumber ?? sale.id),
+	        idempotencyKey: (sale as any).idempotencyKey ? String((sale as any).idempotencyKey) : undefined,
 	        storeId: String(sale.storeId),
 	        subtotal: Number(sale.subtotal || 0),
 	        discount: Number(sale.discount || 0),
 	        tax: Number(sale.tax || 0),
 	        total: Number(sale.total || 0),
 	        paymentMethod: String(sale.paymentMethod || "manual"),
+	        status: (sale as any).status === "RETURNED" ? "RETURNED" : "COMPLETED",
 	        items: (sale.items || []).map((item: any) => ({
 	          id: String(item.id),
 	          productId: String(item.productId),

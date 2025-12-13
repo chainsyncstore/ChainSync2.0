@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfToken } from "@/lib/csrf";
+import {
+  cleanupSyncedReturns,
+  getCachedSale,
+  getCachedSaleByIdempotencyKey,
+  getOfflineReturns,
+  markOfflineReturnSynced,
+  updateCachedSale,
+} from "@/lib/idb-catalog";
+import { getEscalatedCount, getOfflineQueueCount, processQueueNow } from "@/lib/offline-queue";
 
 interface UseOfflineSyncOptions {
   notifyQueueToast?: boolean;
@@ -23,9 +33,6 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
   // Helper to sync offline returns (shared between online handler and manual Sync Now)
   const syncOfflineReturns = useCallback(async () => {
     try {
-      const { getOfflineReturns, markOfflineReturnSynced, cleanupSyncedReturns, getCachedSale } = await import("@/lib/idb-catalog");
-      const { getCsrfToken } = await import("@/lib/csrf");
-
       const pendingReturns = await getOfflineReturns();
       if (pendingReturns.length === 0) return;
 
@@ -94,7 +101,6 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
 
   const refreshCounts = useCallback(async () => {
     try {
-      const { getOfflineQueueCount, getEscalatedCount } = await import("@/lib/offline-queue");
       const [count, escalated] = await Promise.all([
         getOfflineQueueCount(),
         getEscalatedCount(5),
@@ -117,7 +123,6 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
 
   const handleSyncNow = useCallback(async () => {
     try {
-      const { processQueueNow } = await import("@/lib/offline-queue");
       await processQueueNow();
       // Also attempt to sync any queued offline returns immediately
       await syncOfflineReturns();
@@ -155,7 +160,6 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
         if (payload?.idempotencyKey) {
           void (async () => {
             try {
-              const { getCachedSaleByIdempotencyKey, updateCachedSale } = await import("@/lib/idb-catalog");
               const cached = await getCachedSaleByIdempotencyKey(payload.idempotencyKey as string);
               if (!cached) return;
 
@@ -179,7 +183,6 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
     const onOnline = async () => {
       try {
         // Sync offline sales
-        const { processQueueNow } = await import("@/lib/offline-queue");
         await processQueueNow();
 
         // Sync offline returns
