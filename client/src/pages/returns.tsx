@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRightLeft, Banknote, CreditCard, Loader2, Minus, Plus, RefreshCcw, Search, Smartphone, Trash2, Undo2, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import SyncCenter from "@/components/pos/sync-center";
 import {
@@ -31,6 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useOfflineSyncIndicator } from "@/hooks/use-offline-sync-indicator";
+import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
@@ -187,71 +188,121 @@ export default function ReturnsPage() {
     setIsOfflineMode(false);
   }, [selectedStore]);
 
+  const syncRecentSalesSnapshot = useCallback(async (limitOverride: number = 1000) => {
+    if (!selectedStore) return;
+    if (!navigator.onLine) return;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const res = await fetch(`/api/pos/sales?storeId=${selectedStore}&limit=${limitOverride}`, {
+        credentials: "include",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) return;
+      const body = await res.json().catch(() => null);
+      if (!body || !Array.isArray(body.data)) return;
+      const nowIso = new Date().toISOString();
+
+      const snapshot: CachedSale[] = (body.data as any[]).map((sale) => ({
+        id: String(sale.id),
+        receiptNumber: String((sale as any).receiptNumber ?? sale.id),
+        idempotencyKey: (sale as any).idempotencyKey ? String((sale as any).idempotencyKey) : undefined,
+        storeId: String(sale.storeId),
+        subtotal: Number(sale.subtotal || 0),
+        discount: Number(sale.discount || 0),
+        tax: Number(sale.tax || 0),
+        total: Number(sale.total || 0),
+        paymentMethod: String(sale.paymentMethod || "manual"),
+        status: (sale as any).status === "RETURNED" ? "RETURNED" : "COMPLETED",
+        items: (sale.items || []).map((item: any) => ({
+          id: String(item.id),
+          productId: String(item.productId),
+          quantity: Number(item.quantity || 0),
+          unitPrice: Number(item.unitPrice || 0),
+          lineTotal: Number(item.lineTotal || 0),
+          name: item.name || null,
+          quantityReturned: undefined,
+        })),
+        occurredAt: String(sale.occurredAt || nowIso),
+        isOffline: false,
+        syncedAt: nowIso,
+        serverId: String(sale.id),
+      }));
+
+      await cacheSalesSnapshotForStore(selectedStore, snapshot);
+    } catch (err) {
+      console.warn("Failed to refresh sales snapshot for offline returns", err);
+    }
+  }, [selectedStore]);
+
+  const salesSnapshotRealtimeTimerRef = useRef<number | null>(null);
+  const lastSalesSnapshotRealtimeAtRef = useRef(0);
+
+  const scheduleRealtimeSalesSnapshotRefresh = useCallback(() => {
+    if (!selectedStore) return;
+    if (!navigator.onLine) return;
+
+    const now = Date.now();
+    const minIntervalMs = 1500;
+    const elapsed = now - lastSalesSnapshotRealtimeAtRef.current;
+
+    if (elapsed >= minIntervalMs) {
+      lastSalesSnapshotRealtimeAtRef.current = now;
+      void syncRecentSalesSnapshot(200);
+      return;
+    }
+
+    if (salesSnapshotRealtimeTimerRef.current) return;
+    salesSnapshotRealtimeTimerRef.current = window.setTimeout(() => {
+      salesSnapshotRealtimeTimerRef.current = null;
+      lastSalesSnapshotRealtimeAtRef.current = Date.now();
+      void syncRecentSalesSnapshot(200);
+    }, minIntervalMs - elapsed);
+  }, [selectedStore, syncRecentSalesSnapshot]);
+
+  useEffect(() => {
+    return () => {
+      if (salesSnapshotRealtimeTimerRef.current) {
+        window.clearTimeout(salesSnapshotRealtimeTimerRef.current);
+        salesSnapshotRealtimeTimerRef.current = null;
+      }
+    };
+  }, [selectedStore]);
+
+  useRealtimeSales({
+    orgId: (user as any)?.orgId ?? null,
+    storeId: selectedStore || null,
+    enabled: Boolean(selectedStore) && isOnline,
+    onSaleCreated: () => {
+      scheduleRealtimeSalesSnapshotRefresh();
+    },
+  });
+
   // Rolling sales snapshot: when online, periodically cache recent sales for this store
   useEffect(() => {
     if (!selectedStore || !isOnline) return;
-
-    let cancelled = false;
-
-    const syncRecentSalesSnapshot = async () => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-        const res = await fetch(`/api/pos/sales?storeId=${selectedStore}&limit=1000`, {
-          credentials: "include",
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok || cancelled) return;
-        const body = await res.json().catch(() => null);
-        if (!body || !Array.isArray(body.data) || cancelled) return;
-        const nowIso = new Date().toISOString();
-
-        const snapshot: CachedSale[] = (body.data as any[]).map((sale) => ({
-          id: String(sale.id),
-          receiptNumber: String((sale as any).receiptNumber ?? sale.id),
-          idempotencyKey: (sale as any).idempotencyKey ? String((sale as any).idempotencyKey) : undefined,
-          storeId: String(sale.storeId),
-          subtotal: Number(sale.subtotal || 0),
-          discount: Number(sale.discount || 0),
-          tax: Number(sale.tax || 0),
-          total: Number(sale.total || 0),
-          paymentMethod: String(sale.paymentMethod || "manual"),
-          status: (sale as any).status === "RETURNED" ? "RETURNED" : "COMPLETED",
-          items: (sale.items || []).map((item: any) => ({
-            id: String(item.id),
-            productId: String(item.productId),
-            quantity: Number(item.quantity || 0),
-            unitPrice: Number(item.unitPrice || 0),
-            lineTotal: Number(item.lineTotal || 0),
-            name: item.name || null,
-            quantityReturned: undefined,
-          })),
-          occurredAt: String(sale.occurredAt || nowIso),
-          isOffline: false,
-          syncedAt: nowIso,
-          serverId: String(sale.id),
-        }));
-
-        await cacheSalesSnapshotForStore(selectedStore, snapshot);
-      } catch (err) {
-        console.warn("Failed to refresh sales snapshot for offline returns", err);
-      }
-    };
 
     void syncRecentSalesSnapshot();
 
     const interval = setInterval(() => {
       void syncRecentSalesSnapshot();
-    }, 5 * 60 * 1000); // every 5 minutes
+    }, 60 * 1000); // every 60 seconds
+
+    const handleFocus = () => {
+      void syncRecentSalesSnapshot();
+    };
+
+    window.addEventListener("focus", handleFocus);
 
     return () => {
-      cancelled = true;
       clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
     };
-  }, [selectedStore, isOnline]);
+  }, [selectedStore, isOnline, syncRecentSalesSnapshot]);
 
   // Online/offline detection
   useEffect(() => {
@@ -664,6 +715,7 @@ export default function ReturnsPage() {
   };
 
   const processReturnMutation = useMutation({
+    networkMode: "always",
     mutationFn: async () => {
       console.log("[returns] processReturnMutation:mutationFn:start", {
         isOnline,
@@ -1379,6 +1431,7 @@ export default function ReturnsPage() {
   };
 
   const processSwapMutation = useMutation({
+    networkMode: "always",
     mutationFn: async () => {
       console.log("[returns] processSwapMutation:mutationFn:start", {
         isOnline,
