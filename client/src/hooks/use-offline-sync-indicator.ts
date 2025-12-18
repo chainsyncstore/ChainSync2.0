@@ -22,6 +22,11 @@ interface LastSyncMeta {
   synced: number;
 }
 
+function isUuid(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
   const { toast } = useToast();
   const [queuedCount, setQueuedCount] = useState(0);
@@ -39,6 +44,36 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
       const csrfToken = await getCsrfToken().catch(() => null);
       let syncedCount = 0;
 
+      const saleItemIdByProductCache = new Map<string, Map<string, string>>();
+
+      const getSaleItemIdByProduct = async (saleId: string, storeId: string, productId: string) => {
+        const cacheKey = `${saleId}:${storeId}`;
+        let map = saleItemIdByProductCache.get(cacheKey);
+        if (!map) {
+          try {
+            const res = await fetch(`/api/pos/sales/${saleId}?storeId=${storeId}`, {
+              credentials: "include",
+            });
+            if (!res.ok) return null;
+            const data = await res.json().catch(() => null);
+            const items = (data as any)?.items;
+            if (!Array.isArray(items)) return null;
+
+            map = new Map<string, string>();
+            for (const item of items as any[]) {
+              if (!item) continue;
+              const pid = typeof item.productId === "string" ? item.productId : null;
+              const sid = typeof item.id === "string" ? item.id : null;
+              if (pid && sid && !map.has(pid)) map.set(pid, sid);
+            }
+            saleItemIdByProductCache.set(cacheKey, map);
+          } catch {
+            return null;
+          }
+        }
+        return map.get(productId) || null;
+      };
+
       for (const returnRecord of pendingReturns) {
         try {
           // Get the cached sale to find the actual server sale ID
@@ -51,26 +86,92 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
             continue;
           }
 
-          const payload = {
-            saleId: actualSaleId,
-            storeId: returnRecord.storeId,
-            reason: returnRecord.reason,
-            items: returnRecord.items.map((item) => ({
-              saleItemId: item.saleItemId,
-              productId: item.productId,
-              quantity: item.quantity,
-              restockAction: item.restockAction,
-              refundType: item.refundType,
-              refundAmount: String(item.refundAmount.toFixed(2)),
-            })),
-            offlineCreatedAt: returnRecord.createdAt,
-            potentialLoss: returnRecord.potentialLoss,
-          };
+          if (!isUuid(actualSaleId)) {
+            console.log(`Skipping return for non-UUID sale id: ${actualSaleId}`);
+            continue;
+          }
 
-          const res = await fetch("/api/pos/returns", {
+          const idempotencyKey = returnRecord.idempotencyKey || returnRecord.id;
+
+          const isSwap = returnRecord.type === 'SWAP';
+          const url = isSwap ? '/api/pos/swaps' : '/api/pos/returns';
+
+          let payload: any;
+
+          if (!isSwap) {
+            payload = {
+              saleId: actualSaleId,
+              storeId: returnRecord.storeId,
+              reason: returnRecord.reason,
+              items: returnRecord.items.map((item) => ({
+                ...(isUuid(item.saleItemId) ? { saleItemId: item.saleItemId } : {}),
+                productId: item.productId,
+                quantity: item.quantity,
+                restockAction: item.restockAction,
+                refundType: item.refundType,
+                refundAmount: String(item.refundAmount.toFixed(2)),
+              })),
+              offlineCreatedAt: returnRecord.createdAt,
+              potentialLoss: returnRecord.potentialLoss,
+            };
+          } else {
+            const original = returnRecord.items[0];
+            const originalQuantity = Number(original?.quantity || 0);
+            const originalUnitPrice = originalQuantity > 0 ? Number(original?.refundAmount || 0) / originalQuantity : 0;
+
+            if (!original?.productId) {
+              console.warn("Skipping swap sync; missing original product", { offlineId: returnRecord.id, saleId: actualSaleId });
+              continue;
+            }
+
+            let originalSaleItemId = original?.saleItemId;
+            if (!isUuid(originalSaleItemId)) {
+              originalSaleItemId = await getSaleItemIdByProduct(actualSaleId, returnRecord.storeId, original.productId);
+            }
+
+            if (!isUuid(originalSaleItemId)) {
+              console.warn("Skipping swap sync; could not resolve originalSaleItemId", {
+                offlineId: returnRecord.id,
+                saleId: actualSaleId,
+                productId: original.productId,
+              });
+              continue;
+            }
+
+            const swapProducts = (
+              returnRecord.swapData?.newProducts?.map((p) => ({
+                productId: p.productId,
+                quantity: p.quantity,
+                unitPrice: p.unitPrice,
+              })) ||
+              returnRecord.swapProducts ||
+              []
+            ).filter((p) => p && p.productId && Number(p.quantity || 0) > 0);
+
+            if (swapProducts.length === 0) {
+              console.warn("Skipping swap sync; no newProducts", { offlineId: returnRecord.id, saleId: actualSaleId });
+              continue;
+            }
+
+            payload = {
+              saleId: actualSaleId,
+              storeId: returnRecord.storeId,
+              originalSaleItemId,
+              originalProductId: original.productId,
+              originalQuantity,
+              originalUnitPrice,
+              newProducts: swapProducts,
+              restockAction: original?.restockAction || 'RESTOCK',
+              paymentMethod: returnRecord.swapData?.paymentMethod || 'CASH',
+              notes: returnRecord.reason || returnRecord.notes,
+            };
+          }
+
+          const res = await fetch(url, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "Idempotency-Key": idempotencyKey,
               ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
             },
             credentials: "include",
@@ -148,6 +249,7 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
           setLastSync(event.data.data as LastSyncMeta);
         }
         void refreshCounts();
+        void syncOfflineReturns();
         return;
       }
 
@@ -173,6 +275,10 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
             }
           })();
         }
+
+        // Now that sales may have been reconciled to server IDs, attempt to sync
+        // any pending returns/swaps that were waiting on those IDs.
+        void syncOfflineReturns();
 
         void refreshCounts();
       }

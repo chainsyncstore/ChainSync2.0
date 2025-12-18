@@ -35,6 +35,7 @@ import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
+import { generateIdempotencyKey } from "@/lib/offline-queue";
 import {
   cacheSalesSnapshotForStore,
   enqueueOfflineReturn,
@@ -619,7 +620,7 @@ export default function ReturnsPage() {
 
   const totalRefund = totalProductRefund + totalTaxRefund;
 
-  const processOfflineReturn = async (sourceSale: CachedSale | null = cachedSaleData) => {
+  const processOfflineReturn = async (sourceSale: CachedSale | null = cachedSaleData, idempotencyKeyOverride?: string) => {
     console.log("[returns] processOfflineReturn:start", { hasSource: !!sourceSale });
     if (!sourceSale) throw new Error("No cached sale data");
     if (sourceSale.status === "RETURNED") {
@@ -660,11 +661,14 @@ export default function ReturnsPage() {
       throw new Error("No items selected for return");
     }
 
+    const idempotencyKey = idempotencyKeyOverride || generateIdempotencyKey();
+
     // Calculate potential loss (total refund amount - could be duplicate)
     const potentialLoss = itemsPayload.reduce((sum, item) => sum + item.refundAmount, 0);
 
     const offlineReturn: OfflineReturnRecord = {
       id: `offline_return_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      idempotencyKey,
       saleId: sourceSale.id,
       storeId: sourceSale.storeId,
       type: "RETURN",
@@ -697,10 +701,10 @@ export default function ReturnsPage() {
     return { offline: true, id: offlineReturn.id, potentialLoss };
   };
 
-  const processOfflineReturnWithTimeout = async (sourceSale: CachedSale) => {
+  const processOfflineReturnWithTimeout = async (sourceSale: CachedSale, idempotencyKey?: string) => {
     try {
       return await Promise.race([
-        processOfflineReturn(sourceSale),
+        processOfflineReturn(sourceSale, idempotencyKey),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error("Offline return processing timed out. The return may still be queued in the background.")),
@@ -738,6 +742,7 @@ export default function ReturnsPage() {
       );
 
       const run = async () => {
+      const idempotencyKey = generateIdempotencyKey();
       const uiOffline = !isOnline || !navigator.onLine;
 
       // If we're offline or explicitly in offline mode but still have online saleData,
@@ -776,7 +781,7 @@ export default function ReturnsPage() {
         setCachedSaleData(offlineSource);
         setIsOfflineMode(true);
 
-        const result = await processOfflineReturnWithTimeout(offlineSource);
+        const result = await processOfflineReturnWithTimeout(offlineSource, idempotencyKey);
         console.log("[returns] processReturnMutation:offlineBranch:completed", result);
         return result;
       }
@@ -832,6 +837,7 @@ export default function ReturnsPage() {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "Idempotency-Key": idempotencyKey,
               ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
             },
             credentials: "include",
@@ -923,7 +929,7 @@ export default function ReturnsPage() {
           setCachedSaleData(offlineSource);
           setIsOfflineMode(true);
 
-          const result = await processOfflineReturnWithTimeout(offlineSource);
+          const result = await processOfflineReturnWithTimeout(offlineSource, idempotencyKey);
           console.log("[returns] processReturnMutation:onlineBranch:fallbackOfflineCompleted", result);
           return result;
         }
@@ -1340,7 +1346,7 @@ export default function ReturnsPage() {
   }, [swapState.selectedItem, swapState.newProducts, swapState.swapQuantity, swapState.saleData, storeTaxRate]);
 
   // Process offline swap - queues for later sync
-  const processOfflineSwap = async () => {
+  const processOfflineSwap = async (idempotencyKeyOverride?: string) => {
     console.log("[returns] processOfflineSwap:start", {
       hasSaleData: !!swapState.saleData,
       hasSelectedItem: !!swapState.selectedItem,
@@ -1371,9 +1377,12 @@ export default function ReturnsPage() {
     
     // Calculate potential loss (refund value if it's a negative swap)
     const potentialLoss = swapCalculations.totalDifference < 0 ? Math.abs(swapCalculations.totalDifference) : 0;
-    
+
+    const idempotencyKey = idempotencyKeyOverride || generateIdempotencyKey();
+
     const offlineSwap: OfflineReturnRecord = {
       id: `offline_swap_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      idempotencyKey,
       saleId: saleIdForOffline,
       storeId: selectedStore,
       type: "SWAP",
@@ -1438,12 +1447,14 @@ export default function ReturnsPage() {
         navigatorOnline: navigator.onLine,
         isSwapOfflineMode,
       });
+
+      const idempotencyKey = generateIdempotencyKey();
       const uiOffline = !isOnline || !navigator.onLine;
 
       // Offline mode - queue swap for later sync
       if (uiOffline || isSwapOfflineMode) {
         console.log("[returns] processSwapMutation:usingOfflineBranch", { uiOffline, isSwapOfflineMode });
-        const result = await processOfflineSwap();
+        const result = await processOfflineSwap(idempotencyKey);
         console.log("[returns] processSwapMutation:offlineBranch:completed", result);
         return result;
       }
@@ -1484,6 +1495,7 @@ export default function ReturnsPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
             ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
           },
           credentials: "include",
@@ -1505,7 +1517,7 @@ export default function ReturnsPage() {
         console.warn("[returns] processSwapMutation:onlineBranch:errorFallbackToOffline", err);
         if ((err as Error).name === "AbortError" || !navigator.onLine) {
           setIsSwapOfflineMode(true);
-          const result = await processOfflineSwap();
+          const result = await processOfflineSwap(idempotencyKey);
           console.log("[returns] processSwapMutation:onlineBranch:fallbackOfflineCompleted", result);
           return result;
         }

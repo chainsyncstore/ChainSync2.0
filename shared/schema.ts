@@ -361,8 +361,11 @@ export const legacyReturns = pgTable("returns", {
   refundType: varchar("refund_type", { length: 16 }).notNull(),
   totalRefund: decimal("total_refund", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).notNull(),
+  idempotencyKey: varchar("idempotency_key", { length: 255 }),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow(),
-});
+}, (table) => ({
+  idempotencyKeyUnique: uniqueIndex("returns_idempotency_unique").on(table.idempotencyKey),
+}));
 
 export const legacyReturnItems = pgTable("return_items", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),

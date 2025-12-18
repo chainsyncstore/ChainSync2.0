@@ -1139,6 +1139,23 @@ export async function registerPosRoutes(app: Express) {
   });
 
   app.post('/api/pos/returns', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const idempotencyKey = String(req.headers['idempotency-key'] || '');
+    if (!idempotencyKey) return res.status(400).json({ error: 'Idempotency-Key required' });
+
+    const existingReturn = await db
+      .select()
+      .from(returns)
+      .where(eq(returns.idempotencyKey, idempotencyKey))
+      .limit(1);
+
+    if (existingReturn[0]) {
+      const existingItems = await db
+        .select()
+        .from(returnItems)
+        .where(eq(returnItems.returnId, existingReturn[0].id));
+      return res.status(200).json({ ok: true, return: existingReturn[0], items: existingItems });
+    }
+
     const ReturnSchema = z.object({
       saleId: z.string().min(1),
       reason: z.string().optional(),
@@ -1206,7 +1223,7 @@ export async function registerPosRoutes(app: Express) {
           eq(prdTransactions.receiptNumber, sale.id),
         ),
       )
-            .limit(1);
+      .limit(1);
 
     // Calculate tax rate from original sale for proportional tax refunds
     const saleSubtotal = Number(sale.subtotal || 0);
@@ -1248,7 +1265,7 @@ export async function registerPosRoutes(app: Express) {
         if (!qty) return total;
         return total / qty;
       })();
-            const baseRefund = unitValue * item.quantity;
+      const baseRefund = unitValue * item.quantity;
       // Calculate proportional tax for this item
       const baseTaxRefund = baseRefund * taxRate;
       const requestedAmount = Number.parseFloat(item.refundAmount ?? '0');
@@ -1279,7 +1296,7 @@ export async function registerPosRoutes(app: Express) {
       });
     }
 
-        let totalProductRefund = 0;
+    let totalProductRefund = 0;
     let totalTaxRefund = 0;
     for (const row of rowsToInsert) {
       totalProductRefund += row.refundAmount;
@@ -1315,6 +1332,7 @@ export async function registerPosRoutes(app: Express) {
         refundType: aggregateRefundType,
         totalRefund: String(totalRefund.toFixed(2)),
         currency: storeCurrency,
+        idempotencyKey,
       } as any).returning();
       const ret = insertedReturn[0];
       logger.info('POS Return: Return record created', { returnId: ret.id });
@@ -1341,11 +1359,7 @@ export async function registerPosRoutes(app: Express) {
 
       for (const row of rowsToInsert) {
         if (row.restockAction !== 'RESTOCK') continue;
-        logger.info('POS Return: Restocking inventory', { 
-          productId: row.productId, 
-          storeId: parsed.data.storeId, 
-          quantity: row.quantity 
-        });
+        logger.info('POS Return: Restocking inventory', { productId: row.productId, storeId: parsed.data.storeId, quantity: row.quantity });
         try {
           // Get current inventory to find avg cost for cost layer restoration
           const currentInv = await storage.getInventoryItem(row.productId, parsed.data.storeId);
@@ -1379,10 +1393,7 @@ export async function registerPosRoutes(app: Express) {
             });
           }
 
-          logger.info('POS Return: Inventory restocked successfully', { 
-            productId: row.productId, 
-            quantity: row.quantity 
-          });
+          logger.info('POS Return: Inventory restocked successfully', { productId: row.productId, quantity: row.quantity });
         } catch (restockErr) {
           logger.error('POS Return: Failed to restock inventory', {
             productId: row.productId,
@@ -1397,11 +1408,7 @@ export async function registerPosRoutes(app: Express) {
       // Handle DISCARD items - record as stock removal loss
       for (const row of rowsToInsert) {
         if (row.restockAction !== 'DISCARD') continue;
-        logger.info('POS Return: Recording discarded stock as loss', { 
-          productId: row.productId, 
-          storeId: parsed.data.storeId, 
-          quantity: row.quantity 
-        });
+        logger.info('POS Return: Recording discarded stock as loss', { productId: row.productId, storeId: parsed.data.storeId, quantity: row.quantity });
         try {
           // Get cost from current inventory for loss calculation
           const inv = await storage.getInventoryItem(row.productId, parsed.data.storeId);
@@ -1429,12 +1436,7 @@ export async function registerPosRoutes(app: Express) {
             },
             sessionUserId,
           );
-          logger.info('POS Return: Discarded stock loss recorded', { 
-            productId: row.productId, 
-            quantity: row.quantity,
-            lossAmount: lossResult.lossAmount,
-            saleContext: { originalQtySold, remainingGoodQty },
-          });
+          logger.info('POS Return: Discarded stock loss recorded', { productId: row.productId, quantity: row.quantity, lossAmount: lossResult.lossAmount, saleContext: { originalQtySold, remainingGoodQty } });
         } catch (lossErr) {
           logger.error('POS Return: Failed to record discarded stock loss', {
             productId: row.productId,
@@ -1446,11 +1448,7 @@ export async function registerPosRoutes(app: Express) {
         }
       }
 
-      logger.info('POS Return: Creating refund transaction', { 
-        productRefund: totalProductRefund, 
-        taxRefund: totalTaxRefund, 
-        totalRefund 
-      });
+      logger.info('POS Return: Creating refund transaction', { productRefund: totalProductRefund, taxRefund: totalTaxRefund, totalRefund });
       const refundPaymentMethod = normalizePaymentMethod((sale as any).paymentMethod as string | undefined);
       const [refundTx] = await db
         .insert(prdTransactions)
@@ -1479,7 +1477,7 @@ export async function registerPosRoutes(app: Express) {
           const unitCost = Number((inv as any)?.avgCost) || 0;
           const totalCost = unitCost * row.quantity;
           const unitPrice = row.refundAmount / row.quantity || 0;
-          
+
           await db.insert(prdTransactionItems).values({
             transactionId: refundTx.id,
             productId: row.productId,
@@ -1490,10 +1488,7 @@ export async function registerPosRoutes(app: Express) {
             totalCost: String(totalCost.toFixed(4)),
           } as any);
         }
-        logger.info('POS Return: Transaction items inserted for COGS', { 
-          refundTxId: refundTx.id, 
-          itemCount: rowsToInsert.length 
-        });
+        logger.info('POS Return: Transaction items inserted for COGS', { refundTxId: refundTx.id, itemCount: rowsToInsert.length });
       }
 
       if (hasTx2 && pg2) await pg2.query('COMMIT');
@@ -1506,12 +1501,30 @@ export async function registerPosRoutes(app: Express) {
           });
         }
       }
+
+      const errorCode = (error as any)?.code;
+      if (errorCode === '23505') {
+        const existing = await db
+          .select()
+          .from(returns)
+          .where(eq(returns.idempotencyKey, idempotencyKey))
+          .limit(1);
+
+        if (existing[0]) {
+          const existingItems = await db
+            .select()
+            .from(returnItems)
+            .where(eq(returnItems.returnId, existing[0].id));
+          return res.status(200).json({ ok: true, return: existing[0], items: existingItems });
+        }
+      }
+
       logger.error('Failed to process POS return', {
         saleId: parsed.data.saleId,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
-      res.status(500).json({ error: 'Failed to process return' });
+      return res.status(500).json({ error: 'Failed to process return' });
     } finally {
       if (hasTx2 && pg2) pg2.release();
     }
@@ -1538,6 +1551,25 @@ export async function registerPosRoutes(app: Express) {
   });
 
   app.post('/api/pos/swaps', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const idempotencyKey = String(req.headers['idempotency-key'] || '');
+    if (!idempotencyKey) return res.status(400).json({ error: 'Idempotency-Key required' });
+
+    const existingSwap = await db
+      .select()
+      .from(returns)
+      .where(eq(returns.idempotencyKey, idempotencyKey))
+      .limit(1);
+    if (existingSwap[0]) {
+      return res.status(200).json({
+        ok: true,
+        swap: {
+          id: existingSwap[0].id,
+          saleId: existingSwap[0].saleId,
+          storeId: existingSwap[0].storeId,
+        },
+      });
+    }
+
     const parsed = SwapSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.errors });
@@ -1546,9 +1578,8 @@ export async function registerPosRoutes(app: Express) {
     const sessionUserId = req.session?.userId as string | undefined;
     if (!sessionUserId) return res.status(401).json({ error: 'Not authenticated' });
 
-    const { saleId, storeId, originalSaleItemId, originalProductId, originalQuantity, originalUnitPrice, 
-            newProducts, restockAction, paymentMethod, notes } = parsed.data;
-    
+    const { saleId, storeId, originalSaleItemId, originalProductId, originalQuantity, originalUnitPrice, newProducts, restockAction, paymentMethod, notes } = parsed.data;
+
     // For compatibility, use first product for single-product operations
     const firstNewProduct = newProducts[0];
     const newProductId = firstNewProduct.productId;
@@ -1628,10 +1659,10 @@ export async function registerPosRoutes(app: Express) {
 
     try {
       if (hasTx && pg) await pg.query('BEGIN');
-      
-      logger.info('POS Swap: Starting swap processing', { 
-        saleId, 
-        originalProductId, 
+
+      logger.info('POS Swap: Starting swap processing', {
+        saleId,
+        originalProductId,
         newProductId,
         priceDifference,
         taxDifference,
@@ -1649,6 +1680,7 @@ export async function registerPosRoutes(app: Express) {
         refundType: 'SWAP',
         totalRefund: String(Math.abs(totalDifference).toFixed(2)),
         currency: storeCurrency,
+        idempotencyKey,
       } as any).returning();
 
       // 2. Create return item for audit trail
@@ -1858,7 +1890,7 @@ export async function registerPosRoutes(app: Express) {
       } else {
         // No original transaction found - create a new SALE transaction with corrected values
         logger.warn('POS Swap: Original transaction not found, creating new transaction', { saleId });
-        
+
         const [newTx] = await db
           .insert(prdTransactions)
           .values({
@@ -1975,7 +2007,6 @@ export async function registerPosRoutes(app: Express) {
 
       logger.info('POS Swap: Completed successfully - Analytics updated', response.swap);
       return res.status(201).json(response);
-
     } catch (error) {
       if (hasTx && pg) {
         try { await pg.query('ROLLBACK'); } catch (rollbackErr) {
@@ -1984,6 +2015,27 @@ export async function registerPosRoutes(app: Express) {
           });
         }
       }
+
+      const errorCode = (error as any)?.code;
+      if (errorCode === '23505') {
+        const existing = await db
+          .select()
+          .from(returns)
+          .where(eq(returns.idempotencyKey, idempotencyKey))
+          .limit(1);
+
+        if (existing[0]) {
+          return res.status(200).json({
+            ok: true,
+            swap: {
+              id: existing[0].id,
+              saleId: existing[0].saleId,
+              storeId: existing[0].storeId,
+            },
+          });
+        }
+      }
+
       logger.error('POS Swap: Failed to process swap', {
         saleId,
         error: error instanceof Error ? error.message : String(error),

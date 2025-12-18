@@ -38,6 +38,7 @@ export type CachedSale = {
 // Offline return/swap record for queueing
 export type OfflineReturnRecord = {
   id: string;
+  idempotencyKey?: string;
   saleId: string; // the cached sale ID
   storeId: string;
   type: 'RETURN' | 'SWAP';

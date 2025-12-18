@@ -45,6 +45,7 @@ const corsOptions: CorsOptions = {
     'Authorization',
     'X-Requested-With',
     'X-CSRF-Token',
+    'Idempotency-Key',
     'Accept',
     'Origin'
   ],
@@ -284,6 +285,30 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
     const idempotencyKey = req.get('Idempotency-Key');
     if (idempotencyKey && idempotencyKey.length > 0) {
       logger.debug('Bypassing CSRF for POS sale with idempotency key', {
+        idempotencyKey,
+        ip: req.ip,
+        path: req.path,
+        originalUrl,
+      });
+      return next();
+    }
+  }
+  if (req.method === 'POST' && (req.path === '/pos/returns' || originalUrl === '/api/pos/returns')) {
+    const idempotencyKey = req.get('Idempotency-Key');
+    if (idempotencyKey && idempotencyKey.length > 0) {
+      logger.debug('Bypassing CSRF for POS return with idempotency key', {
+        idempotencyKey,
+        ip: req.ip,
+        path: req.path,
+        originalUrl,
+      });
+      return next();
+    }
+  }
+  if (req.method === 'POST' && (req.path === '/pos/swaps' || originalUrl === '/api/pos/swaps')) {
+    const idempotencyKey = req.get('Idempotency-Key');
+    if (idempotencyKey && idempotencyKey.length > 0) {
+      logger.debug('Bypassing CSRF for POS swap with idempotency key', {
         idempotencyKey,
         ip: req.ip,
         path: req.path,
