@@ -35,7 +35,6 @@ import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
-import { generateIdempotencyKey } from "@/lib/offline-queue";
 import {
   cacheSalesSnapshotForStore,
   enqueueOfflineReturn,
@@ -48,8 +47,11 @@ import {
   markItemsReturned,
   searchProductsLocally,
   updateLocalInventory,
+  type CachedSale,
+  type CachedSaleItem,
+  type OfflineReturnRecord,
 } from "@/lib/idb-catalog";
-import type { CachedSale, CachedSaleItem, OfflineReturnRecord } from "@/lib/idb-catalog";
+import { generateIdempotencyKey } from "@/lib/offline-queue";
 import { formatCurrency, formatDateTime } from "@/lib/pos-utils";
 import type { ReceiptPrintJob } from "@/lib/printer";
 import type { Store } from "@shared/schema";
@@ -1688,7 +1690,7 @@ export default function ReturnsPage() {
           </Badge>
           {offlineReturnCount > 0 && (
             <Badge variant="secondary" className="bg-orange-100 text-orange-900 border-orange-200">
-              {offlineReturnCount} pending return{offlineReturnCount > 1 ? "s" : ""}
+              {offlineReturnCount} pending return/swap{offlineReturnCount > 1 ? "s" : ""}
             </Badge>
           )}
           <Button size="sm" variant="outline" onClick={handleSyncNow} disabled={!isOnline}>
@@ -2641,7 +2643,12 @@ export default function ReturnsPage() {
         </DialogContent>
       </Dialog>
 
-      <SyncCenter open={isSyncCenterOpen} onClose={() => setIsSyncCenterOpen(false)} />
+      <SyncCenter
+        open={isSyncCenterOpen}
+        onClose={() => setIsSyncCenterOpen(false)}
+        storeId={selectedStore}
+        onSyncNow={handleSyncNow}
+      />
 
       {/* Offline Warning Dialog */}
       <AlertDialog open={showOfflineWarning} onOpenChange={setShowOfflineWarning}>

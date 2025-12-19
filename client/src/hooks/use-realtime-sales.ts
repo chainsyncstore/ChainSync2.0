@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { type Dispatch, useEffect, useRef } from "react";
 
 type SaleCreatedEventPayload = {
   event?: string;
@@ -14,7 +14,7 @@ interface Options {
   orgId?: string | null;
   storeId?: string | null;
   enabled?: boolean;
-  onSaleCreated?: (payload: SaleCreatedEventPayload) => void;
+  onSaleCreated?: Dispatch<SaleCreatedEventPayload>;
 }
 
 export function useRealtimeSales(options: Options) {
