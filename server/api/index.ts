@@ -16,6 +16,7 @@ import { registerAnalyticsRoutes } from './routes.analytics';
 import { registerAnalyticsV2Routes, registerAnalyticsV2RoutesExtra } from './routes.analytics-v2';
 import { registerAuthRoutes } from './routes.auth';
 import { registerBillingRoutes } from './routes.billing';
+import { registerComprehensiveReportRoutes } from './routes.comprehensive-report';
 import { registerCustomerRoutes } from './routes.customers';
 import { registerExportRoutes } from './routes.export';
 import { registerInventoryRoutes } from './routes.inventory';
@@ -59,6 +60,7 @@ export async function registerRoutes(app: Express) {
   await registerAnalyticsRoutes(app);
   await registerAnalyticsV2Routes(app);
   await registerAnalyticsV2RoutesExtra(app);
+  await registerComprehensiveReportRoutes(app);
   await registerAlertsRoutes(app);
   await registerAuthRoutes(app);
   await registerBillingRoutes(app);
@@ -92,12 +94,12 @@ export async function registerRoutes(app: Express) {
   const { userRoles } = await import('../../shared/schema');
   const { eq: eqOp } = await import('drizzle-orm');
   const { db: dbInstance } = await import('../db');
-  
+
   app.post('/api/openai/chat', requireAuth, async (req, res) => {
     try {
       const { message, storeId, conversationHistory } = req.body || {};
       const userId = req.session?.userId as string | undefined;
-      
+
       // Build user context for role-based scoping
       let userContext: import('../openai/service').ChatUserContext | undefined;
       if (userId) {
@@ -113,7 +115,7 @@ export async function registerRoutes(app: Express) {
               const hasManager = roles.some(r => String(r.role).toUpperCase() === 'MANAGER');
               if (hasManager) role = 'manager';
             }
-            
+
             userContext = {
               userId,
               userName: user.firstName ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}` : user.email,
@@ -126,10 +128,10 @@ export async function registerRoutes(app: Express) {
           logger.warn('Failed to build user context for AI chat', { userId, error: err instanceof Error ? err.message : String(err) });
         }
       }
-      
+
       // Parse conversation history if provided
       const history = Array.isArray(conversationHistory) ? conversationHistory : undefined;
-      
+
       const openaiResponse = await openaiService.processChatMessage(message, storeId, userContext, history);
       res.json({
         fulfillmentText: openaiResponse.text,

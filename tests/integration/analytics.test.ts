@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { organizations, stores as storesTbl, users as usersTbl, legacySales as salesTbl } from '@shared/schema';
 import { registerAnalyticsRoutes } from '../../server/api/routes.analytics';
+import { registerComprehensiveReportRoutes } from '../../server/api/routes.comprehensive-report';
 import { db } from '../../server/db';
 
 type Agent = ReturnType<typeof request.agent>;
@@ -34,6 +35,7 @@ describe('Analytics Integration', () => {
     app.use((req: any, _res, next) => { req.session.userId = userId; next(); });
 
     await registerAnalyticsRoutes(app);
+    await registerComprehensiveReportRoutes(app);
     server = app.listen(0);
     agent = request.agent(server);
 
@@ -104,10 +106,48 @@ describe('Analytics Integration', () => {
       .get(`/api/analytics/export.pdf?interval=day&store_id=${storeId}&date_from=${start.toISOString()}&date_to=${end.toISOString()}`)
       .buffer()
       .parse((res, cb) => {
-        const data: any[] = []; res.on('data', (chunk) => data.push(chunk)); res.on('end', () => cb(null, Buffer.concat(data))); });
+        const data: any[] = []; res.on('data', (chunk) => data.push(chunk)); res.on('end', () => cb(null, Buffer.concat(data)));
+      });
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('application/pdf');
     expect((res.body as Buffer).byteLength).toBeGreaterThan(1000);
+  });
+
+  it('GET /api/analytics/export-comprehensive returns comprehensive report data', async () => {
+    const end = new Date();
+    const start = new Date(end.getTime() - 3 * 86400000);
+    const res = await agent
+      .get(`/api/analytics/export-comprehensive?store_id=${storeId}&date_from=${start.toISOString()}&date_to=${end.toISOString()}`)
+      .expect(200);
+
+    // Verify response structure
+    expect(res.body.period).toBeDefined();
+    expect(res.body.period.start).toBeDefined();
+    expect(res.body.period.end).toBeDefined();
+    expect(res.body.currency).toBe('NGN');
+
+    // Verify summary
+    expect(res.body.summary).toBeDefined();
+    expect(res.body.summary.totalRevenue).toMatchObject({
+      amount: expect.any(Number),
+      currency: 'NGN',
+    });
+    expect(res.body.summary.netRevenue).toMatchObject({
+      amount: expect.any(Number),
+      currency: 'NGN',
+    });
+    expect(res.body.summary.transactionCount).toBeGreaterThanOrEqual(2);
+
+    // Verify timeseries
+    expect(res.body.timeseries).toBeInstanceOf(Array);
+    expect(res.body.timeseries.length).toBeGreaterThan(0);
+    const firstPoint = res.body.timeseries[0];
+    expect(firstPoint.date).toBeDefined();
+    expect(firstPoint.revenue).toBeGreaterThanOrEqual(0);
+    expect(firstPoint.netRevenue).toBeDefined();
+
+    // Verify top products
+    expect(res.body.topProducts).toBeInstanceOf(Array);
   });
 });
 

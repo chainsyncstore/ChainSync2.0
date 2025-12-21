@@ -13,6 +13,7 @@ import type { Money } from "@shared/lib/currency";
 import type { Product } from "@shared/schema";
 
 import { useAnalyticsScope } from "./analytics-scope-context";
+import ComprehensiveReportGenerator from "./comprehensive-report-generator";
 
 interface DailySalesSummary {
   transactions: number;
@@ -338,6 +339,10 @@ export default function SalesPerformanceTab({
             {isEmailingCsv ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Email CSV
           </Button>
+          <ComprehensiveReportGenerator
+            effectiveRange={effectiveRange}
+            normalizeCurrency={normalizeCurrency}
+          />
           <p className="text-xs text-muted-foreground">
             Exports include multi-currency normalization when enabled.
           </p>
