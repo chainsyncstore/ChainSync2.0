@@ -91,9 +91,9 @@ export async function registerPosRoutes(app: Express) {
     const userId = req.session?.userId as string | undefined;
     const item = await storage.addTransactionItem({ transactionId, productId, quantity, unitPrice, totalPrice } as any);
     await storage.adjustInventory(
-      productId, 
-      storeId, 
-      -quantity, 
+      productId,
+      storeId,
+      -quantity,
       userId,
       'pos_sale',
       transactionId,
@@ -117,8 +117,8 @@ export async function registerPosRoutes(app: Express) {
     const items = await storage.getTransactionItems(transactionId);
     for (const it of items) {
       await storage.adjustInventory(
-        it.productId as any, 
-        storeId, 
+        it.productId as any,
+        storeId,
         it.quantity as any,
         userId,
         'pos_void',
@@ -669,8 +669,31 @@ export async function registerPosRoutes(app: Express) {
           lineTotal: item.lineTotal,
         } as any);
 
-        // Always use storage.adjustInventory to properly track stock movements
+        // Check if inventory is sufficient and auto-adjust if needed
         try {
+          const currentInv = await storage.getInventoryItem(item.productId, parsed.data.storeId);
+          const currentQty = Number(currentInv?.quantity || 0);
+
+          // If inventory is insufficient, auto-add discovered units before reducing
+          if (currentQty < item.quantity) {
+            logger.info('POS Sale: Insufficient inventory detected, performing stock adjustment', {
+              productId: item.productId,
+              storeId: parsed.data.storeId,
+              currentQty,
+              requiredQty: item.quantity,
+            });
+
+            await storage.addStockAdjustmentForPOS(
+              item.productId,
+              parsed.data.storeId,
+              item.quantity,
+              me.id,
+              sale.id,
+              `Stock adjustment for sale - discovered ${item.quantity - currentQty} units`,
+            );
+          }
+
+          // Now reduce inventory (will have enough after adjustment)
           await storage.adjustInventory(
             item.productId,
             parsed.data.storeId,
@@ -691,7 +714,7 @@ export async function registerPosRoutes(app: Express) {
       }
 
       const normalizedPaymentMethod = normalizePaymentMethod(parsed.data.paymentMethod);
-      
+
       // Insert into transactions table for analytics
       logger.info('POS: Inserting transaction for analytics', { storeId: parsed.data.storeId, total: adjustedTotal });
       const [tx] = await db
@@ -712,7 +735,7 @@ export async function registerPosRoutes(app: Express) {
         .returning();
       logger.info('POS: Transaction inserted', { transactionId: tx.id, storeId: parsed.data.storeId });
 
-            // Fetch inventory costs for COGS tracking
+      // Fetch inventory costs for COGS tracking
       const productIds = parsed.data.items.map(i => i.productId);
       const inventoryCosts = await db
         .select({ productId: inventory.productId, avgCost: inventory.avgCost })
@@ -758,7 +781,7 @@ export async function registerPosRoutes(app: Express) {
         if (pointsEarned > 0 || (redeemDiscount > 0 && redeemPoints > 0)) {
           await db
             .update(customers)
-            .set({ 
+            .set({
               currentPoints: newPoints,
               lifetimePoints: pointsEarned > 0 ? sql`lifetime_points + ${pointsEarned}` : sql`lifetime_points`,
               updatedAt: new Date(),
@@ -1612,10 +1635,39 @@ export async function registerPosRoutes(app: Express) {
       return res.status(404).json({ error: 'New product not found' });
     }
 
-    // Check inventory for new product
+    // Check inventory for new product and auto-adjust if needed
     const newProductInv = await storage.getInventoryItem(newProductId, storeId);
-    if (!newProductInv || Number(newProductInv.quantity || 0) < newQuantity) {
-      return res.status(400).json({ error: 'Insufficient inventory for new product' });
+    const currentNewProductQty = Number(newProductInv?.quantity || 0);
+    let stockAdjustmentInfo: { adjusted: boolean; adjustedQuantity: number; unitCost: number } = {
+      adjusted: false,
+      adjustedQuantity: 0,
+      unitCost: 0,
+    };
+
+    // If inventory is insufficient, auto-add discovered units instead of rejecting
+    if (currentNewProductQty < newQuantity) {
+      logger.info('POS Swap: Insufficient inventory detected, performing stock adjustment', {
+        productId: newProductId,
+        storeId,
+        currentQty: currentNewProductQty,
+        requiredQty: newQuantity,
+      });
+
+      stockAdjustmentInfo = await storage.addStockAdjustmentForPOS(
+        newProductId,
+        storeId,
+        newQuantity,
+        sessionUserId,
+        undefined, // referenceId will be set after return record is created
+        `Stock adjustment for swap - discovered ${newQuantity - currentNewProductQty} units`,
+      );
+
+      logger.info('POS Swap: Stock adjustment completed', {
+        productId: newProductId,
+        adjusted: stockAdjustmentInfo.adjusted,
+        adjustedQuantity: stockAdjustmentInfo.adjustedQuantity,
+        unitCost: stockAdjustmentInfo.unitCost,
+      });
     }
 
     // Calculate amounts

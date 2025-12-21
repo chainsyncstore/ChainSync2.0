@@ -762,6 +762,80 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  /**
+   * Handle inventory discrepancy during POS returns/swaps.
+   * When inventory shows less than required (out-of-stock or misaligned),
+   * automatically add the missing "discovered" units using the last recorded cost price.
+   * 
+   * @returns Information about the adjustment for COGS tracking
+   */
+  async addStockAdjustmentForPOS(
+    productId: string,
+    storeId: string,
+    requiredQuantity: number,
+    userId?: string,
+    referenceId?: string,
+    notes?: string,
+  ): Promise<{ adjusted: boolean; adjustedQuantity: number; unitCost: number }> {
+    // Get current inventory
+    const currentInv = await this.getInventoryItem(productId, storeId);
+    const currentQty = currentInv?.quantity ?? 0;
+    
+    // Calculate deficit: how many units are missing vs what we need
+    const deficit = Math.max(0, requiredQuantity - currentQty);
+    
+    if (deficit <= 0) {
+      // No adjustment needed - inventory has enough stock
+      return { adjusted: false, adjustedQuantity: 0, unitCost: 0 };
+    }
+    
+    // Get the last recorded cost price for proper COGS
+    const unitCost = await this.getFallbackCost(storeId, productId, currentInv as Inventory | null);
+    
+    logger.info('POS Stock Adjustment: Adding discovered inventory', {
+      productId,
+      storeId,
+      currentQty,
+      requiredQuantity,
+      deficit,
+      unitCost,
+    });
+    
+    // Add the discovered units to inventory
+    await this.adjustInventory(
+      productId,
+      storeId,
+      deficit,
+      userId,
+      'pos_stock_discovery',
+      referenceId,
+      notes || `POS discovered inventory - ${deficit} units added to reconcile stock`,
+    );
+    
+    // Create cost layer for the discovered units
+    if (unitCost > 0) {
+      await this.restoreCostLayer(
+        storeId,
+        productId,
+        deficit,
+        unitCost,
+        'pos_stock_discovery',
+        referenceId,
+        `Discovered inventory - cost based on last recorded price`,
+      );
+    }
+    
+    logger.info('POS Stock Adjustment: Inventory reconciled', {
+      productId,
+      storeId,
+      adjustedQuantity: deficit,
+      unitCost,
+      totalCostAdded: deficit * unitCost,
+    });
+    
+    return { adjusted: true, adjustedQuantity: deficit, unitCost };
+  }
+
   // User operations
   async getUser(id: string): Promise<User | undefined> {
     if (this.isTestEnv) {
