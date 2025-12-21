@@ -218,11 +218,17 @@ export const getInventoryUnitCost = (item: InventoryWithProduct): number => {
 };
 
 export const getInventoryTotalCost = (item: InventoryWithProduct): number => {
+  // If quantity is 0, stock value must be 0 regardless of totalCostValue
+  const quantity = getInventoryQuantity(item);
+  if (quantity === 0) {
+    return 0;
+  }
+
   const totalCost = parseMaybeNumber(item.totalCostValue);
   if (totalCost !== null) {
     return totalCost;
   }
-  return getInventoryUnitCost(item) * getInventoryQuantity(item);
+  return getInventoryUnitCost(item) * quantity;
 };
 
 const getStockStatus = (item: InventoryWithProduct): StockStatus => {
@@ -1895,11 +1901,11 @@ export default function Inventory() {
                 <Alert variant="destructive" className="bg-amber-50 border-amber-200">
                   <AlertTriangle className="h-4 w-4 text-amber-600" />
                   <AlertDescription className="text-amber-800">
-                    <strong>Margin Warning:</strong> At {formatFlexibleCurrency(marginAnalysis.proposedSalePrice, currency)}, 
+                    <strong>Margin Warning:</strong> At {formatFlexibleCurrency(marginAnalysis.proposedSalePrice, currency)},
                     you would lose money on <strong>{marginAnalysis.quantityAtLoss} units</strong> ({marginAnalysis.layersAtLoss} cost layers).
                     <br />
                     <span className="text-xs">
-                      Recommended minimum: <strong>{formatFlexibleCurrency(marginAnalysis.recommendedMinPrice, currency)}</strong> | 
+                      Recommended minimum: <strong>{formatFlexibleCurrency(marginAnalysis.recommendedMinPrice, currency)}</strong> |
                       Overall margin: {marginAnalysis.overallMarginPercent.toFixed(1)}%
                     </span>
                     <div className="mt-2">
