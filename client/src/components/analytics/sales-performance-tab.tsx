@@ -342,6 +342,8 @@ export default function SalesPerformanceTab({
           <ComprehensiveReportGenerator
             effectiveRange={effectiveRange}
             normalizeCurrency={normalizeCurrency}
+            storeId={selectedStoreId}
+            currency={resolvedCurrency}
           />
           <p className="text-xs text-muted-foreground">
             Exports include multi-currency normalization when enabled.

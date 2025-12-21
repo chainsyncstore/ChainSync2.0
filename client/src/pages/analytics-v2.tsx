@@ -38,6 +38,7 @@ import {
   YAxis,
 } from "recharts";
 
+import ComprehensiveReportGenerator from "@/components/analytics/comprehensive-report-generator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -586,6 +587,9 @@ function OverviewTab({ data, isLoading }: OverviewTabProps) {
 // ============================================================================
 
 interface SalesTabProps {
+  storeId: string | null;
+  currency: string;
+  effectiveRange: { start: Date; end: Date };
   salesData: SalesData | undefined;
   timeseriesData: TimeseriesData | undefined;
   popularProducts: PopularProductsData | undefined;
@@ -593,7 +597,7 @@ interface SalesTabProps {
   isLoading: boolean;
 }
 
-function SalesTab({ salesData, timeseriesData, popularProducts, profitLoss, isLoading }: SalesTabProps) {
+function SalesTab({ storeId, currency, effectiveRange, salesData, timeseriesData, popularProducts, profitLoss, isLoading }: SalesTabProps) {
   const chartData = useMemo(() => {
     if (!timeseriesData?.points) return [];
     return timeseriesData.points.map((p) => ({
@@ -615,6 +619,15 @@ function SalesTab({ salesData, timeseriesData, popularProducts, profitLoss, isLo
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <ComprehensiveReportGenerator
+          effectiveRange={effectiveRange}
+          normalizeCurrency={false}
+          storeId={storeId}
+          currency={currency}
+        />
+      </div>
+
       {/* Sales KPI Cards */}
       {salesData && (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
@@ -1548,6 +1561,9 @@ export default function AnalyticsV2Page() {
 
           <TabsContent value="sales">
             <SalesTab
+              storeId={selectedStoreId}
+              currency={storeCurrency}
+              effectiveRange={effectiveRange}
               salesData={salesQuery.data}
               timeseriesData={timeseriesQuery.data}
               popularProducts={popularProductsQuery.data}

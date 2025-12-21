@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/pos-utils";
 import type { Money } from "@shared/lib/currency";
 
-import { useAnalyticsScope } from "./analytics-scope-context";
+
 
 interface ComprehensiveReportData {
   period: {
@@ -57,6 +57,8 @@ interface ComprehensiveReportData {
 interface ComprehensiveReportGeneratorProps {
   effectiveRange: { start: Date; end: Date };
   normalizeCurrency?: boolean;
+  storeId: string | null;
+  currency: string;
 }
 
 function formatDateForDisplay(dateString: string): string {
@@ -366,8 +368,9 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
 export default function ComprehensiveReportGenerator({
   effectiveRange,
   normalizeCurrency = false,
+  storeId: selectedStoreId,
+  currency: resolvedCurrency,
 }: ComprehensiveReportGeneratorProps) {
-  const { selectedStoreId, resolvedCurrency } = useAnalyticsScope();
   const { toast } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
 
