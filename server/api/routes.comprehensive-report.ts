@@ -83,6 +83,7 @@ export interface ComprehensiveReportData {
         cogs: Money; // Gross COGS
         refundCogs?: Money;
         netCogs?: Money; // New: Gross COGS - Refund COGS
+        netTax?: Money; // New: Tax Collected - Tax Refunded
         stockLoss: Money; // New
         manufacturerRefund: Money; // New
         grossStockLoss: Money; // New
@@ -103,6 +104,7 @@ export interface ComprehensiveReportData {
         cogs: number; // Gross COGS
         refundCogs?: number;
         netCogs?: number; // New
+        netTax?: number; // New
         stockLoss: number; // New (Net Loss)
         manufacturerRefund: number; // New (Recovered)
         grossStockLoss: number; // New (Total value lost before recovery)
@@ -291,13 +293,15 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 const refundTotal = r?.total ?? 0; // Gross
                 const refundTax = r?.tax ?? 0;
                 const refundNet = refundTotal - refundTax;
+
+                const netTax = tax - refundTax; // New
                 const refundCogs = r?.cogs ?? 0; // Cost of Returns
 
                 const refundCount = r?.count ?? 0;
                 const netLossAmount = (l as any)?.loss ?? 0;
                 const manufacturerRefund = (l as any)?.manufacturerRefund ?? 0;
 
-                const netRevenue = revenue - refundTotal;
+                const netRevenue = (revenue - tax) - refundNet;
                 // Net COGS = Gross COGS (Sales) - Cost of Returns
                 const netCogs = cogs - refundCogs;
 
@@ -320,6 +324,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     revenue,
                     discount: 0,
                     tax,
+                    netTax, // New
                     transactions: txns,
                     refunds: refundNet,
                     refundTax,
@@ -337,8 +342,9 @@ export async function registerComprehensiveReportRoutes(app: Express) {
 
             // Summary Calculation
             // totalRefunds is now NET refunds. totalRefundTax is TAX refunds.
-            const totalGrossRefunds = totalRefunds + totalRefundTax;
-            const summaryTotalNetRevenue = totalRevenue - totalGrossRefunds;
+
+            // Net Revenue Use: (Sales - Tax) - (Refunds - TaxRefund) => (Sales - Tax) - NetRefunds
+            const summaryTotalNetRevenue = (totalRevenue - totalTax) - totalRefunds;
 
             // Profit Calculation (matches loop)
             const summaryNetSalesExTax = (totalRevenue - totalTax) - totalRefunds;
@@ -384,6 +390,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     netRevenue: toMoney(summaryTotalNetRevenue, storeCurrency),
                     totalDiscount: toMoney(0, storeCurrency), // Placeholder
                     totalTax: toMoney(totalTax, storeCurrency),
+                    netTax: toMoney(totalTax - totalRefundTax, storeCurrency), // New
                     transactionCount: totalTransactions,
                     refundCount: totalRefundCount,
                     averageOrderValue: toMoney(avgOrderValue, storeCurrency),
