@@ -14,96 +14,96 @@ import { formatCurrency } from "@/lib/pos-utils";
 import type { Money } from "@shared/lib/currency";
 
 interface ComprehensiveReportData {
-  period: {
-    start: string;
-    end: string;
-  };
-  currency: string;
-  summary: {
-    totalRevenue: Money;
-    totalRefunds: Money;
-    netRevenue: Money;
-    totalDiscount: Money;
-    totalTax: Money;
-    transactionCount: number;
-    refundCount: number;
-    averageOrderValue: Money;
-    cogs?: Money;
-    stockLoss?: Money;
-    manufacturerRefund?: Money;
-    grossStockLoss?: Money;
-    grossProfit?: Money;
-    netProfit?: Money;
-    profit?: Money;
-    profitMargin?: number;
-  };
-  timeseries: Array<{
-    date: string;
-    revenue: number;
-    discount: number;
-    tax: number;
-    transactions: number;
-    refunds: number;
-    refundCount: number;
-    netRevenue: number;
-    cogs: number;
-    stockLoss: number;
-    manufacturerRefund: number;
-    grossStockLoss: number;
-    profit: number;
-  }>;
-  topProducts: Array<{
-    productId: string;
-    name: string;
-    sku: string | null;
-    salesCount: number;
-    revenue: Money;
-  }>;
-  storeName?: string;
+    period: {
+        start: string;
+        end: string;
+    };
+    currency: string;
+    summary: {
+        totalRevenue: Money;
+        totalRefunds: Money;
+        netRevenue: Money;
+        totalDiscount: Money;
+        totalTax: Money;
+        transactionCount: number;
+        refundCount: number;
+        averageOrderValue: Money;
+        cogs?: Money;
+        stockLoss?: Money;
+        manufacturerRefund?: Money;
+        grossStockLoss?: Money;
+        grossProfit?: Money;
+        netProfit?: Money;
+        profit?: Money;
+        profitMargin?: number;
+    };
+    timeseries: Array<{
+        date: string;
+        revenue: number;
+        discount: number;
+        tax: number;
+        transactions: number;
+        refunds: number;
+        refundCount: number;
+        netRevenue: number;
+        cogs: number;
+        stockLoss: number;
+        manufacturerRefund: number;
+        grossStockLoss: number;
+        profit: number;
+    }>;
+    topProducts: Array<{
+        productId: string;
+        name: string;
+        sku: string | null;
+        salesCount: number;
+        revenue: Money;
+    }>;
+    storeName?: string;
 }
 
 interface ComprehensiveReportGeneratorProps {
-  effectiveRange: { start: Date; end: Date };
-  normalizeCurrency?: boolean;
-  storeId: string | null;
-  currency: string;
+    effectiveRange: { start: Date; end: Date };
+    normalizeCurrency?: boolean;
+    storeId: string | null;
+    currency: string;
 }
 
 function formatDateForDisplay(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+    });
 }
 
 function generateHtmlReport(data: ComprehensiveReportData): string {
-  const periodStart = formatDateForDisplay(data.period.start);
-  const periodEnd = formatDateForDisplay(data.period.end);
-  const currency = data.currency;
+    const periodStart = formatDateForDisplay(data.period.start);
+    const periodEnd = formatDateForDisplay(data.period.end);
+    const currency = data.currency;
 
-  const toMoney = (amount: number): Money => ({ amount, currency: currency as any });
+    const toMoney = (amount: number): Money => ({ amount, currency: currency as any });
 
-  // Summary Cards Data
-  const summaryItems = [
-    { label: 'Total Revenue', value: formatCurrency(data.summary.totalRevenue) },
-    { label: 'Net Revenue', value: formatCurrency(data.summary.netRevenue) },
-    { label: 'Gross Profit', value: formatCurrency(data.summary.grossProfit || toMoney(0)) },
-    { label: 'Net Profit', value: formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0)), highlight: true },
-    { label: 'COGS', value: formatCurrency(data.summary.cogs || toMoney(0)) },
-    { label: 'Transactions', value: data.summary.transactionCount },
-    { label: 'Avg Order Value', value: formatCurrency(data.summary.averageOrderValue) },
-    { label: 'Refunds (Cust)', value: formatCurrency(data.summary.totalRefunds) },
-  ];
+    // Summary Cards Data
+    const summaryItems = [
+        { label: 'Total Revenue', value: formatCurrency(data.summary.totalRevenue) },
+        { label: 'Net Revenue', value: formatCurrency(data.summary.netRevenue) },
+        { label: 'Gross Profit', value: formatCurrency(data.summary.grossProfit || toMoney(0)) },
+        { label: 'Net Profit', value: formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0)), highlight: true },
+        { label: 'COGS', value: formatCurrency(data.summary.cogs || toMoney(0)) },
+        { label: 'Transactions', value: data.summary.transactionCount },
+        { label: 'Avg Order Value', value: formatCurrency(data.summary.averageOrderValue) },
+        { label: 'Refunds (Cust)', value: formatCurrency(data.summary.totalRefunds) },
+    ];
 
-  // Prepare Chart Data
-  const chartLabels = data.timeseries.map(d => formatDateForDisplay(d.date));
-  const revenueData = data.timeseries.map(d => d.revenue);
-  const netRevenueData = data.timeseries.map(d => d.netRevenue);
-  const profitData = data.timeseries.map(d => d.profit);
+    // Prepare Chart Data
+    const chartLabels = data.timeseries.map(d => formatDateForDisplay(d.date));
+    const revenueData = data.timeseries.map(d => d.revenue);
+    const netRevenueData = data.timeseries.map(d => d.netRevenue);
+    const profitData = data.timeseries.map(d => d.profit);
 
-  return `
+    return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -281,6 +281,8 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                     <tr>
                         <th>Date</th>
                         <th class="text-right">Revenue</th>
+                        <th class="text-right">Tax Collected</th>
+                        <th class="text-right">Refunds<br><span style="font-size:0.7em;font-weight:400">(Customer)</span></th>
                         <th class="text-right">Net Rev</th>
                         <th class="text-right">COGS</th>
                         <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
@@ -294,6 +296,8 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                     <tr>
                         <td>${formatDateForDisplay(d.date)}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.revenue))}</td>
+                        <td class="text-right" style="color: #6b7280">${formatCurrency(toMoney(d.tax))}</td>
+                        <td class="text-right" style="color: #ef4444">${d.refunds > 0 ? '-' : ''}${formatCurrency(toMoney(d.refunds))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.netRevenue))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.cogs))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.grossStockLoss))}</td>
@@ -305,6 +309,8 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                     <tr style="background-color: #f3f4f6; font-weight: bold;">
                         <td>TOTAL</td>
                         <td class="text-right">${formatCurrency(data.summary.totalRevenue)}</td>
+                        <td class="text-right">${formatCurrency(data.summary.totalTax)}</td>
+                        <td class="text-right">${formatCurrency(data.summary.totalRefunds)}</td>
                         <td class="text-right">${formatCurrency(data.summary.netRevenue)}</td>
                         <td class="text-right">${formatCurrency(data.summary.cogs || toMoney(0))}</td>
                         <td class="text-right">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</td>
@@ -416,89 +422,89 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
 }
 
 export default function ComprehensiveReportGenerator({
-  effectiveRange,
-  normalizeCurrency = false,
-  storeId: selectedStoreId,
-  currency: resolvedCurrency,
+    effectiveRange,
+    normalizeCurrency = false,
+    storeId: selectedStoreId,
+    currency: resolvedCurrency,
 }: ComprehensiveReportGeneratorProps) {
-  const { toast } = useToast();
-  const [isGenerating, setIsGenerating] = useState(false);
+    const { toast } = useToast();
+    const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleDownloadReport = async () => {
-    if (!selectedStoreId) {
-      toast({
-        title: "No store selected",
-        description: "Select a store before generating the report.",
-        variant: "destructive",
-      });
-      return;
-    }
+    const handleDownloadReport = async () => {
+        if (!selectedStoreId) {
+            toast({
+                title: "No store selected",
+                description: "Select a store before generating the report.",
+                variant: "destructive",
+            });
+            return;
+        }
 
-    setIsGenerating(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("store_id", selectedStoreId);
-      params.set("date_from", effectiveRange.start.toISOString());
-      params.set("date_to", effectiveRange.end.toISOString());
-      params.set("interval", "day");
-      if (normalizeCurrency) {
-        params.set("normalize_currency", "true");
-        params.set("target_currency", resolvedCurrency);
-      }
+        setIsGenerating(true);
+        try {
+            const params = new URLSearchParams();
+            params.set("store_id", selectedStoreId);
+            params.set("date_from", effectiveRange.start.toISOString());
+            params.set("date_to", effectiveRange.end.toISOString());
+            params.set("interval", "day");
+            if (normalizeCurrency) {
+                params.set("normalize_currency", "true");
+                params.set("target_currency", resolvedCurrency);
+            }
 
-      const response = await fetch(`/api/analytics/export-comprehensive?${params.toString()}`, {
-        credentials: "include",
-      });
+            const response = await fetch(`/api/analytics/export-comprehensive?${params.toString()}`, {
+                credentials: "include",
+            });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch report data: ${response.statusText}`);
-      }
+            if (!response.ok) {
+                throw new Error(`Failed to fetch report data: ${response.statusText}`);
+            }
 
-      const data: ComprehensiveReportData = await response.json();
-      const htmlContent = generateHtmlReport(data);
+            const data: ComprehensiveReportData = await response.json();
+            const htmlContent = generateHtmlReport(data);
 
-      // Create and trigger download
-      const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = downloadUrl;
-      const startDate = effectiveRange.start.toISOString().substring(0, 10);
-      const endDate = effectiveRange.end.toISOString().substring(0, 10);
-      anchor.download = `sales-report-${startDate}-to-${endDate}.html`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+            // Create and trigger download
+            const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = downloadUrl;
+            const startDate = effectiveRange.start.toISOString().substring(0, 10);
+            const endDate = effectiveRange.end.toISOString().substring(0, 10);
+            anchor.download = `sales-report-${startDate}-to-${endDate}.html`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.URL.revokeObjectURL(downloadUrl);
 
-      toast({
-        title: "Report downloaded",
-        description: "Your comprehensive sales report (HTML) has been downloaded.",
-      });
-    } catch (error) {
-      console.error("Failed to generate report:", error);
-      toast({
-        title: "Report generation failed",
-        description: "We couldn't generate the report. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+            toast({
+                title: "Report downloaded",
+                description: "Your comprehensive sales report (HTML) has been downloaded.",
+            });
+        } catch (error) {
+            console.error("Failed to generate report:", error);
+            toast({
+                title: "Report generation failed",
+                description: "We couldn't generate the report. Please try again.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsGenerating(false);
+        }
+    };
 
-  return (
-    <Button
-      variant="default"
-      onClick={handleDownloadReport}
-      disabled={isGenerating || !selectedStoreId}
-      className="gap-2"
-    >
-      {isGenerating ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <FileText className="h-4 w-4" />
-      )}
-      Download Comprehensive Report
-    </Button>
-  );
+    return (
+        <Button
+            variant="default"
+            onClick={handleDownloadReport}
+            disabled={isGenerating || !selectedStoreId}
+            className="gap-2"
+        >
+            {isGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+                <FileText className="h-4 w-4" />
+            )}
+            Download Comprehensive Report
+        </Button>
+    );
 }
