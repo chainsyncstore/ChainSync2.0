@@ -225,10 +225,11 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             `);
 
             // Maps for easy lookup
-            const refundMap = new Map<string, { total: number; count: number }>();
+            const refundMap = new Map<string, { total: number; tax: number; count: number }>();
             (refundRows.rows as any[]).forEach(r => {
                 refundMap.set(new Date(r.bucket).toISOString(), {
                     total: Number(r.refund_total),
+                    tax: Number(r.refund_tax),
                     count: Number(r.refund_count)
                 });
             });
@@ -247,7 +248,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             let totalTax = 0;
             let totalTransactions = 0;
             let totalCogs = 0;
-            let totalRefunds = 0;
+            let totalRefunds = 0; // Will track NET refunds
             let totalRefundTax = 0;
             let totalRefundCount = 0;
             let totalStockLoss = 0;
@@ -275,19 +276,26 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 const txns = Number(s?.transactions ?? 0);
                 const cogs = Number(s?.cogs ?? 0);
 
-                const refundAmount = r?.total ?? 0;
+                const refundTotal = r?.total ?? 0; // Gross
+                const refundTax = r?.tax ?? 0;
+                const refundNet = refundTotal - refundTax;
+
                 const refundCount = r?.count ?? 0;
                 const netLossAmount = (l as any)?.loss ?? 0;
                 const manufacturerRefund = (l as any)?.manufacturerRefund ?? 0;
 
-                const netRevenue = revenue - refundAmount;
-                const profit = netRevenue - cogs - netLossAmount;
+                const netRevenue = revenue - refundNet;
+                // Profit = Net Revenue (Gross Sales - Net Refunds) - Tax Collected - COGS - Loss
+                // Wait, Net Revenue usually excludes Tax? 
+                // Let's stick to: Profit = (Revenue - Tax) - RefundNet - COGS - Loss
+                const profit = (revenue - tax) - refundNet - cogs - netLossAmount;
 
                 totalRevenue += revenue;
                 totalTax += tax;
                 totalTransactions += txns;
                 totalCogs += cogs;
-                totalRefunds += refundAmount;
+                totalRefunds += refundNet;
+                totalRefundTax += refundTax;
                 totalRefundCount += refundCount;
                 totalStockLoss += netLossAmount;
                 totalManufacturerRefund += manufacturerRefund;
@@ -295,10 +303,11 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 timeseries.push({
                     date: dateKey,
                     revenue,
-                    discount: 0, // Not explicitly tracking line discounts in aggregation yet
+                    discount: 0,
                     tax,
                     transactions: txns,
-                    refunds: refundAmount,
+                    refunds: refundNet,
+                    refundTax,
                     refundCount,
                     netRevenue,
                     cogs,
@@ -310,17 +319,11 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             }
 
             // Summary Calculation
-            // Net Revenue (Financial) usually allows including tax if displayed that way, 
-            // but for Profit we used Ex-Tax. 
-            // Standard Net Revenue = Gross Sales - Refunds - Discounts.
-
-            // Re-calculate aggregations correctly based on what we summed
-            // totalRefunds is NET refunds. totalRefundTax is TAX refunds.
+            // totalRefunds is now NET refunds. totalRefundTax is TAX refunds.
             const totalGrossRefunds = totalRefunds + totalRefundTax;
             const summaryTotalNetRevenue = totalRevenue - totalGrossRefunds;
 
             // Profit Calculation (matches loop)
-            // Profit = (Rev - Tax) - RefNet - COGS - Loss
             const summaryNetSalesExTax = (totalRevenue - totalTax) - totalRefunds;
             const summaryGrossProfit = summaryNetSalesExTax - totalCogs;
             // Note: Use Gross Profit as simply Net Sales - COGS.
