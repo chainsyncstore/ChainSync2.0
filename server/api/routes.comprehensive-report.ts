@@ -297,7 +297,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 const netLossAmount = (l as any)?.loss ?? 0;
                 const manufacturerRefund = (l as any)?.manufacturerRefund ?? 0;
 
-                const netRevenue = revenue - refundNet;
+                const netRevenue = revenue - refundTotal;
                 // Net COGS = Gross COGS (Sales) - Cost of Returns
                 const netCogs = cogs - refundCogs;
 
