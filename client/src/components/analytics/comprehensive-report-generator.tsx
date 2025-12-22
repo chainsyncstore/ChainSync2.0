@@ -165,8 +165,8 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
             padding: 1.5rem;
             margin-bottom: 1.5rem;
             border: 1px solid var(--border);
-            width: 100%; /* Ensure card considers itself bounded */
-            overflow: hidden; /* Force wrapper to respect boundary */
+            width: 100%;
+            /* Removed overflow: hidden to allow child scrollbars to render naturally */
         }
         .summary-grid {
             display: grid;
@@ -174,89 +174,32 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
             gap: 1rem;
             margin-bottom: 2rem;
         }
-        .stat-card {
-            background: var(--bg-card);
-            padding: 1rem;
-            border-radius: 0.5rem;
-            border: 1px solid var(--border);
-        }
-        .stat-label {
-            font-size: 0.875rem;
-            color: var(--text-muted);
-            margin-bottom: 0.25rem;
-        }
-        .stat-value {
-            font-size: 1.25rem;
-            font-weight: 600;
-        }
-        .highlight {
-            color: var(--primary);
-        }
-        .section-title {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            color: var(--text-main);
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.875rem;
-        }
-        th {
-            text-align: left;
-            padding: 0.75rem 1rem;
-            background-color: #f9fafb;
-            color: var(--text-muted);
-            font-weight: 600;
-            border-bottom: 1px solid var(--border);
-        }
-        td {
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid var(--border);
-        }
-        tr:last-child td {
-            border-bottom: none;
-        }
-        .text-right { text-align: right; }
-        .text-center { text-align: center; }
-        .loss-section {
-            background-color: #fef2f2;
-            border-color: #fee2e2;
-        }
-        .loss-section .stat-label { color: #b91c1c; }
-        .loss-section .stat-value { color: #991b1b; }
-        .refresh-section {
-            background-color: #ecfccb;
-            border-color: #d1fae5;
-        }
-            .container { max-width: 100%; }
-            .card { box-shadow: none; border: 1px solid #ddd; }
-            .page-break { page-break-before: always; }
-        }
+        /* ... existing styles ... */
         .table-wrapper {
             width: 100%;
+            max-width: 100%; /* Ensure it respects parent padding */
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
-            padding-bottom: 8px; /* Space for scrollbar */
+            padding-bottom: 12px; /* Increased space for scrollbar */
             margin-bottom: 1rem;
-            border: 1px solid var(--border); /* Visual boundary */
+            border: 1px solid var(--border);
             border-radius: 0.375rem;
+            
+            /* Firefox Scrollbar Support */
+            scrollbar-width: thin;
+            scrollbar-color: #6b7280 #f3f4f6;
         }
         .table-wrapper::-webkit-scrollbar {
-            height: 12px; /* Thicker/Visible */
+            height: 12px;
         }
         .table-wrapper::-webkit-scrollbar-track {
             background: #f3f4f6;
             border-radius: 6px;
         }
         .table-wrapper::-webkit-scrollbar-thumb {
-            background: #6b7280; /* Darker grey for visibility */
+            background: #6b7280;
             border-radius: 6px;
-            border: 2px solid #f3f4f6; /* Padding around thumb */
-        }
-        .table-wrapper::-webkit-scrollbar-thumb:hover {
-            background: #4b5563;
+            border: 2px solid #f3f4f6;
         }
         table {
             width: max-content; /* Force table to take necessary space */
