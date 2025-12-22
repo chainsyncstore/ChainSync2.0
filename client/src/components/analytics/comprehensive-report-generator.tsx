@@ -103,7 +103,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
         { label: 'Transactions', value: data.summary.transactionCount },
         { label: 'Avg Order Value', value: formatCurrency(data.summary.averageOrderValue) },
         { label: 'Refunds (Net)', value: formatCurrency(data.summary.totalRefunds) },
-        { label: 'Tax Refunded', value: formatCurrency(data.summary.refundTax || toMoney(0)) },
+        { label: 'Net Tax', value: formatCurrency(data.summary.netTax || toMoney((data.summary.totalTax.amount - (data.summary.refundTax?.amount || 0)))) },
         { label: 'Cost of Returns', value: formatCurrency(data.summary.refundCogs || toMoney(0)), className: 'text-green-600' },
     ];
 
