@@ -29,7 +29,8 @@ interface ComprehensiveReportData {
         transactionCount: number;
         refundCount: number;
         averageOrderValue: Money;
-        cogs?: Money;
+        cogs: Money;
+        refundCogs?: Money;
         stockLoss?: Money;
         manufacturerRefund?: Money;
         grossStockLoss?: Money;
@@ -49,6 +50,7 @@ interface ComprehensiveReportData {
         refundCount: number;
         netRevenue: number;
         cogs: number;
+        refundCogs?: number;
         stockLoss: number;
         manufacturerRefund: number;
         grossStockLoss: number;
@@ -98,6 +100,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
         { label: 'Avg Order Value', value: formatCurrency(data.summary.averageOrderValue) },
         { label: 'Refunds (Net)', value: formatCurrency(data.summary.totalRefunds) },
         { label: 'Tax Refunded', value: formatCurrency(data.summary.refundTax || toMoney(0)) },
+        { label: 'Cost of Returns', value: formatCurrency(data.summary.refundCogs || toMoney(0)), className: 'text-green-600' },
     ];
 
     // Prepare Chart Data
@@ -289,6 +292,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                         <th class="text-right">Refunds<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
                         <th class="text-right">Net Rev</th>
                         <th class="text-right">COGS</th>
+                        <th class="text-right" style="color:#16a34a">Cost of Returns</th>
                         <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
                         <th class="text-right">Mfr Refund<br><span style="font-size:0.7em;font-weight:400">(Recovery)</span></th>
                         <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
@@ -305,25 +309,28 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                         <td class="text-right" style="color: #ef4444">${d.refunds > 0 ? '-' : ''}${formatCurrency(toMoney(d.refunds))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.netRevenue))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.cogs))}</td>
+                        <td class="text-right" style="color:#16a34a">${formatCurrency(toMoney(d.refundCogs || 0))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.grossStockLoss))}</td>
                         <td class="text-right" style="color:green">(${formatCurrency(toMoney(d.manufacturerRefund))})</td>
                         <td class="text-right" style="color:red">${formatCurrency(toMoney(d.stockLoss))}</td>
                         <td class="text-right"><strong>${formatCurrency(toMoney(d.profit))}</strong></td>
                     </tr>
                     `).join('')}
-                    <tr style="background-color: #f3f4f6; font-weight: bold;">
-                        <td>TOTAL</td>
-                        <td class="text-right">${formatCurrency(data.summary.totalRevenue)}</td>
-                        <td class="text-right">${formatCurrency(data.summary.totalTax)}</td>
-                        <td class="text-right" style="color: #ef4444">(${formatCurrency(data.summary.refundTax || toMoney(0))})</td>
-                        <td class="text-right">${formatCurrency(data.summary.totalRefunds)}</td>
-                        <td class="text-right">${formatCurrency(data.summary.netRevenue)}</td>
-                        <td class="text-right">${formatCurrency(data.summary.cogs || toMoney(0))}</td>
-                        <td class="text-right">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</td>
-                        <td class="text-right">(${formatCurrency(data.summary.manufacturerRefund || toMoney(0))})</td>
-                        <td class="text-right">${formatCurrency(data.summary.stockLoss || toMoney(0))}</td>
-                        <td class="text-right">${formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0))}</td>
-                    </tr>
+                        <tr style="background-color: #f3f4f6; font-weight: bold;">
+                            <td>TOTAL</td>
+                            <td class="text-right">${formatCurrency(data.summary.totalRevenue)}</td>
+                            <td class="text-right">${formatCurrency(data.summary.totalTax)}</td>
+                            <td class="text-right" style="color: #ef4444">(${formatCurrency(data.summary.refundTax || toMoney(0))})</td>
+                            <td class="text-right" style="color: #ef4444">${formatCurrency(data.summary.totalRefunds)}</td>
+                            <td class="text-right">${formatCurrency(data.summary.netRevenue)}</td>
+                            <td class="text-right">${formatCurrency(data.summary.cogs || toMoney(0))}</td>
+                            <td class="text-right" style="color:#16a34a">${formatCurrency(data.summary.refundCogs || toMoney(0))}</td>
+                            <td class="text-right">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</td>
+                            <td class="text-right" style="color:green">(${formatCurrency(data.summary.manufacturerRefund || toMoney(0))})</td>
+                            <td class="text-right" style="color:red">${formatCurrency(data.summary.stockLoss || toMoney(0))}</td>
+                            <td class="text-right">${formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0))}</td>
+                        </tr>
+                </tbody>
                 </tbody>
             </table>
         </div>

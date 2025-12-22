@@ -81,6 +81,7 @@ export interface ComprehensiveReportData {
         refundCount: number;
         averageOrderValue: Money;
         cogs: Money;
+        refundCogs?: Money; // New
         stockLoss: Money; // New
         manufacturerRefund: Money; // New
         grossStockLoss: Money; // New
@@ -98,7 +99,8 @@ export interface ComprehensiveReportData {
         refundTax?: number; // New
         refundCount: number;
         netRevenue: number;
-        cogs: number; // New
+        cogs: number; // Gross COGS
+        refundCogs?: number; // New
         stockLoss: number; // New (Net Loss)
         manufacturerRefund: number; // New (Recovered)
         grossStockLoss: number; // New (Total value lost before recovery)
@@ -197,8 +199,14 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     date_trunc(${sql.raw(`'${truncUnit}'`)}, ${transactions.createdAt}) as bucket,
                     COALESCE(SUM(${transactions.total}::numeric), 0) as refund_total,
                     COALESCE(SUM(${transactions.taxAmount}::numeric), 0) as refund_tax,
+                    COALESCE(SUM(items_sum.total_cost), 0) as refund_cogs,
                     COUNT(*) as refund_count
                 FROM ${transactions}
+                LEFT JOIN (
+                    SELECT transaction_id, SUM(total_cost) as total_cost
+                    FROM ${transactionItems}
+                    GROUP BY transaction_id
+                ) items_sum ON items_sum.transaction_id = ${transactions.id}
                 WHERE ${sql.join(refundWhere, sql` AND `)}
                 GROUP BY 1
                 ORDER BY 1 ASC
@@ -225,11 +233,12 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             `);
 
             // Maps for easy lookup
-            const refundMap = new Map<string, { total: number; tax: number; count: number }>();
+            const refundMap = new Map<string, { total: number; tax: number; cogs: number; count: number }>();
             (refundRows.rows as any[]).forEach(r => {
                 refundMap.set(new Date(r.bucket).toISOString(), {
                     total: Number(r.refund_total),
                     tax: Number(r.refund_tax),
+                    cogs: Number(r.refund_cogs),
                     count: Number(r.refund_count)
                 });
             });
@@ -247,7 +256,8 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             let totalRevenue = 0;
             let totalTax = 0;
             let totalTransactions = 0;
-            let totalCogs = 0;
+            let totalCogs = 0; // This will continue to be Gross COGS (Sales)
+            let totalRefundCogs = 0; // New: Cost of Returns
             let totalRefunds = 0; // Will track NET refunds
             let totalRefundTax = 0;
             let totalRefundCount = 0;
@@ -279,21 +289,24 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 const refundTotal = r?.total ?? 0; // Gross
                 const refundTax = r?.tax ?? 0;
                 const refundNet = refundTotal - refundTax;
+                const refundCogs = r?.cogs ?? 0; // Cost of Returns
 
                 const refundCount = r?.count ?? 0;
                 const netLossAmount = (l as any)?.loss ?? 0;
                 const manufacturerRefund = (l as any)?.manufacturerRefund ?? 0;
 
                 const netRevenue = revenue - refundNet;
-                // Profit = Net Revenue (Gross Sales - Net Refunds) - Tax Collected - COGS - Loss
-                // Wait, Net Revenue usually excludes Tax? 
-                // Let's stick to: Profit = (Revenue - Tax) - RefundNet - COGS - Loss
-                const profit = (revenue - tax) - refundNet - cogs - netLossAmount;
+                // Net COGS = Gross COGS (Sales) - Cost of Returns
+                const netCogs = cogs - refundCogs;
+
+                // Profit = (Revenue - Tax) - RefundNet - Net COGS - Loss
+                const profit = (revenue - tax) - refundNet - netCogs - netLossAmount;
 
                 totalRevenue += revenue;
                 totalTax += tax;
                 totalTransactions += txns;
                 totalCogs += cogs;
+                totalRefundCogs += refundCogs;
                 totalRefunds += refundNet;
                 totalRefundTax += refundTax;
                 totalRefundCount += refundCount;
@@ -310,7 +323,8 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     refundTax,
                     refundCount,
                     netRevenue,
-                    cogs,
+                    cogs,        // Gross COGS
+                    refundCogs,  // NEW: Cost of Returns
                     stockLoss: netLossAmount,
                     manufacturerRefund,
                     grossStockLoss: netLossAmount + manufacturerRefund,
@@ -325,7 +339,11 @@ export async function registerComprehensiveReportRoutes(app: Express) {
 
             // Profit Calculation (matches loop)
             const summaryNetSalesExTax = (totalRevenue - totalTax) - totalRefunds;
-            const summaryGrossProfit = summaryNetSalesExTax - totalCogs;
+            // Use Net COGS for summary profit
+            // But we display Gross COGS in summary properties usually?
+            // Let's ensure the frontend knows we have `refundCogs`.
+            const totalNetCogs = totalCogs - totalRefundCogs;
+            const summaryGrossProfit = summaryNetSalesExTax - totalNetCogs;
             // Note: Use Gross Profit as simply Net Sales - COGS.
 
             const summaryNetProfit = summaryGrossProfit - totalStockLoss;
