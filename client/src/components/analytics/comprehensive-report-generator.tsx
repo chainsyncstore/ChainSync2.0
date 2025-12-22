@@ -1,8 +1,8 @@
 /**
  * Comprehensive Report Generator
  * 
- * Generates a downloadable CSV report with sales analytics data
- * including COGS, Stock Loss, and Profit Breakdown.
+ * Generates a downloadable HTML report with sales analytics data,
+ * interactive charts, and detailed financial breakdown.
  */
 
 import { FileText, Loader2 } from "lucide-react";
@@ -30,9 +30,11 @@ interface ComprehensiveReportData {
     averageOrderValue: Money;
     cogs?: Money;
     stockLoss?: Money;
+    manufacturerRefund?: Money;
+    grossStockLoss?: Money;
     grossProfit?: Money;
     netProfit?: Money;
-    profit?: Money; // Legacy support or alias
+    profit?: Money;
     profitMargin?: number;
   };
   timeseries: Array<{
@@ -46,7 +48,9 @@ interface ComprehensiveReportData {
     netRevenue: number;
     cogs: number;
     stockLoss: number;
-    profit: number; // Net Profit
+    manufacturerRefund: number;
+    grossStockLoss: number;
+    profit: number;
   }>;
   topProducts: Array<{
     productId: string;
@@ -74,96 +78,341 @@ function formatDateForDisplay(dateString: string): string {
   });
 }
 
-// Helper to escape CSV fields
-function esc(val: string | number | undefined): string {
-  if (val === undefined || val === null) return '';
-  const str = String(val);
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
-
-function generateCsvReport(data: ComprehensiveReportData): string {
+function generateHtmlReport(data: ComprehensiveReportData): string {
   const periodStart = formatDateForDisplay(data.period.start);
   const periodEnd = formatDateForDisplay(data.period.end);
-  const rows: string[] = [];
   const currency = data.currency;
 
-  const toMoney = (amount: number): Money => ({
-    amount,
-    currency: currency as any
-  });
+  const toMoney = (amount: number): Money => ({ amount, currency: currency as any });
 
-  // Title
-  rows.push(`Sales Analytics Report - ${data.storeName || 'Store'}`);
-  rows.push(`Period: ${periodStart} - ${periodEnd}`);
-  rows.push('');
+  // Summary Cards Data
+  const summaryItems = [
+    { label: 'Total Revenue', value: formatCurrency(data.summary.totalRevenue) },
+    { label: 'Net Revenue', value: formatCurrency(data.summary.netRevenue) },
+    { label: 'Gross Profit', value: formatCurrency(data.summary.grossProfit || toMoney(0)) },
+    { label: 'Net Profit', value: formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0)), highlight: true },
+    { label: 'COGS', value: formatCurrency(data.summary.cogs || toMoney(0)) },
+    { label: 'Transactions', value: data.summary.transactionCount },
+    { label: 'Avg Order Value', value: formatCurrency(data.summary.averageOrderValue) },
+    { label: 'Refunds (Cust)', value: formatCurrency(data.summary.totalRefunds) },
+  ];
 
-  // Summary
-  rows.push('SUMMARY METRICS');
-  rows.push(`Total Revenue,${esc(formatCurrency(data.summary.totalRevenue))}`);
-  rows.push(`Net Revenue,${esc(formatCurrency(data.summary.netRevenue))}`);
-  rows.push(`Refunds,${esc(formatCurrency(data.summary.totalRefunds))}`);
-  rows.push(`Transactions,${data.summary.transactionCount}`);
-  rows.push(`Avg. Order Value,${esc(formatCurrency(data.summary.averageOrderValue))}`);
-  if (data.summary.cogs) rows.push(`COGS,${esc(formatCurrency(data.summary.cogs))}`);
-  if (data.summary.stockLoss) rows.push(`Stock Removal Loss,${esc(formatCurrency(data.summary.stockLoss))}`);
-  if (data.summary.grossProfit) rows.push(`Gross Profit,${esc(formatCurrency(data.summary.grossProfit))}`);
-  // Use netProfit if available, fallback to profit
-  const netProfit = data.summary.netProfit || data.summary.profit;
-  if (netProfit) rows.push(`Net Profit,${esc(formatCurrency(netProfit))}`);
-  if (data.summary.profitMargin !== undefined) rows.push(`Profit Margin,${data.summary.profitMargin.toFixed(1)}%`);
-  rows.push('');
+  // Prepare Chart Data
+  const chartLabels = data.timeseries.map(d => formatDateForDisplay(d.date));
+  const revenueData = data.timeseries.map(d => d.revenue);
+  const netRevenueData = data.timeseries.map(d => d.netRevenue);
+  const profitData = data.timeseries.map(d => d.profit);
 
-  // Top Products
-  rows.push('TOP PERFORMING PRODUCTS');
-  rows.push('Rank,Product,SKU,Units Sold,Revenue');
-  data.topProducts.forEach((p, i) => {
-    rows.push(`${i + 1},${esc(p.name)},${esc(p.sku || '-')},${p.salesCount},${esc(formatCurrency(p.revenue))}`);
-  });
-  if (data.topProducts.length === 0) rows.push('No product data available');
-  rows.push('');
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Report - ${data.storeName}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --bg-card: #ffffff;
+            --border: #e5e7eb;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.5;
+            color: var(--text-main);
+            background-color: #f3f4f6;
+            margin: 0;
+            padding: 2rem;
+            -webkit-print-color-adjust: exact;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.875rem;
+            font-weight: 700;
+        }
+        .header p {
+            color: var(--text-muted);
+            margin: 0.25rem 0 0;
+        }
+        .card {
+            background: var(--bg-card);
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border);
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid var(--border);
+        }
+        .stat-label {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        .highlight {
+            color: var(--primary);
+        }
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-main);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            background-color: #f9fafb;
+            color: var(--text-muted);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+        }
+        td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .loss-section {
+            background-color: #fef2f2;
+            border-color: #fee2e2;
+        }
+        .loss-section .stat-label { color: #b91c1c; }
+        .loss-section .stat-value { color: #991b1b; }
+        .refresh-section {
+            background-color: #ecfccb;
+            border-color: #d1fae5;
+        }
+         @media print {
+            body { background: white; padding: 0; }
+            .container { max-width: 100%; }
+            .card { box-shadow: none; border: 1px solid #ddd; }
+            .page-break { page-break-before: always; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Sales Comprehensive Report</h1>
+                <p>${data.storeName || 'Store Report'}</p>
+            </div>
+            <div class="text-right">
+                <p><strong>Period:</strong> ${periodStart} - ${periodEnd}</p>
+                <p>Generated on ${new Date().toLocaleDateString()}</p>
+            </div>
+        </div>
 
-  // Daily Breakdown
-  rows.push('DAILY SALES BREAKDOWN');
-  rows.push('Date,Revenue,Refunds,Net Revenue,COGS,Stock Loss,Gross Profit,Net Profit,Transactions,Tax');
+        <!-- Summary Metrics -->
+         <h2 class="section-title">Financial Summary</h2>
+        <div class="summary-grid">
+            ${summaryItems.map(item => `
+                <div class="stat-card">
+                    <div class="stat-label">${item.label}</div>
+                    <div class="stat-value ${item.highlight ? 'highlight' : ''}">${item.value}</div>
+                </div>
+            `).join('')}
+        </div>
+        
+        <div class="summary-grid">
+             <div class="stat-card loss-section">
+                <div class="stat-label">Stock Loss (Net)</div>
+                <div class="stat-value">${formatCurrency(data.summary.stockLoss || toMoney(0))}</div>
+            </div>
+             <div class="stat-card refresh-section">
+                <div class="stat-label">Manufacturer Refunds</div>
+                <div class="stat-value">${formatCurrency(data.summary.manufacturerRefund || toMoney(0))}</div>
+            </div>
+             <div class="stat-card">
+                <div class="stat-label">Gross Stock Loss</div>
+                <div class="stat-value">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</div>
+            </div>
+        </div>
 
-  data.timeseries.forEach(d => {
-    const grossProfit = d.netRevenue - (d.cogs || 0);
-    rows.push([
-      formatDateForDisplay(d.date),
-      esc(formatCurrency(toMoney(d.revenue))),
-      esc(formatCurrency(toMoney(d.refunds))),
-      esc(formatCurrency(toMoney(d.netRevenue))),
-      esc(formatCurrency(toMoney(d.cogs || 0))),
-      esc(formatCurrency(toMoney(d.stockLoss || 0))),
-      esc(formatCurrency(toMoney(grossProfit))),
-      esc(formatCurrency(toMoney(d.profit))),
-      d.transactions,
-      esc(formatCurrency(toMoney(d.tax))),
-    ].join(','));
-  });
+        <!-- Chart -->
+        <div class="card">
+            <h2 class="section-title">Revenue Trend</h2>
+            <div style="height: 400px; width: 100%;">
+                <canvas id="revenueChart"></canvas>
+            </div>
+        </div>
 
-  // TOTAL ROW
-  // Assuming summary object holds the total for the period
-  const totalGrossProfit = data.summary.grossProfit || { amount: 0, currency: currency as any };
-  const totalNetProfit = data.summary.netProfit || data.summary.profit || { amount: 0, currency: currency as any };
+        <!-- Tables breakdown -->
+        <div class="page-break"></div>
+        <div class="card">
+            <h2 class="section-title">Daily Sales Breakdown</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th class="text-right">Revenue</th>
+                        <th class="text-right">Net Rev</th>
+                        <th class="text-right">COGS</th>
+                        <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
+                        <th class="text-right">Mfr Refund<br><span style="font-size:0.7em;font-weight:400">(Recovery)</span></th>
+                        <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
+                        <th class="text-right">Net Profit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.timeseries.map(d => `
+                    <tr>
+                        <td>${formatDateForDisplay(d.date)}</td>
+                        <td class="text-right">${formatCurrency(toMoney(d.revenue))}</td>
+                        <td class="text-right">${formatCurrency(toMoney(d.netRevenue))}</td>
+                        <td class="text-right">${formatCurrency(toMoney(d.cogs))}</td>
+                        <td class="text-right">${formatCurrency(toMoney(d.grossStockLoss))}</td>
+                        <td class="text-right" style="color:green">(${formatCurrency(toMoney(d.manufacturerRefund))})</td>
+                        <td class="text-right" style="color:red">${formatCurrency(toMoney(d.stockLoss))}</td>
+                        <td class="text-right"><strong>${formatCurrency(toMoney(d.profit))}</strong></td>
+                    </tr>
+                    `).join('')}
+                    <tr style="background-color: #f3f4f6; font-weight: bold;">
+                        <td>TOTAL</td>
+                        <td class="text-right">${formatCurrency(data.summary.totalRevenue)}</td>
+                        <td class="text-right">${formatCurrency(data.summary.netRevenue)}</td>
+                        <td class="text-right">${formatCurrency(data.summary.cogs || toMoney(0))}</td>
+                        <td class="text-right">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</td>
+                        <td class="text-right">(${formatCurrency(data.summary.manufacturerRefund || toMoney(0))})</td>
+                        <td class="text-right">${formatCurrency(data.summary.stockLoss || toMoney(0))}</td>
+                        <td class="text-right">${formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0))}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
 
-  rows.push([
-    'TOTAL',
-    esc(formatCurrency(data.summary.totalRevenue)),
-    esc(formatCurrency(data.summary.totalRefunds)),
-    esc(formatCurrency(data.summary.netRevenue)),
-    esc(formatCurrency(data.summary.cogs || { amount: 0, currency: currency as any })),
-    esc(formatCurrency(data.summary.stockLoss || { amount: 0, currency: currency as any })),
-    esc(formatCurrency(totalGrossProfit)),
-    esc(formatCurrency(totalNetProfit)),
-    data.summary.transactionCount,
-    esc(formatCurrency(data.summary.totalTax)),
-  ].join(','));
+        <div class="card">
+            <h2 class="section-title">Top Performing Products</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Product</th>
+                        <th>SKU</th>
+                        <th class="text-right">Units Sold</th>
+                        <th class="text-right">Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.topProducts.length ? data.topProducts.map((p, i) => `
+                    <tr>
+                        <td>${i + 1}</td>
+                        <td>${p.name}</td>
+                        <td>${p.sku || '-'}</td>
+                        <td class="text-right">${p.salesCount}</td>
+                        <td class="text-right">${formatCurrency(p.revenue)}</td>
+                    </tr>
+                    `).join('') : '<tr><td colspan="5" class="text-center">No product data available</td></tr>'}
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-  return rows.join('\n');
+    <script>
+        const ctx = document.getElementById('revenueChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ${JSON.stringify(chartLabels)},
+                datasets: [
+                    {
+                        label: 'Gross Revenue',
+                        data: ${JSON.stringify(revenueData)},
+                        borderColor: '#9ca3af',
+                        tension: 0.3,
+                        borderDash: [5, 5],
+                        hidden: true
+                    },
+                    {
+                        label: 'Net Revenue',
+                        data: ${JSON.stringify(netRevenueData)},
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    },
+                    {
+                        label: 'Net Profit',
+                        data: ${JSON.stringify(profitData)},
+                        borderColor: '#10b981',
+                        tension: 0.3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return new Intl.NumberFormat('en-US', { style: 'currency', currency: '${currency}' }).format(value);
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    label += new Intl.NumberFormat('en-US', { style: 'currency', currency: '${currency}' }).format(context.parsed.y);
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+    `;
 }
 
 export default function ComprehensiveReportGenerator({
@@ -206,16 +455,16 @@ export default function ComprehensiveReportGenerator({
       }
 
       const data: ComprehensiveReportData = await response.json();
-      const csvContent = generateCsvReport(data);
+      const htmlContent = generateHtmlReport(data);
 
       // Create and trigger download
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+      const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
       const downloadUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = downloadUrl;
       const startDate = effectiveRange.start.toISOString().substring(0, 10);
       const endDate = effectiveRange.end.toISOString().substring(0, 10);
-      anchor.download = `sales-report-${startDate}-to-${endDate}.csv`;
+      anchor.download = `sales-report-${startDate}-to-${endDate}.html`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -223,7 +472,7 @@ export default function ComprehensiveReportGenerator({
 
       toast({
         title: "Report downloaded",
-        description: "Your comprehensive sales report (CSV) has been downloaded.",
+        description: "Your comprehensive sales report (HTML) has been downloaded.",
       });
     } catch (error) {
       console.error("Failed to generate report:", error);

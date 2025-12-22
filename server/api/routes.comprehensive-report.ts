@@ -81,6 +81,8 @@ export interface ComprehensiveReportData {
         averageOrderValue: Money;
         cogs: Money;
         stockLoss: Money; // New
+        manufacturerRefund: Money; // New
+        grossStockLoss: Money; // New
         grossProfit: Money; // Net Revenue - COGS
         netProfit: Money; // Gross Profit - Stock Loss (or just Net Rev - COGS - Loss)
         profitMargin: number;
@@ -95,7 +97,9 @@ export interface ComprehensiveReportData {
         refundCount: number;
         netRevenue: number;
         cogs: number; // New
-        stockLoss: number; // New
+        stockLoss: number; // New (Net Loss)
+        manufacturerRefund: number; // New (Recovered)
+        grossStockLoss: number; // New (Total value lost before recovery)
         profit: number; // New (Net Revenue - COGS - Stock Loss)
     }>;
     topProducts: Array<{
@@ -209,7 +213,8 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             const lossRows = await db.execute(sql`
                 SELECT 
                     date_trunc(${sql.raw(`'${truncUnit}'`)}, ${inventoryRevaluationEvents.occurredAt}) as bucket,
-                    COALESCE(SUM(CAST(${inventoryRevaluationEvents.metadata}->>'lossAmount' AS NUMERIC)), 0) as loss_amount
+                    COALESCE(SUM(CAST(${inventoryRevaluationEvents.metadata}->>'lossAmount' AS NUMERIC)), 0) as loss_amount,
+                    COALESCE(SUM(CAST(${inventoryRevaluationEvents.metadata}->>'refundAmount' AS NUMERIC)), 0) as refund_amount
                 FROM ${inventoryRevaluationEvents}
                 WHERE ${sql.join(lossWhere, sql` AND `)}
                 GROUP BY 1
@@ -225,9 +230,12 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 });
             });
 
-            const lossMap = new Map<string, number>();
+            const lossMap = new Map<string, { loss: number; manufacturerRefund: number }>();
             (lossRows.rows as any[]).forEach(r => {
-                lossMap.set(new Date(r.bucket).toISOString(), Number(r.loss_amount));
+                lossMap.set(new Date(r.bucket).toISOString(), {
+                    loss: Number(r.loss_amount),
+                    manufacturerRefund: Number(r.refund_amount)
+                });
             });
 
             // Build Timeseries
@@ -239,6 +247,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             let totalRefunds = 0;
             let totalRefundCount = 0;
             let totalStockLoss = 0;
+            let totalManufacturerRefund = 0;
 
             // Collect all unique dates
             const allDates = new Set<string>();
@@ -264,10 +273,11 @@ export async function registerComprehensiveReportRoutes(app: Express) {
 
                 const refundAmount = r?.total ?? 0;
                 const refundCount = r?.count ?? 0;
-                const lossAmount = l ?? 0;
+                const netLossAmount = (l as any)?.loss ?? 0;
+                const manufacturerRefund = (l as any)?.manufacturerRefund ?? 0;
 
                 const netRevenue = revenue - refundAmount;
-                const profit = netRevenue - cogs - lossAmount;
+                const profit = netRevenue - cogs - netLossAmount;
 
                 totalRevenue += revenue;
                 totalTax += tax;
@@ -275,7 +285,8 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 totalCogs += cogs;
                 totalRefunds += refundAmount;
                 totalRefundCount += refundCount;
-                totalStockLoss += lossAmount;
+                totalStockLoss += netLossAmount;
+                totalManufacturerRefund += manufacturerRefund;
 
                 timeseries.push({
                     date: dateKey,
@@ -287,7 +298,9 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     refundCount,
                     netRevenue,
                     cogs,
-                    stockLoss: lossAmount,
+                    stockLoss: netLossAmount,
+                    manufacturerRefund,
+                    grossStockLoss: netLossAmount + manufacturerRefund,
                     profit
                 });
             }
@@ -334,6 +347,8 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     averageOrderValue: toMoney(avgOrderValue, storeCurrency),
                     cogs: toMoney(totalCogs, storeCurrency),
                     stockLoss: toMoney(totalStockLoss, storeCurrency),
+                    manufacturerRefund: toMoney(totalManufacturerRefund, storeCurrency),
+                    grossStockLoss: toMoney(totalStockLoss + totalManufacturerRefund, storeCurrency),
                     grossProfit: toMoney(summaryGrossProfit, storeCurrency),
                     netProfit: toMoney(summaryNetProfit, storeCurrency),
                     profitMargin: roundAmount(profitMargin),
