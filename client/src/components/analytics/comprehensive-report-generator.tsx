@@ -233,32 +233,36 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
             width: 100%;
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
-            padding-bottom: 5px; /* Space for scrollbar */
+            padding-bottom: 8px; /* Space for scrollbar */
+            margin-bottom: 1rem;
+            border: 1px solid var(--border); /* Visual boundary */
+            border-radius: 0.375rem;
         }
         .table-wrapper::-webkit-scrollbar {
-            height: 10px;
+            height: 12px; /* Thicker/Visible */
         }
         .table-wrapper::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 4px;
+            background: #f3f4f6;
+            border-radius: 6px;
         }
         .table-wrapper::-webkit-scrollbar-thumb {
-            background: #d1d5db;
-            border-radius: 4px;
+            background: #6b7280; /* Darker grey for visibility */
+            border-radius: 6px;
+            border: 2px solid #f3f4f6; /* Padding around thumb */
         }
         .table-wrapper::-webkit-scrollbar-thumb:hover {
-            background: #9ca3af;
+            background: #4b5563;
         }
         table {
-            width: 100%;
+            width: max-content; /* Force table to take necessary space */
+            min-width: 100%;    /* But at least full width */
             border-collapse: collapse;
-            font-size: 0.8rem; /* Reduced from 0.875rem */
-            min-width: 1000px; /* Ensure table doesn't squish too much */
+            font-size: 0.8rem;
         }
         th, td {
-            padding: 0.5rem 0.75rem; /* Reduced padding */
+            padding: 0.6rem 0.8rem;
             border-bottom: 1px solid var(--border);
-            white-space: nowrap; /* Prevent wrapping for cleaner look */
+            white-space: nowrap;
         }
     </style>
 </head>
