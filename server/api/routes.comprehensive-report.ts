@@ -80,8 +80,9 @@ export interface ComprehensiveReportData {
         transactionCount: number;
         refundCount: number;
         averageOrderValue: Money;
-        cogs: Money;
-        refundCogs?: Money; // New
+        cogs: Money; // Gross COGS
+        refundCogs?: Money;
+        netCogs?: Money; // New: Gross COGS - Refund COGS
         stockLoss: Money; // New
         manufacturerRefund: Money; // New
         grossStockLoss: Money; // New
@@ -100,7 +101,8 @@ export interface ComprehensiveReportData {
         refundCount: number;
         netRevenue: number;
         cogs: number; // Gross COGS
-        refundCogs?: number; // New
+        refundCogs?: number;
+        netCogs?: number; // New
         stockLoss: number; // New (Net Loss)
         manufacturerRefund: number; // New (Recovered)
         grossStockLoss: number; // New (Total value lost before recovery)
@@ -324,7 +326,8 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     refundCount,
                     netRevenue,
                     cogs,        // Gross COGS
-                    refundCogs,  // NEW: Cost of Returns
+                    refundCogs,  // Cost of Returns
+                    netCogs,     // New
                     stockLoss: netLossAmount,
                     manufacturerRefund,
                     grossStockLoss: netLossAmount + manufacturerRefund,
@@ -385,6 +388,8 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     refundCount: totalRefundCount,
                     averageOrderValue: toMoney(avgOrderValue, storeCurrency),
                     cogs: toMoney(totalCogs, storeCurrency),
+                    refundCogs: toMoney(totalRefundCogs, storeCurrency),
+                    netCogs: toMoney(totalNetCogs, storeCurrency), // New
                     stockLoss: toMoney(totalStockLoss, storeCurrency),
                     manufacturerRefund: toMoney(totalManufacturerRefund, storeCurrency),
                     grossStockLoss: toMoney(totalStockLoss + totalManufacturerRefund, storeCurrency),

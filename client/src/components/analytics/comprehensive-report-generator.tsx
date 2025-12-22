@@ -31,6 +31,7 @@ interface ComprehensiveReportData {
         averageOrderValue: Money;
         cogs: Money;
         refundCogs?: Money;
+        netCogs?: Money; // New
         stockLoss?: Money;
         manufacturerRefund?: Money;
         grossStockLoss?: Money;
@@ -51,6 +52,7 @@ interface ComprehensiveReportData {
         netRevenue: number;
         cogs: number;
         refundCogs?: number;
+        netCogs?: number; // New
         stockLoss: number;
         manufacturerRefund: number;
         grossStockLoss: number;
@@ -291,8 +293,9 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                         <th class="text-right" style="color:#ef4444">Tax Refunded</th>
                         <th class="text-right">Refunds<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
                         <th class="text-right">Net Rev</th>
-                        <th class="text-right">COGS</th>
+                        <th class="text-right">COGS<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
                         <th class="text-right" style="color:#16a34a">Cost of Returns</th>
+                        <th class="text-right">COGS<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
                         <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
                         <th class="text-right">Mfr Refund<br><span style="font-size:0.7em;font-weight:400">(Recovery)</span></th>
                         <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
@@ -310,6 +313,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                         <td class="text-right">${formatCurrency(toMoney(d.netRevenue))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.cogs))}</td>
                         <td class="text-right" style="color:#16a34a">${formatCurrency(toMoney(d.refundCogs || 0))}</td>
+                        <td class="text-right">${formatCurrency(toMoney(d.netCogs || (d.cogs - (d.refundCogs || 0))))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.grossStockLoss))}</td>
                         <td class="text-right" style="color:green">(${formatCurrency(toMoney(d.manufacturerRefund))})</td>
                         <td class="text-right" style="color:red">${formatCurrency(toMoney(d.stockLoss))}</td>
@@ -325,12 +329,12 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                             <td class="text-right">${formatCurrency(data.summary.netRevenue)}</td>
                             <td class="text-right">${formatCurrency(data.summary.cogs || toMoney(0))}</td>
                             <td class="text-right" style="color:#16a34a">${formatCurrency(data.summary.refundCogs || toMoney(0))}</td>
+                            <td class="text-right">${formatCurrency(data.summary.netCogs || toMoney((data.summary.cogs?.amount || 0) - (data.summary.refundCogs?.amount || 0)))}</td>
                             <td class="text-right">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</td>
                             <td class="text-right" style="color:green">(${formatCurrency(data.summary.manufacturerRefund || toMoney(0))})</td>
                             <td class="text-right" style="color:red">${formatCurrency(data.summary.stockLoss || toMoney(0))}</td>
                             <td class="text-right">${formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0))}</td>
                         </tr>
-                </tbody>
                 </tbody>
             </table>
         </div>
