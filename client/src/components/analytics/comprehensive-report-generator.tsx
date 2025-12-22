@@ -233,6 +233,21 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
             width: 100%;
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
+            padding-bottom: 5px; /* Space for scrollbar */
+        }
+        .table-wrapper::-webkit-scrollbar {
+            height: 10px;
+        }
+        .table-wrapper::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        .table-wrapper::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 4px;
+        }
+        .table-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
         }
         table {
             width: 100%;
