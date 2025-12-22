@@ -22,6 +22,7 @@ interface ComprehensiveReportData {
     summary: {
         totalRevenue: Money;
         totalRefunds: Money;
+        refundTax?: Money;
         netRevenue: Money;
         totalDiscount: Money;
         totalTax: Money;
@@ -44,6 +45,7 @@ interface ComprehensiveReportData {
         tax: number;
         transactions: number;
         refunds: number;
+        refundTax?: number;
         refundCount: number;
         netRevenue: number;
         cogs: number;
@@ -94,7 +96,8 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
         { label: 'COGS', value: formatCurrency(data.summary.cogs || toMoney(0)) },
         { label: 'Transactions', value: data.summary.transactionCount },
         { label: 'Avg Order Value', value: formatCurrency(data.summary.averageOrderValue) },
-        { label: 'Refunds (Cust)', value: formatCurrency(data.summary.totalRefunds) },
+        { label: 'Refunds (Net)', value: formatCurrency(data.summary.totalRefunds) },
+        { label: 'Tax Refunded', value: formatCurrency(data.summary.refundTax || toMoney(0)) },
     ];
 
     // Prepare Chart Data
@@ -282,7 +285,8 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                         <th>Date</th>
                         <th class="text-right">Revenue</th>
                         <th class="text-right">Tax Collected</th>
-                        <th class="text-right">Refunds<br><span style="font-size:0.7em;font-weight:400">(Customer)</span></th>
+                        <th class="text-right" style="color:#ef4444">Tax Refunded</th>
+                        <th class="text-right">Refunds<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
                         <th class="text-right">Net Rev</th>
                         <th class="text-right">COGS</th>
                         <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
@@ -297,6 +301,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                         <td>${formatDateForDisplay(d.date)}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.revenue))}</td>
                         <td class="text-right" style="color: #6b7280">${formatCurrency(toMoney(d.tax))}</td>
+                        <td class="text-right" style="color: #ef4444">${d.refundTax ? '-' + formatCurrency(toMoney(d.refundTax)) : '-'}</td>
                         <td class="text-right" style="color: #ef4444">${d.refunds > 0 ? '-' : ''}${formatCurrency(toMoney(d.refunds))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.netRevenue))}</td>
                         <td class="text-right">${formatCurrency(toMoney(d.cogs))}</td>
@@ -310,6 +315,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                         <td>TOTAL</td>
                         <td class="text-right">${formatCurrency(data.summary.totalRevenue)}</td>
                         <td class="text-right">${formatCurrency(data.summary.totalTax)}</td>
+                        <td class="text-right" style="color: #ef4444">(${formatCurrency(data.summary.refundTax || toMoney(0))})</td>
                         <td class="text-right">${formatCurrency(data.summary.totalRefunds)}</td>
                         <td class="text-right">${formatCurrency(data.summary.netRevenue)}</td>
                         <td class="text-right">${formatCurrency(data.summary.cogs || toMoney(0))}</td>

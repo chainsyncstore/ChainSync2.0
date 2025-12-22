@@ -73,6 +73,7 @@ export interface ComprehensiveReportData {
     summary: {
         totalRevenue: Money;
         totalRefunds: Money;
+        refundTax?: Money; // New
         netRevenue: Money; // Revenue - Refunds
         totalDiscount: Money; // Actually transaction level discount?
         totalTax: Money;
@@ -94,6 +95,7 @@ export interface ComprehensiveReportData {
         tax: number;
         transactions: number;
         refunds: number;
+        refundTax?: number; // New
         refundCount: number;
         netRevenue: number;
         cogs: number; // New
@@ -194,6 +196,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 SELECT 
                     date_trunc(${sql.raw(`'${truncUnit}'`)}, ${transactions.createdAt}) as bucket,
                     COALESCE(SUM(${transactions.total}::numeric), 0) as refund_total,
+                    COALESCE(SUM(${transactions.taxAmount}::numeric), 0) as refund_tax,
                     COUNT(*) as refund_count
                 FROM ${transactions}
                 WHERE ${sql.join(refundWhere, sql` AND `)}
@@ -245,6 +248,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             let totalTransactions = 0;
             let totalCogs = 0;
             let totalRefunds = 0;
+            let totalRefundTax = 0;
             let totalRefundCount = 0;
             let totalStockLoss = 0;
             let totalManufacturerRefund = 0;
@@ -306,10 +310,23 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             }
 
             // Summary Calculation
-            const summaryNetRevenue = totalRevenue - totalRefunds;
-            const summaryGrossProfit = summaryNetRevenue - totalCogs;
+            // Net Revenue (Financial) usually allows including tax if displayed that way, 
+            // but for Profit we used Ex-Tax. 
+            // Standard Net Revenue = Gross Sales - Refunds - Discounts.
+
+            // Re-calculate aggregations correctly based on what we summed
+            // totalRefunds is NET refunds. totalRefundTax is TAX refunds.
+            const totalGrossRefunds = totalRefunds + totalRefundTax;
+            const summaryTotalNetRevenue = totalRevenue - totalGrossRefunds;
+
+            // Profit Calculation (matches loop)
+            // Profit = (Rev - Tax) - RefNet - COGS - Loss
+            const summaryNetSalesExTax = (totalRevenue - totalTax) - totalRefunds;
+            const summaryGrossProfit = summaryNetSalesExTax - totalCogs;
+            // Note: Use Gross Profit as simply Net Sales - COGS.
+
             const summaryNetProfit = summaryGrossProfit - totalStockLoss;
-            const profitMargin = summaryNetRevenue > 0 ? (summaryNetProfit / summaryNetRevenue) * 100 : 0;
+            const profitMargin = summaryNetSalesExTax > 0 ? (summaryNetProfit / summaryNetSalesExTax) * 100 : 0;
             const avgOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
             // 4. Get Top Products
@@ -338,8 +355,9 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 currency: storeCurrency,
                 summary: {
                     totalRevenue: toMoney(totalRevenue, storeCurrency),
-                    totalRefunds: toMoney(totalRefunds, storeCurrency),
-                    netRevenue: toMoney(summaryNetRevenue, storeCurrency),
+                    totalRefunds: toMoney(totalRefunds, storeCurrency), // Displaying NET refunds now? User said "remove tax refund values from refunds". Yes.
+                    refundTax: toMoney(totalRefundTax, storeCurrency), // New field
+                    netRevenue: toMoney(summaryTotalNetRevenue, storeCurrency),
                     totalDiscount: toMoney(0, storeCurrency), // Placeholder
                     totalTax: toMoney(totalTax, storeCurrency),
                     transactionCount: totalTransactions,
