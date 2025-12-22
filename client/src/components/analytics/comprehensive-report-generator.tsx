@@ -245,6 +245,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
             border-bottom: 1px solid var(--border);
             white-space: nowrap; /* Prevent wrapping for cleaner look */
         }
+    </style>
 </head>
 <body>
     <div class="container">
