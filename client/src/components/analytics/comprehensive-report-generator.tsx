@@ -225,13 +225,26 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
             background-color: #ecfccb;
             border-color: #d1fae5;
         }
-         @media print {
-            body { background: white; padding: 0; }
             .container { max-width: 100%; }
             .card { box-shadow: none; border: 1px solid #ddd; }
             .page-break { page-break-before: always; }
         }
-    </style>
+        .table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem; /* Reduced from 0.875rem */
+            min-width: 1000px; /* Ensure table doesn't squish too much */
+        }
+        th, td {
+            padding: 0.5rem 0.75rem; /* Reduced padding */
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap; /* Prevent wrapping for cleaner look */
+        }
 </head>
 <body>
     <div class="container">
@@ -284,85 +297,89 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
         <div class="page-break"></div>
         <div class="card">
             <h2 class="section-title">Daily Sales Breakdown</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th class="text-right">Revenue</th>
-                        <th class="text-right">Tax Collected</th>
-                        <th class="text-right" style="color:#ef4444">Tax Refunded</th>
-                        <th class="text-right">Refunds<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
-                        <th class="text-right">Net Rev</th>
-                        <th class="text-right">COGS<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
-                        <th class="text-right" style="color:#16a34a">Cost of Returns</th>
-                        <th class="text-right">COGS<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
-                        <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
-                        <th class="text-right">Mfr Refund<br><span style="font-size:0.7em;font-weight:400">(Recovery)</span></th>
-                        <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
-                        <th class="text-right">Net Profit</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${data.timeseries.map(d => `
-                    <tr>
-                        <td>${formatDateForDisplay(d.date)}</td>
-                        <td class="text-right">${formatCurrency(toMoney(d.revenue))}</td>
-                        <td class="text-right" style="color: #6b7280">${formatCurrency(toMoney(d.tax))}</td>
-                        <td class="text-right" style="color: #ef4444">${d.refundTax ? '-' + formatCurrency(toMoney(d.refundTax)) : '-'}</td>
-                        <td class="text-right" style="color: #ef4444">${d.refunds > 0 ? '-' : ''}${formatCurrency(toMoney(d.refunds))}</td>
-                        <td class="text-right">${formatCurrency(toMoney(d.netRevenue))}</td>
-                        <td class="text-right">${formatCurrency(toMoney(d.cogs))}</td>
-                        <td class="text-right" style="color:#16a34a">${formatCurrency(toMoney(d.refundCogs || 0))}</td>
-                        <td class="text-right">${formatCurrency(toMoney(d.netCogs || (d.cogs - (d.refundCogs || 0))))}</td>
-                        <td class="text-right">${formatCurrency(toMoney(d.grossStockLoss))}</td>
-                        <td class="text-right" style="color:green">(${formatCurrency(toMoney(d.manufacturerRefund))})</td>
-                        <td class="text-right" style="color:red">${formatCurrency(toMoney(d.stockLoss))}</td>
-                        <td class="text-right"><strong>${formatCurrency(toMoney(d.profit))}</strong></td>
-                    </tr>
-                    `).join('')}
-                        <tr style="background-color: #f3f4f6; font-weight: bold;">
-                            <td>TOTAL</td>
-                            <td class="text-right">${formatCurrency(data.summary.totalRevenue)}</td>
-                            <td class="text-right">${formatCurrency(data.summary.totalTax)}</td>
-                            <td class="text-right" style="color: #ef4444">(${formatCurrency(data.summary.refundTax || toMoney(0))})</td>
-                            <td class="text-right" style="color: #ef4444">${formatCurrency(data.summary.totalRefunds)}</td>
-                            <td class="text-right">${formatCurrency(data.summary.netRevenue)}</td>
-                            <td class="text-right">${formatCurrency(data.summary.cogs || toMoney(0))}</td>
-                            <td class="text-right" style="color:#16a34a">${formatCurrency(data.summary.refundCogs || toMoney(0))}</td>
-                            <td class="text-right">${formatCurrency(data.summary.netCogs || toMoney((data.summary.cogs?.amount || 0) - (data.summary.refundCogs?.amount || 0)))}</td>
-                            <td class="text-right">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</td>
-                            <td class="text-right" style="color:green">(${formatCurrency(data.summary.manufacturerRefund || toMoney(0))})</td>
-                            <td class="text-right" style="color:red">${formatCurrency(data.summary.stockLoss || toMoney(0))}</td>
-                            <td class="text-right">${formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0))}</td>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th class="text-right">Revenue</th>
+                            <th class="text-right">Tax Collected</th>
+                            <th class="text-right" style="color:#ef4444">Tax Refunded</th>
+                            <th class="text-right">Refunds<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
+                            <th class="text-right">Net Rev</th>
+                            <th class="text-right">COGS<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
+                            <th class="text-right" style="color:#16a34a">Cost of Returns</th>
+                            <th class="text-right">COGS<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
+                            <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
+                            <th class="text-right">Mfr Refund<br><span style="font-size:0.7em;font-weight:400">(Recovery)</span></th>
+                            <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
+                            <th class="text-right">Net Profit</th>
                         </tr>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        ${data.timeseries.map(d => `
+                        <tr>
+                            <td>${formatDateForDisplay(d.date)}</td>
+                            <td class="text-right">${formatCurrency(toMoney(d.revenue))}</td>
+                            <td class="text-right" style="color: #6b7280">${formatCurrency(toMoney(d.tax))}</td>
+                            <td class="text-right" style="color: #ef4444">${d.refundTax ? '-' + formatCurrency(toMoney(d.refundTax)) : '-'}</td>
+                            <td class="text-right" style="color: #ef4444">${d.refunds > 0 ? '-' : ''}${formatCurrency(toMoney(d.refunds))}</td>
+                            <td class="text-right">${formatCurrency(toMoney(d.netRevenue))}</td>
+                            <td class="text-right">${formatCurrency(toMoney(d.cogs))}</td>
+                            <td class="text-right" style="color:#16a34a">${formatCurrency(toMoney(d.refundCogs || 0))}</td>
+                            <td class="text-right">${formatCurrency(toMoney(d.netCogs || (d.cogs - (d.refundCogs || 0))))}</td>
+                            <td class="text-right">${formatCurrency(toMoney(d.grossStockLoss))}</td>
+                            <td class="text-right" style="color:green">(${formatCurrency(toMoney(d.manufacturerRefund))})</td>
+                            <td class="text-right" style="color:red">${formatCurrency(toMoney(d.stockLoss))}</td>
+                            <td class="text-right"><strong>${formatCurrency(toMoney(d.profit))}</strong></td>
+                        </tr>
+                        `).join('')}
+                            <tr style="background-color: #f3f4f6; font-weight: bold;">
+                                <td>TOTAL</td>
+                                <td class="text-right">${formatCurrency(data.summary.totalRevenue)}</td>
+                                <td class="text-right">${formatCurrency(data.summary.totalTax)}</td>
+                                <td class="text-right" style="color: #ef4444">(${formatCurrency(data.summary.refundTax || toMoney(0))})</td>
+                                <td class="text-right" style="color: #ef4444">${formatCurrency(data.summary.totalRefunds)}</td>
+                                <td class="text-right">${formatCurrency(data.summary.netRevenue)}</td>
+                                <td class="text-right">${formatCurrency(data.summary.cogs || toMoney(0))}</td>
+                                <td class="text-right" style="color:#16a34a">${formatCurrency(data.summary.refundCogs || toMoney(0))}</td>
+                                <td class="text-right">${formatCurrency(data.summary.netCogs || toMoney((data.summary.cogs?.amount || 0) - (data.summary.refundCogs?.amount || 0)))}</td>
+                                <td class="text-right">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</td>
+                                <td class="text-right" style="color:green">(${formatCurrency(data.summary.manufacturerRefund || toMoney(0))})</td>
+                                <td class="text-right" style="color:red">${formatCurrency(data.summary.stockLoss || toMoney(0))}</td>
+                                <td class="text-right">${formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0))}</td>
+                            </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="card">
             <h2 class="section-title">Top Performing Products</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Rank</th>
-                        <th>Product</th>
-                        <th>SKU</th>
-                        <th class="text-right">Units Sold</th>
-                        <th class="text-right">Revenue</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${data.topProducts.length ? data.topProducts.map((p, i) => `
-                    <tr>
-                        <td>${i + 1}</td>
-                        <td>${p.name}</td>
-                        <td>${p.sku || '-'}</td>
-                        <td class="text-right">${p.salesCount}</td>
-                        <td class="text-right">${formatCurrency(p.revenue)}</td>
-                    </tr>
-                    `).join('') : '<tr><td colspan="5" class="text-center">No product data available</td></tr>'}
-                </tbody>
-            </table>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Product</th>
+                            <th>SKU</th>
+                            <th class="text-right">Units Sold</th>
+                            <th class="text-right">Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.topProducts.length ? data.topProducts.map((p, i) => `
+                        <tr>
+                            <td>${i + 1}</td>
+                            <td>${p.name}</td>
+                            <td>${p.sku || '-'}</td>
+                            <td class="text-right">${p.salesCount}</td>
+                            <td class="text-right">${formatCurrency(p.revenue)}</td>
+                        </tr>
+                        `).join('') : '<tr><td colspan="5" class="text-center">No product data available</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
