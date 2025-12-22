@@ -127,6 +127,9 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
             --bg-card: #ffffff;
             --border: #e5e7eb;
         }
+        * {
+            box-sizing: border-box;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             line-height: 1.5;
@@ -162,6 +165,8 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
             padding: 1.5rem;
             margin-bottom: 1.5rem;
             border: 1px solid var(--border);
+            width: 100%; /* Ensure card considers itself bounded */
+            overflow: hidden; /* Force wrapper to respect boundary */
         }
         .summary-grid {
             display: grid;
