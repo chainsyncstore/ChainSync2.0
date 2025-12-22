@@ -2,13 +2,13 @@
  * Comprehensive Sales Analytics Report Export
  * 
  * Aggregates sales data including timeseries, profit/loss, and top products
- * for a comprehensive downloadable HTML report with interactive charts.
+ * for a comprehensive downloadable CSV report.
  */
 
 import { eq, gte, lte, sql } from 'drizzle-orm';
 import type { Express, Request, Response } from 'express';
 import type { CurrencyCode, Money } from '@shared/lib/currency';
-import { legacySales as sales, legacyReturns as returns, users, userRoles, stores } from '@shared/schema';
+import { transactions, transactionItems, inventoryRevaluationEvents, stores, users, userRoles } from '@shared/schema';
 import { db } from '../db';
 import { logger } from '../lib/logger';
 import { requireAuth } from '../middleware/authz';
@@ -29,80 +29,39 @@ const coerceCurrency = (value: string | null | undefined, fallback: CurrencyCode
     return SUPPORTED_CURRENCY_SET.has(upper as CurrencyCode) ? (upper as CurrencyCode) : fallback;
 };
 
+// Helper: resolve org and allowed store ids for current user
+// (getScope removed as it was unused/dup of fallbackGetScope)
 
-
-async function getScope(req: Request) {
+// Fallback scope if not exported (which it likely isn't)
+async function fallbackGetScope(req: Request) {
     let userId = (req.session as any)?.userId as string | undefined;
+    // ... (Test env handling omitted for brevity unless needed) ...
     if (!userId && process.env.NODE_ENV === 'test') {
         const anyUser = await db.select().from(users).limit(1);
         userId = anyUser[0]?.id as string | undefined;
     }
-    if (!userId) {
-        const qStoreId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
-        if (qStoreId) {
-            const s = await db.select().from(stores).where(eq(stores.id, qStoreId));
-            const orgId = s[0]?.orgId as string | undefined;
-            if (orgId) return { orgId, allowedStoreIds: [qStoreId], isAdmin: true };
-        }
-        return { orgId: undefined as string | undefined, allowedStoreIds: [] as string[], isAdmin: false };
-    }
+
+    if (!userId) return { orgId: undefined, allowedStoreIds: [], isAdmin: false };
+
     const [userRow] = await db.select().from(users).where(eq(users.id, userId));
     const isAdmin = !!userRow?.isAdmin;
     const orgId = userRow?.orgId as string | undefined;
-    if (!orgId) {
-        return { orgId: undefined, allowedStoreIds: [], isAdmin };
-    }
+
+    if (!orgId) return { orgId: undefined, allowedStoreIds: [], isAdmin };
+
     if (isAdmin) {
         const storeRows = await db.select({ id: stores.id }).from(stores).where(eq(stores.orgId, orgId));
         return { orgId, allowedStoreIds: storeRows.map(s => s.id), isAdmin };
     }
+
     const roles = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
     const scoped = roles.map(r => r.storeId).filter(Boolean) as string[];
+
     if (!scoped.length) {
         const storeRows = await db.select({ id: stores.id }).from(stores).where(eq(stores.orgId, orgId));
         return { orgId, allowedStoreIds: storeRows.map(s => s.id), isAdmin };
     }
     return { orgId, allowedStoreIds: scoped, isAdmin };
-}
-
-type SalesAggregateExpressions = {
-    total: string;
-    discount: string;
-    tax: string;
-};
-
-let cachedSalesAggregates: SalesAggregateExpressions | null = null;
-
-async function getSalesAggregateExpressions(): Promise<SalesAggregateExpressions> {
-    if (cachedSalesAggregates) return cachedSalesAggregates;
-
-    const columnResult = await db.execute(sql`
-    SELECT column_name
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'sales'
-  `);
-
-    const columnNames = new Set(
-        ((columnResult as any).rows ?? []).map((row: any) => String(row.column_name).toLowerCase())
-    );
-
-    const buildAggregate = (candidates: string[]): string => {
-        for (const candidate of candidates) {
-            if (columnNames.has(candidate)) {
-                return `COALESCE(SUM("${candidate}"::numeric), 0)`;
-            }
-        }
-        return '0::numeric';
-    };
-
-    cachedSalesAggregates = {
-        total: buildAggregate(['total', 'total_amount', 'gross_total']),
-        discount: buildAggregate(['discount', 'discount_amount']),
-        tax: buildAggregate(['tax', 'tax_amount'])
-    };
-
-    return cachedSalesAggregates;
 }
 
 export interface ComprehensiveReportData {
@@ -114,25 +73,30 @@ export interface ComprehensiveReportData {
     summary: {
         totalRevenue: Money;
         totalRefunds: Money;
-        netRevenue: Money;
-        totalDiscount: Money;
+        netRevenue: Money; // Revenue - Refunds
+        totalDiscount: Money; // Actually transaction level discount?
         totalTax: Money;
         transactionCount: number;
         refundCount: number;
         averageOrderValue: Money;
-        cogs?: Money;
-        profit?: Money;
-        profitMargin?: number;
+        cogs: Money;
+        stockLoss: Money; // New
+        grossProfit: Money; // Net Revenue - COGS
+        netProfit: Money; // Gross Profit - Stock Loss (or just Net Rev - COGS - Loss)
+        profitMargin: number;
     };
     timeseries: Array<{
         date: string;
         revenue: number;
-        discount: number;
+        discount: number; // Placeholder if not tracking on txn
         tax: number;
         transactions: number;
         refunds: number;
         refundCount: number;
         netRevenue: number;
+        cogs: number; // New
+        stockLoss: number; // New
+        profit: number; // New (Net Revenue - COGS - Stock Loss)
     }>;
     topProducts: Array<{
         productId: string;
@@ -144,34 +108,25 @@ export interface ComprehensiveReportData {
     storeName?: string;
 }
 
+
 export async function registerComprehensiveReportRoutes(app: Express) {
     const auth = (req: Request, res: Response, next: any) => {
         if (process.env.NODE_ENV === 'test') return next();
         return (requireAuth as any)(req, res, next);
     };
 
-    /**
-     * GET /api/analytics/export-comprehensive
-     * 
-     * Returns comprehensive report data including:
-     * - Summary metrics (revenue, refunds, COGS, profit, etc.)
-     * - Daily timeseries data for chart visualization
-     * - Top 10 performing products
-     */
     app.get('/api/analytics/export-comprehensive', auth, requireActiveSubscription, async (req: Request, res: Response) => {
         try {
-            const { orgId, allowedStoreIds } = await getScope(req);
+            const { allowedStoreIds } = await fallbackGetScope(req);
             const storeId = (String((req.query as any)?.store_id || '').trim() || undefined) as string | undefined;
             const dateFrom = (String((req.query as any)?.date_from || '').trim() || undefined) as string | undefined;
             const dateTo = (String((req.query as any)?.date_to || '').trim() || undefined) as string | undefined;
             const interval = (String((req.query as any)?.interval || '').trim() || 'day');
 
-            // Validate store access
             if (storeId && allowedStoreIds.length && !allowedStoreIds.includes(storeId)) {
                 return res.status(403).json({ error: 'Forbidden: store scope' });
             }
 
-            // Get store details
             if (!storeId) {
                 return res.status(400).json({ error: 'store_id is required' });
             }
@@ -188,7 +143,6 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             }
 
             const storeCurrency = coerceCurrency(store.currency ?? 'NGN', 'NGN');
-            // Parse dates
             const endDate = dateTo ? new Date(dateTo) : new Date();
             const startDate = dateFrom ? new Date(dateFrom) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -198,111 +152,155 @@ export async function registerComprehensiveReportRoutes(app: Express) {
 
             const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
 
-            // 1. Get sales aggregates (timeseries)
-            const where: any[] = [];
-            if (orgId) where.push(eq(sales.orgId, orgId));
-            where.push(eq(sales.storeId, storeId));
-            where.push(gte(sales.occurredAt, startDate));
-            where.push(lte(sales.occurredAt, endDate));
+            // 1. Get Sales & COGS Aggregates (from transactions + transaction_items)
+            const salesWhere: any[] = [];
+            salesWhere.push(eq(transactions.storeId, storeId));
+            salesWhere.push(eq(transactions.status, 'completed'));
+            salesWhere.push(eq(transactions.kind, 'SALE'));
+            salesWhere.push(gte(transactions.createdAt, startDate));
+            salesWhere.push(lte(transactions.createdAt, endDate));
 
-            const salesAggregates = await getSalesAggregateExpressions();
-            const salesRows = await db.execute(sql`SELECT 
-        date_trunc(${sql.raw(`'${truncUnit}'`)}, occurred_at) as bucket,
-        ${sql.raw(salesAggregates.total)} as revenue,
-        ${sql.raw(salesAggregates.discount)} as discount,
-        ${sql.raw(salesAggregates.tax)} as tax,
-        COUNT(*) as transactions
-        FROM sales
-        ${where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}
-        GROUP BY 1
-        ORDER BY 1 ASC`);
+            const salesRows = await db.execute(sql`
+                SELECT 
+                    date_trunc(${sql.raw(`'${truncUnit}'`)}, ${transactions.createdAt}) as bucket,
+                    COALESCE(SUM(${transactions.total}::numeric), 0) as revenue,
+                    COALESCE(SUM(${transactions.taxAmount}::numeric), 0) as tax,
+                    COUNT(*) as transactions,
+                    COALESCE(SUM(items_sum.total_cost), 0) as cogs
+                FROM ${transactions}
+                LEFT JOIN (
+                    SELECT transaction_id, SUM(total_cost) as total_cost
+                    FROM ${transactionItems}
+                    GROUP BY transaction_id
+                ) items_sum ON items_sum.transaction_id = ${transactions.id}
+                WHERE ${sql.join(salesWhere, sql` AND `)}
+                GROUP BY 1
+                ORDER BY 1 ASC
+            `);
 
-            // 2. Get refund aggregates
+            // 2. Get Refund Aggregates
             const refundWhere: any[] = [];
-            if (orgId) refundWhere.push(eq(stores.orgId, orgId));
-            refundWhere.push(eq(returns.storeId, storeId));
-            refundWhere.push(gte(returns.occurredAt, startDate));
-            refundWhere.push(lte(returns.occurredAt, endDate));
+            refundWhere.push(eq(transactions.storeId, storeId));
+            refundWhere.push(eq(transactions.status, 'completed'));
+            refundWhere.push(eq(transactions.kind, 'REFUND'));
+            refundWhere.push(gte(transactions.createdAt, startDate));
+            refundWhere.push(lte(transactions.createdAt, endDate));
 
             const refundRows = await db.execute(sql`
-        SELECT 
-          date_trunc(${sql.raw(`'${truncUnit}'`)}, ${returns.occurredAt}) as bucket,
-          COALESCE(SUM(${returns.totalRefund}::numeric), 0) as refund_total,
-          COUNT(*) as refund_count
-        FROM ${returns}
-        JOIN stores ON stores.id = ${returns.storeId}
-        ${refundWhere.length ? sql`WHERE ${sql.join(refundWhere, sql` AND `)}` : sql``}
-        GROUP BY 1
-        ORDER BY 1 ASC
-      `);
+                SELECT 
+                    date_trunc(${sql.raw(`'${truncUnit}'`)}, ${transactions.createdAt}) as bucket,
+                    COALESCE(SUM(${transactions.total}::numeric), 0) as refund_total,
+                    COUNT(*) as refund_count
+                FROM ${transactions}
+                WHERE ${sql.join(refundWhere, sql` AND `)}
+                GROUP BY 1
+                ORDER BY 1 ASC
+            `);
 
-            // Build refund map
+            // 3. Get Stock Removal Loss (from inventory_revaluation_events)
+            const lossWhere: any[] = [];
+            lossWhere.push(eq(inventoryRevaluationEvents.storeId, storeId));
+            lossWhere.push(gte(inventoryRevaluationEvents.occurredAt, startDate));
+            lossWhere.push(lte(inventoryRevaluationEvents.occurredAt, endDate));
+            lossWhere.push(sql`${inventoryRevaluationEvents.source} LIKE 'stock_removal_%'`);
+
+            // Note: Currently assumes metadata contains 'lossAmount'. 
+            // We need to extract it from JSONB.
+            const lossRows = await db.execute(sql`
+                SELECT 
+                    date_trunc(${sql.raw(`'${truncUnit}'`)}, ${inventoryRevaluationEvents.occurredAt}) as bucket,
+                    COALESCE(SUM(CAST(${inventoryRevaluationEvents.metadata}->>'lossAmount' AS NUMERIC)), 0) as loss_amount
+                FROM ${inventoryRevaluationEvents}
+                WHERE ${sql.join(lossWhere, sql` AND `)}
+                GROUP BY 1
+                ORDER BY 1 ASC
+            `);
+
+            // Maps for easy lookup
             const refundMap = new Map<string, { total: number; count: number }>();
-            for (const r of (refundRows as any).rows) {
-                const key = new Date(r.bucket).toISOString();
-                refundMap.set(key, {
-                    total: Number(r.refund_total ?? 0),
-                    count: Number(r.refund_count ?? 0),
+            (refundRows.rows as any[]).forEach(r => {
+                refundMap.set(new Date(r.bucket).toISOString(), {
+                    total: Number(r.refund_total),
+                    count: Number(r.refund_count)
                 });
-            }
+            });
 
-            // Build timeseries
+            const lossMap = new Map<string, number>();
+            (lossRows.rows as any[]).forEach(r => {
+                lossMap.set(new Date(r.bucket).toISOString(), Number(r.loss_amount));
+            });
+
+            // Build Timeseries
             const timeseries: ComprehensiveReportData['timeseries'] = [];
             let totalRevenue = 0;
-            let totalDiscount = 0;
             let totalTax = 0;
             let totalTransactions = 0;
+            let totalCogs = 0;
             let totalRefunds = 0;
             let totalRefundCount = 0;
+            let totalStockLoss = 0;
 
-            for (const r of (salesRows as any).rows) {
-                const bucketDate = new Date(r.bucket);
-                const key = bucketDate.toISOString();
-                const refund = refundMap.get(key);
-                const refundTotal = refund?.total ?? 0;
-                const refundCount = refund?.count ?? 0;
-                const revenue = Number(r.revenue ?? 0);
-                const discount = Number(r.discount ?? 0);
-                const tax = Number(r.tax ?? 0);
-                const transactions = Number(r.transactions ?? 0);
-                const netRevenue = revenue - refundTotal;
+            // Collect all unique dates
+            const allDates = new Set<string>();
+            (salesRows.rows as any[]).forEach(r => allDates.add(new Date(r.bucket).toISOString()));
+            refundMap.forEach((_, k) => allDates.add(k));
+            lossMap.forEach((_, k) => allDates.add(k));
+
+            const sortedDates = Array.from(allDates).sort();
+
+            // Create lookup for sales
+            const salesMap = new Map<string, any>();
+            (salesRows.rows as any[]).forEach(r => salesMap.set(new Date(r.bucket).toISOString(), r));
+
+            for (const dateKey of sortedDates) {
+                const s = salesMap.get(dateKey);
+                const r = refundMap.get(dateKey);
+                const l = lossMap.get(dateKey);
+
+                const revenue = Number(s?.revenue ?? 0);
+                const tax = Number(s?.tax ?? 0);
+                const txns = Number(s?.transactions ?? 0);
+                const cogs = Number(s?.cogs ?? 0);
+
+                const refundAmount = r?.total ?? 0;
+                const refundCount = r?.count ?? 0;
+                const lossAmount = l ?? 0;
+
+                const netRevenue = revenue - refundAmount;
+                const profit = netRevenue - cogs - lossAmount;
 
                 totalRevenue += revenue;
-                totalDiscount += discount;
                 totalTax += tax;
-                totalTransactions += transactions;
-                totalRefunds += refundTotal;
+                totalTransactions += txns;
+                totalCogs += cogs;
+                totalRefunds += refundAmount;
                 totalRefundCount += refundCount;
+                totalStockLoss += lossAmount;
 
                 timeseries.push({
-                    date: key,
+                    date: dateKey,
                     revenue,
-                    discount,
+                    discount: 0, // Not explicitly tracking line discounts in aggregation yet
                     tax,
-                    transactions,
-                    refunds: refundTotal,
+                    transactions: txns,
+                    refunds: refundAmount,
                     refundCount,
                     netRevenue,
+                    cogs,
+                    stockLoss: lossAmount,
+                    profit
                 });
             }
 
-            // 3. Get profit/loss data
-            let cogs: Money | undefined;
-            let profit: Money | undefined;
-            let profitMargin: number | undefined;
+            // Summary Calculation
+            const summaryNetRevenue = totalRevenue - totalRefunds;
+            const summaryGrossProfit = summaryNetRevenue - totalCogs;
+            const summaryNetProfit = summaryGrossProfit - totalStockLoss;
+            const profitMargin = summaryNetRevenue > 0 ? (summaryNetProfit / summaryNetRevenue) * 100 : 0;
+            const avgOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
-            try {
-                const profitLoss = await storage.getStoreProfitLoss(storeId, startDate, endDate);
-                cogs = toMoney(profitLoss.cogsFromSales, storeCurrency);
-                profit = toMoney(profitLoss.profit, storeCurrency);
-                const netRev = totalRevenue - totalRefunds;
-                profitMargin = netRev > 0 ? (profitLoss.profit / netRev) * 100 : 0;
-            } catch (err) {
-                logger.warn('Failed to get profit/loss data for comprehensive report', { error: err });
-            }
-
-            // 4. Get top products
-            const topProducts: ComprehensiveReportData['topProducts'] = [];
+            // 4. Get Top Products
+            const topProducts = [];
             try {
                 const popularProducts = await storage.getPopularProducts(storeId, 10);
                 for (const item of popularProducts) {
@@ -319,12 +317,6 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 logger.warn('Failed to get popular products for comprehensive report', { error: err });
             }
 
-            // Build response
-            const netRevenue = totalRevenue - totalRefunds;
-            const averageOrderValue = totalTransactions > 0
-                ? toMoney(totalRevenue / totalTransactions, storeCurrency)
-                : toMoney(0, storeCurrency);
-
             const reportData: ComprehensiveReportData = {
                 period: {
                     start: startDate.toISOString(),
@@ -334,15 +326,17 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 summary: {
                     totalRevenue: toMoney(totalRevenue, storeCurrency),
                     totalRefunds: toMoney(totalRefunds, storeCurrency),
-                    netRevenue: toMoney(netRevenue, storeCurrency),
-                    totalDiscount: toMoney(totalDiscount, storeCurrency),
+                    netRevenue: toMoney(summaryNetRevenue, storeCurrency),
+                    totalDiscount: toMoney(0, storeCurrency), // Placeholder
                     totalTax: toMoney(totalTax, storeCurrency),
                     transactionCount: totalTransactions,
                     refundCount: totalRefundCount,
-                    averageOrderValue,
-                    cogs,
-                    profit,
-                    profitMargin: profitMargin !== undefined ? roundAmount(profitMargin) : undefined,
+                    averageOrderValue: toMoney(avgOrderValue, storeCurrency),
+                    cogs: toMoney(totalCogs, storeCurrency),
+                    stockLoss: toMoney(totalStockLoss, storeCurrency),
+                    grossProfit: toMoney(summaryGrossProfit, storeCurrency),
+                    netProfit: toMoney(summaryNetProfit, storeCurrency),
+                    profitMargin: roundAmount(profitMargin),
                 },
                 timeseries,
                 topProducts,
@@ -350,6 +344,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             };
 
             res.json(reportData);
+
         } catch (error) {
             logger.error('Failed to generate comprehensive report', {
                 error: error instanceof Error ? error.message : String(error),
