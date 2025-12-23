@@ -660,13 +660,13 @@ export default function MultiStore() {
         </Card>
       </div>
 
-      <Tabs defaultValue="performance" className="space-y-6">
+      <Tabs defaultValue="stores" className="space-y-6">
         <TabsList className="w-fit">
-          <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="stores">Stores</TabsTrigger>
           <TabsTrigger value="comparison">Comparison</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="performance" className="space-y-6">
+        <TabsContent value="stores" className="space-y-6">
           {!hasStores ? (
             <Card className="border-dashed border-muted/80 shadow-none">
               <CardContent className="py-12 text-center text-sm text-muted-foreground">
