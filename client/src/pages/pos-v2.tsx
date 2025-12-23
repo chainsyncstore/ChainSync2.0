@@ -143,28 +143,32 @@ export default function POSV2() {
 
   // Queries
   const { data: stores = [] } = useQuery<Store[]>({ queryKey: ["/api/stores"] });
+  const activeStores = stores.filter(s => s.isActive !== false);
+
   const { data: loyaltySettings } = useQuery<{ earnRate: number; redeemValue: number }>({
     queryKey: ["/api/loyalty/settings"],
   });
 
+  // Use raw stores for lookup if needed, but prefer activeStores for logic
   const currentStore = stores.find((s) => s.id === selectedStore) as any;
   const currency: "USD" | "NGN" = currentStore?.currency === "NGN" ? "NGN" : "USD";
 
   // Initialize store and sync inventory on mount
   useEffect(() => {
-    if (stores.length > 0) {
+    if (activeStores.length > 0) {
       if (!selectedStore) {
-        setSelectedStore(stores[0].id);
+        setSelectedStore(activeStores[0].id);
       } else {
-        // Ensure selected store actually exists in the list (handle stale state)
-        const exists = stores.some((s) => s.id === selectedStore);
+        // Ensure selected store actually exists in the ACTIVE list (handle stale/inactive state)
+        const exists = activeStores.some((s) => s.id === selectedStore);
         if (!exists) {
-          console.warn(`Selected store ${selectedStore} not found in available stores. Resetting to ${stores[0].id}`);
-          setSelectedStore(stores[0].id);
+          console.warn(`Selected store ${selectedStore} not acceptable (missing or inactive). Resetting to ${activeStores[0].id}`);
+          setSelectedStore(activeStores[0].id);
         }
       }
     }
-  }, [stores, selectedStore]);
+  }, [stores, activeStores, selectedStore, setSelectedStore]); // Added dependencies for correctness
+
 
   // Catalog refresh function - fetches latest products and updates IndexedDB
   const refreshCatalog = useCallback(async (force = false) => {

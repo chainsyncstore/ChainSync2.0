@@ -1,20 +1,20 @@
-import { sql } from 'drizzle-orm';
-import { db } from '../server/db';
+
+import { sql } from "drizzle-orm";
+import { db } from "../server/db";
 
 async function main() {
-    try {
-        const result = await db.execute(sql`SELECT * FROM transactions LIMIT 1`);
-        if (result.rows.length > 0) {
-            console.log('Row keys:', Object.keys(result.rows[0]));
-        } else {
-            console.log('No rows in transactions table');
-        }
-    } catch (error) {
-        console.error('Error executing raw query:', error);
-    }
+    console.log("Checking User Count (Raw SQL)...");
+
+    const result = await db.execute(sql`SELECT COUNT(*) as count FROM users`);
+    console.log(`User Count: ${result.rows[0].count}`);
+
+    const users = await db.execute(sql`SELECT * FROM users LIMIT 5`);
+    console.log(`Sample Users:`, users.rows);
+
+    process.exit(0);
 }
 
-main().catch((err) => {
+main().catch(err => {
     console.error(err);
     process.exit(1);
 });

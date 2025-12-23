@@ -33,7 +33,27 @@ export async function registerStoreRoutes(app: Express) {
     if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
     const me = (await db.select().from(users).where(eq(users.id, currentUserId)))[0] as any;
     if (!me?.orgId) return res.json([]);
-    const rows = await db.select().from(stores).where(eq(stores.orgId, me.orgId)).limit(200);
+
+    // Role-based access control:
+    // - Admins see all stores in the org
+    // - Managers/Cashiers only see their assigned store
+    let query = db.select().from(stores).where(eq(stores.orgId, me.orgId));
+
+    // Check for admin role (case-insensitive for safety, though DB enum is usually uppercase)
+    const isAdmin = me.role?.toLowerCase() === 'admin' || me.isAdmin === true;
+
+    if (!isAdmin) {
+      if (!me.storeId) {
+        // If user is not admin and has no assigned store, they see nothing
+        return res.json([]);
+      }
+      query = db.select().from(stores).where(and(
+        eq(stores.orgId, me.orgId),
+        eq(stores.id, me.storeId)
+      ));
+    }
+
+    const rows = await query.limit(200);
     res.json(rows);
   });
 
