@@ -492,17 +492,17 @@ export async function registerInventoryRoutes(app: Express) {
         totalCostValue: (item as any)?.totalCostValue ?? null,
         product: item.product
           ? {
-              id: item.product.id,
-              name: item.product.name,
-              sku: (item.product as any)?.sku ?? null,
-              barcode: (item.product as any)?.barcode ?? null,
-              category: (item.product as any)?.category ?? null,
-              brand: (item.product as any)?.brand ?? null,
-              price: (item.product as any)?.price ?? null,
-              cost: (item.product as any)?.cost ?? null,
-              costPrice: (item.product as any)?.costPrice ?? (item.product as any)?.cost ?? null,
-              salePrice: (item.product as any)?.salePrice ?? (item.product as any)?.price ?? null,
-            }
+            id: item.product.id,
+            name: item.product.name,
+            sku: (item.product as any)?.sku ?? null,
+            barcode: (item.product as any)?.barcode ?? null,
+            category: (item.product as any)?.category ?? null,
+            brand: (item.product as any)?.brand ?? null,
+            price: (item.product as any)?.price ?? null,
+            cost: (item.product as any)?.cost ?? null,
+            costPrice: (item.product as any)?.costPrice ?? (item.product as any)?.cost ?? null,
+            salePrice: (item.product as any)?.salePrice ?? (item.product as any)?.price ?? null,
+          }
           : null,
       })),
     };
@@ -570,14 +570,14 @@ export async function registerInventoryRoutes(app: Express) {
           ...item,
           product: product
             ? {
-                id: product.id,
-                name: product.name,
-                sku: (product as any)?.sku ?? null,
-                barcode: (product as any)?.barcode ?? null,
-                price: (product as any)?.price ?? null,
-                category: (product as any)?.category ?? null,
-                brand: (product as any)?.brand ?? null,
-              }
+              id: product.id,
+              name: product.name,
+              sku: (product as any)?.sku ?? null,
+              barcode: (product as any)?.barcode ?? null,
+              price: (product as any)?.price ?? null,
+              category: (product as any)?.category ?? null,
+              brand: (product as any)?.brand ?? null,
+            }
             : null,
         };
       }),
@@ -693,17 +693,17 @@ export async function registerInventoryRoutes(app: Express) {
       const inventoryRecord = existing
         ? await storage.updateInventory(productId, storeId, payload as any, userId)
         : await storage.createInventory({
-            productId,
-            storeId,
-            quantity,
-            minStockLevel,
-            maxStockLevel: typeof maxStockLevel === 'number' ? maxStockLevel : undefined,
-            reorderLevel: undefined,
-          } as any, userId, {
-            source: 'manual',
-            costOverride: typeof costPrice === 'number' ? costPrice : undefined,
-            salePriceOverride: typeof salePrice === 'number' ? salePrice : undefined,
-          });
+          productId,
+          storeId,
+          quantity,
+          minStockLevel,
+          maxStockLevel: typeof maxStockLevel === 'number' ? maxStockLevel : undefined,
+          reorderLevel: undefined,
+        } as any, userId, {
+          source: 'manual',
+          costOverride: typeof costPrice === 'number' ? costPrice : undefined,
+          salePriceOverride: typeof salePrice === 'number' ? salePrice : undefined,
+        });
 
       const action = existing ? 'update' : 'create';
       const baseContext = extractLogContext(req, {
@@ -781,8 +781,8 @@ export async function registerInventoryRoutes(app: Express) {
 
       try {
         const updatedInventory = await storage.adjustInventory(
-          productId, 
-          storeId, 
+          productId,
+          storeId,
           parsed.data.quantity,
           userId,
           'manual_adjustment',
@@ -1287,294 +1287,327 @@ export async function registerInventoryRoutes(app: Express) {
     sensitiveEndpointRateLimit,
     uploadSingle,
     async (req: Request, res: Response) => {
-    const uploaded = (req as any).file as { buffer: Buffer; originalname?: string } | undefined;
-    if (!uploaded) return res.status(400).json({ error: 'file is required' });
+      const uploaded = (req as any).file as { buffer: Buffer; originalname?: string } | undefined;
+      if (!uploaded) return res.status(400).json({ error: 'file is required' });
 
-    const modeInput = typeof req.body?.mode === 'string' ? req.body.mode.toLowerCase() : '';
-    const parsedMode = InventoryImportModeSchema.safeParse(modeInput);
-    if (!parsedMode.success) {
-      return res.status(400).json({ error: 'mode must be either overwrite or regularize' });
-    }
-    const mode = parsedMode.data;
+      const modeInput = typeof req.body?.mode === 'string' ? req.body.mode.toLowerCase() : '';
+      const parsedMode = InventoryImportModeSchema.safeParse(modeInput);
+      if (!parsedMode.success) {
+        return res.status(400).json({ error: 'mode must be either overwrite or regularize' });
+      }
+      const mode = parsedMode.data;
 
-    const bodyStoreId = typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : '';
-    const selectedStoreId = bodyStoreId.length ? bodyStoreId : undefined;
-    const managerStoreId = (req as any).managerStoreId as string | undefined;
-    const managerOrgId = (req as any).managerOrgId as string | undefined;
+      const bodyStoreId = typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : '';
+      const selectedStoreId = bodyStoreId.length ? bodyStoreId : undefined;
+      const managerStoreId = (req as any).managerStoreId as string | undefined;
+      const managerOrgId = (req as any).managerOrgId as string | undefined;
 
-    if (selectedStoreId && managerStoreId && selectedStoreId !== managerStoreId) {
-      return res.status(403).json({ error: 'You can only import inventory into your assigned store' });
-    }
+      if (selectedStoreId && managerStoreId && selectedStoreId !== managerStoreId) {
+        return res.status(403).json({ error: 'You can only import inventory into your assigned store' });
+      }
 
-    const fallbackStoreId = selectedStoreId ?? managerStoreId;
-    if (!fallbackStoreId) {
-      return res.status(403).json({ error: 'Store assignment required to import inventory' });
-    }
+      const fallbackStoreId = selectedStoreId ?? managerStoreId;
+      if (!fallbackStoreId) {
+        return res.status(403).json({ error: 'Store assignment required to import inventory' });
+      }
 
-    const userId = (req.session as any)?.userId as string | undefined;
-    let orgId: string | undefined = managerOrgId;
-    if (!orgId && userId) {
-      const r = await db.select({ orgId: users.orgId }).from(users).where(eq(users.id, userId));
-      orgId = r[0]?.orgId as string | undefined;
-    }
-    if (!orgId) {
-      return res.status(400).json({ error: 'Organization could not be resolved for user' });
-    }
+      const userId = (req.session as any)?.userId as string | undefined;
+      let orgId: string | undefined = managerOrgId;
+      if (!orgId && userId) {
+        const r = await db.select({ orgId: users.orgId }).from(users).where(eq(users.id, userId));
+        orgId = r[0]?.orgId as string | undefined;
+      }
+      if (!orgId) {
+        return res.status(400).json({ error: 'Organization could not be resolved for user' });
+      }
 
-    const text = uploaded.buffer.toString('utf-8');
-    const records: any[] = [];
-    await new Promise<void>((resolve, reject) => {
-      csvParse(text, { columns: true, trim: true }, (err: any, out: any[]) => {
-        if (err) return reject(err);
-        records.push(...out);
-        resolve();
-      });
-    });
-
-    const invalidRows: Array<{ row: any; error: string }> = [];
-    const results: any[] = [];
-    const alertSyncTargets = new Set<string>();
-    let addedProducts = 0;
-    let stockAdjusted = 0;
-    let zeroQuantityRows = 0;
-
-    const fileName = uploaded.originalname || 'inventory_import.csv';
-    const [job] = await db
-      .insert(importJobs)
-      .values({
-        userId: userId ?? managerStoreId ?? 'unknown-user',
-        orgId,
-        storeId: fallbackStoreId,
-        type: 'inventory',
-        status: 'processing',
-        fileName,
-        mode,
-        totalRows: records.length,
-      } as any)
-      .returning();
-    const importBatchId = job?.id as string | undefined;
-
-    // Use drizzle transaction for proper atomicity
-    try {
-      for (const raw of records) {
-        const parsed = ImportRowSchema.safeParse({
-          sku: raw.sku,
-          barcode: raw.barcode || null,
-          name: raw.name,
-          cost_price: raw.cost_price || raw.costPrice,
-          sale_price: raw.sale_price || raw.salePrice,
-          vat_rate: raw.vat_rate || raw.vatRate || '0',
-          reorder_level: raw.reorder_level || raw.reorderLevel || '0',
-          min_stock_level: raw.min_stock_level || raw.minStockLevel || raw.reorder_level || raw.reorderLevel || '0',
-          max_stock_level: raw.max_stock_level || raw.maxStockLevel || '0',
-          initial_quantity: raw.initial_quantity || raw.initialQuantity || '0',
-          store_id: raw.store_id || raw.storeId,
-          store_code: raw.store_code,
+      const text = uploaded.buffer.toString('utf-8');
+      const records: any[] = [];
+      await new Promise<void>((resolve, reject) => {
+        csvParse(text, { columns: true, trim: true }, (err: any, out: any[]) => {
+          if (err) return reject(err);
+          records.push(...out);
+          resolve();
         });
-        if (!parsed.success) {
-          invalidRows.push({ row: raw, error: parsed.error.errors.map((e) => e.message).join('; ') });
-          continue;
-        }
-        const r = parsed.data;
+      });
 
-        // Resolve storeId
-        let storeId: string | undefined = r.store_id as any;
-        if (!storeId && r.store_code) {
-          const sr = await db
-            .select()
-            .from(stores)
-            .where(and(eq(stores.orgId as any, orgId as any), eq(stores.name as any, r.store_code)))
-            .limit(1);
-          storeId = (sr as any)[0]?.id;
-        }
-        if (!storeId) {
-          storeId = fallbackStoreId;
-        }
-        if (!storeId) {
-          invalidRows.push({ row: raw, error: 'store_id or valid store_code required' });
-          continue;
-        }
-        if (managerStoreId && storeId !== managerStoreId) {
-          invalidRows.push({ row: raw, error: 'Managers can only import inventory into their assigned store' });
-          continue;
-        }
+      const invalidRows: Array<{ row: any; error: string }> = [];
+      const results: any[] = [];
+      const alertSyncTargets = new Set<string>();
+      let addedProducts = 0;
+      let stockAdjusted = 0;
+      let zeroQuantityRows = 0;
 
-        // Upsert product by (orgId, sku)
-        let productId: string;
-        try {
-          const existing = await db
-            .select()
-            .from(products)
-            .where(and(eq(products.orgId as any, orgId as any), eq(products.sku as any, r.sku)))
-            .limit(1);
-          if ((existing as any)[0]) {
-            const p = (existing as any)[0];
-            // Update product - handle barcode conflicts by setting to null if duplicate
-            try {
-              await db.execute(sql`UPDATE products SET barcode = ${r.barcode}, name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
+      const fileName = uploaded.originalname || 'inventory_import.csv';
+      const [job] = await db
+        .insert(importJobs)
+        .values({
+          userId: userId ?? managerStoreId ?? 'unknown-user',
+          orgId,
+          storeId: fallbackStoreId,
+          type: 'inventory',
+          status: 'processing',
+          fileName,
+          mode,
+          totalRows: records.length,
+        } as any)
+        .returning();
+      const importBatchId = job?.id as string | undefined;
+
+      // Use drizzle transaction for proper atomicity
+      try {
+        for (const raw of records) {
+          const parsed = ImportRowSchema.safeParse({
+            sku: raw.sku,
+            barcode: raw.barcode || null,
+            name: raw.name,
+            cost_price: raw.cost_price || raw.costPrice,
+            sale_price: raw.sale_price || raw.salePrice,
+            vat_rate: raw.vat_rate || raw.vatRate || '0',
+            reorder_level: raw.reorder_level || raw.reorderLevel || '0',
+            min_stock_level: raw.min_stock_level || raw.minStockLevel || raw.reorder_level || raw.reorderLevel || '0',
+            max_stock_level: raw.max_stock_level || raw.maxStockLevel || '0',
+            initial_quantity: raw.initial_quantity || raw.initialQuantity || '0',
+            store_id: raw.store_id || raw.storeId,
+            store_code: raw.store_code,
+          });
+          if (!parsed.success) {
+            invalidRows.push({ row: raw, error: parsed.error.errors.map((e) => e.message).join('; ') });
+            continue;
+          }
+          const r = parsed.data;
+
+          // Resolve storeId
+          let storeId: string | undefined = r.store_id as any;
+          if (!storeId && r.store_code) {
+            const sr = await db
+              .select()
+              .from(stores)
+              .where(and(eq(stores.orgId as any, orgId as any), eq(stores.name as any, r.store_code)))
+              .limit(1);
+            storeId = (sr as any)[0]?.id;
+          }
+          if (!storeId) {
+            storeId = fallbackStoreId;
+          }
+          if (!storeId) {
+            invalidRows.push({ row: raw, error: 'store_id or valid store_code required' });
+            continue;
+          }
+          if (managerStoreId && storeId !== managerStoreId) {
+            invalidRows.push({ row: raw, error: 'Managers can only import inventory into their assigned store' });
+            continue;
+          }
+
+          // Upsert product by (orgId, sku)
+          let productId: string;
+          try {
+            const existing = await db
+              .select()
+              .from(products)
+              .where(and(eq(products.orgId as any, orgId as any), eq(products.sku as any, r.sku)))
+              .limit(1);
+            if ((existing as any)[0]) {
+              const p = (existing as any)[0];
+              // Update product - handle barcode conflicts by setting to null if duplicate
+              try {
+                await db.execute(sql`UPDATE products SET barcode = ${r.barcode}, name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
                 WHERE id = ${p.id}`);
-            } catch (updateErr: any) {
-              if (updateErr?.code === '23505' && updateErr?.constraint?.includes('barcode')) {
-                // Barcode conflict - update without barcode
-                await db.execute(sql`UPDATE products SET name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
+              } catch (updateErr: any) {
+                if (updateErr?.code === '23505' && updateErr?.constraint?.includes('barcode')) {
+                  // Barcode conflict - update without barcode
+                  await db.execute(sql`UPDATE products SET name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
                   WHERE id = ${p.id}`);
-                logger.warn('Barcode conflict during import, skipping barcode update', { sku: r.sku, barcode: r.barcode });
-              } else {
-                throw updateErr;
+                  logger.warn('Barcode conflict during import, skipping barcode update', { sku: r.sku, barcode: r.barcode });
+                } else {
+                  throw updateErr;
+                }
               }
-            }
-            productId = p.id;
-          } else {
-            // Insert new product - handle barcode/sku conflicts
-            try {
-              const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, barcode, name, cost_price, sale_price, vat_rate, price)
+              productId = p.id;
+            } else {
+              // Insert new product - handle barcode/sku conflicts
+              try {
+                const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, barcode, name, cost_price, sale_price, vat_rate, price)
                  VALUES (${orgId}, ${r.sku}, ${r.barcode}, ${r.name}, ${r.cost_price}, ${r.sale_price}, ${r.vat_rate}, ${r.sale_price}) RETURNING id`);
-              productId = (inserted as any).rows[0].id;
-              addedProducts += 1;
-            } catch (insertErr: any) {
-              if (insertErr?.code === '23505') {
-                // Unique constraint violation - try to find existing product
-                if (insertErr?.constraint?.includes('barcode') && r.barcode) {
-                  // Barcode exists - try inserting without barcode
-                  const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, name, cost_price, sale_price, vat_rate, price)
+                productId = (inserted as any).rows[0].id;
+                addedProducts += 1;
+              } catch (insertErr: any) {
+                if (insertErr?.code === '23505') {
+                  // Unique constraint violation - try to find existing product
+                  if (insertErr?.constraint?.includes('barcode') && r.barcode) {
+                    // Barcode exists - try inserting without barcode
+                    const inserted = await db.execute(sql`INSERT INTO products (org_id, sku, name, cost_price, sale_price, vat_rate, price)
                      VALUES (${orgId}, ${r.sku}, ${r.name}, ${r.cost_price}, ${r.sale_price}, ${r.vat_rate}, ${r.sale_price}) RETURNING id`);
-                  productId = (inserted as any).rows[0].id;
-                  addedProducts += 1;
-                  logger.warn('Barcode conflict during insert, created product without barcode', { sku: r.sku, barcode: r.barcode });
-                } else if (insertErr?.constraint?.includes('sku')) {
-                  // SKU exists in different org - this shouldn't happen with org-scoped lookup, but handle it
-                  invalidRows.push({ row: raw, error: `SKU "${r.sku}" already exists in another organization` });
-                  continue;
+                    productId = (inserted as any).rows[0].id;
+                    addedProducts += 1;
+                    logger.warn('Barcode conflict during insert, created product without barcode', { sku: r.sku, barcode: r.barcode });
+                  } else if (insertErr?.constraint?.includes('sku')) {
+                    // SKU exists in different org - this shouldn't happen with org-scoped lookup, but handle it
+                    invalidRows.push({ row: raw, error: `SKU "${r.sku}" already exists in another organization` });
+                    continue;
+                  } else {
+                    throw insertErr;
+                  }
                 } else {
                   throw insertErr;
                 }
-              } else {
-                throw insertErr;
               }
             }
-          }
-        } catch (productErr: any) {
-          invalidRows.push({ row: raw, error: `Product upsert failed: ${productErr?.message || String(productErr)}` });
-          continue;
-        }
-
-        const costNumber = Number.parseFloat(r.cost_price);
-        const saleNumber = Number.parseFloat(r.sale_price);
-        if (!Number.isFinite(costNumber) || costNumber < 0) {
-          invalidRows.push({ row: raw, error: 'cost_price must be a non-negative number' });
-          continue;
-        }
-        if (!Number.isFinite(saleNumber) || saleNumber < 0) {
-          invalidRows.push({ row: raw, error: 'sale_price must be a non-negative number' });
-          continue;
-        }
-
-        const quantityDelta = Number(r.initial_quantity);
-        const minStockLevel = Number(r.min_stock_level ?? r.reorder_level ?? '0');
-        const maxStockLevel = Number(r.max_stock_level ?? '0');
-        const reorderLevel = Number(r.reorder_level ?? r.min_stock_level ?? '0');
-
-        if (!Number.isFinite(quantityDelta)) {
-          invalidRows.push({ row: raw, error: 'initial_quantity must be numeric' });
-          continue;
-        }
-        if (quantityDelta < 0) {
-          invalidRows.push({ row: raw, error: 'initial_quantity cannot be negative' });
-          continue;
-        }
-        if (!Number.isFinite(minStockLevel) || minStockLevel < 0) {
-          invalidRows.push({ row: raw, error: 'min_stock_level must be a non-negative number' });
-          continue;
-        }
-        if (!Number.isFinite(maxStockLevel) || maxStockLevel < 0) {
-          invalidRows.push({ row: raw, error: 'max_stock_level must be a non-negative number' });
-          continue;
-        }
-        if (maxStockLevel > 0 && maxStockLevel < minStockLevel) {
-          invalidRows.push({ row: raw, error: 'max_stock_level must be greater than or equal to min_stock_level' });
-          continue;
-        }
-
-        if (quantityDelta === 0) {
-          zeroQuantityRows += 1;
-        }
-
-        // Handle inventory update/creation with proper error handling
-        try {
-          const existingInventory = await storage.getInventoryItem(productId, storeId);
-          let targetQuantity = existingInventory?.quantity ?? 0;
-          if (mode === 'overwrite') {
-            targetQuantity = quantityDelta;
-          } else {
-            targetQuantity = (existingInventory?.quantity ?? 0) + quantityDelta;
+          } catch (productErr: any) {
+            invalidRows.push({ row: raw, error: `Product upsert failed: ${productErr?.message || String(productErr)}` });
+            continue;
           }
 
-          const costUpdate = buildCostUpdatePayload(costNumber, saleNumber);
-          if (existingInventory) {
-            await storage.updateInventory(
-              productId,
-              storeId,
-              {
-                quantity: targetQuantity,
-                minStockLevel,
-                maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
-                reorderLevel,
-                costUpdate,
-                source: 'csv_import',
-                referenceId: importBatchId,
-              } as any,
-              userId,
-            );
-          } else {
-            await storage.createInventory(
-              {
+          const costNumber = Number.parseFloat(r.cost_price);
+          const saleNumber = Number.parseFloat(r.sale_price);
+          if (!Number.isFinite(costNumber) || costNumber < 0) {
+            invalidRows.push({ row: raw, error: 'cost_price must be a non-negative number' });
+            continue;
+          }
+          if (!Number.isFinite(saleNumber) || saleNumber < 0) {
+            invalidRows.push({ row: raw, error: 'sale_price must be a non-negative number' });
+            continue;
+          }
+
+          const quantityDelta = Number(r.initial_quantity);
+          const minStockLevel = Number(r.min_stock_level ?? r.reorder_level ?? '0');
+          const maxStockLevel = Number(r.max_stock_level ?? '0');
+          const reorderLevel = Number(r.reorder_level ?? r.min_stock_level ?? '0');
+
+          if (!Number.isFinite(quantityDelta)) {
+            invalidRows.push({ row: raw, error: 'initial_quantity must be numeric' });
+            continue;
+          }
+          if (quantityDelta < 0) {
+            invalidRows.push({ row: raw, error: 'initial_quantity cannot be negative' });
+            continue;
+          }
+          if (!Number.isFinite(minStockLevel) || minStockLevel < 0) {
+            invalidRows.push({ row: raw, error: 'min_stock_level must be a non-negative number' });
+            continue;
+          }
+          if (!Number.isFinite(maxStockLevel) || maxStockLevel < 0) {
+            invalidRows.push({ row: raw, error: 'max_stock_level must be a non-negative number' });
+            continue;
+          }
+          if (maxStockLevel > 0 && maxStockLevel < minStockLevel) {
+            invalidRows.push({ row: raw, error: 'max_stock_level must be greater than or equal to min_stock_level' });
+            continue;
+          }
+
+          if (quantityDelta === 0) {
+            zeroQuantityRows += 1;
+          }
+
+          // Handle inventory update/creation with proper error handling
+          try {
+            const existingInventory = await storage.getInventoryItem(productId, storeId);
+            let targetQuantity = existingInventory?.quantity ?? 0;
+            if (mode === 'overwrite') {
+              targetQuantity = quantityDelta;
+            } else {
+              targetQuantity = (existingInventory?.quantity ?? 0) + quantityDelta;
+            }
+
+            const costUpdate = buildCostUpdatePayload(costNumber, saleNumber);
+            const importSource = mode === 'overwrite' ? 'csv_import_overwrite' : 'csv_import';
+            if (existingInventory) {
+              await storage.updateInventory(
                 productId,
                 storeId,
-                quantity: targetQuantity,
-                minStockLevel,
-                maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
-                reorderLevel,
-                avgCost: costNumber > 0 ? costNumber : undefined,
-              } as any,
-              userId,
-              {
-                source: 'csv_import',
-                referenceId: importBatchId,
-                notes: `Import ${mode} from ${fileName}`,
-                costOverride: costNumber,
-                salePriceOverride: saleNumber,
-              },
-            );
+                {
+                  quantity: targetQuantity,
+                  minStockLevel,
+                  maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
+                  reorderLevel,
+                  costUpdate,
+                  source: importSource,
+                  referenceId: importBatchId,
+                } as any,
+                userId,
+              );
+            } else {
+              await storage.createInventory(
+                {
+                  productId,
+                  storeId,
+                  quantity: targetQuantity,
+                  minStockLevel,
+                  maxStockLevel: maxStockLevel > 0 ? maxStockLevel : undefined,
+                  reorderLevel,
+                  avgCost: costNumber > 0 ? costNumber : undefined,
+                } as any,
+                userId,
+                {
+                  source: importSource,
+                  referenceId: importBatchId,
+                  notes: `Import ${mode} from ${fileName}`,
+                  costOverride: costNumber,
+                  salePriceOverride: saleNumber,
+                },
+              );
+            }
+            stockAdjusted += 1;
+            alertSyncTargets.add(`${storeId}:${productId}`);
+            results.push({ sku: r.sku, productId, storeId, mode });
+          } catch (invErr: any) {
+            logger.error('Inventory operation failed during import', {
+              sku: r.sku,
+              productId,
+              storeId,
+              error: invErr?.message || String(invErr),
+            });
+            invalidRows.push({ row: raw, error: `Inventory operation failed: ${invErr?.message || String(invErr)}` });
+            continue;
           }
-          stockAdjusted += 1;
-          alertSyncTargets.add(`${storeId}:${productId}`);
-          results.push({ sku: r.sku, productId, storeId, mode });
-        } catch (invErr: any) {
-          logger.error('Inventory operation failed during import', {
-            sku: r.sku,
-            productId,
-            storeId,
-            error: invErr?.message || String(invErr),
+        }
+        // All operations complete successfully
+      } catch (error) {
+        logger.error('Failed to import inventory', {
+          userId: req.session?.userId,
+          invalidRowCount: invalidRows.length,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        if (importBatchId) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          await db
+            .update(importJobs)
+            .set({
+              status: 'failed',
+              errorMessage,
+              processedRows: results.length,
+              errorCount: invalidRows.length,
+              invalidCount: invalidRows.length,
+              skippedCount: zeroQuantityRows,
+              completedAt: new Date(),
+              details: invalidRows.length ? ({ invalidRows: invalidRows.slice(0, 50) } as any) : null,
+            } as any)
+            .where(eq(importJobs.id, importBatchId));
+        }
+
+        return res.status(500).json({ error: 'Failed to import inventory' });
+      }
+
+      for (const key of alertSyncTargets) {
+        const [syncStoreId, syncProductId] = key.split(':');
+        try {
+          await storage.syncLowStockAlertState(syncStoreId, syncProductId);
+        } catch (error) {
+          logger.warn('Failed to sync low stock alert state after import', {
+            storeId: syncStoreId,
+            productId: syncProductId,
+            error: error instanceof Error ? error.message : String(error),
           });
-          invalidRows.push({ row: raw, error: `Inventory operation failed: ${invErr?.message || String(invErr)}` });
-          continue;
         }
       }
-      // All operations complete successfully
-    } catch (error) {
-      logger.error('Failed to import inventory', {
-        userId: req.session?.userId,
-        invalidRowCount: invalidRows.length,
-        error: error instanceof Error ? error.message : String(error),
-      });
 
       if (importBatchId) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const completionStatus = invalidRows.length ? 'completed_with_errors' : 'completed';
         await db
           .update(importJobs)
           .set({
-            status: 'failed',
-            errorMessage,
+            status: completionStatus,
             processedRows: results.length,
             errorCount: invalidRows.length,
             invalidCount: invalidRows.length,
@@ -1585,49 +1618,17 @@ export async function registerInventoryRoutes(app: Express) {
           .where(eq(importJobs.id, importBatchId));
       }
 
-      return res.status(500).json({ error: 'Failed to import inventory' });
+      res.status(200).json({
+        mode,
+        imported: results.length,
+        invalid: invalidRows.length,
+        invalidRows,
+        addedProducts,
+        stockAdjusted,
+        skipped: zeroQuantityRows,
+        zeroQuantityRows,
+      });
     }
-
-    for (const key of alertSyncTargets) {
-      const [syncStoreId, syncProductId] = key.split(':');
-      try {
-        await storage.syncLowStockAlertState(syncStoreId, syncProductId);
-      } catch (error) {
-        logger.warn('Failed to sync low stock alert state after import', {
-          storeId: syncStoreId,
-          productId: syncProductId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    if (importBatchId) {
-      const completionStatus = invalidRows.length ? 'completed_with_errors' : 'completed';
-      await db
-        .update(importJobs)
-        .set({
-          status: completionStatus,
-          processedRows: results.length,
-          errorCount: invalidRows.length,
-          invalidCount: invalidRows.length,
-          skippedCount: zeroQuantityRows,
-          completedAt: new Date(),
-          details: invalidRows.length ? ({ invalidRows: invalidRows.slice(0, 50) } as any) : null,
-        } as any)
-        .where(eq(importJobs.id, importBatchId));
-    }
-
-    res.status(200).json({
-      mode,
-      imported: results.length,
-      invalid: invalidRows.length,
-      invalidRows,
-      addedProducts,
-      stockAdjusted,
-      skipped: zeroQuantityRows,
-      zeroQuantityRows,
-    });
-  }
   );
 }
 

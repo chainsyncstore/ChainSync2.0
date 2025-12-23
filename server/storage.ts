@@ -231,7 +231,7 @@ export type CostLayerSummary = {
 };
 
 // Stock removal options for loss/refund tracking
-export type StockRemovalReason = 
+export type StockRemovalReason =
   | 'expired'
   | 'damaged'
   | 'low_sales'
@@ -306,12 +306,12 @@ class Cache {
   get(key: string): any | null {
     const item = this.cache.get(key);
     if (!item) return null;
-    
+
     if (Date.now() - item.timestamp > item.ttl) {
       this.cache.delete(key);
       return null;
     }
-    
+
     return item.data;
   }
 
@@ -404,7 +404,7 @@ export interface IStorage {
   authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null>;
   createUser(user: Record<string, unknown>): Promise<User>;
   getUsersByStore(storeId: string): Promise<User[]>;
-  
+
   // Password reset operations
   createPasswordResetToken(userId: string): Promise<PasswordResetToken>;
   getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined>;
@@ -486,19 +486,19 @@ export interface IStorage {
   updateLoyaltyTier(id: string, tier: Partial<InsertLoyaltyTier>): Promise<LoyaltyTier>;
   deleteLoyaltyTier(id: string): Promise<void>;
   getLoyaltyTierByName(storeId: string, name: string): Promise<LoyaltyTier | undefined>;
-  
+
   getLoyaltyCustomers(storeId: string): Promise<Customer[]>;
   createLoyaltyCustomer(customer: InsertCustomer): Promise<Customer>;
   getLoyaltyCustomer(id: string): Promise<Customer | undefined>;
   updateLoyaltyCustomer(id: string, customer: Partial<InsertCustomer>): Promise<Customer>;
   getCustomerByLoyaltyNumber(loyaltyNumber: string): Promise<Customer | undefined>;
-  
+
   createLoyaltyTransaction(transaction: InsertLoyaltyTransaction): Promise<LoyaltyTransaction>;
   getLoyaltyTransactions(storeId: string, limit?: number): Promise<LoyaltyTransaction[]>;
   getLoyaltyTransactionsCount(storeId: string): Promise<number>;
   getLoyaltyTransactionsPaginated(storeId: string, limit: number, offset: number): Promise<LoyaltyTransaction[]>;
   getCustomerLoyaltyTransactions(customerId: string, limit?: number): Promise<LoyaltyTransaction[]>;
-  
+
   // IP Whitelist operations
   checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean>;
   logIpAccess(ipAddress: string, userId: string | undefined, username: string | undefined, action: string, success: boolean, reason?: string, userAgent?: string): Promise<void>;
@@ -523,7 +523,7 @@ export interface IStorage {
   exportTransactions(storeId: string, startDate: Date, endDate: Date, format: string): Promise<any>;
   exportCustomers(storeId: string, format: string): Promise<any>;
   exportInventory(storeId: string, format: string): Promise<any>;
-  
+
   // Loyalty Customer pagination
   getLoyaltyCustomersCount(storeId: string): Promise<number>;
   getLoyaltyCustomersPaginated(storeId: string, limit: number, offset: number): Promise<Customer[]>;
@@ -780,18 +780,18 @@ export class DatabaseStorage implements IStorage {
     // Get current inventory
     const currentInv = await this.getInventoryItem(productId, storeId);
     const currentQty = currentInv?.quantity ?? 0;
-    
+
     // Calculate deficit: how many units are missing vs what we need
     const deficit = Math.max(0, requiredQuantity - currentQty);
-    
+
     if (deficit <= 0) {
       // No adjustment needed - inventory has enough stock
       return { adjusted: false, adjustedQuantity: 0, unitCost: 0 };
     }
-    
+
     // Get the last recorded cost price for proper COGS
     const unitCost = await this.getFallbackCost(storeId, productId, currentInv as Inventory | null);
-    
+
     logger.info('POS Stock Adjustment: Adding discovered inventory', {
       productId,
       storeId,
@@ -800,7 +800,7 @@ export class DatabaseStorage implements IStorage {
       deficit,
       unitCost,
     });
-    
+
     // Add the discovered units to inventory
     await this.adjustInventory(
       productId,
@@ -811,7 +811,7 @@ export class DatabaseStorage implements IStorage {
       referenceId,
       notes || `POS discovered inventory - ${deficit} units added to reconcile stock`,
     );
-    
+
     // Create cost layer for the discovered units
     if (unitCost > 0) {
       await this.restoreCostLayer(
@@ -824,7 +824,7 @@ export class DatabaseStorage implements IStorage {
         `Discovered inventory - cost based on last recorded price`,
       );
     }
-    
+
     logger.info('POS Stock Adjustment: Inventory reconciled', {
       productId,
       storeId,
@@ -832,7 +832,7 @@ export class DatabaseStorage implements IStorage {
       unitCost,
       totalCostAdded: deficit * unitCost,
     });
-    
+
     return { adjusted: true, adjustedQuantity: deficit, unitCost };
   }
 
@@ -1002,7 +1002,7 @@ export class DatabaseStorage implements IStorage {
       return;
     }
     await db.update(users)
-      .set({ 
+      .set({
         signupAttempts: sql`${users.signupAttempts} + 1` as any,
         signupStartedAt: new Date()
       } as any)
@@ -1020,7 +1020,7 @@ export class DatabaseStorage implements IStorage {
       return;
     }
     await db.update(users)
-      .set({ 
+      .set({
         signupCompleted: true as any,
         signupCompletedAt: new Date()
       } as any)
@@ -1038,7 +1038,7 @@ export class DatabaseStorage implements IStorage {
       return;
     }
     await db.update(users)
-      .set({ 
+      .set({
         emailVerified: true as any,
         isActive: true as any
       } as any)
@@ -1047,7 +1047,7 @@ export class DatabaseStorage implements IStorage {
 
   async cleanupAbandonedSignups(): Promise<number> {
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
-    
+
     const result = await db.delete(users)
       .where(
         and(
@@ -1055,23 +1055,23 @@ export class DatabaseStorage implements IStorage {
           lt(users.signupStartedAt, cutoffTime)
         )
       );
-    
+
     return result.rowCount || 0;
   }
 
   async authenticateUser(username: string, password: string, ipAddress?: string): Promise<User | null> {
     try {
       const user = await this.getUserByUsername(username);
-      
+
       if (!user || !user.password) {
         // Log failed login attempt for non-existent user
         if (ipAddress) {
           await this.logIpAccess(
-            ipAddress, 
-            'unknown', 
-            username, 
-            'login_attempt', 
-            false, 
+            ipAddress,
+            'unknown',
+            username,
+            'login_attempt',
+            false,
             'User not found',
             undefined
           );
@@ -1085,11 +1085,11 @@ export class DatabaseStorage implements IStorage {
       if (!user.isActive && !allowInactiveCompletedSignup) {
         if (ipAddress) {
           await this.logIpAccess(
-            ipAddress, 
-            user.id, 
-            username, 
-            'login_attempt', 
-            false, 
+            ipAddress,
+            user.id,
+            username,
+            'login_attempt',
+            false,
             'Account disabled',
             undefined
           );
@@ -1099,16 +1099,16 @@ export class DatabaseStorage implements IStorage {
 
       // Verify password using bcrypt
       const isPasswordValid = await AuthService.comparePassword(password, user.password);
-      
+
       if (!isPasswordValid) {
         // Log failed login attempt
         if (ipAddress) {
           await this.logIpAccess(
-            ipAddress, 
-            user.id, 
-            username, 
-            'login_attempt', 
-            false, 
+            ipAddress,
+            user.id,
+            username,
+            'login_attempt',
+            false,
             'Invalid password',
             undefined
           );
@@ -1119,23 +1119,23 @@ export class DatabaseStorage implements IStorage {
       // Check IP whitelist if IP address is provided
       if (ipAddress && user.id) {
         const isWhitelisted = await this.checkIpWhitelisted(ipAddress, user.id);
-        
+
         // Log the access attempt
         await this.logIpAccess(
-          ipAddress, 
-          user.id, 
-          username, 
-          'login_attempt', 
-          isWhitelisted, 
+          ipAddress,
+          user.id,
+          username,
+          'login_attempt',
+          isWhitelisted,
           isWhitelisted ? 'IP whitelisted' : 'IP not whitelisted',
           undefined // userAgent can be added later
         );
-        
+
         if (!isWhitelisted) {
           return null; // Access denied due to IP not being whitelisted
         }
       }
-      
+
       return user;
     } catch (error) {
       console.error('Authentication error:', error);
@@ -1151,31 +1151,31 @@ export class DatabaseStorage implements IStorage {
   async getUserAccessibleStores(userId: string): Promise<Store[]> {
     const user = await this.getUser(userId);
     if (!user) return [];
-    
+
     // Admin can access all stores
     if (user.role === "admin") {
       return await this.getAllStores();
     }
-    
+
     // Cashier only access their assigned store
     if (user.role === "cashier" && user.storeId) {
       const store = await this.getStore(user.storeId);
       return store ? [store] : [];
     }
-    
+
     // Manager can access stores they have permissions for
     if (user.role === "manager") {
       const permissions = await this.getUserStorePermissions(userId);
       const storeIds = permissions.map(p => p.storeId);
-      
+
       if (storeIds.length === 0) return [];
-      
+
       const storeResults = await db.select().from(stores).where(
         sql`${stores.id} = ANY(${storeIds})`
       );
       return storeResults;
     }
-    
+
     return [];
   }
 
@@ -1185,7 +1185,7 @@ export class DatabaseStorage implements IStorage {
       storeId,
       grantedBy,
     } as unknown as typeof userStorePermissions.$inferInsert).returning();
-    
+
     return permission;
   }
 
@@ -1267,7 +1267,7 @@ export class DatabaseStorage implements IStorage {
   async createPasswordResetToken(userId: string): Promise<PasswordResetToken> {
     if (this.isTestEnv) {
       const token = (Math.random().toString(36).slice(2) + Date.now().toString(36));
-      const t: any = { id: this.generateId(), userId, token, expiresAt: new Date(Date.now() + 24*60*60*1000), isUsed: false };
+      const t: any = { id: this.generateId(), userId, token, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), isUsed: false };
       // store in lowStockAlerts map as a generic storage if needed
       this.mem.lowStockAlerts.set(`prt:${token}`, t);
       return t;
@@ -1313,7 +1313,7 @@ export class DatabaseStorage implements IStorage {
     if (!validation.isValid) {
       throw new Error(`Password validation failed: ${validation.errors.join(', ')}`);
     }
-    
+
     const hashedPassword = await AuthService.hashPassword(newPassword);
     const [user] = await db.update(users)
       .set({ password: hashedPassword, updatedAt: new Date(), requiresPasswordChange: false } as any)
@@ -1575,17 +1575,17 @@ export class DatabaseStorage implements IStorage {
       .set(updateProduct as any)
       .where(eq(products.id, id))
       .returning();
-    
+
     // Invalidate related caches
     cache.delete('product_categories');
     cache.delete('product_brands');
-    
+
     return product;
   }
 
   async searchProducts(query: string): Promise<Product[]> {
     const searchTerm = `%${query.toLowerCase()}%`;
-    
+
     return await db
       .select()
       .from(products)
@@ -1609,7 +1609,7 @@ export class DatabaseStorage implements IStorage {
   // Enhanced Product Management Methods
   async deleteProduct(id: string): Promise<void> {
     await db.delete(products).where(eq(products.id, id));
-    
+
     // Invalidate related caches
     cache.delete('product_categories');
     cache.delete('product_brands');
@@ -2104,7 +2104,7 @@ export class DatabaseStorage implements IStorage {
 
   private async recordStockMovement(params: StockMovementLogParams): Promise<void> {
     const delta = params.quantityAfter - params.quantityBefore;
-    
+
     try {
       const timestamp = params.occurredAt ?? new Date();
       const values = {
@@ -2306,7 +2306,7 @@ export class DatabaseStorage implements IStorage {
           notes: options?.notes ?? 'Initial inventory creation',
           metadata: options?.metadata,
         });
-        
+
         // Log inventory revaluation event for P&L tracking (test env)
         const qty = parseNumeric(item.quantity, 0);
         const cost = parseNumeric(item.avgCost, 0);
@@ -2597,7 +2597,9 @@ export class DatabaseStorage implements IStorage {
         source: updateInventory.source || 'inventory',
         referenceId: updateInventory.referenceId,
         userId,
-        notes: 'Manual inventory update',
+        notes: updateInventory.source === 'csv_import_overwrite'
+          ? `Overwrite import: ${quantityBefore} → ${quantityAfter}`
+          : 'Manual inventory update',
         metadata: { avgCost, totalCostValue },
       } as StockMovementLogParams);
       if (nextCostUpdate && typeof nextCostUpdate.cost === 'number' && quantityAfter > quantityBefore) {
@@ -2614,8 +2616,8 @@ export class DatabaseStorage implements IStorage {
     // Log inventory revaluation event for P&L tracking (only for quantity changes)
     if (quantityBefore !== quantityAfter) {
       const source = updateInventory.source || 'manual_update';
-      // Skip if this is already tracked elsewhere
-      if (source !== 'pos_sale' && source !== 'pos_void' && !source.startsWith('stock_removal_')) {
+      // Skip if this is already tracked elsewhere or is an overwrite import (no stock loss accounting for overwrites)
+      if (source !== 'pos_sale' && source !== 'pos_void' && source !== 'csv_import_overwrite' && !source.startsWith('stock_removal_')) {
         const deltaValue = quantityDelta * avgCost;
         if (deltaValue !== 0) {
           await this.logInventoryRevaluationEvent({
@@ -2739,7 +2741,7 @@ export class DatabaseStorage implements IStorage {
       notes: notes || `Stock adjusted by ${quantityChange}`,
       metadata: { quantityChange, avgCost: nextAvgCost },
     } as StockMovementLogParams);
-    
+
     if (quantityChange < 0) {
       await this.consumeCostLayers(storeId, productId, Math.abs(quantityChange), { inventory: current as Inventory });
     }
@@ -2763,8 +2765,8 @@ export class DatabaseStorage implements IStorage {
         quantityAfter: nextQuantity,
         avgCostAfter: toOptionalDecimalString(nextAvgCost, 4),
         deltaValue: toOptionalDecimalString(deltaValue, 4),
-        metadata: { 
-          quantityChange, 
+        metadata: {
+          quantityChange,
           notes: notes || `Inventory adjusted by ${quantityChange} units`,
           userId,
         },
@@ -2963,7 +2965,7 @@ export class DatabaseStorage implements IStorage {
         notes: reason || 'Inventory record deleted',
       });
     }
-    
+
     if (this.isTestEnv) {
       this.mem.inventory.delete(`${storeId}:${productId}`);
     } else {
@@ -2972,13 +2974,13 @@ export class DatabaseStorage implements IStorage {
         .where(and(eq(inventory.productId, productId), eq(inventory.storeId, storeId)));
     }
     await this.syncLowStockAlertState(storeId, productId);
-    
+
     // Check if product has any remaining inventory records across all stores
     // If not, mark the product as inactive to hide from POS, exports, and imports
     const remainingInventory = this.isTestEnv
       ? Array.from(this.mem.inventory.values()).filter((inv: any) => inv.productId === productId)
       : await db.select({ id: inventory.id }).from(inventory).where(eq(inventory.productId, productId)).limit(1);
-    
+
     if (remainingInventory.length === 0) {
       // No inventory records remain - mark product as inactive
       if (this.isTestEnv) {
@@ -3021,7 +3023,7 @@ export class DatabaseStorage implements IStorage {
 
     // Calculate cost of removed items using FIFO
     const costOfRemovedItems = await this.previewCostFromLayers(storeId, productId, quantity, { inventory: current });
-    
+
     // Calculate refund amount
     let refundAmount = 0;
     if (options.refundType === 'full') {
@@ -3250,7 +3252,7 @@ export class DatabaseStorage implements IStorage {
       const inventoryItem = await this.getInventoryItem(productId, storeId);
       const invQuantity = parseNumeric(inventoryItem?.quantity, 0);
       const invAvgCost = parseNumeric((inventoryItem as any)?.avgCost, 0);
-      
+
       if (invQuantity > 0 && invAvgCost > 0) {
         // Create a synthetic layer representing the current inventory state
         const syntheticLayer: CostLayerInfo = {
@@ -3297,7 +3299,7 @@ export class DatabaseStorage implements IStorage {
 
   async analyzeMargin(productId: string, storeId: string, proposedSalePrice: number): Promise<MarginAnalysis> {
     const costLayerSummary = await this.getCostLayers(productId, storeId);
-    
+
     const layerAnalysis = costLayerSummary.layers.map((layer) => {
       const margin = proposedSalePrice - layer.unitCost;
       const marginPercent = proposedSalePrice > 0 ? (margin / proposedSalePrice) * 100 : 0;
@@ -3311,8 +3313,8 @@ export class DatabaseStorage implements IStorage {
     });
 
     const overallMargin = proposedSalePrice - costLayerSummary.weightedAverageCost;
-    const overallMarginPercent = proposedSalePrice > 0 
-      ? (overallMargin / proposedSalePrice) * 100 
+    const overallMarginPercent = proposedSalePrice > 0
+      ? (overallMargin / proposedSalePrice) * 100
       : 0;
 
     // Recommended minimum price is the highest cost layer (ensures no loss on any unit)
@@ -3495,18 +3497,18 @@ export class DatabaseStorage implements IStorage {
       transactions: sql`COUNT(*)`,
       customers: sql`COUNT(DISTINCT ${transactions.cashierId})`,
     })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed"),
-        eq(transactions.kind, 'SALE'),
-        gte(transactions.createdAt, startDate),
-        lte(transactions.createdAt, endDate)
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, "completed"),
+          eq(transactions.kind, 'SALE'),
+          gte(transactions.createdAt, startDate),
+          lte(transactions.createdAt, endDate)
+        )
       )
-    )
-    .groupBy(sql`DATE(${transactions.createdAt})`)
-    .orderBy(asc(sql`DATE(${transactions.createdAt})`));
+      .groupBy(sql`DATE(${transactions.createdAt})`)
+      .orderBy(asc(sql`DATE(${transactions.createdAt})`));
 
     return result;
   }
@@ -3526,10 +3528,10 @@ export class DatabaseStorage implements IStorage {
       WHERE store_id = ${storeId} AND quantity_remaining > 0
     `);
 
-    const costRows = Array.isArray((costLayersResult as any).rows) 
-      ? (costLayersResult as any).rows 
+    const costRows = Array.isArray((costLayersResult as any).rows)
+      ? (costLayersResult as any).rows
       : (costLayersResult as any);
-    
+
     const totalCostValue = parseFloat(String(costRows[0]?.total_cost_value || "0"));
     const costLayerItemCount = parseInt(String(costRows[0]?.item_count || "0"));
 
@@ -3538,9 +3540,9 @@ export class DatabaseStorage implements IStorage {
       totalRetailValue: sql`COALESCE(SUM(${inventory.quantity}::numeric * COALESCE(${products.salePrice}::numeric, ${products.price}::numeric, 0)), 0)`,
       itemCount: sql`COUNT(*)`,
     })
-    .from(inventory)
-    .innerJoin(products, eq(inventory.productId, products.id))
-    .where(eq(inventory.storeId, storeId));
+      .from(inventory)
+      .innerJoin(products, eq(inventory.productId, products.id))
+      .where(eq(inventory.storeId, storeId));
 
     const totalRetailValue = parseFloat(String(retailResult[0]?.totalRetailValue || "0"));
     const inventoryItemCount = parseInt(String(retailResult[0]?.itemCount || "0"));
@@ -3598,7 +3600,7 @@ export class DatabaseStorage implements IStorage {
     // Default to last 30 days if no date range provided
     const effectiveStart = startDate ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const effectiveEnd = endDate ?? new Date();
-    
+
     // Get cashier performance from transactions
     const result = await db.execute(sql`
       SELECT 
@@ -3620,17 +3622,17 @@ export class DatabaseStorage implements IStorage {
     `);
 
     const rows = Array.isArray((result as any).rows) ? (result as any).rows : (result as any);
-    
+
     // Consider a cashier "on shift" if they had activity in the last 4 hours
     const shiftThreshold = new Date(Date.now() - 4 * 60 * 60 * 1000);
-    
+
     return rows.map((row: any) => {
       const totalSales = parseInt(String(row.totalSales || 0));
       const totalRevenue = parseFloat(String(row.totalRevenue || 0));
       const avgTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
       const lastActivity = row.lastActivity ? new Date(row.lastActivity) : null;
       const onShift = lastActivity ? lastActivity >= shiftThreshold : false;
-      
+
       return {
         userId: row.cashierId,
         name: row.userName || 'Unknown User',
@@ -3647,7 +3649,7 @@ export class DatabaseStorage implements IStorage {
   // Enhanced Inventory Management Methods
   async bulkUpdateInventory(storeId: string, updates: any[]): Promise<any[]> {
     const results = [];
-    
+
     for (const update of updates) {
       try {
         const result = await this.updateInventory(
@@ -3660,7 +3662,7 @@ export class DatabaseStorage implements IStorage {
         results.push({ success: false, error: error instanceof Error ? error.message : "Unknown error" });
       }
     }
-    
+
     return results;
   }
 
@@ -3694,16 +3696,16 @@ export class DatabaseStorage implements IStorage {
 
   async performStockCount(storeId: string, items: any[]): Promise<any[]> {
     const results = [];
-    
+
     for (const item of items) {
       try {
         const currentInventory = await this.getInventoryItem(item.productId, storeId);
         const variance = item.countedQuantity - (currentInventory?.quantity || 0);
-        
+
         await this.updateInventory(item.productId, storeId, {
           quantity: item.countedQuantity,
         });
-        
+
         results.push({
           productId: item.productId,
           previousQuantity: currentInventory?.quantity || 0,
@@ -3719,7 +3721,7 @@ export class DatabaseStorage implements IStorage {
         });
       }
     }
-    
+
     return results;
   }
 
@@ -4210,7 +4212,7 @@ export class DatabaseStorage implements IStorage {
     phone?: string;
   }): Promise<Customer | undefined> {
     const conditions = [];
-    
+
     if (criteria.loyaltyNumber) {
       conditions.push(eq(customers.loyaltyNumber, criteria.loyaltyNumber));
     }
@@ -4290,22 +4292,22 @@ export class DatabaseStorage implements IStorage {
       total: transactions.total,
       items: sql`COUNT(${transactionItems.id})`,
     })
-    .from(transactions)
-    .leftJoin(transactionItems, eq(transactions.id, transactionItems.transactionId))
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed"),
-        gte(transactions.createdAt, startDate),
-        lte(transactions.createdAt, endDate)
+      .from(transactions)
+      .leftJoin(transactionItems, eq(transactions.id, transactionItems.transactionId))
+      .where(
+        and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, "completed"),
+          gte(transactions.createdAt, startDate),
+          lte(transactions.createdAt, endDate)
+        )
       )
-    )
-    .groupBy(transactions.id, transactions.createdAt, transactions.total)
-    .orderBy(desc(transactions.createdAt));
+      .groupBy(transactions.id, transactions.createdAt, transactions.total)
+      .orderBy(desc(transactions.createdAt));
 
     if (format === "csv") {
       const csvHeader = "Date,Transaction ID,Total,Items\n";
-      const csvRows = salesData.map(t => 
+      const csvRows = salesData.map(t =>
         `${t.date?.toISOString().split('T')[0] || ''},${t.id},${t.total},${t.items}`
       ).join('\n');
       return csvHeader + csvRows;
@@ -4330,14 +4332,14 @@ export class DatabaseStorage implements IStorage {
       maxStockLevel: inventory.maxStockLevel,
       value: sql`${inventory.quantity} * ${products.price}`,
     })
-    .from(inventory)
-    .innerJoin(products, eq(inventory.productId, products.id))
-    .where(eq(inventory.storeId, storeId))
-    .orderBy(asc(products.name));
+      .from(inventory)
+      .innerJoin(products, eq(inventory.productId, products.id))
+      .where(eq(inventory.storeId, storeId))
+      .orderBy(asc(products.name));
 
     if (format === "csv") {
       const csvHeader = "Product Name,Barcode,Category,Price,Quantity,Min Level,Max Level,Value\n";
-      const csvRows = inventoryData.map(item => 
+      const csvRows = inventoryData.map(item =>
         `"${item.productName}","${item.barcode}","${item.category}",${item.price},${item.quantity},${item.minStockLevel},${item.maxStockLevel},${item.value}`
       ).join('\n');
       return csvHeader + csvRows;
@@ -4364,14 +4366,14 @@ export class DatabaseStorage implements IStorage {
       tierName: loyaltyTiers.name,
       createdAt: customers.createdAt,
     })
-    .from(customers)
-    .leftJoin(loyaltyTiers, eq(customers.tierId, loyaltyTiers.id))
-    .where(eq(customers.storeId, storeId))
-    .orderBy(asc(customers.firstName));
+      .from(customers)
+      .leftJoin(loyaltyTiers, eq(customers.tierId, loyaltyTiers.id))
+      .where(eq(customers.storeId, storeId))
+      .orderBy(asc(customers.firstName));
 
     if (format === "csv") {
       const csvHeader = "First Name,Last Name,Email,Phone,Loyalty Number,Current Points,Lifetime Points,Tier,Join Date\n";
-      const csvRows = customerData.map(customer => 
+      const csvRows = customerData.map(customer =>
         `"${customer.firstName}","${customer.lastName}","${customer.email || ''}","${customer.phone || ''}","${customer.loyaltyNumber}","${customer.currentPoints}","${customer.lifetimePoints}","${customer.tierName || ''}","${customer.createdAt?.toISOString().split('T')[0] || ''}"`
       ).join('\n');
       return csvHeader + csvRows;
@@ -4396,7 +4398,7 @@ export class DatabaseStorage implements IStorage {
 
     if (format === "csv") {
       const csvHeader = "Name,Barcode,Description,Price,Cost,Category,Brand,Active\n";
-      const csvRows = productData.map(p => 
+      const csvRows = productData.map(p =>
         `"${p.name}","${p.barcode || ''}","${p.description || ''}",${p.price},${p.cost || ''},"${p.category || ''}","${p.brand || ''}",${p.isActive}`
       ).join('\n');
       return csvHeader + csvRows;
@@ -4414,19 +4416,19 @@ export class DatabaseStorage implements IStorage {
       status: transactions.status,
       cashierId: transactions.cashierId,
     })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        gte(transactions.createdAt, startDate),
-        lte(transactions.createdAt, endDate)
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.storeId, storeId),
+          gte(transactions.createdAt, startDate),
+          lte(transactions.createdAt, endDate)
+        )
       )
-    )
-    .orderBy(desc(transactions.createdAt));
+      .orderBy(desc(transactions.createdAt));
 
     if (format === "csv") {
       const csvHeader = "Transaction ID,Date,Total,Payment Method,Status,Cashier ID\n";
-      const csvRows = transactionData.map(t => 
+      const csvRows = transactionData.map(t =>
         `${t.id},${t.date?.toISOString() || ''},${t.total},${t.paymentMethod},${t.status},${t.cashierId}`
       ).join('\n');
       return csvHeader + csvRows;
@@ -4443,7 +4445,7 @@ export class DatabaseStorage implements IStorage {
 
     if (format === "csv") {
       const csvHeader = "Loyalty Number,First Name,Last Name,Email,Phone,Current Points,Total Points Earned,Join Date\n";
-      const csvRows = customerData.map(c => 
+      const csvRows = customerData.map(c =>
         `"${c.loyaltyNumber || ''}","${c.firstName || ''}","${c.lastName || ''}","${c.email || ''}","${c.phone || ''}",${c.currentPoints},${c.lifetimePoints},${c.createdAt?.toISOString() || ''}`
       ).join('\n');
       return csvHeader + csvRows;
@@ -4462,14 +4464,14 @@ export class DatabaseStorage implements IStorage {
       minStockLevel: inventory.minStockLevel,
       lastUpdated: inventory.updatedAt,
     })
-    .from(inventory)
-    .innerJoin(products, eq(inventory.productId, products.id))
-    .where(eq(inventory.storeId, storeId))
-    .orderBy(asc(products.name));
+      .from(inventory)
+      .innerJoin(products, eq(inventory.productId, products.id))
+      .where(eq(inventory.storeId, storeId))
+      .orderBy(asc(products.name));
 
     if (format === "csv") {
       const csvHeader = "Product ID,Product Name,Barcode,SKU,Quantity,Min Stock Level,Last Updated\n";
-      const csvRows = inventoryData.map(i => 
+      const csvRows = inventoryData.map(i =>
         `${i.productId},"${i.productName || ''}","${i.barcode || ''}","${i.sku || ''}",${i.quantity},${i.minStockLevel},${i.lastUpdated?.toISOString() || ''}`
       ).join('\n');
       return csvHeader + csvRows;
@@ -4554,30 +4556,30 @@ export class DatabaseStorage implements IStorage {
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
       transactions: sql`COUNT(*)`
     })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed"),
-        eq(transactions.kind, 'SALE'),
-        gte(transactions.createdAt, startOfDay),
-        lt(transactions.createdAt, endOfDay)
-      )
-    );
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, "completed"),
+          eq(transactions.kind, 'SALE'),
+          gte(transactions.createdAt, startOfDay),
+          lt(transactions.createdAt, endOfDay)
+        )
+      );
 
     const [refundRow] = await db.select({
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
     })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed"),
-        eq(transactions.kind, 'REFUND'),
-        gte(transactions.createdAt, startOfDay),
-        lt(transactions.createdAt, endOfDay)
-      )
-    );
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, "completed"),
+          eq(transactions.kind, 'REFUND'),
+          gte(transactions.createdAt, startOfDay),
+          lt(transactions.createdAt, endOfDay)
+        )
+      );
 
     const grossRevenue = parseFloat(String(salesRow?.revenue || "0"));
     const refundTotal = parseFloat(String(refundRow?.revenue || "0"));
@@ -4598,28 +4600,28 @@ export class DatabaseStorage implements IStorage {
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
       transactions: sql`COUNT(*)`
     })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.status, "completed"),
-        eq(transactions.kind, 'SALE'),
-        gte(transactions.createdAt, startOfDay),
-        lt(transactions.createdAt, endOfDay)
-      )
-    );
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.status, "completed"),
+          eq(transactions.kind, 'SALE'),
+          gte(transactions.createdAt, startOfDay),
+          lt(transactions.createdAt, endOfDay)
+        )
+      );
 
     const [refundRow] = await db.select({
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
     })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.status, "completed"),
-        eq(transactions.kind, 'REFUND'),
-        gte(transactions.createdAt, startOfDay),
-        lt(transactions.createdAt, endOfDay)
-      )
-    );
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.status, "completed"),
+          eq(transactions.kind, 'REFUND'),
+          gte(transactions.createdAt, startOfDay),
+          lt(transactions.createdAt, endOfDay)
+        )
+      );
 
     const grossRevenue = parseFloat(String(salesRow?.revenue || '0'));
     const refundTotal = parseFloat(String(refundRow?.revenue || '0'));
@@ -4635,18 +4637,18 @@ export class DatabaseStorage implements IStorage {
       product: products,
       salesCount: sql<number>`COUNT(*)`,
     })
-    .from(transactionItems)
-    .innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
-    .innerJoin(products, eq(transactionItems.productId, products.id))
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed"),
+      .from(transactionItems)
+      .innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
+      .innerJoin(products, eq(transactionItems.productId, products.id))
+      .where(
+        and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, "completed"),
+        )
       )
-    )
-    .groupBy(products.id)
-    .orderBy(desc(sql`COUNT(*)`))
-    .limit(limit);
+      .groupBy(products.id)
+      .orderBy(desc(sql`COUNT(*)`))
+      .limit(limit);
 
     return result.map(row => ({
       product: row.product,
@@ -4750,45 +4752,45 @@ export class DatabaseStorage implements IStorage {
       taxCollected: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`,
       cogs: sql`COALESCE(SUM(${transactionItems.totalCost}), 0)`,
     })
-    .from(transactions)
-    .innerJoin(transactionItems, eq(transactions.id, transactionItems.transactionId))
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed"),
-        eq(transactions.kind, 'SALE'),
-        gte(transactions.createdAt, startDate),
-        lt(transactions.createdAt, endDate),
-      )
-    );
+      .from(transactions)
+      .innerJoin(transactionItems, eq(transactions.id, transactionItems.transactionId))
+      .where(
+        and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, "completed"),
+          eq(transactions.kind, 'SALE'),
+          gte(transactions.createdAt, startDate),
+          lt(transactions.createdAt, endDate),
+        )
+      );
 
     const [refundRow] = await db.select({
       refundAmount: sql`COALESCE(SUM(${transactions.total}), 0)`,
       refundCount: sql`COUNT(*)`,
     })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.storeId, storeId),
-        eq(transactions.status, "completed"),
-        eq(transactions.kind, 'REFUND'),
-        gte(transactions.createdAt, startDate),
-        lt(transactions.createdAt, endDate),
-      )
-    );
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.storeId, storeId),
+          eq(transactions.status, "completed"),
+          eq(transactions.kind, 'REFUND'),
+          gte(transactions.createdAt, startDate),
+          lt(transactions.createdAt, endDate),
+        )
+      );
 
     const [priceChangeRow] = await db.select({
       changeCount: sql`COUNT(*)`,
       deltaValue: sql`COALESCE(SUM(COALESCE(${priceChangeEvents.newCost}, 0) - COALESCE(${priceChangeEvents.oldCost}, 0)), 0)`,
     })
-    .from(priceChangeEvents)
-    .where(
-      and(
-        eq(priceChangeEvents.storeId, storeId),
-        gte(priceChangeEvents.occurredAt, startDate),
-        lt(priceChangeEvents.occurredAt, endDate),
-      )
-    );
+      .from(priceChangeEvents)
+      .where(
+        and(
+          eq(priceChangeEvents.storeId, storeId),
+          gte(priceChangeEvents.occurredAt, startDate),
+          lt(priceChangeEvents.occurredAt, endDate),
+        )
+      );
 
     // Query stock removal events from inventoryRevaluationEvents (where source starts with 'stock_removal_')
     // These events have metadata containing lossAmount and refundAmount
@@ -4796,15 +4798,15 @@ export class DatabaseStorage implements IStorage {
       metadata: inventoryRevaluationEvents.metadata,
       source: inventoryRevaluationEvents.source,
     })
-    .from(inventoryRevaluationEvents)
-    .where(
-      and(
-        eq(inventoryRevaluationEvents.storeId, storeId),
-        gte(inventoryRevaluationEvents.occurredAt, startDate),
-        lt(inventoryRevaluationEvents.occurredAt, endDate),
-        sql`${inventoryRevaluationEvents.source} LIKE 'stock_removal_%'`
-      )
-    );
+      .from(inventoryRevaluationEvents)
+      .where(
+        and(
+          eq(inventoryRevaluationEvents.storeId, storeId),
+          gte(inventoryRevaluationEvents.occurredAt, startDate),
+          lt(inventoryRevaluationEvents.occurredAt, endDate),
+          sql`${inventoryRevaluationEvents.source} LIKE 'stock_removal_%'`
+        )
+      );
 
     // Parse metadata to extract net loss amounts (already accounts for refunds)
     let stockRemovalLoss = 0;
@@ -4815,7 +4817,7 @@ export class DatabaseStorage implements IStorage {
       if (meta) {
         // lossAmount is already net of refunds (cost - refund)
         const lossAmount = parseFloat(String(meta.lossAmount || 0));
-        
+
         if (lossAmount > 0) {
           stockRemovalLoss += lossAmount;
           stockRemovalCount++;
@@ -4864,9 +4866,9 @@ export class DatabaseStorage implements IStorage {
       product: products,
       inventory: inventory,
     })
-    .from(inventory)
-    .innerJoin(products, eq(inventory.productId, products.id))
-    .where(eq(inventory.storeId, storeId));
+      .from(inventory)
+      .innerJoin(products, eq(inventory.productId, products.id))
+      .where(eq(inventory.storeId, storeId));
 
     return result.map(row => ({
       ...row.inventory,
@@ -4875,58 +4877,58 @@ export class DatabaseStorage implements IStorage {
   }
 
   // IP Whitelist operations
-	async checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean> {
-		// Bypass whitelist in tests
-		if (process.env.NODE_ENV === 'test') {
-			return true;
-		}
-		const user = await this.getUser(userId);
-		if (!user) return false;
+  async checkIpWhitelisted(ipAddress: string, userId: string): Promise<boolean> {
+    // Bypass whitelist in tests
+    if (process.env.NODE_ENV === 'test') {
+      return true;
+    }
+    const user = await this.getUser(userId);
+    if (!user) return false;
 
-		const normalizedRole = normalizeRole((user as any).role);
-		// Always allow admin (role or flag) to bypass IP whitelist
-		if ((user as any).isAdmin || normalizedRole === "ADMIN") return true;
+    const normalizedRole = normalizeRole((user as any).role);
+    // Always allow admin (role or flag) to bypass IP whitelist
+    if ((user as any).isAdmin || normalizedRole === "ADMIN") return true;
 
-		// Check if IP is whitelisted for this specific user
-		const [whitelist] = await db.select().from(ipWhitelists)
-			.where(
-				sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId} AND ${ipWhitelists.isActive} = true`
-			);
-		
-		if (whitelist) return true;
+    // Check if IP is whitelisted for this specific user
+    const [whitelist] = await db.select().from(ipWhitelists)
+      .where(
+        sql`${ipWhitelists.ipAddress} = ${ipAddress} AND ${ipWhitelists.whitelistedFor} = ${userId} AND ${ipWhitelists.isActive} = true`
+      );
 
-		// For managers and cashiers, also check store-level whitelists (includes delegated stores)
-		if (normalizedRole === 'MANAGER' || normalizedRole === 'CASHIER') {
-			const storeIds = new Set<string>();
-			if (user.storeId) {
-				storeIds.add(user.storeId);
-			}
-			if (normalizedRole === 'MANAGER') {
-				const permissions = await this.getUserStorePermissions(userId);
-				permissions.forEach((permission) => {
-					if (permission.storeId) {
-						storeIds.add(permission.storeId);
-					}
-				});
-			}
-			if (storeIds.size > 0) {
-				const storeIdList = Array.from(storeIds);
-				const [storeWhitelist] = await db.select().from(ipWhitelists)
-					.where(
-						and(
-							eq(ipWhitelists.ipAddress, ipAddress),
-							eq(ipWhitelists.role, normalizedRole),
-							eq(ipWhitelists.isActive, true as any),
-							storeIdList.length === 1
-								? eq(ipWhitelists.storeId, storeIdList[0])
-								: inArray(ipWhitelists.storeId, storeIdList as string[])
-						)
-					)
-					.limit(1);
-				if (storeWhitelist) return true;
-			}
-		}
-		return false;
+    if (whitelist) return true;
+
+    // For managers and cashiers, also check store-level whitelists (includes delegated stores)
+    if (normalizedRole === 'MANAGER' || normalizedRole === 'CASHIER') {
+      const storeIds = new Set<string>();
+      if (user.storeId) {
+        storeIds.add(user.storeId);
+      }
+      if (normalizedRole === 'MANAGER') {
+        const permissions = await this.getUserStorePermissions(userId);
+        permissions.forEach((permission) => {
+          if (permission.storeId) {
+            storeIds.add(permission.storeId);
+          }
+        });
+      }
+      if (storeIds.size > 0) {
+        const storeIdList = Array.from(storeIds);
+        const [storeWhitelist] = await db.select().from(ipWhitelists)
+          .where(
+            and(
+              eq(ipWhitelists.ipAddress, ipAddress),
+              eq(ipWhitelists.role, normalizedRole),
+              eq(ipWhitelists.isActive, true as any),
+              storeIdList.length === 1
+                ? eq(ipWhitelists.storeId, storeIdList[0])
+                : inArray(ipWhitelists.storeId, storeIdList as string[])
+            )
+          )
+          .limit(1);
+        if (storeWhitelist) return true;
+      }
+    }
+    return false;
   }
 
   async getIpWhitelistForStore(storeId: string): Promise<IpWhitelist[]> {
@@ -5113,12 +5115,12 @@ export class DatabaseStorage implements IStorage {
         color: loyaltyTiers.color,
       },
     })
-    .from(customers)
-    .leftJoin(loyaltyTiers, eq(customers.tierId, loyaltyTiers.id))
-    .where(eq(customers.storeId, storeId))
-    .orderBy(desc(customers.createdAt))
-    .limit(limit)
-    .offset(offset);
+      .from(customers)
+      .leftJoin(loyaltyTiers, eq(customers.tierId, loyaltyTiers.id))
+      .where(eq(customers.storeId, storeId))
+      .orderBy(desc(customers.createdAt))
+      .limit(limit)
+      .offset(offset);
   }
 
   async clear(): Promise<void> {

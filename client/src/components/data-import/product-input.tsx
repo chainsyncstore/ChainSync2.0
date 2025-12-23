@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ScanLine, AlertTriangle, CheckCircle, Package, Layers } from "lucide-react";
+import { ScanLine, AlertTriangle, CheckCircle, Package, Layers, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useBarcodeInput } from "@/hooks/use-barcode-input";
 import { getCsrfToken } from "@/lib/csrf";
+import { getSavedIndustry, getCategoriesForIndustry, type IndustryCategory } from "@/lib/industry-config";
 import type { Product, Inventory } from "@shared/schema";
 
 interface ProductInputProps {
@@ -65,7 +66,7 @@ async function parseJsonResponse<T = any>(response: Response): Promise<ParsedRes
 }
 
 export default function ProductInput({ selectedStore }: ProductInputProps) {
-  const [activeTab, setActiveTab] = useState<"existing" | "new">("existing");
+  const [activeTab, setActiveTab] = useState<"existing" | "new">("new");
   const [existingSearch, setExistingSearch] = useState({ barcode: "", sku: "", name: "" });
   const [existingQuantity, setExistingQuantity] = useState("1");
   const [existingCostPrice, setExistingCostPrice] = useState("");
@@ -74,7 +75,15 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [barcodeTarget, setBarcodeTarget] = useState<"existing" | "new">("existing");
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const queryClient = useQueryClient();
+
+  // Get industry-specific categories
+  const industryId = getSavedIndustry();
+  const categories: IndustryCategory[] = useMemo(() => {
+    return getCategoriesForIndustry(industryId ?? "");
+  }, [industryId]);
 
   const { data: productByBarcode } = useQuery<Product | null>({
     queryKey: ["/api/products", "barcode", existingSearch.barcode],
@@ -106,28 +115,54 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
     },
   });
 
-  const { data: productByName } = useQuery<Product | null>({
-    queryKey: ["/api/products", "name", existingSearch.name],
+  // Product name search returns multiple results for user selection
+  const { data: productsByName = [] } = useQuery<Product[]>({
+    queryKey: ["/api/products", "name-search", existingSearch.name],
     enabled: Boolean(existingSearch.name) && !existingSearch.barcode && !existingSearch.sku && existingSearch.name.length > 2,
     queryFn: async () => {
-      if (!existingSearch.name) return null;
+      if (!existingSearch.name) return [];
       try {
         const res = await fetch(`/api/products/search?name=${encodeURIComponent(existingSearch.name)}`);
-        if (!res.ok) return null;
-        const data = await res.json();
-        return data?.[0] ?? null;
+        if (!res.ok) return [];
+        return await res.json();
       } catch {
-        return null;
+        return [];
       }
     },
   });
 
+  // Show search results dropdown when we have name search results
+  useEffect(() => {
+    if (productsByName.length > 0 && existingSearch.name && !existingSearch.barcode && !existingSearch.sku) {
+      setShowSearchResults(true);
+    } else {
+      setShowSearchResults(false);
+    }
+  }, [productsByName, existingSearch.name, existingSearch.barcode, existingSearch.sku]);
+
+  // Determine existing product: barcode/sku auto-select, name requires explicit selection
   const existingProduct = useMemo(() => {
-    if (productByBarcode) return productByBarcode;
-    if (productBySku) return productBySku;
-    if (productByName) return productByName;
+    if (productByBarcode) {
+      setSelectedProductId(productByBarcode.id);
+      return productByBarcode;
+    }
+    if (productBySku) {
+      setSelectedProductId(productBySku.id);
+      return productBySku;
+    }
+    // For name search, require explicit selection
+    if (selectedProductId && productsByName.length > 0) {
+      const selected = productsByName.find(p => p.id === selectedProductId);
+      if (selected) return selected;
+    }
     return null;
-  }, [productByBarcode, productBySku, productByName]);
+  }, [productByBarcode, productBySku, productsByName, selectedProductId]);
+
+  // Handle product selection from search results
+  const handleSelectProduct = (product: Product) => {
+    setSelectedProductId(product.id);
+    setShowSearchResults(false);
+  };
 
   const { data: currentInventory } = useQuery<Inventory | null>({
     queryKey: ["/api/inventory", existingProduct?.id, selectedStore],
@@ -145,8 +180,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
   });
 
   const adjustInventoryMutation = useMutation({
-    mutationFn: async ({ productId, quantity, costPrice, salePrice }: { 
-      productId: string; 
+    mutationFn: async ({ productId, quantity, costPrice, salePrice }: {
+      productId: string;
       quantity: number;
       costPrice?: number;
       salePrice?: number;
@@ -159,8 +194,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
           "Content-Type": "application/json",
           "X-CSRF-Token": csrfToken,
         },
-        body: JSON.stringify({ 
-          quantity, 
+        body: JSON.stringify({
+          quantity,
           reason: "single_product_import",
           costPrice: costPrice !== undefined ? costPrice : undefined,
           salePrice: salePrice !== undefined ? salePrice : undefined,
@@ -287,8 +322,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
       return;
     }
 
-    adjustInventoryMutation.mutate({ 
-      productId: existingProduct.id, 
+    adjustInventoryMutation.mutate({
+      productId: existingProduct.id,
       quantity: qty,
       costPrice: costPriceVal,
       salePrice: salePriceVal,
@@ -335,6 +370,8 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
     setExistingQuantity("1");
     setExistingCostPrice("");
     setExistingSalePrice("");
+    setSelectedProductId(null);
+    setShowSearchResults(false);
   };
 
   const resetNewProductForm = () => {
@@ -430,8 +467,37 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
                   </div>
                 </div>
 
+                {/* Product search results dropdown */}
+                {showSearchResults && productsByName.length > 0 && (
+                  <div className="rounded-lg border bg-background shadow-md max-h-48 overflow-y-auto">
+                    <div className="p-2 border-b bg-muted/40">
+                      <p className="text-xs text-muted-foreground">
+                        {productsByName.length} product{productsByName.length !== 1 ? 's' : ''} found. Select one:
+                      </p>
+                    </div>
+                    <div className="divide-y">
+                      {productsByName.map((product) => (
+                        <button
+                          key={product.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-accent/50 transition-colors flex items-center justify-between"
+                          onClick={() => handleSelectProduct(product)}
+                        >
+                          <div>
+                            <p className="font-medium text-sm">{product.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              SKU: {product.sku || '—'} | Barcode: {product.barcode || '—'}
+                            </p>
+                          </div>
+                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>{existingProduct ? `Found: ${existingProduct.name}` : "No product selected"}</span>
+                  <span>{existingProduct ? `Selected: ${existingProduct.name}` : productsByName.length > 0 && existingSearch.name ? "Select a product from the list above" : "No product selected"}</span>
                   <Button type="button" variant="ghost" size="sm" onClick={resetExistingSearch}>Clear</Button>
                 </div>
 
@@ -612,13 +678,11 @@ export default function ProductInput({ selectedStore }: ProductInputProps) {
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="electronics">Electronics</SelectItem>
-                        <SelectItem value="clothing">Clothing</SelectItem>
-                        <SelectItem value="food">Food & Beverages</SelectItem>
-                        <SelectItem value="home">Home & Garden</SelectItem>
-                        <SelectItem value="sports">Sports & Outdoors</SelectItem>
-                        <SelectItem value="books">Books & Media</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
+                        {categories.map((cat) => (
+                          <SelectItem key={cat.value} value={cat.value}>
+                            {cat.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

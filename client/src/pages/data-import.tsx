@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { Upload, Database, CheckCircle, AlertTriangle, CalendarClock, History } from "lucide-react";
+import { Upload, Database, CheckCircle, AlertTriangle, History, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import CSVUploader from "@/components/data-import/csv-uploader";
+import IndustrySelector from "@/components/data-import/industry-selector";
 import ProductInput from "@/components/data-import/product-input";
 import TemplateDownloader from "@/components/data-import/template-downloader";
 import { Badge } from "@/components/ui/badge";
@@ -13,12 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { getCsrfToken } from "@/lib/csrf";
+import { getSavedIndustry, getIndustryById } from "@/lib/industry-config";
 import { formatDateTime } from "@/lib/pos-utils";
 import type { Store } from "@shared/schema";
 
 interface ImportJob {
   id: string;
-  type: "products" | "inventory" | "transactions" | "loyalty";
+  type: "products" | "inventory" | "loyalty";
   status: "pending" | "processing" | "completed" | "failed";
   fileName: string;
   totalRows: number;
@@ -65,12 +67,30 @@ export default function DataImport() {
   const [successSummary, setSuccessSummary] = useState<string | null>(null);
   const [inventoryMode, setInventoryMode] = useState<"overwrite" | "regularize" | null>(null);
   const [loyaltyMode, setLoyaltyMode] = useState<"overwrite" | "regularize" | null>(null);
-  const [transactionCutoff, setTransactionCutoff] = useState<string>("");
+
+  // Industry selector modal state
+  const [showIndustryModal, setShowIndustryModal] = useState(false);
+  const [currentIndustry, setCurrentIndustry] = useState<string | null>(null);
+
+  // Check if industry is set on mount
+  useEffect(() => {
+    const saved = getSavedIndustry();
+    if (!saved) {
+      setShowIndustryModal(true);
+    } else {
+      setCurrentIndustry(saved);
+    }
+  }, []);
+
+  const handleIndustrySelect = (industryId: string) => {
+    setCurrentIndustry(industryId);
+  };
+
+  const selectedIndustryName = currentIndustry ? getIndustryById(currentIndustry)?.name : null;
 
   type ImportStats =
     | { type: "inventory"; mode?: string; addedProducts: number; stockAdjusted: number; skipped: number }
-    | { type: "loyalty"; mode?: string; imported: number; updated: number; skipped: number }
-    | { type: "historical"; cutoffDate: string; imported: number; skipped: number; invalid: number };
+    | { type: "loyalty"; mode?: string; imported: number; updated: number; skipped: number };
 
   const [importStats, setImportStats] = useState<ImportStats | null>(null);
 
@@ -93,15 +113,14 @@ export default function DataImport() {
 
   const fileEndpoints = useMemo(() => ({
     inventory: "/api/inventory/import",
-    transactions: "/api/transactions/import",
     loyalty: "/api/loyalty/import",
     products: "/api/products", // handled via ProductInput component, not CSV uploader
   }), []);
 
   const handleFileUpload = async (
     file: File,
-    type: "inventory" | "transactions" | "loyalty",
-    options?: { mode?: "overwrite" | "regularize"; cutoffDate?: string }
+    type: "inventory" | "loyalty",
+    options?: { mode?: "overwrite" | "regularize" }
   ) => {
     const endpoint = fileEndpoints[type];
     if (!endpoint) {
@@ -116,11 +135,6 @@ export default function DataImport() {
 
     if ((type === "inventory" || type === "loyalty") && !options?.mode) {
       setImportErrors([{ error: `Select a ${type} import mode before uploading.` }]);
-      return;
-    }
-
-    if (type === "transactions" && !options?.cutoffDate) {
-      setImportErrors([{ error: "Select an adoption cutoff date before uploading." }]);
       return;
     }
 
@@ -150,9 +164,6 @@ export default function DataImport() {
       }
       if (options?.mode) {
         formData.append("mode", options.mode);
-      }
-      if (options?.cutoffDate) {
-        formData.append("cutoffDate", options.cutoffDate);
       }
 
       const csrfToken = await getCsrfToken();
@@ -193,13 +204,13 @@ export default function DataImport() {
 
       setImportJobs((prev) => prev.map((job) => job.id === jobId
         ? {
-            ...job,
-            status: invalid > 0 ? "completed" : "completed",
-            processedRows: imported + updated,
-            totalRows: imported + updated + invalid,
-            errorCount: invalid,
-            completedAt: new Date().toISOString(),
-          }
+          ...job,
+          status: invalid > 0 ? "completed" : "completed",
+          processedRows: imported + updated,
+          totalRows: imported + updated + invalid,
+          errorCount: invalid,
+          completedAt: new Date().toISOString(),
+        }
         : job
       ));
 
@@ -229,14 +240,6 @@ export default function DataImport() {
           imported: Number(result?.imported ?? 0),
           updated: Number(result?.updated ?? 0),
           skipped: Number(result?.skipped ?? 0),
-        });
-      } else if (type === "transactions") {
-        setImportStats({
-          type: "historical",
-          cutoffDate: String(result?.cutoffDate ?? options?.cutoffDate ?? ""),
-          imported: Number(result?.imported ?? 0),
-          skipped: Number(result?.skipped ?? 0),
-          invalid: Number(result?.invalid ?? 0),
         });
       } else {
         setImportStats(null);
@@ -367,15 +370,39 @@ export default function DataImport() {
 
       </div>
 
+      {/* Industry Selector Modal */}
+      <IndustrySelector
+        open={showIndustryModal}
+        onOpenChange={setShowIndustryModal}
+        onSelect={handleIndustrySelect}
+        currentIndustry={currentIndustry}
+      />
+
       {/* Import Interface */}
       <Card>
-        <CardHeader />
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            {selectedIndustryName && (
+              <Badge variant="outline" className="mb-2">
+                {selectedIndustryName}
+              </Badge>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowIndustryModal(true)}
+            className="gap-1"
+          >
+            <Settings className="h-4 w-4" />
+            Change Industry
+          </Button>
+        </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="products">Products</TabsTrigger>
               <TabsTrigger value="inventory">Inventory</TabsTrigger>
-              <TabsTrigger value="transactions">Historical Transactions</TabsTrigger>
               <TabsTrigger value="loyalty">Loyalty</TabsTrigger>
             </TabsList>
 
@@ -439,38 +466,6 @@ export default function DataImport() {
               />
             </TabsContent>
 
-            <TabsContent value="transactions" className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-lg font-semibold">Historical Transactions</h3>
-                  <p className="text-sm text-gray-600">
-                    Import historical transaction data for analytics. Choose your adoption cutoff to avoid duplicating live sales.
-                  </p>
-                </div>
-                <TemplateDownloader type="transactions" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="transaction-cutoff" className="flex items-center gap-2">
-                  <CalendarClock className="w-4 h-4" /> Adoption cutoff date
-                </Label>
-                <input
-                  id="transaction-cutoff"
-                  type="date"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={transactionCutoff}
-                  max={new Date().toISOString().slice(0, 10)}
-                  onChange={(e) => setTransactionCutoff(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Rows dated on or after this cutoff will be rejected so your live sales stay clean.
-                </p>
-              </div>
-              <CSVUploader
-                onFileUpload={(file) => transactionCutoff && handleFileUpload(file, "transactions", { cutoffDate: transactionCutoff })}
-                disabled={isUploading || !transactionCutoff}
-              />
-            </TabsContent>
-
             <TabsContent value="loyalty" className="space-y-4">
               <div className="flex justify-between items-center">
                 <div>
@@ -518,112 +513,96 @@ export default function DataImport() {
         </CardContent>
       </Card>
 
-      {(successSummary || importErrors.length > 0) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Import Results</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {successSummary && (
-              <Alert variant="default" className="bg-green-50 border-green-200 text-green-900">
-                <AlertTitle>Success</AlertTitle>
-                <AlertDescription>{successSummary}</AlertDescription>
-              </Alert>
-            )}
-
-            {importStats?.type === "inventory" && (
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Mode</p>
-                  <p className="text-lg font-semibold capitalize">{importStats.mode ?? "?"}</p>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Products added</p>
-                  <p className="text-2xl font-semibold">{importStats.addedProducts}</p>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Stock adjustments</p>
-                  <p className="text-2xl font-semibold">{importStats.stockAdjusted}</p>
-                  <p className="text-xs text-muted-foreground">{importStats.skipped} skipped rows</p>
-                </div>
-              </div>
-            )}
-
-            {importStats?.type === "loyalty" && (
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Mode</p>
-                  <p className="text-lg font-semibold capitalize">{importStats.mode ?? "?"}</p>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">New customers</p>
-                  <p className="text-2xl font-semibold">{importStats.imported}</p>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Updated records</p>
-                  <p className="text-2xl font-semibold">{importStats.updated}</p>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Skipped duplicates</p>
-                  <p className="text-2xl font-semibold">{importStats.skipped}</p>
-                  <p className="text-xs text-muted-foreground">Duplicates skipped during Regularize mode.</p>
-                </div>
-              </div>
-            )}
-
-            {importStats?.type === "historical" && (
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Cutoff date</p>
-                  <p className="text-lg font-semibold">{importStats.cutoffDate?.slice(0, 10) || "—"}</p>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Imported rows</p>
-                  <p className="text-2xl font-semibold">{importStats.imported}</p>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">Skipped/Invalid</p>
-                  <p className="text-2xl font-semibold">{importStats.skipped + importStats.invalid}</p>
-                  <p className="text-xs text-muted-foreground">{importStats.skipped} skipped · {importStats.invalid} invalid</p>
-                </div>
-              </div>
-            )}
-
-            {importErrors.length > 0 && (
-              <div className="space-y-2">
-                <Alert variant="destructive">
-                  <AlertTitle>Some rows failed to import</AlertTitle>
-                  <AlertDescription>
-                    Review the errors below, correct your CSV, and retry. The valid rows were imported successfully.
-                  </AlertDescription>
+      {
+        (successSummary || importErrors.length > 0) && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Results</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {successSummary && (
+                <Alert variant="default" className="bg-green-50 border-green-200 text-green-900">
+                  <AlertTitle>Success</AlertTitle>
+                  <AlertDescription>{successSummary}</AlertDescription>
                 </Alert>
-                <div className="max-h-64 overflow-y-auto border rounded-md divide-y">
-                  {importErrors.map((rowError, index) => (
-                    <div key={`${rowError.error}-${index}`} className="p-3 text-sm space-y-1">
-                      <div className="font-medium text-red-600">{rowError.error}</div>
-                      {rowError.row && (
-                        <pre className="bg-muted/50 rounded p-2 text-xs overflow-x-auto whitespace-pre-wrap">{JSON.stringify(rowError.row, null, 2)}</pre>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
 
-            {(successSummary || importErrors.length > 0) && (
-              <div className="flex justify-end">
-                <Button variant="outline" onClick={() => {
-                  setSuccessSummary(null);
-                  setImportErrors([]);
-                  setImportStats(null);
-                }}>
-                  Clear Results
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              {importStats?.type === "inventory" && (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="rounded-lg border p-4">
+                    <p className="text-sm text-muted-foreground">Mode</p>
+                    <p className="text-lg font-semibold capitalize">{importStats.mode ?? "?"}</p>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <p className="text-sm text-muted-foreground">Products added</p>
+                    <p className="text-2xl font-semibold">{importStats.addedProducts}</p>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <p className="text-sm text-muted-foreground">Stock adjustments</p>
+                    <p className="text-2xl font-semibold">{importStats.stockAdjusted}</p>
+                    <p className="text-xs text-muted-foreground">{importStats.skipped} skipped rows</p>
+                  </div>
+                </div>
+              )}
+
+              {importStats?.type === "loyalty" && (
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="rounded-lg border p-4">
+                    <p className="text-sm text-muted-foreground">Mode</p>
+                    <p className="text-lg font-semibold capitalize">{importStats.mode ?? "?"}</p>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <p className="text-sm text-muted-foreground">New customers</p>
+                    <p className="text-2xl font-semibold">{importStats.imported}</p>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <p className="text-sm text-muted-foreground">Updated records</p>
+                    <p className="text-2xl font-semibold">{importStats.updated}</p>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <p className="text-sm text-muted-foreground">Skipped duplicates</p>
+                    <p className="text-2xl font-semibold">{importStats.skipped}</p>
+                    <p className="text-xs text-muted-foreground">Duplicates skipped during Regularize mode.</p>
+                  </div>
+                </div>
+              )}
+
+              {importErrors.length > 0 && (
+                <div className="space-y-2">
+                  <Alert variant="destructive">
+                    <AlertTitle>Some rows failed to import</AlertTitle>
+                    <AlertDescription>
+                      Review the errors below, correct your CSV, and retry. The valid rows were imported successfully.
+                    </AlertDescription>
+                  </Alert>
+                  <div className="max-h-64 overflow-y-auto border rounded-md divide-y">
+                    {importErrors.map((rowError, index) => (
+                      <div key={`${rowError.error}-${index}`} className="p-3 text-sm space-y-1">
+                        <div className="font-medium text-red-600">{rowError.error}</div>
+                        {rowError.row && (
+                          <pre className="bg-muted/50 rounded p-2 text-xs overflow-x-auto whitespace-pre-wrap">{JSON.stringify(rowError.row, null, 2)}</pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(successSummary || importErrors.length > 0) && (
+                <div className="flex justify-end">
+                  <Button variant="outline" onClick={() => {
+                    setSuccessSummary(null);
+                    setImportErrors([]);
+                    setImportStats(null);
+                  }}>
+                    Clear Results
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      }
 
       {/* Import History */}
       <Card>
@@ -688,6 +667,6 @@ export default function DataImport() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </div >
   );
 }
