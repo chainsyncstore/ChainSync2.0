@@ -43,7 +43,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
         ];
         additionalNotes = [
           "Mode guidance:",
-          "- Regularize: quantities will be ADDED to current stock.",
+          "- Add Bulk Stock (Regularize): quantities will be ADDED to current stock.",
           "- Overwrite: quantities will REPLACE current stock.",
 
         ];

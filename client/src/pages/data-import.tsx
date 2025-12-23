@@ -441,7 +441,7 @@ export default function DataImport() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="regularize">
-                        Regularize (add quantities to existing stock)
+                        Add Bulk Stock (adds to existing stock)
                       </SelectItem>
                       <SelectItem value="overwrite">
                         Overwrite (set quantities exactly to file values)
@@ -449,15 +449,15 @@ export default function DataImport() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Regularize adds the CSV quantity to current stock; Overwrite replaces stock with the CSV quantity.
+                    Add Bulk Stock adds the CSV quantity to current stock; Overwrite replaces stock with the CSV quantity.
                   </p>
                 </div>
                 <div className="rounded-lg border p-3 bg-muted/40 text-sm text-muted-foreground">
                   <p className="font-medium text-foreground">Mode tips</p>
                   <ul className="list-disc list-inside mt-1 space-y-1">
-                    <li>Use Regularize for cycle counts or incremental restocks.</li>
+                    <li>Use Add Bulk Stock for cycle counts or incremental restocks.</li>
                     <li>Use Overwrite when inventory should match the CSV exactly.</li>
-                    <li className="text-amber-600 font-medium">Note: Overwrite mode does not record stock loss/shrinkage events.</li>
+                    <li className="text-amber-600 font-medium">Note: Overwrite mode does not record stock loss/shrinkage events for analytics.</li>
                   </ul>
                 </div>
               </div>
@@ -563,7 +563,7 @@ export default function DataImport() {
                   <div className="rounded-lg border p-4">
                     <p className="text-sm text-muted-foreground">Skipped duplicates</p>
                     <p className="text-2xl font-semibold">{importStats.skipped}</p>
-                    <p className="text-xs text-muted-foreground">Duplicates skipped during Regularize mode.</p>
+                    <p className="text-xs text-muted-foreground">Duplicates skipped during Add Bulk Stock mode.</p>
                   </div>
                 </div>
               )}
