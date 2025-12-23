@@ -540,7 +540,7 @@ function OverviewTab({ data, isLoading }: OverviewTabProps) {
         />
         {data.taxCollected && (
           <KpiCard
-            title="Tax Collected"
+            title="Net Tax Collected"
             value={formatMoney(data.taxCollected)}
             icon={<Receipt className="h-4 w-4 text-slate-500" />}
             subtitle="Pass-through liability"
@@ -741,7 +741,7 @@ function SalesTab({ storeId, currency, effectiveRange, salesData, timeseriesData
                   <span className="font-medium">{formatMoney(profitLoss.revenue)}</span>
                 </div>
                 <div className="flex justify-between text-amber-600">
-                  <span>Tax Collected</span>
+                  <span>Net Tax Collected</span>
                   <span>−{formatMoney(profitLoss.taxCollected)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
