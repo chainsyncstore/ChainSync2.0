@@ -488,12 +488,12 @@ export default function DataImport() {
                       <SelectValue placeholder="Select mode" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="regularize">Regularize (ignore duplicates by email/phone)</SelectItem>
-                      <SelectItem value="overwrite">Overwrite (update matching customers)</SelectItem>
+                      <SelectItem value="regularize">Append Only (Regularize - skips existing)</SelectItem>
+                      <SelectItem value="overwrite">Update Existing (Overwrite - updates matches)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Regularize skips rows whose email or phone already exists so you can append partial lists. Overwrite updates matching rows with the new contact info and point balances.
+                    Append Only adds new members but skips anyone found in the system. Update Existing refreshes contact info and points for matching members.
                   </p>
                 </div>
                 <div className="rounded-lg border p-3 bg-muted/40 text-sm text-muted-foreground">
@@ -501,7 +501,8 @@ export default function DataImport() {
                   <ul className="list-disc list-inside mt-1 space-y-1">
                     <li>Include either phone or email (or both); that’s how cashiers search for members.</li>
                     <li>current_points becomes today’s balance; lifetime_points should reflect everything the member has earned.</li>
-                    <li>Use Regularize for incremental uploads; use Overwrite to refresh contact info or point totals en masse.</li>
+                    <li>Use Append Only for incremental uploads (safe for partial lists).</li>
+                    <li>Use Update Existing to mass-update contact info or correct point balances.</li>
                   </ul>
                 </div>
               </div>
