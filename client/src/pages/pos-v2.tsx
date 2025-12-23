@@ -152,8 +152,17 @@ export default function POSV2() {
 
   // Initialize store and sync inventory on mount
   useEffect(() => {
-    if (stores.length > 0 && !selectedStore) {
-      setSelectedStore(stores[0].id);
+    if (stores.length > 0) {
+      if (!selectedStore) {
+        setSelectedStore(stores[0].id);
+      } else {
+        // Ensure selected store actually exists in the list (handle stale state)
+        const exists = stores.some((s) => s.id === selectedStore);
+        if (!exists) {
+          console.warn(`Selected store ${selectedStore} not found in available stores. Resetting to ${stores[0].id}`);
+          setSelectedStore(stores[0].id);
+        }
+      }
     }
   }, [stores, selectedStore]);
 

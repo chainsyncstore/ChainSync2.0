@@ -1411,12 +1411,12 @@ export async function registerInventoryRoutes(app: Express) {
               const p = (existing as any)[0];
               // Update product - handle barcode conflicts by setting to null if duplicate
               try {
-                await db.execute(sql`UPDATE products SET barcode = ${r.barcode}, name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
+                await db.execute(sql`UPDATE products SET barcode = ${r.barcode}, name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}, is_active = true
                 WHERE id = ${p.id}`);
               } catch (updateErr: any) {
                 if (updateErr?.code === '23505' && updateErr?.constraint?.includes('barcode')) {
                   // Barcode conflict - update without barcode
-                  await db.execute(sql`UPDATE products SET name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}
+                  await db.execute(sql`UPDATE products SET name = ${r.name}, cost_price = ${r.cost_price}, sale_price = ${r.sale_price}, vat_rate = ${r.vat_rate}, price = ${r.sale_price}, is_active = true
                   WHERE id = ${p.id}`);
                   logger.warn('Barcode conflict during import, skipping barcode update', { sku: r.sku, barcode: r.barcode });
                 } else {
