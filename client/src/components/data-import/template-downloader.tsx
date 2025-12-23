@@ -17,7 +17,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
       case "inventory":
         headers = [
           "sku",
-          "product_name", 
+          "product_name",
           "barcode",
           "description",
           "price",
@@ -45,10 +45,10 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "Mode guidance:",
           "- Regularize: quantities will be ADDED to current stock.",
           "- Overwrite: quantities will REPLACE current stock.",
-          "Tip: include store_id or store_code if importing for non-default store."
+
         ];
         break;
-      
+
       case "products":
         headers = [
           "name",
@@ -69,7 +69,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "Sample Brand"
         ];
         break;
-      
+
       case "transactions":
         headers = [
           "transaction_date",
@@ -97,7 +97,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "Imported rows are tagged as historical and excluded from live alerts."
         ];
         break;
-      
+
       case "loyalty":
         headers = [
           "first_name",
@@ -135,7 +135,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
 
     // Create CSV content
     let additionalRows: string[] = [];
-    
+
     if (type === "loyalty") {
       additionalRows = [
         "Jane,Smith,jane.smith@email.com,+1-555-0456,LOY002,3200,5000,2023-11-02,true",
@@ -189,7 +189,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
         }
       });
     }
-    
+
     const csvSections = [
       headers.join(","),
       sampleData.join(","),
@@ -215,8 +215,8 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
   };
 
   return (
-    <Button 
-      variant="outline" 
+    <Button
+      variant="outline"
       onClick={generateTemplate}
       className={className}
     >

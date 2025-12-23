@@ -457,6 +457,7 @@ export default function DataImport() {
                   <ul className="list-disc list-inside mt-1 space-y-1">
                     <li>Use Regularize for cycle counts or incremental restocks.</li>
                     <li>Use Overwrite when inventory should match the CSV exactly.</li>
+                    <li className="text-amber-600 font-medium">Note: Overwrite mode does not record stock loss/shrinkage events.</li>
                   </ul>
                 </div>
               </div>
