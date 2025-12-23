@@ -156,6 +156,7 @@ export const stores = pgTable("stores", {
   email: varchar("email", { length: 255 }),
   currency: varchar("currency", { length: 3 }).default('USD'),
   taxRate: decimal("tax_rate", { precision: 5, scale: 4 }).default("0.085"),
+  taxIncluded: boolean("tax_included").notNull().default(false),
   loyaltyEarnRateOverride: decimal("loyalty_earn_rate_override", { precision: 10, scale: 4 }),
   loyaltyRedeemValueOverride: decimal("loyalty_redeem_value_override", { precision: 10, scale: 4 }),
   isActive: boolean("is_active").default(true),
@@ -1017,18 +1018,18 @@ export const ipWhitelists = pgTable("ip_whitelists", {
 
 // IP Whitelist Logs table
 export const ipWhitelistLogs = pgTable("ip_whitelist_logs", {
-	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-	ipAddress: varchar("ip_address", { length: 45 }).notNull(),
-	userId: uuid("user_id"),
-	username: varchar("username", { length: 255 }),
-	action: varchar("action", { length: 50 }).notNull(), // 'login_attempt', 'whitelist_added', 'whitelist_removed'
-	success: boolean("success").notNull(),
-	reason: varchar("reason", { length: 255 }),
-	userAgent: text("user_agent"),
-	createdAt: timestamp("created_at").defaultNow(),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  ipAddress: varchar("ip_address", { length: 45 }).notNull(),
+  userId: uuid("user_id"),
+  username: varchar("username", { length: 255 }),
+  action: varchar("action", { length: 50 }).notNull(), // 'login_attempt', 'whitelist_added', 'whitelist_removed'
+  success: boolean("success").notNull(),
+  reason: varchar("reason", { length: 255 }),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-	ipAddressIdx: index("ip_whitelist_logs_ip_address_idx").on(table.ipAddress),
-	userIdIdx: index("ip_whitelist_logs_user_id_idx").on(table.userId),
+  ipAddressIdx: index("ip_whitelist_logs_ip_address_idx").on(table.ipAddress),
+  userIdIdx: index("ip_whitelist_logs_user_id_idx").on(table.userId),
 }));
 
 // Subscription Payments table
@@ -1107,15 +1108,15 @@ export const scheduledReports = pgTable("scheduled_reports", {
 
 // Password Reset Tokens table
 export const passwordResetTokens = pgTable("password_reset_tokens", {
-	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-	userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-	token: varchar("token", { length: 255 }).notNull().unique(),
-	expiresAt: timestamp("expires_at").notNull(),
-	isUsed: boolean("is_used").default(false),
-	createdAt: timestamp("created_at").defaultNow(),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  isUsed: boolean("is_used").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-	userIdIdx: index("password_reset_tokens_user_id_idx").on(table.userId),
-	tokenIdx: index("password_reset_tokens_token_idx").on(table.token),
+  userIdIdx: index("password_reset_tokens_user_id_idx").on(table.userId),
+  tokenIdx: index("password_reset_tokens_token_idx").on(table.token),
 }));
 
 // IP Whitelist Insert Schemas
@@ -1139,97 +1140,97 @@ export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSc
 
 // Email Verification Tokens table
 export const emailVerificationTokens = pgTable("email_verification_tokens", {
-	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-	userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-	token: varchar("token", { length: 255 }).notNull().unique(),
-	expiresAt: timestamp("expires_at").notNull(),
-	isUsed: boolean("is_used").default(false),
-	createdAt: timestamp("created_at").defaultNow(),
-	usedAt: timestamp("used_at"),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  isUsed: boolean("is_used").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  usedAt: timestamp("used_at"),
 }, (table) => ({
-	userIdIdx: index("email_verification_tokens_user_id_idx").on(table.userId),
-	tokenIdx: index("email_verification_tokens_token_idx").on(table.token),
-	expiresAtIdx: index("email_verification_tokens_expires_at_idx").on(table.expiresAt),
+  userIdIdx: index("email_verification_tokens_user_id_idx").on(table.userId),
+  tokenIdx: index("email_verification_tokens_token_idx").on(table.token),
+  expiresAtIdx: index("email_verification_tokens_expires_at_idx").on(table.expiresAt),
 }));
 
 // Phone Verification OTP table
 export const phoneVerificationOTP = pgTable("phone_verification_otp", {
-	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-	userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-	phone: varchar("phone", { length: 50 }).notNull(),
-	otpHash: varchar("otp_hash", { length: 255 }).notNull(),
-	expiresAt: timestamp("expires_at").notNull(),
-	attempts: integer("attempts").default(0),
-	maxAttempts: integer("max_attempts").default(3),
-	createdAt: timestamp("created_at").defaultNow(),
-	verifiedAt: timestamp("verified_at"),
-	isVerified: boolean("is_verified").default(false),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  phone: varchar("phone", { length: 50 }).notNull(),
+  otpHash: varchar("otp_hash", { length: 255 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  attempts: integer("attempts").default(0),
+  maxAttempts: integer("max_attempts").default(3),
+  createdAt: timestamp("created_at").defaultNow(),
+  verifiedAt: timestamp("verified_at"),
+  isVerified: boolean("is_verified").default(false),
 }, (table) => ({
-	userIdIdx: index("phone_verification_otp_user_id_idx").on(table.userId),
-	phoneIdx: index("phone_verification_otp_phone_idx").on(table.phone),
-	expiresAtIdx: index("phone_verification_otp_expires_at_idx").on(table.expiresAt),
+  userIdIdx: index("phone_verification_otp_user_id_idx").on(table.userId),
+  phoneIdx: index("phone_verification_otp_phone_idx").on(table.phone),
+  expiresAtIdx: index("phone_verification_otp_expires_at_idx").on(table.expiresAt),
 }));
 
 // Account Lockout Logs table
 export const accountLockoutLogs = pgTable("account_lockout_logs", {
-	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-	userId: uuid("user_id"),
-	username: varchar("username", { length: 255 }).notNull(),
-	ipAddress: varchar("ip_address", { length: 45 }).notNull(),
-	action: varchar("action", { length: 50 }).notNull(),
-	success: boolean("success").notNull(),
-	reason: text("reason"),
-	userAgent: text("user_agent"),
-	createdAt: timestamp("created_at").defaultNow(),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id"),
+  username: varchar("username", { length: 255 }).notNull(),
+  ipAddress: varchar("ip_address", { length: 45 }).notNull(),
+  action: varchar("action", { length: 50 }).notNull(),
+  success: boolean("success").notNull(),
+  reason: text("reason"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-	userIdIdx: index("account_lockout_logs_user_id_idx").on(table.userId),
-	ipAddressIdx: index("account_lockout_logs_ip_address_idx").on(table.ipAddress),
-	createdAtIdx: index("account_lockout_logs_created_at_idx").on(table.createdAt),
-	actionIdx: index("account_lockout_logs_action_idx").on(table.action),
+  userIdIdx: index("account_lockout_logs_user_id_idx").on(table.userId),
+  ipAddressIdx: index("account_lockout_logs_ip_address_idx").on(table.ipAddress),
+  createdAtIdx: index("account_lockout_logs_created_at_idx").on(table.createdAt),
+  actionIdx: index("account_lockout_logs_action_idx").on(table.action),
 }));
 
 // User Sessions table
 export const userSessions = pgTable("user_sessions", {
-	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-	userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-	sessionToken: text("session_token").notNull(),
-	refreshToken: text("refresh_token").notNull(),
-	ipAddress: varchar("ip_address", { length: 45 }),
-	userAgent: text("user_agent"),
-	expiresAt: timestamp("expires_at").notNull(),
-	refreshExpiresAt: timestamp("refresh_expires_at").notNull(),
-	isActive: boolean("is_active").notNull().default(true),
-	createdAt: timestamp("created_at").defaultNow(),
-	lastUsedAt: timestamp("last_used_at"),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sessionToken: text("session_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  expiresAt: timestamp("expires_at").notNull(),
+  refreshExpiresAt: timestamp("refresh_expires_at").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
 }, (table) => ({
-	userIdIdx: index("user_sessions_user_id_idx").on(table.userId),
-	refreshTokenIdx: index("user_sessions_refresh_token_idx").on(table.refreshToken),
-	isActiveIdx: index("user_sessions_is_active_idx").on(table.isActive),
+  userIdIdx: index("user_sessions_user_id_idx").on(table.userId),
+  refreshTokenIdx: index("user_sessions_refresh_token_idx").on(table.refreshToken),
+  isActiveIdx: index("user_sessions_is_active_idx").on(table.isActive),
 }));
 
 // Webhook events idempotency table
 export const webhookEvents = pgTable("webhook_events", {
-	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-	provider: varchar("provider", { length: 32 }).notNull(),
-	eventId: varchar("event_id", { length: 255 }).notNull().unique(),
-	createdAt: timestamp("created_at").defaultNow(),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  eventId: varchar("event_id", { length: 255 }).notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-	providerIdx: index("webhook_events_provider_idx").on(table.provider),
-	eventIdIdx: index("webhook_events_event_id_idx").on(table.eventId),
+  providerIdx: index("webhook_events_provider_idx").on(table.provider),
+  eventIdIdx: index("webhook_events_event_id_idx").on(table.eventId),
 }));
 
 // Stock alerts table used by nightly low stock scanner
 export const stockAlerts = pgTable("stock_alerts", {
-	id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-	storeId: uuid("store_id").notNull(),
-	productId: uuid("product_id").notNull(),
-	currentQty: integer("current_qty").notNull(),
-	reorderLevel: integer("reorder_level").notNull(),
-	resolved: boolean("resolved").notNull().default(false),
-	createdAt: timestamp("created_at").defaultNow(),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull(),
+  productId: uuid("product_id").notNull(),
+  currentQty: integer("current_qty").notNull(),
+  reorderLevel: integer("reorder_level").notNull(),
+  resolved: boolean("resolved").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-	storeIdx: index("stock_alerts_store_id_idx").on(table.storeId),
-	productIdx: index("stock_alerts_product_id_idx").on(table.productId),
+  storeIdx: index("stock_alerts_store_id_idx").on(table.storeId),
+  productIdx: index("stock_alerts_product_id_idx").on(table.productId),
 }));
 
 // Subscription Insert Schemas

@@ -74,8 +74,12 @@ export default function MultiStore() {
   const [newStoreCurrency, setNewStoreCurrency] = useState<'NGN' | 'USD'>("NGN");
   const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
   const [newStoreTaxRate, setNewStoreTaxRate] = useState("8.5");
+  const [newStoreTaxIncluded, setNewStoreTaxIncluded] = useState(false);
   const [taxRateEdits, setTaxRateEdits] = useState<Record<string, string>>({});
   const [savingTaxRateId, setSavingTaxRateId] = useState<string | null>(null);
+  // eslint-disable-next-line no-unused-vars
+  const [_taxIncludedEdits, setTaxIncludedEdits] = useState<Record<string, boolean>>({});
+  const [savingTaxIncludedId, setSavingTaxIncludedId] = useState<string | null>(null);
   const [storeNameEdits, setStoreNameEdits] = useState<Record<string, string>>({});
   const [updatingNameId, setUpdatingNameId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
@@ -122,19 +126,21 @@ export default function MultiStore() {
           address: newStoreAddress.trim() || undefined,
           currency: newStoreCurrency,
           taxRate: Math.max(0, Number.parseFloat(newStoreTaxRate) / 100 || 0),
+          taxIncluded: newStoreTaxIncluded,
         }),
       });
       if (!res.ok) throw new Error(String(res.status));
       setNewStoreName("");
       setNewStoreAddress("");
       setNewStoreTaxRate("8.5");
+      setNewStoreTaxIncluded(false);
       toast({ title: "Store created", description: `Currency: ${newStoreCurrency}` });
       await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
     } catch (error) {
       console.error("Failed to create store", error);
       toast({ title: "Failed to create store", variant: "destructive" });
     }
-  }, [newStoreAddress, newStoreCurrency, newStoreName, newStoreTaxRate, queryClient, toast]);
+  }, [newStoreAddress, newStoreCurrency, newStoreName, newStoreTaxRate, newStoreTaxIncluded, queryClient, toast]);
 
   const deleteStore = useCallback(async (store: Store) => {
     const confirmed = window.confirm(`Delete ${store.name}? This cannot be undone.`);
@@ -391,6 +397,47 @@ export default function MultiStore() {
     }
   }, [queryClient, toast]);
 
+  const handleToggleTaxIncluded = useCallback(async (store: Store, newValue: boolean) => {
+    setSavingTaxIncludedId(store.id);
+    try {
+      const csrfToken = await getCsrfToken();
+      const res = await fetch(`/api/stores/${store.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        credentials: "include",
+        body: JSON.stringify({ taxIncluded: newValue }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        const message = payload?.error || payload?.message || "Failed to update tax mode";
+        toast({ title: "Failed to update", description: message, variant: "destructive" });
+        return;
+      }
+
+      toast({
+        title: "Tax mode updated",
+        description: newValue
+          ? `${store.name}: Tax now included in prices`
+          : `${store.name}: Tax now added to prices`
+      });
+      setTaxIncludedEdits((prev) => {
+        const next = { ...prev };
+        delete next[store.id];
+        return next;
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+    } catch (error) {
+      console.error("Failed to update tax mode", error);
+      toast({ title: "Failed to update", description: "Network error", variant: "destructive" });
+    } finally {
+      setSavingTaxIncludedId(null);
+    }
+  }, [queryClient, toast]);
+
   const handleToggleStoreActive = useCallback(async (store: Store) => {
     const currentlyActive = store.isActive !== false;
 
@@ -523,6 +570,37 @@ export default function MultiStore() {
               />
               <p className="text-xs text-muted-foreground">Displayed as a percentage · stored as a decimal.</p>
             </div>
+            <div className="space-y-2">
+              <Label>Tax mode</Label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="new-store-tax-mode"
+                    checked={!newStoreTaxIncluded}
+                    onChange={() => setNewStoreTaxIncluded(false)}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-sm">Tax added to price</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="new-store-tax-mode"
+                    checked={newStoreTaxIncluded}
+                    onChange={() => setNewStoreTaxIncluded(true)}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-sm">Tax included in price</span>
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {newStoreTaxIncluded
+                  ? "Sale prices already include tax. Tax will be back-calculated from the total."
+                  : "Tax will be added on top of sale prices at checkout."
+                }
+              </p>
+            </div>
             <div className="space-y-2 md:col-span-2 lg:col-span-3">
               <Button onClick={createStore} className="w-full md:w-auto">Create store</Button>
             </div>
@@ -606,6 +684,8 @@ export default function MultiStore() {
                 const nameInputValue = storeNameEdits[store.id] ?? store.name;
                 const isSavingName = updatingNameId === store.id;
                 const isTogglingStatus = updatingStatusId === store.id;
+                const storeTaxIncluded = (store as any).taxIncluded ?? false;
+                const isSavingTaxIncluded = savingTaxIncludedId === store.id;
 
                 return (
                   <Card key={store.id} className="flex flex-col border-muted/60 shadow-none">
@@ -692,6 +772,41 @@ export default function MultiStore() {
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
                           Stored as {parseTaxRate(store.taxRate).toFixed(4)} in decimal form.
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label>Tax mode</Label>
+                        <div className="mt-2 flex flex-col gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`store-tax-mode-${store.id}`}
+                              checked={!storeTaxIncluded}
+                              onChange={() => handleToggleTaxIncluded(store, false)}
+                              disabled={isSavingTaxIncluded}
+                              className="h-4 w-4"
+                            />
+                            <span className="text-sm">Tax added to price</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`store-tax-mode-${store.id}`}
+                              checked={storeTaxIncluded}
+                              onChange={() => handleToggleTaxIncluded(store, true)}
+                              disabled={isSavingTaxIncluded}
+                              className="h-4 w-4"
+                            />
+                            <span className="text-sm">Tax included in price</span>
+                            {isSavingTaxIncluded && <Loader2 className="h-3 w-3 animate-spin" />}
+                          </label>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {storeTaxIncluded
+                            ? "Prices already include tax. Tax is back-calculated."
+                            : "Tax is added on top of prices at checkout."
+                          }
                         </p>
                       </div>
 

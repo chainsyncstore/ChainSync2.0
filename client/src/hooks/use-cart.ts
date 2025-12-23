@@ -6,6 +6,7 @@ export function useCart() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [payment, setPayment] = useState<PaymentData>({ method: "cash" });
   const [taxRate, setTaxRate] = useState(0.085);
+  const [taxIncluded, setTaxIncluded] = useState(false);
   const [redeemValue, setRedeemValue] = useState(0.01);
   const [redeemPoints, setRedeemPoints] = useState(0);
 
@@ -22,6 +23,9 @@ export function useCart() {
       if (typeof savedCart.taxRate === "number") {
         setTaxRate(Math.max(0, Math.min(1, savedCart.taxRate)));
       }
+      if (typeof savedCart.taxIncluded === "boolean") {
+        setTaxIncluded(savedCart.taxIncluded);
+      }
       if (typeof savedCart.redeemValue === "number") {
         setRedeemValue(Math.max(0, savedCart.redeemValue));
       }
@@ -33,9 +37,9 @@ export function useCart() {
 
   // Save cart to localStorage whenever items or payment changes
   useEffect(() => {
-    const cartData = { items, payment, taxRate, redeemValue, redeemPoints };
+    const cartData = { items, payment, taxRate, taxIncluded, redeemValue, redeemPoints };
     saveCart(cartData);
-  }, [items, payment, taxRate, redeemValue, redeemPoints]);
+  }, [items, payment, taxRate, taxIncluded, redeemValue, redeemPoints]);
 
   const removeItem = useCallback((itemId: string) => {
     setItems(currentItems => currentItems.filter(item => item.id !== itemId));
@@ -44,7 +48,7 @@ export function useCart() {
   const addItem = useCallback((product: { id: string; name: string; barcode: string; price: number }) => {
     setItems(currentItems => {
       const existingItem = currentItems.find(item => item.productId === product.id);
-      
+
       if (existingItem) {
         return currentItems.map(item =>
           item.productId === product.id
@@ -52,7 +56,7 @@ export function useCart() {
             : item
         );
       }
-      
+
       return [...currentItems, {
         id: `${product.id}-${Date.now()}`,
         productId: product.id,
@@ -93,14 +97,39 @@ export function useCart() {
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const appliedRedeemDiscount = Math.min(subtotal, Math.max(0, redeemPoints) * Math.max(0, redeemValue));
   const taxableSubtotal = Math.max(0, subtotal - appliedRedeemDiscount);
-  const computedTax = taxableSubtotal * Math.max(0, taxRate);
+
+  // Calculate tax based on mode
+  // Tax included: back-calculate tax from the total (prices already contain tax)
+  // Tax excluded: calculate tax on top of subtotal (current behavior)
+  const effectiveTaxRate = Math.max(0, taxRate);
+  let computedTax: number;
+  let finalTotal: number;
+  let displaySubtotal: number;
+
+  if (taxIncluded && effectiveTaxRate > 0) {
+    // Tax is already included in item prices
+    // Back-calculate: subtotal already contains tax, so extract it
+    // Formula: preTaxAmount = total / (1 + taxRate)
+    // taxAmount = total - preTaxAmount
+    const preTaxAmount = taxableSubtotal / (1 + effectiveTaxRate);
+    computedTax = taxableSubtotal - preTaxAmount;
+    displaySubtotal = preTaxAmount;
+    finalTotal = taxableSubtotal; // Total is the same as item prices (tax already included)
+  } else {
+    // Tax is added on top of item prices (original behavior)
+    computedTax = taxableSubtotal * effectiveTaxRate;
+    displaySubtotal = taxableSubtotal;
+    finalTotal = taxableSubtotal + computedTax;
+  }
+
   const summary: CartSummary = {
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
-    subtotal,
+    subtotal: displaySubtotal,
     redeemDiscount: appliedRedeemDiscount,
     tax: computedTax,
-    total: taxableSubtotal + computedTax,
+    total: finalTotal,
     taxRate,
+    taxIncluded,
   };
 
   const updatePayment = useCallback((paymentData: Partial<PaymentData>) => {
@@ -115,6 +144,10 @@ export function useCart() {
 
   const updateTaxRateValue = useCallback((value: number) => {
     setTaxRate(Math.max(0, Math.min(1, value)));
+  }, []);
+
+  const updateTaxIncluded = useCallback((value: boolean) => {
+    setTaxIncluded(value);
   }, []);
 
   const updateRedeemValue = useCallback((value: number) => {
@@ -138,6 +171,8 @@ export function useCart() {
     calculateChange,
     taxRate,
     setTaxRate: updateTaxRateValue,
+    taxIncluded,
+    setTaxIncluded: updateTaxIncluded,
     redeemValue,
     setRedeemValue: updateRedeemValue,
     redeemPoints,

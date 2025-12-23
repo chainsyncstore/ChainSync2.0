@@ -15,6 +15,7 @@ export interface ReceiptTotals {
   total: number;
   currency: string;
   paymentMethod: string;
+  taxIncluded?: boolean;
 }
 
 export interface ReceiptPrintJob {
@@ -68,7 +69,11 @@ export function renderReceipt(job: ReceiptPrintJob): string {
   if (job.totals.discount > 0) {
     lines.push(`Discount: -${formatCurrency(job.totals.discount, job.totals.currency)}`);
   }
-  lines.push(`Tax: ${formatCurrency(job.totals.tax, job.totals.currency)}`);
+  if (job.totals.taxIncluded) {
+    lines.push(`Tax (incl.): ${formatCurrency(job.totals.tax, job.totals.currency)}`);
+  } else {
+    lines.push(`Tax: ${formatCurrency(job.totals.tax, job.totals.currency)}`);
+  }
   lines.push(`TOTAL: ${formatCurrency(job.totals.total, job.totals.currency)}`);
   lines.push(`Paid via ${job.totals.paymentMethod.toUpperCase()}`);
   lines.push(divider);

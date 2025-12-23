@@ -15,6 +15,7 @@ export interface CartSummary {
   tax: number;
   total: number;
   taxRate: number;
+  taxIncluded: boolean;
 }
 
 export interface PaymentPortion {

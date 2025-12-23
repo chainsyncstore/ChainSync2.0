@@ -13,6 +13,7 @@ const CreateStoreSchema = z.object({
   address: z.string().optional(),
   currency: z.enum(['NGN', 'USD']).optional().default('NGN'),
   taxRate: taxRateSchema.optional(),
+  taxIncluded: z.boolean().optional().default(false),
 });
 
 const UpdateStoreSchema = z.object({
@@ -21,6 +22,7 @@ const UpdateStoreSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional(),
   taxRate: taxRateSchema.optional(),
+  taxIncluded: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -64,6 +66,7 @@ export async function registerStoreRoutes(app: Express) {
       address: parsed.data.address || null,
       currency: parsed.data.currency,
       taxRate: Number.isFinite(taxRate) ? taxRate.toFixed(4) : '0.0850',
+      taxIncluded: parsed.data.taxIncluded ?? false,
     } as any).returning();
 
     return res.status(201).json(created);

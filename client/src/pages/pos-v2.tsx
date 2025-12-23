@@ -36,8 +36,8 @@ import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
-import { 
-  cacheCompletedSale, 
+import {
+  cacheCompletedSale,
   updateLocalInventory,
   searchProductsLocally,
   getProductByBarcodeLocally,
@@ -50,10 +50,10 @@ import {
   cacheSalesSnapshotForStore,
 } from "@/lib/idb-catalog";
 import type { CachedSale } from "@/lib/idb-catalog";
-import { 
-  generateIdempotencyKey, 
-  validateSalePayload, 
-  enqueueOfflineSale, 
+import {
+  generateIdempotencyKey,
+  validateSalePayload,
+  enqueueOfflineSale,
   getOfflineQueueCount,
   processQueueNow,
 } from "@/lib/offline-queue";
@@ -126,6 +126,7 @@ export default function POSV2() {
     payment,
     updatePayment,
     setTaxRate,
+    setTaxIncluded,
     setRedeemValue,
     redeemValue,
     redeemPoints,
@@ -159,10 +160,10 @@ export default function POSV2() {
   // Catalog refresh function - fetches latest products and updates IndexedDB
   const refreshCatalog = useCallback(async (force = false) => {
     if (!selectedStore || isCatalogRefreshing) return;
-    
+
     try {
       setIsCatalogRefreshing(true);
-      
+
       // Check if refresh is needed (skip if recently synced, unless forced)
       if (!force) {
         const meta = await getCatalogSyncMeta(selectedStore);
@@ -171,27 +172,27 @@ export default function POSV2() {
           return;
         }
       }
-      
+
       // Skip network request if offline - just use cached data
       if (!navigator.onLine) {
         const meta = await getCatalogSyncMeta(selectedStore);
         if (meta) setCatalogLastSync(meta.lastSyncAt);
         return;
       }
-      
+
       // Add timeout to prevent hanging
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const res = await fetch(`/api/stores/${selectedStore}/products?limit=1000`, { 
+
+      const res = await fetch(`/api/stores/${selectedStore}/products?limit=1000`, {
         credentials: "include",
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
-      
+
       if (res.ok) {
         const products = await res.json();
-        
+
         // Clear old products and insert fresh data to remove stale items
         await clearProducts();
         await putProducts(
@@ -202,7 +203,7 @@ export default function POSV2() {
             price: String(p.salePrice || p.price || "0"),
           }))
         );
-        
+
         // Update sync metadata
         const now = Date.now();
         await setCatalogSyncMeta({ storeId: selectedStore, lastSyncAt: now, productCount: products.length });
@@ -222,140 +223,140 @@ export default function POSV2() {
     }
   }, [selectedStore, isCatalogRefreshing]);
 
-	// Rolling sales snapshot for offline returns/swaps - when online, cache
-	// recent sales for this store so Returns/Swaps can look them up by receipt
-	// ID even if they were made on another terminal.
-	const syncRecentSalesSnapshot = useCallback(async (limitOverride: number = 1000) => {
-	  if (!selectedStore) return;
-	  if (!navigator.onLine) return;
+  // Rolling sales snapshot for offline returns/swaps - when online, cache
+  // recent sales for this store so Returns/Swaps can look them up by receipt
+  // ID even if they were made on another terminal.
+  const syncRecentSalesSnapshot = useCallback(async (limitOverride: number = 1000) => {
+    if (!selectedStore) return;
+    if (!navigator.onLine) return;
 
-	  try {
-	    const controller = new AbortController();
-	    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-	    const res = await fetch(`/api/pos/sales?storeId=${selectedStore}&limit=${limitOverride}`, {
-	      credentials: "include",
-	      signal: controller.signal,
-	    });
-	    clearTimeout(timeoutId);
+      const res = await fetch(`/api/pos/sales?storeId=${selectedStore}&limit=${limitOverride}`, {
+        credentials: "include",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-	    if (!res.ok) return;
-	    const body = await res.json().catch(() => null);
-	    if (!body || !Array.isArray(body.data)) return;
+      if (!res.ok) return;
+      const body = await res.json().catch(() => null);
+      if (!body || !Array.isArray(body.data)) return;
 
-	    const nowIso = new Date().toISOString();
-	    const snapshot: CachedSale[] = (body.data as any[]).map((sale) => ({
-	      id: String(sale.id),
-	      receiptNumber: String((sale as any).receiptNumber ?? sale.id),
-	      idempotencyKey: (sale as any).idempotencyKey ? String((sale as any).idempotencyKey) : undefined,
-	      storeId: String(sale.storeId),
-	      subtotal: Number(sale.subtotal || 0),
-	      discount: Number(sale.discount || 0),
-	      tax: Number(sale.tax || 0),
-	      total: Number(sale.total || 0),
-	      paymentMethod: String(sale.paymentMethod || "manual"),
-	      status: (sale as any).status === "RETURNED" ? "RETURNED" : "COMPLETED",
-	      items: (sale.items || []).map((item: any) => ({
-	        id: String(item.id),
-	        productId: String(item.productId),
-	        quantity: Number(item.quantity || 0),
-	        unitPrice: Number(item.unitPrice || 0),
-	        lineTotal: Number(item.lineTotal || 0),
-	        name: item.name || null,
-	        quantityReturned: undefined,
-	      })),
-	      occurredAt: String(sale.occurredAt || nowIso),
-	      isOffline: false,
-	      syncedAt: nowIso,
-	      serverId: String(sale.id),
-	    }));
+      const nowIso = new Date().toISOString();
+      const snapshot: CachedSale[] = (body.data as any[]).map((sale) => ({
+        id: String(sale.id),
+        receiptNumber: String((sale as any).receiptNumber ?? sale.id),
+        idempotencyKey: (sale as any).idempotencyKey ? String((sale as any).idempotencyKey) : undefined,
+        storeId: String(sale.storeId),
+        subtotal: Number(sale.subtotal || 0),
+        discount: Number(sale.discount || 0),
+        tax: Number(sale.tax || 0),
+        total: Number(sale.total || 0),
+        paymentMethod: String(sale.paymentMethod || "manual"),
+        status: (sale as any).status === "RETURNED" ? "RETURNED" : "COMPLETED",
+        items: (sale.items || []).map((item: any) => ({
+          id: String(item.id),
+          productId: String(item.productId),
+          quantity: Number(item.quantity || 0),
+          unitPrice: Number(item.unitPrice || 0),
+          lineTotal: Number(item.lineTotal || 0),
+          name: item.name || null,
+          quantityReturned: undefined,
+        })),
+        occurredAt: String(sale.occurredAt || nowIso),
+        isOffline: false,
+        syncedAt: nowIso,
+        serverId: String(sale.id),
+      }));
 
-	    await cacheSalesSnapshotForStore(selectedStore, snapshot);
-	  } catch (err) {
-	    console.warn("Failed to refresh sales snapshot for offline returns", err);
-	  }
-	}, [selectedStore]);
+      await cacheSalesSnapshotForStore(selectedStore, snapshot);
+    } catch (err) {
+      console.warn("Failed to refresh sales snapshot for offline returns", err);
+    }
+  }, [selectedStore]);
 
-	const salesSnapshotRealtimeTimerRef = useRef<number | null>(null);
-	const lastSalesSnapshotRealtimeAtRef = useRef(0);
+  const salesSnapshotRealtimeTimerRef = useRef<number | null>(null);
+  const lastSalesSnapshotRealtimeAtRef = useRef(0);
 
-	const scheduleRealtimeSalesSnapshotRefresh = useCallback(() => {
-	  if (!selectedStore) return;
-	  if (!navigator.onLine) return;
+  const scheduleRealtimeSalesSnapshotRefresh = useCallback(() => {
+    if (!selectedStore) return;
+    if (!navigator.onLine) return;
 
-	  const now = Date.now();
-	  const minIntervalMs = 1500;
-	  const elapsed = now - lastSalesSnapshotRealtimeAtRef.current;
+    const now = Date.now();
+    const minIntervalMs = 1500;
+    const elapsed = now - lastSalesSnapshotRealtimeAtRef.current;
 
-	  if (elapsed >= minIntervalMs) {
-	    lastSalesSnapshotRealtimeAtRef.current = now;
-	    void syncRecentSalesSnapshot(200);
-	    return;
-	  }
+    if (elapsed >= minIntervalMs) {
+      lastSalesSnapshotRealtimeAtRef.current = now;
+      void syncRecentSalesSnapshot(200);
+      return;
+    }
 
-	  if (salesSnapshotRealtimeTimerRef.current) return;
-	  salesSnapshotRealtimeTimerRef.current = window.setTimeout(() => {
-	    salesSnapshotRealtimeTimerRef.current = null;
-	    lastSalesSnapshotRealtimeAtRef.current = Date.now();
-	    void syncRecentSalesSnapshot(200);
-	  }, minIntervalMs - elapsed);
-	}, [selectedStore, syncRecentSalesSnapshot]);
+    if (salesSnapshotRealtimeTimerRef.current) return;
+    salesSnapshotRealtimeTimerRef.current = window.setTimeout(() => {
+      salesSnapshotRealtimeTimerRef.current = null;
+      lastSalesSnapshotRealtimeAtRef.current = Date.now();
+      void syncRecentSalesSnapshot(200);
+    }, minIntervalMs - elapsed);
+  }, [selectedStore, syncRecentSalesSnapshot]);
 
-	useEffect(() => {
-	  return () => {
-	    if (salesSnapshotRealtimeTimerRef.current) {
-	      window.clearTimeout(salesSnapshotRealtimeTimerRef.current);
-	      salesSnapshotRealtimeTimerRef.current = null;
-	    }
-	  };
-	}, [selectedStore]);
+  useEffect(() => {
+    return () => {
+      if (salesSnapshotRealtimeTimerRef.current) {
+        window.clearTimeout(salesSnapshotRealtimeTimerRef.current);
+        salesSnapshotRealtimeTimerRef.current = null;
+      }
+    };
+  }, [selectedStore]);
 
-	useRealtimeSales({
-	  orgId: user?.orgId ?? null,
-	  storeId: selectedStore || null,
-	  enabled: Boolean(selectedStore) && isOnline,
-	  onSaleCreated: () => {
-	    scheduleRealtimeSalesSnapshotRefresh();
-	  },
-	});
+  useRealtimeSales({
+    orgId: user?.orgId ?? null,
+    storeId: selectedStore || null,
+    enabled: Boolean(selectedStore) && isOnline,
+    onSaleCreated: () => {
+      scheduleRealtimeSalesSnapshotRefresh();
+    },
+  });
 
-	useEffect(() => {
-	  if (!selectedStore || !isOnline) return;
+  useEffect(() => {
+    if (!selectedStore || !isOnline) return;
 
-	  void syncRecentSalesSnapshot();
+    void syncRecentSalesSnapshot();
 
-	  const intervalId = setInterval(() => {
-	    if (!navigator.onLine) return;
-	    void syncRecentSalesSnapshot();
-	  }, 60 * 1000);
+    const intervalId = setInterval(() => {
+      if (!navigator.onLine) return;
+      void syncRecentSalesSnapshot();
+    }, 60 * 1000);
 
-	  const handleFocus = () => {
-	    if (!navigator.onLine) return;
-	    void syncRecentSalesSnapshot();
-	  };
+    const handleFocus = () => {
+      if (!navigator.onLine) return;
+      void syncRecentSalesSnapshot();
+    };
 
-	  window.addEventListener("focus", handleFocus);
+    window.addEventListener("focus", handleFocus);
 
-	  return () => {
-	    clearInterval(intervalId);
-	    window.removeEventListener("focus", handleFocus);
-	  };
-	}, [selectedStore, isOnline, syncRecentSalesSnapshot]);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [selectedStore, isOnline, syncRecentSalesSnapshot]);
 
   // Sync inventory snapshot on login/mount and start background refresh interval
   useEffect(() => {
     if (!selectedStore) return;
-    
+
     // Initial sync
     void refreshCatalog(true);
-    
+
     // Background refresh interval (every 2 minutes when online)
     const intervalId = setInterval(() => {
       if (navigator.onLine) {
         void refreshCatalog();
       }
     }, 2 * 60 * 1000);
-    
+
     return () => clearInterval(intervalId);
   }, [selectedStore, refreshCatalog]);
 
@@ -373,6 +374,11 @@ export default function POSV2() {
       if (Number.isFinite(rate)) setTaxRate(rate);
     }
   }, [currentStore?.taxRate, setTaxRate]);
+
+  // Apply store tax included setting
+  useEffect(() => {
+    setTaxIncluded(currentStore?.taxIncluded === true);
+  }, [currentStore?.taxIncluded, setTaxIncluded]);
 
   // Sync handler (defined before useEffect that uses it)
   const handleSyncNow = useCallback(async () => {
@@ -502,7 +508,7 @@ export default function POSV2() {
       // Local first (from IndexedDB cache)
       const local = await searchProductsLocally(query, 20);
       setSearchResults(local);
-      
+
       // Only fetch remote if online
       if (selectedStore && navigator.onLine) {
         try {
@@ -541,7 +547,7 @@ export default function POSV2() {
       const res = await fetch(`/api/customers?phone=${encodeURIComponent(customerPhone)}&storeId=${selectedStore}`, {
         credentials: "include",
       });
-      
+
       if (res.ok) {
         const customer = await res.json();
         if (customer?.id) {
@@ -553,7 +559,7 @@ export default function POSV2() {
           return;
         }
       }
-      
+
       // Fallback: Check local cache for customer data
       try {
         const cached = await getCustomerByPhone(customerPhone);
@@ -568,7 +574,7 @@ export default function POSV2() {
       } catch {
         // Cache lookup failed, continue
       }
-      
+
       // Customer not found
       toast({ title: "Customer not found", description: "No loyalty account found for this phone number.", variant: "destructive" });
       setLoyaltySyncStatus({ state: "error", message: "Customer not found" });
@@ -615,6 +621,7 @@ export default function POSV2() {
         total: cartSummary.total,
         currency,
         paymentMethod,
+        taxIncluded: cartSummary.taxIncluded,
       },
       footerNote: currentStore?.phone ? `Contact: ${currentStore.phone}` : undefined,
     }),
@@ -695,7 +702,7 @@ export default function POSV2() {
         } catch (err) {
           console.warn("[POS] getOfflineQueueCount failed", err);
         }
-        
+
         // Update local inventory optimistically (reduce quantities), but never block UI
         try {
           await Promise.race([
@@ -709,7 +716,7 @@ export default function POSV2() {
         } catch (err) {
           console.warn("[POS] updateLocalInventory failed", err);
         }
-        
+
         // Cache the sale locally for offline return/swap lookup, but with timeout
         const localId = `local_${Date.now()}_${idempotencyKey.slice(0, 8)}`;
         try {
@@ -741,7 +748,7 @@ export default function POSV2() {
         } catch (err) {
           console.warn("[POS] cacheCompletedSale failed", err);
         }
-        
+
         console.log("[POS] processOffline finished (non-blocking)");
         toast({ title: "Saved offline", description: reason });
         return { id: localId, offline: true, idempotencyKey };
@@ -776,7 +783,7 @@ export default function POSV2() {
 
           if (!res.ok) throw new Error(`${res.status}`);
           const saleResult = await res.json();
-          
+
           // Cache the completed sale for offline return/swap lookup
           await cacheCompletedSale({
             id: saleResult.id,
@@ -800,12 +807,12 @@ export default function POSV2() {
             isOffline: false,
             syncedAt: new Date().toISOString(),
           });
-          
+
           sale = saleResult;
         } catch (err) {
           // Network failed - process offline
           const isTimeout = err instanceof Error && err.name === "AbortError";
-          const reason = isTimeout 
+          const reason = isTimeout
             ? "Connection timed out. Sale saved locally."
             : "Network unavailable. Sale saved locally.";
           sale = await processOffline(reason);
@@ -880,7 +887,7 @@ export default function POSV2() {
     const now = new Date();
     const diffMs = now.getTime() - timestamp;
     const diffMins = Math.floor(diffMs / 60000);
-    
+
     if (diffMins < 1) return "just now";
     if (diffMins < 60) return `${diffMins}m ago`;
     if (date.toDateString() === now.toDateString()) {
@@ -975,11 +982,11 @@ export default function POSV2() {
                         {isSyncing ? "Syncing..." : "Sync Sales"}
                       </Button>
                     )}
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="w-full" 
-                      onClick={() => refreshCatalog(true)} 
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => refreshCatalog(true)}
                       disabled={isCatalogRefreshing || !isOnline}
                     >
                       <Package className={cn("w-4 h-4 mr-2", isCatalogRefreshing && "animate-pulse")} />
