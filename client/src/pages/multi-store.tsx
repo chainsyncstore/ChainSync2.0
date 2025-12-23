@@ -270,8 +270,11 @@ export default function MultiStore() {
           const payload = await res.json();
           const revenue: Money = payload.total ?? { amount: 0, currency: store.currency };
           const taxCollected: Money = payload.taxCollected ?? { amount: 0, currency: revenue.currency };
+          const netTax: Money = payload.netTax ?? { amount: taxCollected.amount, currency: revenue.currency };
           const refunds: Money = payload.refunds?.total ?? { amount: 0, currency: revenue.currency };
-          const net: Money = payload.net?.total ?? { amount: revenue.amount - refunds.amount, currency: revenue.currency };
+          // Net Revenue (Ex-Tax) = Gross Revenue - Gross Refunds - Net Tax
+          const netRevenueAmount = revenue.amount - refunds.amount - netTax.amount;
+          const net: Money = { amount: netRevenueAmount, currency: revenue.currency };
           const transactions: number = typeof payload.transactions === "number" ? payload.transactions : 0;
           const averageOrder: Money = transactions > 0
             ? { amount: revenue.amount / transactions, currency: revenue.currency }
@@ -282,7 +285,7 @@ export default function MultiStore() {
             storeName: store.name,
             currency: revenue.currency,
             revenue,
-            taxCollected,
+            taxCollected: netTax, // Use Net Tax for display
             refunds,
             netRevenue: net,
             transactions,
@@ -499,7 +502,7 @@ export default function MultiStore() {
       return;
     }
 
-    const header = ["Store", "Transactions", "Revenue", "Tax Collected", "Refunds", "Net Revenue", "Average Order", "Currency"];
+    const header = ["Store", "Transactions", "Revenue", "Net Tax", "Refunds", "Net Revenue", "Average Order", "Currency"];
     const rows = comparisonRows.map((row) => [
       row.storeName,
       row.transactions.toString(),
@@ -962,7 +965,7 @@ export default function MultiStore() {
                               <th className="p-3 font-medium">Store</th>
                               <th className="p-3 font-medium text-right">Transactions</th>
                               <th className="p-3 font-medium text-right">Revenue</th>
-                              <th className="p-3 font-medium text-right text-amber-600">Tax Collected</th>
+                              <th className="p-3 font-medium text-right text-amber-600">Net Tax</th>
                               <th className="p-3 font-medium text-right">Refunds</th>
                               <th className="p-3 font-medium text-right">Net revenue</th>
                               <th className="p-3 font-medium text-right">Avg. order</th>

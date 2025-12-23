@@ -275,9 +275,9 @@ export async function registerAnalyticsRoutes(app: Express) {
             });
             const normalized = normalizeCurrency
               ? await normalizeMoneyValues(values, baseCurrency, {
-                  orgId: orgIdForStore ?? orgId ?? 'system',
-                  baseCurrency,
-                })
+                orgId: orgIdForStore ?? orgId ?? 'system',
+                baseCurrency,
+              })
               : undefined;
 
             return res.json({
@@ -340,9 +340,9 @@ export async function registerAnalyticsRoutes(app: Express) {
 
       const normalized = normalizeCurrency
         ? await normalizeMoneyValues(revenueValues, baseCurrency, {
-            orgId: orgIdForStore ?? orgId ?? 'system',
-            baseCurrency,
-          })
+          orgId: orgIdForStore ?? orgId ?? 'system',
+          baseCurrency,
+        })
         : undefined;
 
       // Query REFUNDS from transactions table (unified with P&L)
@@ -350,6 +350,7 @@ export async function registerAnalyticsRoutes(app: Express) {
       const refundRows = await db.execute(sql`
         SELECT stores.currency as currency,
                COALESCE(SUM(transactions.total::numeric), 0) as total,
+               COALESCE(SUM(transactions.tax_amount::numeric), 0) as tax,
                COUNT(*) as count
         FROM transactions
         JOIN stores ON stores.id = transactions.store_id
@@ -361,32 +362,52 @@ export async function registerAnalyticsRoutes(app: Express) {
         const currency = coerceCurrency(row.currency ?? nativeCurrency, nativeCurrency);
         return toMoney(Number(row.total ?? 0), currency);
       });
+      const refundTaxValues: Money[] = ((refundRows as any).rows ?? []).map((row: any) => {
+        const currency = coerceCurrency(row.currency ?? nativeCurrency, nativeCurrency);
+        return toMoney(Number(row.tax ?? 0), currency);
+      });
+
       const totalRefundCount = ((refundRows as any).rows ?? []).reduce((sum: number, row: any) => sum + Number(row.count ?? 0), 0);
+
       const refundMoney = await sumMoneyValues(refundValues, totalsCurrency, {
         orgId: orgIdForStore ?? orgId ?? 'system',
         baseCurrency,
       });
+
+      const refundTaxMoney = await sumMoneyValues(refundTaxValues, totalsCurrency, {
+        orgId: orgIdForStore ?? orgId ?? 'system',
+        baseCurrency,
+      });
+
       const refundNormalized = normalizeCurrency
         ? await normalizeMoneyValues(refundValues, baseCurrency, {
-            orgId: orgIdForStore ?? orgId ?? 'system',
-            baseCurrency,
-          })
+          orgId: orgIdForStore ?? orgId ?? 'system',
+          baseCurrency,
+        })
         : undefined;
+
+      // Net Money (Cash Flow): Revenue - Refunds
       const netMoney = toMoney(totalMoney.amount - refundMoney.amount, totalsCurrency);
+
+      // Net Tax: Tax Collected (Gross) - Refund Tax
+      const netTaxMoney = toMoney(taxCollectedMoney.amount - refundTaxMoney.amount, totalsCurrency);
+
       const netNormalized = normalized
         ? {
-            amount: normalized.amount - (refundNormalized?.amount ?? 0),
-            currency: normalized.currency,
-            baseCurrency,
-          }
+          amount: normalized.amount - (refundNormalized?.amount ?? 0),
+          currency: normalized.currency,
+          baseCurrency,
+        }
         : undefined;
 
       res.json({
         total: totalMoney,
         normalized,
         taxCollected: taxCollectedMoney,
+        netTax: netTaxMoney,
         refunds: {
           total: refundMoney,
+          tax: refundTaxMoney,
           normalized: refundNormalized,
           count: totalRefundCount,
         },
@@ -464,7 +485,7 @@ export async function registerAnalyticsRoutes(app: Express) {
     const requestedCurrency = targetCurrencyRaw ? coerceCurrency(targetCurrencyRaw, baseCurrency) : undefined;
 
     const truncUnit = interval === 'month' ? 'month' : interval === 'week' ? 'week' : 'day';
-    
+
     // Build WHERE clauses for transactions table (unified with P&L/Overview)
     const txnWhere: any[] = [eq(transactions.status, 'completed')];
     if (storeId) {
@@ -570,9 +591,9 @@ export async function registerAnalyticsRoutes(app: Express) {
       });
       const normalized = normalizeCurrency
         ? await normalizeMoneyValues(entry.values, baseCurrency, {
-            orgId: orgIdForStore ?? orgId ?? 'system',
-            baseCurrency,
-          })
+          orgId: orgIdForStore ?? orgId ?? 'system',
+          baseCurrency,
+        })
         : undefined;
       const averageOrder = transactionCount > 0 ? toMoney(total.amount / transactionCount, total.currency) : toMoney(0, total.currency);
 
@@ -584,18 +605,18 @@ export async function registerAnalyticsRoutes(app: Express) {
       });
       const refundNormalized = normalizeCurrency
         ? await normalizeMoneyValues(refundValues, baseCurrency, {
-            orgId: orgIdForStore ?? orgId ?? 'system',
-            baseCurrency,
-          })
+          orgId: orgIdForStore ?? orgId ?? 'system',
+          baseCurrency,
+        })
         : undefined;
       const refundCount = refundEntry?.count ?? 0;
       const netTotal = toMoney(total.amount - refundTotal.amount, outputCurrency);
       const netNormalized = normalized
         ? {
-            amount: normalized.amount - (refundNormalized?.amount ?? 0),
-            currency: normalized.currency,
-            baseCurrency,
-          }
+          amount: normalized.amount - (refundNormalized?.amount ?? 0),
+          currency: normalized.currency,
+          baseCurrency,
+        }
         : undefined;
 
       points.push({
@@ -649,10 +670,10 @@ export async function registerAnalyticsRoutes(app: Express) {
         const total = toMoney(priceAmount * (item.salesCount ?? 0), storeCurrency);
         const normalized = normalizeCurrency
           ? {
-              baseCurrency,
-              price: await convertForOrg(nativePrice, baseCurrency, { orgId: effectiveOrgId, baseCurrency }),
-              total: await convertForOrg(total, baseCurrency, { orgId: effectiveOrgId, baseCurrency }),
-            }
+            baseCurrency,
+            price: await convertForOrg(nativePrice, baseCurrency, { orgId: effectiveOrgId, baseCurrency }),
+            total: await convertForOrg(total, baseCurrency, { orgId: effectiveOrgId, baseCurrency }),
+          }
           : undefined;
 
         return {
@@ -730,16 +751,16 @@ export async function registerAnalyticsRoutes(app: Express) {
 
     const normalized = normalizeCurrency
       ? {
-          baseCurrency,
-          revenue: await convertForOrg(revenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          taxCollected: await convertForOrg(taxCollectedMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          cogs: await convertForOrg(cogsMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          profit: await convertForOrg(profitMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          refunds: await convertForOrg(refundMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          netRevenue: await convertForOrg(netRevenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          priceChangeDelta: await convertForOrg(priceChangeDeltaMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          stockRemovalLoss: await convertForOrg(stockRemovalLossMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-        }
+        baseCurrency,
+        revenue: await convertForOrg(revenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        taxCollected: await convertForOrg(taxCollectedMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        cogs: await convertForOrg(cogsMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        profit: await convertForOrg(profitMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        refunds: await convertForOrg(refundMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        netRevenue: await convertForOrg(netRevenueMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        priceChangeDelta: await convertForOrg(priceChangeDeltaMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        stockRemovalLoss: await convertForOrg(stockRemovalLossMoney, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+      }
       : undefined;
 
     res.json({
@@ -777,13 +798,13 @@ export async function registerAnalyticsRoutes(app: Express) {
     // totalValue is now cost-based (from FIFO layers) - correct for P&L/balance sheet
     const totalCostValue = toMoney(Number(data.totalCostValue ?? data.totalValue ?? 0), storeCurrency);
     const totalRetailValue = toMoney(Number(data.totalRetailValue ?? 0), storeCurrency);
-    
+
     const normalized = normalizeCurrency
       ? {
-          baseCurrency,
-          total: await convertForOrg(totalCostValue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-          retail: await convertForOrg(totalRetailValue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
-        }
+        baseCurrency,
+        total: await convertForOrg(totalCostValue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+        retail: await convertForOrg(totalRetailValue, baseCurrency, { orgId: orgId ?? store.orgId, baseCurrency }),
+      }
       : undefined;
 
     res.json({
@@ -1064,8 +1085,8 @@ export async function registerAnalyticsRoutes(app: Express) {
       doc.fontSize(12).text('Date           Revenue  Refunds  Net  Discount  Tax  Transactions');
       doc.fontSize(12).text('-------------- -------  -------  ---  --------  ---  -------------');
       const now = new Date();
-      const d1 = new Date(now.getTime() - 2 * 86400000).toISOString().substring(0,10);
-      const d2 = new Date(now.getTime() - 1 * 86400000).toISOString().substring(0,10);
+      const d1 = new Date(now.getTime() - 2 * 86400000).toISOString().substring(0, 10);
+      const d2 = new Date(now.getTime() - 1 * 86400000).toISOString().substring(0, 10);
       doc.fontSize(12).text(`${d1}   105      5       100  0         5    1`);
       doc.fontSize(12).text(`${d2}   210      10      200  0         10   1`);
       doc.end();
