@@ -126,7 +126,7 @@ export default function TemplateDownloader({ type, className }: TemplateDownload
           "current_points will become the customer's balance; lifetime_points should include all historical earnings.",
           "is_active accepts true/false (defaults to true when omitted).",
           "Mode guidance:",
-          "- Regularize: skips rows when email/phone already exists.",
+          "- Add Bulk Customers: skips rows when email/phone already exists.",
           "- Overwrite: updates matching rows (email/phone) with new contact info and point balances.",
           "Loyalty math is centrally defined via the Earn & Redeem rules page; tiers are no longer required."
         ];

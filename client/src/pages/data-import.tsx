@@ -488,12 +488,12 @@ export default function DataImport() {
                       <SelectValue placeholder="Select mode" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="regularize">Append Only (Regularize - skips existing)</SelectItem>
-                      <SelectItem value="overwrite">Update Existing (Overwrite - updates matches)</SelectItem>
+                      <SelectItem value="regularize">Add Bulk Customers (adds new only)</SelectItem>
+                      <SelectItem value="overwrite">Overwrite (makes data match CSV)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Append Only adds new members but skips anyone found in the system. Update Existing refreshes contact info and points for matching members.
+                    Add Bulk Customers adds new members only and skips existing ones. Overwrite forces existing member data to match the CSV (useful for bulk updates).
                   </p>
                 </div>
                 <div className="rounded-lg border p-3 bg-muted/40 text-sm text-muted-foreground">
@@ -501,8 +501,8 @@ export default function DataImport() {
                   <ul className="list-disc list-inside mt-1 space-y-1">
                     <li>Include either phone or email (or both); that’s how cashiers search for members.</li>
                     <li>current_points becomes today’s balance; lifetime_points should reflect everything the member has earned.</li>
-                    <li>Use Append Only for incremental uploads (safe for partial lists).</li>
-                    <li>Use Update Existing to mass-update contact info or correct point balances.</li>
+                    <li>Use Add Bulk Customers to safely add new sign-ups.</li>
+                    <li>Use Overwrite to mass-update details or force point balances to specific values.</li>
                   </ul>
                 </div>
               </div>
