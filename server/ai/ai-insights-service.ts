@@ -532,12 +532,17 @@ export class AiInsightsService {
      * Calculate restocking priority based on profit, velocity, and stockout risk
      */
     calculateRestockingPriority(profitabilities: ProductProfitabilityData[]): RestockingPriority[] {
+        // Include OOS items (currentStock === 0) even if velocity is 0, if they have past sales (handled by filter)
+        // Original filter: p.currentStock > 0 || p.saleVelocity > 0
+        // We need to ensure items that are 0 stock and 0 velocity (but perhaps high profit/past sales?) are considered? 
+        // The current filter implies if stock is 0, velocity MUST be > 0. That's fair.
         return profitabilities
             .filter(p => p.currentStock > 0 || p.saleVelocity > 0)
             .map(p => {
                 // Priority score formula:
                 // Higher profit margin = higher priority
-                // Lower days to stockout = higher priority
+                // Out of Stock = highest urgency
+                // Lower days to stockout = high priority
                 // Higher velocity = higher priority
 
                 let priorityScore = 0;
@@ -545,8 +550,10 @@ export class AiInsightsService {
                 // Profit margin contribution (0-40 points)
                 priorityScore += Math.min(40, Math.max(0, p.profitMargin * 100));
 
-                // Stockout urgency contribution (0-40 points)
-                if (p.daysToStockout !== null) {
+                // Stockout urgency contribution (0-50 points)
+                if (p.currentStock === 0) {
+                    priorityScore += 50; // Highest priority for OOS
+                } else if (p.daysToStockout !== null) {
                     if (p.daysToStockout <= 3) priorityScore += 40;
                     else if (p.daysToStockout <= 7) priorityScore += 30;
                     else if (p.daysToStockout <= 14) priorityScore += 20;
@@ -560,7 +567,10 @@ export class AiInsightsService {
                 else if (p.saleVelocity > 0) priorityScore += 5;
 
                 let recommendation = 'Monitor stock levels';
-                if (p.daysToStockout !== null && p.daysToStockout <= 3) {
+
+                if (p.currentStock === 0) {
+                    recommendation = 'URGENT: Item Out of Stock - Restock immediately';
+                } else if (p.daysToStockout !== null && p.daysToStockout <= 3) {
                     recommendation = 'URGENT: Restock immediately to avoid stockout';
                 } else if (p.daysToStockout !== null && p.daysToStockout <= 7) {
                     recommendation = 'Restock within this week';
