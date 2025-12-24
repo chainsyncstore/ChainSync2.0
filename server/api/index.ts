@@ -7,7 +7,7 @@ import { getEmailHealth } from '../email';
 import { logger } from '../lib/logger';
 import { registerNotificationService } from '../lib/notification-bus';
 import { csrfProtection, globalRateLimit, sensitiveEndpointRateLimit } from '../middleware/security';
-import { OpenAIService } from '../openai/service';
+
 import { configureSession } from '../session';
 import { NotificationService } from '../websocket/notification-service';
 import { registerAdminRoutes } from './routes.admin';
@@ -87,65 +87,6 @@ export async function registerRoutes(app: Express) {
     });
   }
 
-  // OpenAI chat endpoint (must be before 404 catch-all)
-  const openaiService = process.env.NODE_ENV === 'test' ? (null as unknown as OpenAIService) : new OpenAIService();
-  const { requireAuth } = await import('../middleware/authz');
-  const { storage } = await import('../storage');
-  const { userRoles } = await import('../../shared/schema');
-  const { eq: eqOp } = await import('drizzle-orm');
-  const { db: dbInstance } = await import('../db');
-
-  app.post('/api/openai/chat', requireAuth, async (req, res) => {
-    try {
-      const { message, storeId, conversationHistory } = req.body || {};
-      const userId = req.session?.userId as string | undefined;
-
-      // Build user context for role-based scoping
-      let userContext: import('../openai/service').ChatUserContext | undefined;
-      if (userId) {
-        try {
-          const user = await storage.getUser(userId) as any;
-          if (user) {
-            // Determine role from user record or roles table
-            let role: 'admin' | 'manager' | 'cashier' = 'cashier';
-            if (user.isAdmin) {
-              role = 'admin';
-            } else {
-              const roles = await dbInstance.select().from(userRoles).where(eqOp(userRoles.userId, userId));
-              const hasManager = roles.some(r => String(r.role).toUpperCase() === 'MANAGER');
-              if (hasManager) role = 'manager';
-            }
-
-            userContext = {
-              userId,
-              userName: user.firstName ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}` : user.email,
-              role,
-              orgId: user.orgId || undefined,
-              storeId: user.storeId || undefined,
-            };
-          }
-        } catch (err) {
-          logger.warn('Failed to build user context for AI chat', { userId, error: err instanceof Error ? err.message : String(err) });
-        }
-      }
-
-      // Parse conversation history if provided
-      const history = Array.isArray(conversationHistory) ? conversationHistory : undefined;
-
-      const openaiResponse = await openaiService.processChatMessage(message, storeId, userContext, history);
-      res.json({
-        fulfillmentText: openaiResponse.text,
-        payload: openaiResponse.payload,
-      });
-    } catch (error) {
-      logger.error('OpenAI chat processing failed', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      res.status(500).json({
-        fulfillmentText: "I'm sorry, I encountered an error processing your request.",
-      });
-    }
-  });
 
   // Phase 8: Enhanced Observability Routes (best-effort)
   try {
@@ -157,12 +98,12 @@ export async function registerRoutes(app: Express) {
     });
   }
 
-  // Phase 8: AI Analytics Routes (feature flag handled inside module)
+  // AI Profit Advisor Routes
   try {
-    const { registerAIAnalyticsRoutes } = await import('./routes.ai-analytics');
-    await registerAIAnalyticsRoutes(app);
+    const { registerAIInsightsRoutes } = await import('./routes.ai-insights');
+    await registerAIInsightsRoutes(app);
   } catch (error) {
-    logger.warn('AI analytics routes unavailable or failed to register', {
+    logger.warn('AI insights routes unavailable or failed to register', {
       error: error instanceof Error ? error.message : String(error)
     });
   }

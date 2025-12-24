@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AdvancedAnalyticsService } from '../../server/ai/advanced-analytics';
+
 import { securityAuditService } from '../../server/lib/security-audit';
 import { loadEnv } from '../../shared/env';
 
@@ -166,7 +166,7 @@ describe('Phase 8: Enhanced Observability & Security', () => {
 
     it('should filter security events by time range', () => {
       const context = { ipAddress: '192.168.1.1' };
-      
+
       securityAuditService.logNetworkEvent('suspicious_request', context, {});
 
       const now = new Date();
@@ -197,122 +197,6 @@ describe('Phase 8: Enhanced Observability & Security', () => {
       expect(metrics).toHaveProperty('highRiskEvents');
       expect(metrics).toHaveProperty('dataAccessPatterns');
       expect(metrics).toHaveProperty('threatLevel');
-    });
-  });
-
-  describe('Advanced Analytics Service', () => {
-    let analyticsService: AdvancedAnalyticsService;
-
-    const mockSalesData = [
-      { productId: 'product-1', productName: 'Test Product', date: '2024-01-01T00:00:00.000Z', quantity: 5 },
-      { productId: 'product-1', productName: 'Test Product', date: '2024-01-02T00:00:00.000Z', quantity: 7 },
-    ];
-
-    beforeEach(async () => {
-      analyticsService = new AdvancedAnalyticsService();
-      const { db } = await import('../../server/db');
-      vi.mocked(db.execute).mockResolvedValue(mockSalesData as any);
-    });
-
-    afterEach(async () => {
-      analyticsService.clearCache();
-      const { db } = await import('../../server/db');
-      vi.mocked(db.execute).mockReset();
-      vi.mocked(db.execute).mockResolvedValue([] as any);
-      analyticsService.clearCache();
-    });
-
-    it('should generate demand forecasts with confidence scores', async () => {
-      // Mock sales data
-      const mockSalesData = [
-        { productId: 'product-1', productName: 'Test Product', date: '2024-01-01', quantity: 10 },
-        { productId: 'product-1', productName: 'Test Product', date: '2024-01-02', quantity: 12 },
-        { productId: 'product-1', productName: 'Test Product', date: '2024-01-03', quantity: 8 }
-      ];
-
-      const { db } = await import('../../server/db');
-      vi.mocked(db.execute).mockResolvedValue(mockSalesData as any);
-
-      const forecasts = await analyticsService.generateDemandForecast('store-1', 'product-1', 7);
-
-      expect(forecasts).toBeInstanceOf(Array);
-      if (forecasts.length > 0) {
-        expect(forecasts[0]).toHaveProperty('productId');
-        expect(forecasts[0]).toHaveProperty('predictedDemand');
-        expect(forecasts[0]).toHaveProperty('confidence');
-        expect(forecasts[0]).toHaveProperty('trend');
-        expect(forecasts[0].confidence).toBeGreaterThan(0);
-        expect(forecasts[0].confidence).toBeLessThanOrEqual(1);
-      }
-    });
-
-    it('should detect inventory anomalies', async () => {
-      // Mock low stock data
-      const mockLowStockData = [
-        { productId: 'product-1', productName: 'Low Stock Product', currentStock: 2, reorderLevel: 10 }
-      ];
-
-      const { db } = await import('../../server/db');
-      vi.mocked(db.execute).mockResolvedValue(mockLowStockData as any);
-
-      const anomalies = await analyticsService.detectAnomalies('store-1');
-
-      expect(anomalies).toBeInstanceOf(Array);
-      // Note: Anomalies might be empty due to mocked data, but service should not throw
-    });
-
-    it('should generate actionable business insights', async () => {
-      const insights = await analyticsService.generateInsights('store-1');
-
-      expect(insights).toBeInstanceOf(Array);
-      if (insights.length > 0) {
-        expect(insights[0]).toHaveProperty('category');
-        expect(insights[0]).toHaveProperty('priority');
-        expect(insights[0]).toHaveProperty('title');
-        expect(insights[0]).toHaveProperty('description');
-        expect(insights[0]).toHaveProperty('actionable');
-        expect(insights[0]).toHaveProperty('recommendedActions');
-        expect(insights[0].recommendedActions).toBeInstanceOf(Array);
-      }
-    });
-
-    it('should cache results to avoid repeated warmup on subsequent calls', async () => {
-      const storeId = 'store-1';
-      const envSpy = vi.spyOn(AdvancedAnalyticsService.prototype as any, 'isTestEnvironment').mockReturnValue(false);
-
-      const forecasts1 = await analyticsService.generateDemandForecast(storeId);
-      const forecasts2 = await analyticsService.generateDemandForecast(storeId);
-
-      expect(forecasts1).toEqual(forecasts2);
-
-      envSpy.mockRestore();
-    });
-
-    it('should clear cache when requested', async () => {
-      const envSpy = vi.spyOn(AdvancedAnalyticsService.prototype as any, 'isTestEnvironment').mockReturnValue(false);
-      await analyticsService.generateDemandForecast('store-1');
-      
-      // Cache should have data
-      await analyticsService.generateInsights('store-1');
-      
-      // Clear cache
-      analyticsService.clearCache();
-      
-      // Should work after cache clear
-      const insights2 = await analyticsService.generateInsights('store-1');
-      expect(insights2).toBeInstanceOf(Array);
-      envSpy.mockRestore();
-    });
-
-    it('should handle errors gracefully', async () => {
-      const envSpy = vi.spyOn(AdvancedAnalyticsService.prototype as any, 'isTestEnvironment').mockReturnValue(false);
-      const { db } = await import('../../server/db');
-      vi.mocked(db.execute).mockRejectedValue(new Error('Database error'));
-
-      await expect(analyticsService.generateDemandForecast('invalid-store')).resolves.toEqual([]);
-      await expect(analyticsService.detectAnomalies('invalid-store')).resolves.toEqual([]);
-      await expect(analyticsService.generateInsights('invalid-store')).resolves.toEqual([]);
-      envSpy.mockRestore();
     });
   });
 

@@ -8,7 +8,6 @@ import { useNotificationBridge } from "@/hooks/use-notification-bridge";
 
 const Sidebar = lazy(() => import("./sidebar"));
 const TopBar = lazy(() => import("./topbar"));
-const FloatingChat = lazy(() => import("../ai/floating-chat"));
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -85,10 +84,10 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
     switch (location) {
       case "/":
         return {
-          title: userRole === "admin" ? "Analytics Dashboard" : 
-                 userRole === "manager" ? "Inventory Management" : "Point of Sale",
+          title: userRole === "admin" ? "Analytics Dashboard" :
+            userRole === "manager" ? "Inventory Management" : "Point of Sale",
           subtitle: userRole === "admin" ? "Multi-store overview and insights" :
-                   userRole === "manager" ? "Stock levels and product management" : "Process sales and transactions"
+            userRole === "manager" ? "Stock levels and product management" : "Process sales and transactions"
         };
       case "/inventory":
         return {
@@ -129,8 +128,8 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
   };
 
   const pageInfo = getPageInfo();
-  const userName = user?.firstName && user?.lastName 
-    ? `${user.firstName} ${user.lastName}` 
+  const userName = user?.firstName && user?.lastName
+    ? `${user.firstName} ${user.lastName}`
     : user?.username || "User";
   const userInitials = user?.firstName && user?.lastName
     ? `${user.firstName[0]}${user.lastName[0]}`
@@ -170,7 +169,7 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
               managerStoreId={managerStoreId ?? undefined}
             />
           </Suspense>
-          
+
           {/* Page Content */}
           <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
             {showTrialBanner ? (
@@ -181,13 +180,6 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
             {children}
           </main>
         </div>
-        
-        {/* Floating AI Chat (lazy) */}
-        {userRole !== "cashier" ? (
-          <Suspense fallback={null}>
-            <FloatingChat storeId={managerStoreId ?? undefined} />
-          </Suspense>
-        ) : null}
       </div>
     </LayoutContext.Provider>
   );

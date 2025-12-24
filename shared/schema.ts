@@ -1247,3 +1247,70 @@ export type InsertSubscriptionPayment = z.infer<typeof insertSubscriptionPayment
 
 export type EmailVerificationToken = typeof emailVerificationTokens.$inferSelect;
 export type UserSession = typeof userSessions.$inferSelect;
+
+// AI Profit Advisor Tables
+export const aiInsights = pgTable("ai_insights", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  insightType: varchar("insight_type", { length: 64 }).notNull(),
+  productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }),
+  severity: varchar("severity", { length: 16 }).notNull().default("info"),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  data: jsonb("data").notNull().default({}),
+  isActionable: boolean("is_actionable").notNull().default(false),
+  isDismissed: boolean("is_dismissed").notNull().default(false),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  dismissedBy: uuid("dismissed_by").references(() => users.id, { onDelete: "set null" }),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  storeIdx: index("ai_insights_store_idx").on(table.storeId, table.generatedAt),
+  typeIdx: index("ai_insights_type_idx").on(table.insightType, table.severity),
+  productIdx: index("ai_insights_product_idx").on(table.productId),
+}));
+
+export const aiBatchRuns = pgTable("ai_batch_runs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  storesProcessed: integer("stores_processed").notNull().default(0),
+  insightsGenerated: integer("insights_generated").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  orgIdx: index("ai_batch_runs_org_idx").on(table.orgId, table.createdAt),
+}));
+
+export const aiProductProfitability = pgTable("ai_product_profitability", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: uuid("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  periodDays: integer("period_days").notNull().default(30),
+  unitsSold: integer("units_sold").notNull().default(0),
+  totalRevenue: decimal("total_revenue", { precision: 14, scale: 2 }).notNull().default("0"),
+  totalCost: decimal("total_cost", { precision: 14, scale: 4 }).notNull().default("0"),
+  totalProfit: decimal("total_profit", { precision: 14, scale: 2 }).notNull().default("0"),
+  profitMargin: decimal("profit_margin", { precision: 6, scale: 4 }).notNull().default("0"),
+  avgProfitPerUnit: decimal("avg_profit_per_unit", { precision: 10, scale: 4 }).notNull().default("0"),
+  saleVelocity: decimal("sale_velocity", { precision: 10, scale: 4 }).notNull().default("0"),
+  daysToStockout: integer("days_to_stockout"),
+  removalCount: integer("removal_count").notNull().default(0),
+  removalLossValue: decimal("removal_loss_value", { precision: 14, scale: 2 }).notNull().default("0"),
+  trend: varchar("trend", { length: 16 }).default("stable"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  storeIdx: index("ai_product_profitability_store_idx").on(table.storeId, table.computedAt),
+  profitIdx: index("ai_product_profitability_profit_idx").on(table.storeId, table.totalProfit),
+  velocityIdx: index("ai_product_profitability_velocity_idx").on(table.storeId, table.saleVelocity),
+  uniqueProduct: uniqueIndex("ai_product_profitability_unique").on(table.storeId, table.productId, table.periodDays),
+}));
+
+// AI Types
+export type AiInsight = typeof aiInsights.$inferSelect;
+export type InsertAiInsight = typeof aiInsights.$inferInsert;
+export type AiBatchRun = typeof aiBatchRuns.$inferSelect;
+export type AiProductProfitability = typeof aiProductProfitability.$inferSelect;

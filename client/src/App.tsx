@@ -7,7 +7,6 @@ import CashierLayout from "@/components/layout/cashier-layout";
 import { PageLoading } from "@/components/ui/loading";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AIChatProvider } from "@/hooks/use-ai-chat";
 import { useAuth } from "@/hooks/use-auth";
 import { ScannerProvider } from "@/hooks/use-barcode-scanner";
 import { useProtectedRouteGuard } from "@/hooks/use-protected-route-guard";
@@ -29,7 +28,7 @@ const MainLayout = lazy(() => import("@/components/layout/main-layout"));
 const Landing = lazy(() => import("@/pages/landing"));
 const POS = lazy(() => import("@/pages/pos-v2"));
 const Inventory = lazy(() => import("@/pages/inventory"));
-const Analytics = lazy(() => import("@/pages/analytics-v2"));  
+const Analytics = lazy(() => import("@/pages/analytics-v2"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminIp = lazy(() => import("@/pages/admin/ip-whitelist"));
 const AdminBulk = lazy(() => import("@/pages/admin/bulk-pricing"));
@@ -102,7 +101,7 @@ function Dashboard({ userRole }: { userRole: string }) {
       </ScannerProvider>
     );
   }
-  
+
   if (role === "manager") {
     return (
       <ScannerProvider>
@@ -130,7 +129,7 @@ function Dashboard({ userRole }: { userRole: string }) {
       </ScannerProvider>
     );
   }
-  
+
   // Cashier role (default) - full-screen POS without MainLayout
   return (
     <ScannerProvider>
@@ -195,58 +194,56 @@ function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <AIChatProvider>
-          <TooltipProvider>
-              <TwoFactorModal
-                user={twoFactorChallengeUser}
-                error={twoFactorError}
-                isSubmitting={isTwoFactorSubmitting}
-                onSubmit={handleTwoFactorSubmit}
-                onCancel={cancelTwoFactorChallenge}
-              />
-              <Toaster />
-              {isLoading ? (
-                <PageLoader />
-              ) : isAuthenticated && user ? (
-                requiresPasswordChange ? (
-                  <Suspense fallback={<PageLoader />}>
-                    <ForcePasswordReset />
-                  </Suspense>
-                ) : (
-                  <Dashboard userRole={user.role} />
-                )
-              ) : (
-                <Suspense fallback={<PageLoader />}>
-                  <Switch>
-                    <Route path="/login">{() => (
-                      <Login
-                        onLogin={login}
-                        onForgotPassword={() => setLocation('/forgot-password')}
-                        isLoading={isLoading}
-                        error={error || null}
-                      />
-                    )}</Route>
-                    <Route path="/signup" component={Signup} />
-                    <Route path="/signup/verify-otp" component={SignupVerifyOtp} />
-                    <Route path="/forgot-password">{() => (
-                      <ForgotPassword onBackToLogin={() => setLocation('/login')} />
-                    )}</Route>
-                    <Route path="/reset-password">{() => {
-                      const token = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('token') || '') : '';
-                      return (
-                        <ResetPassword
-                          token={token}
-                          onSuccess={() => setLocation('/login')}
-                        />
-                      );
-                    }}</Route>
-                    <Route path="/" component={Landing} />
-                    <Route component={NotFound} />
-                  </Switch>
-                </Suspense>
-              )}
-            </TooltipProvider>
-        </AIChatProvider>
+        <TooltipProvider>
+          <TwoFactorModal
+            user={twoFactorChallengeUser}
+            error={twoFactorError}
+            isSubmitting={isTwoFactorSubmitting}
+            onSubmit={handleTwoFactorSubmit}
+            onCancel={cancelTwoFactorChallenge}
+          />
+          <Toaster />
+          {isLoading ? (
+            <PageLoader />
+          ) : isAuthenticated && user ? (
+            requiresPasswordChange ? (
+              <Suspense fallback={<PageLoader />}>
+                <ForcePasswordReset />
+              </Suspense>
+            ) : (
+              <Dashboard userRole={user.role} />
+            )
+          ) : (
+            <Suspense fallback={<PageLoader />}>
+              <Switch>
+                <Route path="/login">{() => (
+                  <Login
+                    onLogin={login}
+                    onForgotPassword={() => setLocation('/forgot-password')}
+                    isLoading={isLoading}
+                    error={error || null}
+                  />
+                )}</Route>
+                <Route path="/signup" component={Signup} />
+                <Route path="/signup/verify-otp" component={SignupVerifyOtp} />
+                <Route path="/forgot-password">{() => (
+                  <ForgotPassword onBackToLogin={() => setLocation('/login')} />
+                )}</Route>
+                <Route path="/reset-password">{() => {
+                  const token = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('token') || '') : '';
+                  return (
+                    <ResetPassword
+                      token={token}
+                      onSuccess={() => setLocation('/login')}
+                    />
+                  );
+                }}</Route>
+                <Route path="/" component={Landing} />
+                <Route component={NotFound} />
+              </Switch>
+            </Suspense>
+          )}
+        </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

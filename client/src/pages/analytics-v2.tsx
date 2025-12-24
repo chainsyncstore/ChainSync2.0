@@ -39,6 +39,7 @@ import {
 } from "recharts";
 
 import ComprehensiveReportGenerator from "@/components/analytics/comprehensive-report-generator";
+import { ProfitAdvisorTab } from "@/components/analytics/profit-advisor-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -1553,6 +1554,13 @@ export default function AnalyticsV2Page() {
             <TabsTrigger value="customers">Customers</TabsTrigger>
             {canViewStaff && <TabsTrigger value="staff">Staff</TabsTrigger>}
             <TabsTrigger value="price">Price Analysis</TabsTrigger>
+            <TabsTrigger value="ai-insights" className="flex items-center gap-1">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+              </span>
+              AI Insights
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -1596,6 +1604,10 @@ export default function AnalyticsV2Page() {
               isLoadingDetail={priceTrendDetailQuery.isLoading}
               currency={storeCurrency}
             />
+          </TabsContent>
+
+          <TabsContent value="ai-insights">
+            <ProfitAdvisorTab storeId={selectedStoreId} currency={storeCurrency} />
           </TabsContent>
         </Tabs>
       )}
