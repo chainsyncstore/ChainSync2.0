@@ -9,13 +9,12 @@
  * - Store selection for Admins
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     Bot,
     MessageCircle,
     Send,
     Sparkles,
-    Trash2,
     X,
     Store,
 } from "lucide-react";
@@ -137,23 +136,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
     }, [historyQuery.data, activeStoreId]);
 
     // Clear history mutation
-    const clearMutation = useMutation({
-        mutationFn: async () => {
-            if (!activeStoreId) return;
-            const csrfToken = await getCsrfToken();
-            const res = await fetch(`/api/ai/chat/clear/${activeStoreId}`, {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'X-CSRF-Token': csrfToken },
-            });
-            if (!res.ok) throw new Error('Failed to clear');
-            return res.json();
-        },
-        onSuccess: () => {
-            setMessages([]);
-            toast({ title: 'Conversation cleared' });
-        },
-    });
+    // Clear mutation removed
 
     // Scroll to bottom when messages change
     useEffect(() => {
@@ -306,16 +289,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                                     </span>
                                 )}
                             </div>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-white hover:bg-white/20"
-                                onClick={() => clearMutation.mutate()}
-                                disabled={messages.length === 0 || !activeStoreId}
-                                title="Clear conversation"
-                            >
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {/* Delete button removed as requested */}
                         </CardTitle>
 
                         {/* Store Selector for Admins */}
