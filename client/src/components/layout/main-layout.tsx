@@ -182,10 +182,10 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
           </main>
         </div>
 
-        {/* AI Chat Panel - Show for admin and manager users with a store selected */}
-        {(userRole === 'admin' || userRole === 'manager') && (user?.storeId || managerStoreId) && (
+        {/* AI Chat Panel - Show for admin (with selector) and manager users with a store selected */}
+        {((userRole === 'admin') || (userRole === 'manager' && (user?.storeId || managerStoreId))) && (
           <Suspense fallback={null}>
-            <AiChatPanel storeId={user?.storeId || managerStoreId} />
+            <AiChatPanel storeId={user?.storeId || managerStoreId || null} />
           </Suspense>
         )}
       </div>
