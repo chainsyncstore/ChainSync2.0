@@ -172,12 +172,12 @@ export function ProfitAdvisorTab({ storeId, currency = 'NGN' }: ProfitAdvisorTab
         refetchInterval: 5 * 60 * 1000, // Refresh every 5 minutes
     });
 
-    // Fetch profitability data
+    // Fetch profitability data - use fresh=true to get live computed data
     const profitabilityQuery = useQuery<ProfitabilityResponse>({
         queryKey: ['/api/ai/insights', storeId, 'profitability'],
         enabled: Boolean(storeId),
         queryFn: async () => {
-            const res = await fetch(`/api/ai/insights/${storeId}/profitability?limit=50`, { credentials: 'include' });
+            const res = await fetch(`/api/ai/insights/${storeId}/profitability?limit=50&fresh=true`, { credentials: 'include' });
             if (!res.ok) throw new Error('Failed to fetch profitability');
             return res.json();
         },

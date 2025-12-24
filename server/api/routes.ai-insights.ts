@@ -105,12 +105,54 @@ export async function registerAIInsightsRoutes(app: Express) {
     app.get('/api/ai/insights/:storeId/profitability', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
         try {
             const { storeId } = req.params;
-            const { sortBy = 'profit', order = 'desc', limit = '50' } = req.query;
+            const { sortBy = 'profit', order = 'desc', limit = '50', fresh = 'false' } = req.query;
 
-            // Build the order column based on sort preference
+            // If fresh=true or cache is empty, compute live data
+            const useFreshData = fresh === 'true';
+
+            if (useFreshData) {
+                // Compute fresh profitability data directly (bypasses cache)
+                const liveResults = await aiInsightsService.computeProductProfitability(storeId);
+
+                // Sort and limit
+                const sorted = [...liveResults].sort((a, b) => {
+                    switch (sortBy) {
+                        case 'revenue': return order === 'asc' ? a.grossRevenue - b.grossRevenue : b.grossRevenue - a.grossRevenue;
+                        case 'velocity': return order === 'asc' ? a.saleVelocity - b.saleVelocity : b.saleVelocity - a.saleVelocity;
+                        case 'margin': return order === 'asc' ? a.profitMargin - b.profitMargin : b.profitMargin - a.profitMargin;
+                        default: return order === 'asc' ? a.totalProfit - b.totalProfit : b.totalProfit - a.totalProfit;
+                    }
+                }).slice(0, parseInt(limit as string));
+
+                const formattedResults = sorted.map(r => ({
+                    productId: r.productId,
+                    productName: r.productName,
+                    unitsSold: r.unitsSold,
+                    totalRevenue: r.grossRevenue,
+                    totalCost: r.totalCost,
+                    totalProfit: r.totalProfit,
+                    profitMargin: r.profitMargin,
+                    avgProfitPerUnit: r.avgProfitPerUnit,
+                    saleVelocity: r.saleVelocity,
+                    daysToStockout: r.daysToStockout,
+                    trend: r.trend,
+                    currentStock: r.currentStock,
+                    refundedAmount: r.refundedAmount,
+                    stockLossAmount: r.stockLossAmount,
+                }));
+
+                return res.json({
+                    success: true,
+                    storeId,
+                    products: formattedResults,
+                    count: formattedResults.length,
+                    source: 'live',
+                });
+            }
+
+            // Otherwise use cached data
             const orderFn = (col: any) => order === 'asc' ? col : desc(col);
 
-            // Select profitability data joined with product names
             let orderCol: any;
             switch (sortBy) {
                 case 'revenue': orderCol = aiProductProfitability.totalRevenue; break;
@@ -146,6 +188,37 @@ export async function registerAIInsightsRoutes(app: Express) {
                 .orderBy(orderFn(orderCol))
                 .limit(parseInt(limit as string));
 
+            // If cache is empty, compute live as fallback
+            if (results.length === 0) {
+                const liveResults = await aiInsightsService.computeProductProfitability(storeId);
+                const sorted = [...liveResults].sort((a, b) => b.totalProfit - a.totalProfit).slice(0, parseInt(limit as string));
+
+                const formattedResults = sorted.map(r => ({
+                    productId: r.productId,
+                    productName: r.productName,
+                    unitsSold: r.unitsSold,
+                    totalRevenue: r.grossRevenue,
+                    totalCost: r.totalCost,
+                    totalProfit: r.totalProfit,
+                    profitMargin: r.profitMargin,
+                    avgProfitPerUnit: r.avgProfitPerUnit,
+                    saleVelocity: r.saleVelocity,
+                    daysToStockout: r.daysToStockout,
+                    trend: r.trend,
+                    currentStock: r.currentStock,
+                    refundedAmount: r.refundedAmount,
+                    stockLossAmount: r.stockLossAmount,
+                }));
+
+                return res.json({
+                    success: true,
+                    storeId,
+                    products: formattedResults,
+                    count: formattedResults.length,
+                    source: 'live',
+                });
+            }
+
             // Convert decimal strings to numbers for frontend consumption
             const formattedResults = results.map(r => ({
                 ...r,
@@ -165,6 +238,7 @@ export async function registerAIInsightsRoutes(app: Express) {
                 storeId,
                 products: formattedResults,
                 count: formattedResults.length,
+                source: 'cache',
             });
         } catch (error) {
             logger.error('Failed to get profitability data', extractLogContext(req), error as Error);
