@@ -64,6 +64,8 @@ interface ProductProfitability {
     saleVelocity: number;
     daysToStockout: number | null;
     trend: 'increasing' | 'decreasing' | 'stable';
+    refundedAmount?: number;
+    stockLossAmount?: number;
 }
 
 interface RestockingPriority {
@@ -551,7 +553,9 @@ export function ProfitAdvisorTab({ storeId, currency = 'NGN' }: ProfitAdvisorTab
                                         <th className="px-4 py-2 text-left font-medium">Product</th>
                                         <th className="px-4 py-2 text-right font-medium">Units Sold</th>
                                         <th className="px-4 py-2 text-right font-medium">Revenue</th>
+                                        <th className="px-4 py-2 text-right font-medium">Refunds</th>
                                         <th className="px-4 py-2 text-right font-medium">Cost</th>
+                                        <th className="px-4 py-2 text-right font-medium">Stock Loss</th>
                                         <th className="px-4 py-2 text-right font-medium">Profit</th>
                                         <th className="px-4 py-2 text-right font-medium">Margin</th>
                                         <th className="px-4 py-2 text-right font-medium">Trend</th>
@@ -563,7 +567,9 @@ export function ProfitAdvisorTab({ storeId, currency = 'NGN' }: ProfitAdvisorTab
                                             <td className="px-4 py-2 font-medium">{p.productName}</td>
                                             <td className="px-4 py-2 text-right">{p.unitsSold}</td>
                                             <td className="px-4 py-2 text-right">{formatCurrency(p.totalRevenue, currency)}</td>
+                                            <td className="px-4 py-2 text-right text-amber-600">{formatCurrency(p.refundedAmount ?? 0, currency)}</td>
                                             <td className="px-4 py-2 text-right">{formatCurrency(p.totalCost, currency)}</td>
+                                            <td className="px-4 py-2 text-right text-red-600">{formatCurrency(p.stockLossAmount ?? 0, currency)}</td>
                                             <td className={cn("px-4 py-2 text-right font-medium", p.totalProfit >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                                                 {formatCurrency(p.totalProfit, currency)}
                                             </td>

@@ -295,6 +295,7 @@ export class AiInsightsService {
 
         try {
             // 1. Get Sales, Tax, Refunds via Transactions & Items aggregation
+            // Tax is at transaction level, so we proportionally allocate based on item's share of subtotal
             const salesData = await db.execute(sql`
                 WITH txn_items AS (
                     SELECT 
@@ -304,7 +305,13 @@ export class AiInsightsService {
                         t.subtotal,
                         ti.quantity,
                         ti.total_price,
-                        ti.total_cost
+                        ti.total_cost,
+                        -- Proportional tax allocation: item's share of transaction subtotal * tax_amount
+                        CASE 
+                            WHEN COALESCE(t.subtotal, 0) > 0 
+                            THEN (ti.total_price / t.subtotal) * COALESCE(t.tax_amount, 0)
+                            ELSE 0 
+                        END as item_tax
                     FROM ${transactionItems} ti
                     JOIN ${transactions} t ON t.id = ti.transaction_id
                     WHERE t.store_id = ${storeId}
@@ -318,10 +325,12 @@ export class AiInsightsService {
                     COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.quantity ELSE 0 END), 0) as units_sold,
                     COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_price ELSE 0 END), 0) as gross_revenue,
                     COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_cost ELSE 0 END), 0) as cogs,
+                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.item_tax ELSE 0 END), 0) as sales_tax,
                     -- Refunds (Kind = REFUND/SWAP_REFUND)
                     COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.quantity ELSE 0 END), 0) as units_refunded,
                     COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_price ELSE 0 END), 0) as refund_val,
-                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_cost ELSE 0 END), 0) as refund_cogs
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_cost ELSE 0 END), 0) as refund_cogs,
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.item_tax ELSE 0 END), 0) as refund_tax
                 FROM txn_items ti
                 JOIN ${products} p ON p.id = ti.product_id
                 GROUP BY ti.product_id, p.name
@@ -389,35 +398,23 @@ export class AiInsightsService {
 
                 // Base Metrics
                 const unitsSold = Number(row.units_sold);
-                const grossRev = Number(row.gross_revenue); // This is usually inclusive of tax if total_price is tax-inclusive, OR exclusive if total_price is subtotal. 
-                // In ChainSync usually total_price = quantity * unit_price (which is typically tax-exclusive or inclusive depending on store settings).
-                // Let's assume standard behavior: total_price is line total.
-                // However, we need to estimate TAX portion if we want Net Revenue (Ex Tax).
-                // For simplicity: We will approximate Tax based on standard rate or if stored?
-                // The query in comprehensive report fetches tax at transaction level. 
-                // Item level tax isn't easily stored. 
-                // We will calculate 'Net Revenue' as (Sales - Refunds). Tax handling per item is complex without item-level tax data.
-                // *Correction*: We will treat `grossRevenue` as Sales Amount. We will deduce `Net Profit` as (Sales - Refunds - COGS - Loss).
-                // If Store prices include tax, profit will be inflated unless we strip it.
-                // For now, consistent with report: Report takes (Revenue - Tax) as base.
-                // We lack item-level tax column. We will use the simplified approach:
-                // `Profit = Revenue - COGS - Refunds - Loss`.
-
+                const grossRev = Number(row.gross_revenue);
+                const salesTax = Number(row.sales_tax);
                 const cogs = Number(row.cogs);
                 const unitsRefunded = Number(row.units_refunded);
                 const refundVal = Number(row.refund_val);
+                const refundTax = Number(row.refund_tax);
                 const refundCogs = Number(row.refund_cogs);
 
                 const stockLoss = lossMap.get(productId) || 0;
 
-                // Calculated Metrics
-                const netRevenue = grossRev - refundVal; // Revenue after refunds
-                const netCost = cogs - refundCogs;       // Cost of goods actually sold (net of returns)
-
-                // Profit = NetRevenue - NetCost - StockLoss
-                // Note: If tax is in grossRev, this Profit includes Tax. Ideally we subtract Tax.
-                // Without item-level tax, we can't perfectly separate it per product.
-                // We will report "Gross Profit" behavior essentially.
+                // Corrected Profit Calculation (matching comprehensive report):
+                // Net Revenue = (Gross Revenue - Sales Tax) - (Refund Value - Refund Tax)
+                // Net Profit = Net Revenue - Net COGS - Stock Loss
+                const netSalesExTax = grossRev - salesTax;
+                const netRefundsExTax = refundVal - refundTax;
+                const netRevenue = netSalesExTax - netRefundsExTax;
+                const netCost = cogs - refundCogs;
                 const totalProfit = netRevenue - netCost - stockLoss;
 
                 const profitMargin = netRevenue > 0 ? (totalProfit / netRevenue) : 0;
@@ -452,11 +449,11 @@ export class AiInsightsService {
                     unitsSold,
                     grossRevenue: grossRev,
                     netRevenue,
-                    totalTax: 0, // Not available per-item easily
+                    totalTax: salesTax,
                     totalCost: cogs,
                     netCost,
                     refundedAmount: refundVal,
-                    refundedTax: 0,
+                    refundedTax: refundTax,
                     refundedQuantity: unitsRefunded,
                     stockLossAmount: stockLoss,
                     totalProfit,

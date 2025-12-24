@@ -133,6 +133,8 @@ export async function registerAIInsightsRoutes(app: Express) {
                     daysToStockout: aiProductProfitability.daysToStockout,
                     trend: aiProductProfitability.trend,
                     currentStock: inventory.quantity,
+                    refundedAmount: aiProductProfitability.refundedAmount,
+                    stockLossAmount: aiProductProfitability.removalLossValue,
                 })
                 .from(aiProductProfitability)
                 .innerJoin(products, eq(aiProductProfitability.productId, products.id))
@@ -154,6 +156,8 @@ export async function registerAIInsightsRoutes(app: Express) {
                 avgProfitPerUnit: Number(r.avgProfitPerUnit),
                 saleVelocity: Number(r.saleVelocity),
                 currentStock: r.currentStock ?? 0,
+                refundedAmount: Number(r.refundedAmount ?? 0),
+                stockLossAmount: Number(r.stockLossAmount ?? 0),
             }));
 
             res.json({
