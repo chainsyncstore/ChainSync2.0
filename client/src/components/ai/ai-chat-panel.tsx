@@ -6,6 +6,7 @@
  * - Message history with streaming responses
  * - Quick suggestion chips
  * - Markdown rendering
+ * - Store selection for Admins
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +17,8 @@ import {
     Sparkles,
     Trash2,
     X,
+    Store,
+    ChevronDown
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -23,6 +26,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
 import { cn } from "@/lib/utils";
@@ -44,6 +54,12 @@ interface ChatHistoryResponse {
     messages: ChatMessage[];
 }
 
+interface StoreData {
+    id: string;
+    name: string;
+    isActive: boolean;
+}
+
 // Quick suggestion chips
 const SUGGESTIONS = [
     "What are my most profitable products?",
@@ -58,6 +74,7 @@ interface AiChatPanelProps {
 
 export function AiChatPanel({ storeId }: AiChatPanelProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
@@ -67,6 +84,23 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
+    // Determine the active store ID (prop takes precedence, then internal state)
+    const activeStoreId = storeId || selectedStoreId;
+
+    // Fetch stores list if no storeId prop is provided (for Admins)
+    const storesQuery = useQuery<{ data: StoreData[] }>({
+        queryKey: ['/api/stores'],
+        enabled: !storeId && isOpen,
+        queryFn: async () => {
+            const res = await fetch('/api/stores', { credentials: 'include' });
+            if (!res.ok) throw new Error('Failed to load stores');
+            return res.json();
+        }
+    });
+
+    const stores = storesQuery.data?.data || [];
+    const activeStoreName = stores.find(s => s.id === activeStoreId)?.name;
+
     // Check if AI chat is available
     const statusQuery = useQuery<ChatStatusResponse>({
         queryKey: ['/api/ai/chat/status'],
@@ -75,15 +109,15 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
             if (!res.ok) throw new Error('Failed to check status');
             return res.json();
         },
-        refetchInterval: 60000, // Check every minute
+        refetchInterval: 60000,
     });
 
-    // Load chat history when opening
+    // Load chat history when opened and store is selected
     const historyQuery = useQuery<ChatHistoryResponse>({
-        queryKey: ['/api/ai/chat/history', storeId],
-        enabled: Boolean(storeId) && isOpen,
+        queryKey: ['/api/ai/chat/history', activeStoreId],
+        enabled: Boolean(activeStoreId) && isOpen,
         queryFn: async () => {
-            const res = await fetch(`/api/ai/chat/history/${storeId}`, { credentials: 'include' });
+            const res = await fetch(`/api/ai/chat/history/${activeStoreId}`, { credentials: 'include' });
             if (!res.ok) throw new Error('Failed to load history');
             return res.json();
         },
@@ -93,14 +127,23 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
     useEffect(() => {
         if (historyQuery.data?.messages) {
             setMessages(historyQuery.data.messages);
+            // Scroll to bottom after loading history
+            setTimeout(() => {
+                if (scrollRef.current) {
+                    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                }
+            }, 100);
+        } else if (!activeStoreId) {
+            setMessages([]);
         }
-    }, [historyQuery.data]);
+    }, [historyQuery.data, activeStoreId]);
 
     // Clear history mutation
     const clearMutation = useMutation({
         mutationFn: async () => {
+            if (!activeStoreId) return;
             const csrfToken = await getCsrfToken();
-            const res = await fetch(`/api/ai/chat/clear/${storeId}`, {
+            const res = await fetch(`/api/ai/chat/clear/${activeStoreId}`, {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'X-CSRF-Token': csrfToken },
@@ -123,14 +166,14 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
 
     // Focus input when opening
     useEffect(() => {
-        if (isOpen && inputRef.current) {
+        if (isOpen && inputRef.current && activeStoreId) {
             setTimeout(() => inputRef.current?.focus(), 100);
         }
-    }, [isOpen]);
+    }, [isOpen, activeStoreId]);
 
     // Send message with streaming
     const sendMessage = useCallback(async (text: string) => {
-        if (!text.trim() || !storeId || isStreaming) return;
+        if (!text.trim() || !activeStoreId || isStreaming) return;
 
         const userMessage: ChatMessage = { role: 'user', content: text };
         setMessages(prev => [...prev, userMessage]);
@@ -147,7 +190,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                     'Content-Type': 'application/json',
                     'X-CSRF-Token': csrfToken,
                 },
-                body: JSON.stringify({ storeId, message: text }),
+                body: JSON.stringify({ storeId: activeStoreId, message: text }),
             });
 
             if (!response.ok) {
@@ -170,7 +213,6 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                         if (line.startsWith('data: ')) {
                             const data = line.slice(6);
                             if (data === '[DONE]') {
-                                // Stream complete
                                 break;
                             }
                             try {
@@ -193,7 +235,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
             setStreamingContent('');
 
             // Invalidate history cache
-            void queryClient.invalidateQueries({ queryKey: ['/api/ai/chat/history', storeId] });
+            void queryClient.invalidateQueries({ queryKey: ['/api/ai/chat/history', activeStoreId] });
 
         } catch {
             toast({
@@ -207,7 +249,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
             setIsStreaming(false);
             setStreamingContent('');
         }
-    }, [storeId, isStreaming, queryClient, toast]);
+    }, [activeStoreId, isStreaming, queryClient, toast]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -220,7 +262,8 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
 
     const isAvailable = statusQuery.data?.available ?? false;
 
-    if (!storeId) return null;
+    // For managers without a store prop, we might render nothing, 
+    // but the layout should handle that. For admins, we render to allow selection.
 
     return (
         <>
@@ -234,6 +277,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                     isOpen && "rotate-90"
                 )}
                 size="icon"
+                title="AI Profit Advisor"
             >
                 {isOpen ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
             </Button>
@@ -243,15 +287,23 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                 <Card className={cn(
                     "fixed bottom-24 right-6 w-96 max-h-[600px] z-50",
                     "shadow-2xl border-purple-200/50",
-                    "animate-in slide-in-from-bottom-4 fade-in duration-300"
+                    "animate-in slide-in-from-bottom-4 fade-in duration-300",
+                    "flex flex-col"
                 )}>
-                    <CardHeader className="pb-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-lg">
+                    <CardHeader className="pb-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-lg shrink-0">
                         <CardTitle className="flex items-center justify-between text-base">
                             <div className="flex items-center gap-2">
                                 <Bot className="h-5 w-5" />
-                                <span>AI Profit Advisor</span>
+                                <div className="flex flex-col">
+                                    <span>AI Profit Advisor</span>
+                                    {activeStoreName && (
+                                        <span className="text-[10px] font-normal opacity-90 flex items-center gap-1">
+                                            <Store className="h-3 w-3" /> {activeStoreName}
+                                        </span>
+                                    )}
+                                </div>
                                 {!isAvailable && (
-                                    <span className="text-xs bg-yellow-500 text-black px-2 py-0.5 rounded">
+                                    <span className="text-xs bg-yellow-500 text-black px-2 py-0.5 rounded ml-2">
                                         Unavailable
                                     </span>
                                 )}
@@ -261,16 +313,49 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                                 size="icon"
                                 className="h-8 w-8 text-white hover:bg-white/20"
                                 onClick={() => clearMutation.mutate()}
-                                disabled={messages.length === 0}
+                                disabled={messages.length === 0 || !activeStoreId}
+                                title="Clear conversation"
                             >
                                 <Trash2 className="h-4 w-4" />
                             </Button>
                         </CardTitle>
+
+                        {/* Store Selector for Admins */}
+                        {!storeId && stores.length > 0 && (
+                            <div className="mt-2">
+                                <Select
+                                    value={selectedStoreId || ''}
+                                    onValueChange={(val) => {
+                                        setSelectedStoreId(val);
+                                        setMessages([]); // Clear visible messages when switching context
+                                    }}
+                                >
+                                    <SelectTrigger className="h-8 text-xs bg-white/10 border-white/20 text-white hover:bg-white/20 focus:ring-0 focus:ring-offset-0">
+                                        <SelectValue placeholder="Select a store to chat" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {stores.map(store => (
+                                            <SelectItem key={store.id} value={store.id} className="text-xs">
+                                                {store.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
                     </CardHeader>
 
-                    <CardContent className="p-0">
-                        <ScrollArea className="h-80 p-4" ref={scrollRef}>
-                            {messages.length === 0 && !isStreaming ? (
+                    <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-[400px]">
+                        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+                            {!activeStoreId ? (
+                                <div className="text-center py-12 flex flex-col items-center justify-center h-full text-muted-foreground">
+                                    <Store className="h-12 w-12 mb-4 opacity-20" />
+                                    <p className="font-medium">Welcome, Admin!</p>
+                                    <p className="text-sm mt-1 max-w-[200px]">
+                                        Please select a store above to start analyzing its data with AI.
+                                    </p>
+                                </div>
+                            ) : messages.length === 0 && !isStreaming ? (
                                 <div className="text-center py-8">
                                     <Sparkles className="h-8 w-8 mx-auto mb-3 text-purple-400" />
                                     <p className="text-sm text-muted-foreground mb-4">
@@ -292,7 +377,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                                     </div>
                                 </div>
                             ) : (
-                                <div className="space-y-4">
+                                <div className="space-y-4 pb-4">
                                     {messages.map((msg, i) => (
                                         <div
                                             key={i}
@@ -336,20 +421,20 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                         </ScrollArea>
                     </CardContent>
 
-                    <CardFooter className="p-3 pt-0">
+                    <CardFooter className="p-3 pt-0 shrink-0 bg-white">
                         <form onSubmit={handleSubmit} className="flex gap-2 w-full">
                             <Input
                                 ref={inputRef}
                                 value={message}
                                 onChange={(e) => setMessage(e.target.value)}
-                                placeholder={isAvailable ? "Ask about profits, inventory..." : "AI not available"}
-                                disabled={isStreaming || !isAvailable}
+                                placeholder={!activeStoreId ? "Select a store first..." : isAvailable ? "Ask about profits, inventory..." : "AI not available"}
+                                disabled={isStreaming || !isAvailable || !activeStoreId}
                                 className="flex-1"
                             />
                             <Button
                                 type="submit"
                                 size="icon"
-                                disabled={!message.trim() || isStreaming || !isAvailable}
+                                disabled={!message.trim() || isStreaming || !isAvailable || !activeStoreId}
                                 className="bg-purple-600 hover:bg-purple-700"
                             >
                                 <Send className="h-4 w-4" />

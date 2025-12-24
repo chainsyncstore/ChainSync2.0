@@ -18,7 +18,7 @@ export async function registerAIChatRoutes(app: Express) {
     app.post('/api/ai/chat', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
         try {
             const { storeId, message } = req.body;
-            const userId = (req as any).user?.id;
+            const userId = (req.session as any)?.userId;
 
             if (!storeId || !message) {
                 return res.status(400).json({
@@ -71,7 +71,7 @@ export async function registerAIChatRoutes(app: Express) {
     app.post('/api/ai/chat/stream', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
         try {
             const { storeId, message } = req.body;
-            const userId = (req as any).user?.id;
+            const userId = (req.session as any)?.userId;
 
             if (!storeId || !message) {
                 return res.status(400).json({
@@ -139,7 +139,7 @@ export async function registerAIChatRoutes(app: Express) {
     app.get('/api/ai/chat/history/:storeId', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
         try {
             const { storeId } = req.params;
-            const userId = (req as any).user?.id;
+            const userId = (req.session as any)?.userId;
 
             if (!userId) {
                 return res.status(401).json({
@@ -172,7 +172,7 @@ export async function registerAIChatRoutes(app: Express) {
     app.post('/api/ai/chat/clear/:storeId', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
         try {
             const { storeId } = req.params;
-            const userId = (req as any).user?.id;
+            const userId = (req.session as any)?.userId;
 
             if (!userId) {
                 return res.status(401).json({
