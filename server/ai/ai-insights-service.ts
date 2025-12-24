@@ -340,7 +340,7 @@ export class AiInsightsService {
 
             const lossMap = new Map<string, number>();
             lossData.rows.forEach((row: any) => {
-                const netLoss = Number(row.loss_amount) - Number(row.recovered_amount);
+                const netLoss = Number(row.loss_amount);
                 lossMap.set(row.product_id, Math.max(0, netLoss));
             });
 

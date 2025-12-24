@@ -100,19 +100,18 @@ async function main() {
     console.log('Created REFUND transaction (2 units)');
 
     // STOCK LOSS: 1 Unit Damaged (Value $50)
-    // Needs proper JSONb metadata
+    // Create a Stock Loss event (Inventory Revaluation)
+    // lossAmount is 'Net Stock Loss' (Value lost - Recovered).
+    // Adding refundAmount here to verify it doesn't get double-subtracted.
     await db.insert(inventoryRevaluationEvents).values({
         storeId: store.id,
         productId: product.id,
-        occurredAt: new Date(),
         source: 'stock_removal_damaged',
         quantityBefore: 100,
         quantityAfter: 99,
-        metadata: {
-            lossAmount: 50.00,
-            reason: 'Damaged in transit'
-        }
-    } as any);
+        metadata: { lossAmount: 50, refundAmount: 20, reason: 'Damaged in transit' }, // refundAmount 20 shouldn't reduce loss 50
+        occurredAt: new Date(),
+    }).returning();
 
     console.log('Created STOCK LOSS event (1 unit, $50 value)');
 
