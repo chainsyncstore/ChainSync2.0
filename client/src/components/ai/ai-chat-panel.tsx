@@ -24,7 +24,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
     Select,
     SelectContent,
@@ -345,7 +344,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                     </CardHeader>
 
                     <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-[400px]">
-                        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+                        <div className="flex-1 overflow-y-auto p-4" ref={scrollRef}>
                             {!activeStoreId ? (
                                 <div className="text-center py-12 flex flex-col items-center justify-center h-full text-muted-foreground">
                                     <Store className="h-12 w-12 mb-4 opacity-20" />
@@ -417,7 +416,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                                     )}
                                 </div>
                             )}
-                        </ScrollArea>
+                        </div>
                     </CardContent>
 
                     <CardFooter className="p-3 pt-0 shrink-0 bg-white">
