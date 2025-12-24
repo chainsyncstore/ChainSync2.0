@@ -87,7 +87,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
     const activeStoreId = storeId || selectedStoreId;
 
     // Fetch stores list if no storeId prop is provided (for Admins)
-    const storesQuery = useQuery<{ data: StoreData[] }>({
+    const storesQuery = useQuery<StoreData[]>({
         queryKey: ['/api/stores'],
         enabled: !storeId && isOpen,
         queryFn: async () => {
@@ -97,7 +97,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
         }
     });
 
-    const stores = storesQuery.data?.data || [];
+    const stores = Array.isArray(storesQuery.data) ? storesQuery.data : [];
     const activeStoreName = stores.find(s => s.id === activeStoreId)?.name;
 
     // Check if AI chat is available
