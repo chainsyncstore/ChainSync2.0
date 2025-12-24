@@ -18,7 +18,6 @@ import {
     Trash2,
     X,
     Store,
-    ChevronDown
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
