@@ -283,12 +283,12 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
             {/* Chat Panel */}
             {isOpen && (
                 <Card className={cn(
-                    "fixed bottom-24 right-6 w-96 max-h-[600px] z-50",
+                    "fixed bottom-24 right-6 w-96 h-[600px] max-h-[80vh] z-50",
                     "shadow-2xl border-purple-200/50",
                     "animate-in slide-in-from-bottom-4 fade-in duration-300",
                     "flex flex-col"
                 )}>
-                    <CardHeader className="pb-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-lg shrink-0">
+                    <CardHeader className="pb-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-lg shrink-0 flex-none">
                         <CardTitle className="flex items-center justify-between text-base">
                             <div className="flex items-center gap-2">
                                 <Bot className="h-5 w-5" />
@@ -343,7 +343,7 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                         )}
                     </CardHeader>
 
-                    <CardContent className="p-0 flex-1 overflow-hidden flex flex-col h-[400px]">
+                    <CardContent className="p-0 flex-1 min-h-0 overflow-hidden flex flex-col bg-white">
                         <div className="flex-1 overflow-y-auto p-4" ref={scrollRef}>
                             {!activeStoreId ? (
                                 <div className="text-center py-12 flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -419,8 +419,8 @@ export function AiChatPanel({ storeId }: AiChatPanelProps) {
                         </div>
                     </CardContent>
 
-                    <CardFooter className="p-3 pt-0 shrink-0 bg-white">
-                        <form onSubmit={handleSubmit} className="flex gap-2 w-full">
+                    <CardFooter className="p-3 pt-0 shrink-0 flex-none bg-white border-t">
+                        <form onSubmit={handleSubmit} className="flex gap-2 w-full pt-3">
                             <Input
                                 ref={inputRef}
                                 value={message}

@@ -54,7 +54,7 @@ const CHAT_FUNCTIONS: ChatCompletionTool[] = [
         type: 'function',
         function: {
             name: 'getProductProfitability',
-            description: 'Get profitability data for a specific product or search by name. Returns profit, margin, units sold, and trend.',
+            description: 'Get comprehensive profitability data for a product. Returns Net Profit (after refunds & losses), Gross Revenue, Refunds, Stock Loss, and Margins.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -398,6 +398,8 @@ export class AiChatService {
                         profit: p.totalProfit,
                         margin: p.profitMargin,
                         unitsSold: p.unitsSold,
+                        stockLoss: p.stockLossAmount,
+                        refunds: p.refundedAmount,
                         trend: p.trend
                     }));
                 }

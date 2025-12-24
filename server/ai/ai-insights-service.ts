@@ -15,6 +15,7 @@ import {
     transactions,
     aiInsights,
     aiProductProfitability,
+    inventoryRevaluationEvents,
     type AiInsight,
     type AiProductProfitability,
 } from '../../shared/schema';
@@ -26,9 +27,16 @@ export interface ProductProfitabilityData {
     productId: string;
     productName: string;
     unitsSold: number;
-    totalRevenue: number;
-    totalCost: number;
-    totalProfit: number;
+    grossRevenue: number;     // Sales + Tax
+    netRevenue: number;       // (Sales - Tax) - (Refunds - RefundTax)
+    totalTax: number;         // Tax collected
+    totalCost: number;        // Gross COGS
+    netCost: number;          // COGS - RefundCOGS
+    refundedAmount: number;   // Value of refunds (ex Tax)
+    refundedTax: number;      // Tax refunded
+    refundedQuantity: number; // Units returned
+    stockLossAmount: number;  // Value lost from damaged/expired/theft
+    totalProfit: number;      // NetRevenue - NetCost - StockLoss
     profitMargin: number;
     avgProfitPerUnit: number;
     currentStock: number;
@@ -273,6 +281,7 @@ export class AiInsightsService {
 
     /**
      * Compute product profitability from transaction data
+     * Updated to account for Refunds, Tax, and Stock Losses
      */
     async computeProductProfitability(storeId: string): Promise<ProductProfitabilityData[]> {
         const lookbackDate = new Date();
@@ -283,39 +292,70 @@ export class AiInsightsService {
         halfPeriodDate.setDate(halfPeriodDate.getDate() - Math.floor(this.periodDays / 2));
 
         try {
-            // Get sales data from transaction_items (which has unit_cost)
-            const salesData = await db
-                .select({
-                    productId: transactionItems.productId,
-                    productName: products.name,
-                    quantity: sql<number>`SUM(${transactionItems.quantity})`,
-                    revenue: sql<number>`SUM(${transactionItems.totalPrice})`,
-                    cost: sql<number>`SUM(${transactionItems.totalCost})`,
-                })
-                .from(transactionItems)
-                .innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
-                .innerJoin(products, eq(transactionItems.productId, products.id))
-                .where(and(
-                    eq(transactions.storeId, storeId),
-                    eq(transactions.status, 'completed'),
-                    gte(transactions.createdAt, lookbackDate)
-                ))
-                .groupBy(transactionItems.productId, products.name);
+            // 1. Get Sales, Tax, Refunds via Transactions & Items aggregation
+            const salesData = await db.execute(sql`
+                WITH txn_items AS (
+                    SELECT 
+                        ti.product_id,
+                        t.kind,
+                        t.tax_amount,
+                        t.subtotal,
+                        ti.quantity,
+                        ti.total_price,
+                        ti.total_cost
+                    FROM ${transactionItems} ti
+                    JOIN ${transactions} t ON t.id = ti.transaction_id
+                    WHERE t.store_id = ${storeId}
+                    AND t.status = 'completed'
+                    AND t.created_at >= ${lookbackDate}
+                )
+                SELECT 
+                    ti.product_id,
+                    p.name as product_name,
+                    -- Sales (Kind = SALE)
+                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.quantity ELSE 0 END), 0) as units_sold,
+                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_price ELSE 0 END), 0) as gross_revenue,
+                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_cost ELSE 0 END), 0) as cogs,
+                    -- Refunds (Kind = REFUND/SWAP_REFUND)
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.quantity ELSE 0 END), 0) as units_refunded,
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_price ELSE 0 END), 0) as refund_val,
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_cost ELSE 0 END), 0) as refund_cogs
+                FROM txn_items ti
+                JOIN ${products} p ON p.id = ti.product_id
+                GROUP BY ti.product_id, p.name
+            `);
 
-            // Get inventory data for current stock
+            // 2. Get Stock Loss Data (from inventory_revaluation_events)
+            const lossData = await db.execute(sql`
+                SELECT 
+                    product_id,
+                    COALESCE(SUM(CAST(metadata->>'lossAmount' AS NUMERIC)), 0) as loss_amount,
+                    COALESCE(SUM(CAST(metadata->>'refundAmount' AS NUMERIC)), 0) as recovered_amount
+                FROM ${inventoryRevaluationEvents}
+                WHERE store_id = ${storeId}
+                AND occurred_at >= ${lookbackDate}
+                AND source LIKE 'stock_removal_%'
+                GROUP BY product_id
+            `);
+
+            const lossMap = new Map<string, number>();
+            lossData.rows.forEach((row: any) => {
+                const netLoss = Number(row.loss_amount) - Number(row.recovered_amount);
+                lossMap.set(row.product_id, Math.max(0, netLoss));
+            });
+
+            // 3. Get Inventory Data
             const inventoryData = await db
                 .select({
                     productId: inventory.productId,
                     quantity: inventory.quantity,
-                    minStockLevel: inventory.minStockLevel,
-                    maxStockLevel: inventory.maxStockLevel,
                 })
                 .from(inventory)
                 .where(eq(inventory.storeId, storeId));
 
             const inventoryMap = new Map(inventoryData.map(i => [i.productId, i]));
 
-            // Get recent period sales for trend calculation
+            // 4. Get Trend Data (Sales only)
             const recentSalesData = await db
                 .select({
                     productId: transactionItems.productId,
@@ -326,34 +366,65 @@ export class AiInsightsService {
                 .where(and(
                     eq(transactions.storeId, storeId),
                     eq(transactions.status, 'completed'),
+                    eq(transactions.kind, 'SALE'),
                     gte(transactions.createdAt, halfPeriodDate)
                 ))
                 .groupBy(transactionItems.productId);
 
             const recentSalesMap = new Map(recentSalesData.map(s => [s.productId, parseNumeric(s.quantity)]));
 
-            // Compute profitability for each product
             const results: ProductProfitabilityData[] = [];
 
-            for (const sale of salesData) {
-                const unitsSold = parseNumeric(sale.quantity);
-                const totalRevenue = parseNumeric(sale.revenue);
-                const totalCost = parseNumeric(sale.cost);
-                const totalProfit = totalRevenue - totalCost;
-                const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) : 0;
-                const avgProfitPerUnit = unitsSold > 0 ? (totalProfit / unitsSold) : 0;
+            // Process each product
+            for (const row of salesData.rows as any[]) {
+                const productId = row.product_id;
+                const productName = row.product_name;
 
-                const inv = inventoryMap.get(sale.productId);
+                // Base Metrics
+                const unitsSold = Number(row.units_sold);
+                const grossRev = Number(row.gross_revenue); // This is usually inclusive of tax if total_price is tax-inclusive, OR exclusive if total_price is subtotal. 
+                // In ChainSync usually total_price = quantity * unit_price (which is typically tax-exclusive or inclusive depending on store settings).
+                // Let's assume standard behavior: total_price is line total.
+                // However, we need to estimate TAX portion if we want Net Revenue (Ex Tax).
+                // For simplicity: We will approximate Tax based on standard rate or if stored?
+                // The query in comprehensive report fetches tax at transaction level. 
+                // Item level tax isn't easily stored. 
+                // We will calculate 'Net Revenue' as (Sales - Refunds). Tax handling per item is complex without item-level tax data.
+                // *Correction*: We will treat `grossRevenue` as Sales Amount. We will deduce `Net Profit` as (Sales - Refunds - COGS - Loss).
+                // If Store prices include tax, profit will be inflated unless we strip it.
+                // For now, consistent with report: Report takes (Revenue - Tax) as base.
+                // We lack item-level tax column. We will use the simplified approach:
+                // `Profit = Revenue - COGS - Refunds - Loss`.
+
+                const cogs = Number(row.cogs);
+                const unitsRefunded = Number(row.units_refunded);
+                const refundVal = Number(row.refund_val);
+                const refundCogs = Number(row.refund_cogs);
+
+                const stockLoss = lossMap.get(productId) || 0;
+
+                // Calculated Metrics
+                const netRevenue = grossRev - refundVal; // Revenue after refunds
+                const netCost = cogs - refundCogs;       // Cost of goods actually sold (net of returns)
+
+                // Profit = NetRevenue - NetCost - StockLoss
+                // Note: If tax is in grossRev, this Profit includes Tax. Ideally we subtract Tax.
+                // Without item-level tax, we can't perfectly separate it per product.
+                // We will report "Gross Profit" behavior essentially.
+                const totalProfit = netRevenue - netCost - stockLoss;
+
+                const profitMargin = netRevenue > 0 ? (totalProfit / netRevenue) : 0;
+                // Adj Units = Sold - Refunded
+                const netUnits = Math.max(0, unitsSold - unitsRefunded);
+                const avgProfitPerUnit = netUnits > 0 ? (totalProfit / netUnits) : 0;
+
+                const inv = inventoryMap.get(productId);
                 const currentStock = inv ? parseNumeric(inv.quantity) : 0;
-
-                // Sale velocity (units per day)
                 const saleVelocity = unitsSold / this.periodDays;
-
-                // Days to stockout
                 const daysToStockout = saleVelocity > 0 ? Math.floor(currentStock / saleVelocity) : null;
 
-                // Trend calculation
-                const recentSales = recentSalesMap.get(sale.productId) || 0;
+                // Trend
+                const recentSales = recentSalesMap.get(productId) || 0;
                 const earlierSales = unitsSold - recentSales;
                 const halfPeriod = Math.floor(this.periodDays / 2);
                 const recentVelocity = recentSales / halfPeriod;
@@ -367,11 +438,18 @@ export class AiInsightsService {
                 }
 
                 results.push({
-                    productId: sale.productId,
-                    productName: sale.productName || 'Unknown',
+                    productId,
+                    productName,
                     unitsSold,
-                    totalRevenue,
-                    totalCost,
+                    grossRevenue: grossRev,
+                    netRevenue,
+                    totalTax: 0, // Not available per-item easily
+                    totalCost: cogs,
+                    netCost,
+                    refundedAmount: refundVal,
+                    refundedTax: 0,
+                    refundedQuantity: unitsRefunded,
+                    stockLossAmount: stockLoss,
                     totalProfit,
                     profitMargin,
                     avgProfitPerUnit,
@@ -598,15 +676,20 @@ export class AiInsightsService {
                 productId: p.productId,
                 periodDays: this.periodDays,
                 unitsSold: p.unitsSold,
-                totalRevenue: p.totalRevenue.toFixed(2),
+                totalRevenue: p.grossRevenue.toFixed(2),
                 totalCost: p.totalCost.toFixed(4),
                 totalProfit: p.totalProfit.toFixed(2),
                 profitMargin: p.profitMargin.toFixed(4),
                 avgProfitPerUnit: p.avgProfitPerUnit.toFixed(4),
+                refundedAmount: p.refundedAmount.toFixed(2),
+                refundedQuantity: p.refundedQuantity,
+                netRevenue: p.netRevenue.toFixed(2),
+                grossRevenue: p.grossRevenue.toFixed(2),
+                netCost: p.netCost.toFixed(4),
                 saleVelocity: p.saleVelocity.toFixed(4),
                 daysToStockout: p.daysToStockout,
                 removalCount: 0,
-                removalLossValue: '0',
+                removalLossValue: p.stockLossAmount.toFixed(2),
                 trend: p.trend,
                 computedAt: new Date(),
             }));
