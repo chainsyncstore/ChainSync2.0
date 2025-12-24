@@ -43,6 +43,7 @@ export interface ProductProfitabilityData {
     saleVelocity: number;
     daysToStockout: number | null;
     trend: 'increasing' | 'decreasing' | 'stable';
+    minStockLevel: number;
 }
 
 export interface RemovalPattern {
@@ -64,6 +65,7 @@ export interface RestockingPriority {
     saleVelocity: number;
     priorityScore: number;
     recommendation: string;
+    minStockLevel: number;
 }
 
 export interface StockLevelRecommendation {
@@ -349,6 +351,7 @@ export class AiInsightsService {
                 .select({
                     productId: inventory.productId,
                     quantity: inventory.quantity,
+                    minStockLevel: inventory.minStockLevel,
                 })
                 .from(inventory)
                 .where(eq(inventory.storeId, storeId));
@@ -437,6 +440,8 @@ export class AiInsightsService {
                     else if (changePercent < -0.15) trend = 'decreasing';
                 }
 
+                const minStockLevel = inv ? parseNumeric(inv.minStockLevel) : 0;
+
                 results.push({
                     productId,
                     productName,
@@ -457,6 +462,7 @@ export class AiInsightsService {
                     saleVelocity,
                     daysToStockout,
                     trend,
+                    minStockLevel,
                 });
             }
 
@@ -532,12 +538,19 @@ export class AiInsightsService {
      * Calculate restocking priority based on profit, velocity, and stockout risk
      */
     calculateRestockingPriority(profitabilities: ProductProfitabilityData[]): RestockingPriority[] {
-        // Include OOS items (currentStock === 0) even if velocity is 0, if they have past sales (handled by filter)
-        // Original filter: p.currentStock > 0 || p.saleVelocity > 0
-        // We need to ensure items that are 0 stock and 0 velocity (but perhaps high profit/past sales?) are considered? 
-        // The current filter implies if stock is 0, velocity MUST be > 0. That's fair.
+        // Filter logic:
+        // 1. Below minimum stock level: currentStock <= minStockLevel
+        // 2. Already out of stock: currentStock === 0 (covered by <= minStockLevel usually if min >= 0, but explicit check is good)
+        // 3. Less than 7 days to stockout but yet to reach min stock: (daysToStockout < 7) AND (currentStock > minStockLevel)
+
         return profitabilities
-            .filter(p => p.currentStock > 0 || p.saleVelocity > 0)
+            .filter(p => {
+                const isBelowMin = p.currentStock <= p.minStockLevel;
+                const isOutOfStock = p.currentStock === 0;
+                const isRiskOfStockout = (p.daysToStockout !== null && p.daysToStockout < 7) && (p.currentStock > p.minStockLevel);
+
+                return isBelowMin || isOutOfStock || isRiskOfStockout;
+            })
             .map(p => {
                 // Priority score formula:
                 // Higher profit margin = higher priority
@@ -587,6 +600,7 @@ export class AiInsightsService {
                     saleVelocity: p.saleVelocity,
                     priorityScore,
                     recommendation,
+                    minStockLevel: p.minStockLevel,
                 };
             })
             .sort((a, b) => b.priorityScore - a.priorityScore);

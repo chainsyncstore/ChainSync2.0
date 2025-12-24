@@ -75,6 +75,7 @@ interface RestockingPriority {
     saleVelocity: number;
     priorityScore: number;
     recommendation: string;
+    minStockLevel: number;
 }
 
 interface InsightsResponse {

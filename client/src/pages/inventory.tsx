@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, AlertTriangle, Search, Filter, Edit, Eye, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers, TrendingDown, TrendingUp, Sparkles, Trash2 } from "lucide-react";
+import { Package, AlertTriangle, Search, Filter, Edit, Eye, Download, History as HistoryIcon, MinusCircle, DollarSign, Layers, TrendingDown, Sparkles, Trash2, ArrowRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/notice";
+import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
@@ -164,6 +165,25 @@ const REFUND_TYPES: Array<{ value: RefundType; label: string; description: strin
   { value: "partial", label: "Partial refund", description: "Partial reimbursement from manufacturer" },
   { value: "full", label: "Full refund", description: "Full reimbursement from manufacturer" },
 ];
+
+interface RestockingPriority {
+  productId: string;
+  productName: string;
+  currentStock: number;
+  daysToStockout: number | null;
+  profitMargin: number;
+  saleVelocity: number;
+  priorityScore: number;
+  recommendation: string;
+  minStockLevel: number;
+}
+
+interface RestockingResponse {
+  success: boolean;
+  storeId: string;
+  priorities: RestockingPriority[];
+  count: number;
+}
 
 const MOVEMENT_ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "all", label: "All actions" },
@@ -451,6 +471,16 @@ export default function Inventory() {
     () => ["/api/stores", storeId, "stock-movements", historyFilters],
     [storeId, historyFilters],
   );
+
+  const { data: restockingData, isLoading: isRestockingLoading } = useQuery<RestockingResponse>({
+    queryKey: ["/api/ai/insights", storeId, "restocking-priority"],
+    enabled: Boolean(storeId) && !isAllStoresView,
+    queryFn: async () => {
+      const res = await fetch(`/api/ai/insights/${storeId}/restocking-priority?limit=10`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch restocking priority");
+      return res.json();
+    },
+  });
 
   const { data: stockMovementsResponse, isLoading: isHistoryLoading, isError: isHistoryError, error: historyError } = useQuery<StockMovementApiResponse>({
     queryKey: historyQueryKey,
@@ -1332,61 +1362,67 @@ export default function Inventory() {
               </Card>
             </div>
 
-            {/* AI Demand Forecasting Widget */}
-            {(lowStockItems.length > 0 || outOfStockItems.length > 0) && (
-              <Card className="border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50 to-white">
+            {/* Restocking Priority Widget */}
+            {storeId && !isRestockingLoading && restockingData?.priorities && restockingData.priorities.length > 0 && (
+              <Card className="border-l-4 border-l-blue-500 bg-gradient-to-r from-blue-50 to-white">
                 <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-purple-700">
-                    <Sparkles className="h-5 w-5" />
-                    Demand Forecast & Restocking Insights
+                  <CardTitle className="flex items-center gap-2 text-blue-700">
+                    <Package className="h-5 w-5" />
+                    Restocking Priority
                   </CardTitle>
-                  <CardDescription>AI-powered recommendations based on your inventory levels</CardDescription>
+                  <CardDescription>Items needing attention based on stock levels and sales velocity</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {outOfStockItems.length > 0 && (
-                      <div className="p-4 bg-red-50 rounded-lg border border-red-100">
-                        <div className="flex items-center gap-2 mb-2">
-                          <AlertTriangle className="h-4 w-4 text-red-600" />
-                          <span className="font-medium text-red-700">Critical: Restock Now</span>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      {restockingData.priorities.slice(0, 5).map((p, i) => (
+                        <div key={p.productId} className="flex items-center justify-between border-b border-blue-100 last:border-0 pb-2 last:pb-0">
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-bold text-blue-300 w-5">#{i + 1}</span>
+                            <div>
+                              <p className="font-medium text-sm text-slate-800">{p.productName}</p>
+                              <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <Badge variant={p.currentStock === 0 ? "destructive" : "outline"} className="h-5 px-1.5 text-[10px]">
+                                  {p.currentStock === 0 ? "Out of Stock" : `${p.currentStock} in stock`}
+                                </Badge>
+                                {p.daysToStockout !== null && (
+                                  <span className={p.daysToStockout < 7 ? "text-amber-600 font-medium" : ""}>
+                                    {p.daysToStockout < 1 ? "< 1 day" : `${p.daysToStockout.toFixed(1)} days`} left
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="flex items-center justify-end gap-2 mb-1">
+                              <span className="text-xs font-medium text-slate-600">Priority: {p.priorityScore.toFixed(0)}</span>
+                            </div>
+                            <Progress value={p.priorityScore} className="h-1.5 w-24 ml-auto" />
+                          </div>
                         </div>
-                        <p className="text-sm text-red-600 mb-2">{outOfStockItems.length} out of stock</p>
-                        <ul className="text-xs text-red-700 space-y-1 max-h-20 overflow-y-auto">
-                          {outOfStockItems.slice(0, 3).map((item) => (
-                            <li key={item.productId} className="flex items-center gap-1">
-                              <TrendingDown className="h-3 w-3" />
-                              {item.product?.name || 'Unknown'}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {lowStockItems.filter(i => i.quantity > 0).length > 0 && (
-                      <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-100">
-                        <div className="flex items-center gap-2 mb-2">
-                          <TrendingDown className="h-4 w-4 text-yellow-600" />
-                          <span className="font-medium text-yellow-700">Low Stock Alert</span>
-                        </div>
-                        <p className="text-sm text-yellow-600 mb-2">{lowStockItems.filter(i => i.quantity > 0).length} running low</p>
-                        <ul className="text-xs text-yellow-700 space-y-1 max-h-20 overflow-y-auto">
-                          {lowStockItems.filter(i => i.quantity > 0).slice(0, 3).map((item) => (
-                            <li key={item.productId} className="flex items-center justify-between">
-                              <span className="truncate">{item.product?.name || 'Unknown'}</span>
-                              <Badge variant="outline" className="text-xs ml-1">{item.quantity}</Badge>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    <div className="p-4 bg-purple-50 rounded-lg border border-purple-100">
-                      <div className="flex items-center gap-2 mb-2">
-                        <TrendingUp className="h-4 w-4 text-purple-600" />
-                        <span className="font-medium text-purple-700">Restocking Tips</span>
-                      </div>
-                      <ul className="text-xs text-purple-700 space-y-2">
-                        <li>• Prioritize out-of-stock items</li>
-                        <li>• Order before weekend rush</li>
-                        <li>• Promote overstocked items</li>
+                      ))}
+                    </div>
+                    <div className="bg-blue-100/50 rounded-lg p-4 flex flex-col justify-center">
+                      <h4 className="font-medium text-blue-800 mb-2 flex items-center gap-2">
+                        <Sparkles className="h-4 w-4" /> AI Insights
+                      </h4>
+                      <ul className="space-y-2 text-sm text-blue-700">
+                        {restockingData.priorities.some(p => p.currentStock === 0) && (
+                          <li className="flex items-start gap-2">
+                            <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                            <span>You have <strong>{restockingData.priorities.filter(p => p.currentStock === 0).length} items</strong> completely out of stock. these are potential lost sales.</span>
+                          </li>
+                        )}
+                        {restockingData.priorities.some(p => p.currentStock > 0 && p.currentStock <= p.minStockLevel) && (
+                          <li className="flex items-start gap-2">
+                            <TrendingDown className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                            <span><strong>{restockingData.priorities.filter(p => p.currentStock > 0 && p.currentStock <= p.minStockLevel).length} items</strong> are below their minimum stock level.</span>
+                          </li>
+                        )}
+                        <li className="flex items-start gap-2">
+                          <ArrowRight className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
+                          <span>Top priority: <strong>{restockingData.priorities[0]?.productName}</strong> needs immediate attention.</span>
+                        </li>
                       </ul>
                     </div>
                   </div>
