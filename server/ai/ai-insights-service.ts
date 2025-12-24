@@ -336,7 +336,11 @@ export class AiInsightsService {
                 FROM ${inventoryRevaluationEvents}
                 WHERE store_id = ${storeId}
                 AND occurred_at >= ${lookbackDate}
-                AND source LIKE 'stock_removal_%'
+                AND (
+                    source LIKE 'stock_removal_%' 
+                    OR source = 'pos_return_discard'
+                    OR source = 'discard'
+                )
                 GROUP BY product_id
             `);
 
