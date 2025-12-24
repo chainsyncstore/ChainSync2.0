@@ -4,9 +4,10 @@
  * Provides endpoints for retrieving AI-generated insights and triggering insight generation.
  */
 
-import { eq, desc } from 'drizzle-orm';
+import { and, eq, desc } from 'drizzle-orm';
 import { Express, Request, Response } from 'express';
-import { aiBatchRuns, aiProductProfitability, stores } from '../../shared/schema';
+
+import { aiBatchRuns, aiProductProfitability, inventory, products, stores } from '../../shared/schema';
 import { aiInsightsService } from '../ai/ai-insights-service';
 import { db } from '../db';
 import { extractLogContext, logger } from '../lib/logger';
@@ -109,43 +110,57 @@ export async function registerAIInsightsRoutes(app: Express) {
             // Build the order column based on sort preference
             const orderFn = (col: any) => order === 'asc' ? col : desc(col);
 
-            let results;
-            if (sortBy === 'revenue') {
-                results = await db
-                    .select()
-                    .from(aiProductProfitability)
-                    .where(eq(aiProductProfitability.storeId, storeId))
-                    .orderBy(orderFn(aiProductProfitability.totalRevenue))
-                    .limit(parseInt(limit as string));
-            } else if (sortBy === 'velocity') {
-                results = await db
-                    .select()
-                    .from(aiProductProfitability)
-                    .where(eq(aiProductProfitability.storeId, storeId))
-                    .orderBy(orderFn(aiProductProfitability.saleVelocity))
-                    .limit(parseInt(limit as string));
-            } else if (sortBy === 'margin') {
-                results = await db
-                    .select()
-                    .from(aiProductProfitability)
-                    .where(eq(aiProductProfitability.storeId, storeId))
-                    .orderBy(orderFn(aiProductProfitability.profitMargin))
-                    .limit(parseInt(limit as string));
-            } else {
-                // Default: profit
-                results = await db
-                    .select()
-                    .from(aiProductProfitability)
-                    .where(eq(aiProductProfitability.storeId, storeId))
-                    .orderBy(orderFn(aiProductProfitability.totalProfit))
-                    .limit(parseInt(limit as string));
+            // Select profitability data joined with product names
+            let orderCol: any;
+            switch (sortBy) {
+                case 'revenue': orderCol = aiProductProfitability.totalRevenue; break;
+                case 'velocity': orderCol = aiProductProfitability.saleVelocity; break;
+                case 'margin': orderCol = aiProductProfitability.profitMargin; break;
+                default: orderCol = aiProductProfitability.totalProfit;
             }
+
+            const results = await db
+                .select({
+                    productId: aiProductProfitability.productId,
+                    productName: products.name,
+                    unitsSold: aiProductProfitability.unitsSold,
+                    totalRevenue: aiProductProfitability.totalRevenue,
+                    totalCost: aiProductProfitability.totalCost,
+                    totalProfit: aiProductProfitability.totalProfit,
+                    profitMargin: aiProductProfitability.profitMargin,
+                    avgProfitPerUnit: aiProductProfitability.avgProfitPerUnit,
+                    saleVelocity: aiProductProfitability.saleVelocity,
+                    daysToStockout: aiProductProfitability.daysToStockout,
+                    trend: aiProductProfitability.trend,
+                    currentStock: inventory.quantity,
+                })
+                .from(aiProductProfitability)
+                .innerJoin(products, eq(aiProductProfitability.productId, products.id))
+                .leftJoin(inventory, and(
+                    eq(inventory.productId, products.id),
+                    eq(inventory.storeId, storeId)
+                ))
+                .where(eq(aiProductProfitability.storeId, storeId))
+                .orderBy(orderFn(orderCol))
+                .limit(parseInt(limit as string));
+
+            // Convert decimal strings to numbers for frontend consumption
+            const formattedResults = results.map(r => ({
+                ...r,
+                totalRevenue: Number(r.totalRevenue),
+                totalCost: Number(r.totalCost),
+                totalProfit: Number(r.totalProfit),
+                profitMargin: Number(r.profitMargin),
+                avgProfitPerUnit: Number(r.avgProfitPerUnit),
+                saleVelocity: Number(r.saleVelocity),
+                currentStock: r.currentStock ?? 0,
+            }));
 
             res.json({
                 success: true,
                 storeId,
-                products: results,
-                count: results.length,
+                products: formattedResults,
+                count: formattedResults.length,
             });
         } catch (error) {
             logger.error('Failed to get profitability data', extractLogContext(req), error as Error);

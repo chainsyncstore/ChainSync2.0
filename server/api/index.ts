@@ -108,6 +108,16 @@ export async function registerRoutes(app: Express) {
     });
   }
 
+  // AI Chat Routes
+  try {
+    const { registerAIChatRoutes } = await import('./routes.ai-chat');
+    await registerAIChatRoutes(app);
+  } catch (error) {
+    logger.warn('AI chat routes unavailable or failed to register', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+
   // Phase 8: Offline Sync Routes (best-effort)
   try {
     const { registerOfflineSyncRoutes } = await import('./routes.offline-sync');

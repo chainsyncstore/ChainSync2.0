@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { LayoutContext } from "@/hooks/use-layout";
 import { useNotificationBridge } from "@/hooks/use-notification-bridge";
 
+const AiChatPanel = lazy(() => import("@/components/ai/ai-chat-panel"));
 const Sidebar = lazy(() => import("./sidebar"));
 const TopBar = lazy(() => import("./topbar"));
 
@@ -180,6 +181,13 @@ export default function MainLayout({ children, userRole }: MainLayoutProps) {
             {children}
           </main>
         </div>
+
+        {/* AI Chat Panel - Show for admin and manager users with a store selected */}
+        {(userRole === 'admin' || userRole === 'manager') && (user?.storeId || managerStoreId) && (
+          <Suspense fallback={null}>
+            <AiChatPanel storeId={user?.storeId || managerStoreId} />
+          </Suspense>
+        )}
       </div>
     </LayoutContext.Provider>
   );
