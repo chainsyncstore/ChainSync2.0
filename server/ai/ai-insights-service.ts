@@ -296,6 +296,7 @@ export class AiInsightsService {
         try {
             // 1. Get Sales, Tax, Refunds via Transactions & Items aggregation
             // Tax is at transaction level, so we proportionally allocate based on item's share of subtotal
+            // Gross Revenue = total_price + allocated_tax (tax-inclusive)
             const salesData = await db.execute(sql`
                 WITH txn_items AS (
                     SELECT 
@@ -323,14 +324,16 @@ export class AiInsightsService {
                     p.name as product_name,
                     -- Sales (Kind = SALE)
                     COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.quantity ELSE 0 END), 0) as units_sold,
-                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_price ELSE 0 END), 0) as gross_revenue,
-                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_cost ELSE 0 END), 0) as cogs,
+                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_price ELSE 0 END), 0) as subtotal_sales,
                     COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.item_tax ELSE 0 END), 0) as sales_tax,
+                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_price + ti.item_tax ELSE 0 END), 0) as gross_revenue,
+                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_cost ELSE 0 END), 0) as cogs,
                     -- Refunds (Kind = REFUND/SWAP_REFUND)
                     COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.quantity ELSE 0 END), 0) as units_refunded,
-                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_price ELSE 0 END), 0) as refund_val,
-                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_cost ELSE 0 END), 0) as refund_cogs,
-                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.item_tax ELSE 0 END), 0) as refund_tax
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_price ELSE 0 END), 0) as refund_subtotal,
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.item_tax ELSE 0 END), 0) as refund_tax,
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_price + ti.item_tax ELSE 0 END), 0) as refund_gross,
+                    COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_cost ELSE 0 END), 0) as refund_cogs
                 FROM txn_items ti
                 JOIN ${products} p ON p.id = ti.product_id
                 GROUP BY ti.product_id, p.name
@@ -396,23 +399,25 @@ export class AiInsightsService {
                 const productId = row.product_id;
                 const productName = row.product_name;
 
-                // Base Metrics
+                // Base Metrics from SQL
                 const unitsSold = Number(row.units_sold);
-                const grossRev = Number(row.gross_revenue);
+                const grossRevenue = Number(row.gross_revenue);  // Tax-inclusive (subtotal + tax)
                 const salesTax = Number(row.sales_tax);
                 const cogs = Number(row.cogs);
                 const unitsRefunded = Number(row.units_refunded);
-                const refundVal = Number(row.refund_val);
+                const refundGross = Number(row.refund_gross);    // Tax-inclusive (subtotal + tax)
                 const refundTax = Number(row.refund_tax);
                 const refundCogs = Number(row.refund_cogs);
 
                 const stockLoss = lossMap.get(productId) || 0;
 
                 // Corrected Profit Calculation (matching comprehensive report):
-                // Net Revenue = (Gross Revenue - Sales Tax) - (Refund Value - Refund Tax)
+                // Net Revenue = (Gross Revenue - Sales Tax) - (Refund Gross - Refund Tax)
+                //             = subtotal_sales - refund_subtotal
+                // Net COGS = Sales COGS - Refund COGS
                 // Net Profit = Net Revenue - Net COGS - Stock Loss
-                const netSalesExTax = grossRev - salesTax;
-                const netRefundsExTax = refundVal - refundTax;
+                const netSalesExTax = grossRevenue - salesTax;        // = subtotal_sales
+                const netRefundsExTax = refundGross - refundTax;      // = refund_subtotal
                 const netRevenue = netSalesExTax - netRefundsExTax;
                 const netCost = cogs - refundCogs;
                 const totalProfit = netRevenue - netCost - stockLoss;
@@ -447,12 +452,12 @@ export class AiInsightsService {
                     productId,
                     productName,
                     unitsSold,
-                    grossRevenue: grossRev,
+                    grossRevenue,
                     netRevenue,
                     totalTax: salesTax,
                     totalCost: cogs,
                     netCost,
-                    refundedAmount: refundVal,
+                    refundedAmount: refundGross,
                     refundedTax: refundTax,
                     refundedQuantity: unitsRefunded,
                     stockLossAmount: stockLoss,
