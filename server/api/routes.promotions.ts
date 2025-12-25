@@ -222,10 +222,38 @@ export async function registerPromotionRoutes(app: Express) {
                 .where(and(...conditions))
                 .orderBy(promotions.startsAt);
 
-            // Update status based on current time for returned data
+            // Fetch all associated products for these promotions
+            const promoIds = rows.map(r => r.id);
+            const promoProductsMap = new Map<string, any[]>();
+
+            if (promoIds.length > 0) {
+                const associatedProducts = await db
+                    .select({
+                        promotionId: promotionProducts.promotionId,
+                        id: promotionProducts.id,
+                        productId: promotionProducts.productId,
+                        customDiscountPercent: promotionProducts.customDiscountPercent,
+                        productName: products.name,
+                        productSku: products.sku,
+                        productBarcode: products.barcode,
+                        productCategory: products.category,
+                    })
+                    .from(promotionProducts)
+                    .innerJoin(products, eq(promotionProducts.productId, products.id))
+                    .where(inArray(promotionProducts.promotionId, promoIds));
+
+                for (const ap of associatedProducts) {
+                    const existing = promoProductsMap.get(ap.promotionId) || [];
+                    existing.push(ap);
+                    promoProductsMap.set(ap.promotionId, existing);
+                }
+            }
+
+            // Update status based on current time and attach products
             const updatedRows = rows.map((promo) => ({
                 ...promo,
                 status: computePromotionStatus(new Date(promo.startsAt), new Date(promo.endsAt), promo.status),
+                products: promoProductsMap.get(promo.id) || [],
             }));
 
             return res.json(updatedRows);

@@ -102,7 +102,7 @@ export function PromotionManagement({ storeId, stores = [], isAdmin = false }: P
     const [showProductSelector, setShowProductSelector] = useState(false);
 
     // Fetch promotions
-    const { data: promotions = [], isLoading } = useQuery<Promotion[]>({
+    const { data: promotions = [], isLoading } = useQuery<PromotionWithProducts[]>({
         queryKey: ["/api/promotions", storeId],
         queryFn: async () => {
             const params = new URLSearchParams();
@@ -326,7 +326,7 @@ export function PromotionManagement({ storeId, stores = [], isAdmin = false }: P
 
     // Group promotions by status
     const groupedPromotions = useMemo(() => {
-        const groups: Record<PromotionStatus, Promotion[]> = {
+        const groups: Record<PromotionStatus, PromotionWithProducts[]> = {
             active: [],
             scheduled: [],
             draft: [],
@@ -812,7 +812,7 @@ function PromotionCard({
     onDelete,
     disabled = false,
 }: {
-    promotion: Promotion;
+    promotion: PromotionWithProducts;
     isExpanded: boolean;
     onToggle: () => void;
     onEdit: () => void;
@@ -857,15 +857,40 @@ function PromotionCard({
                                 <span>•</span>
                                 <span>
                                     {promotion.scope === "category"
-                                        ? `Category: ${promotion.categoryFilter}`
-                                        : "Selected products"}
+                                        ? `Category: ${promotion.categoryFilter}${promotion.products && promotion.products.length > 0 ? ` (Filtered to ${promotion.products.length})` : ""}`
+                                        : `Selected products (${promotion.products?.length || 0})`}
                                 </span>
                             </>
                         )}
                     </div>
 
-                    {promotion.description && isExpanded && (
-                        <p className="mt-2 text-sm text-muted-foreground">{promotion.description}</p>
+                    {isExpanded && (
+                        <div className="mt-4 space-y-4">
+                            {promotion.description && (
+                                <p className="text-sm text-muted-foreground">{promotion.description}</p>
+                            )}
+
+                            {/* Show products list if available */}
+                            {promotion.products && promotion.products.length > 0 && (
+                                <div className="space-y-2">
+                                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                        Included Products
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {promotion.products.map((p) => (
+                                            <Badge key={p.id || p.productId} variant="secondary" className="font-normal">
+                                                {p.productName}
+                                                {p.customDiscountPercent && (
+                                                    <span className="ml-1 text-xs text-muted-foreground">
+                                                        ({p.customDiscountPercent}% off)
+                                                    </span>
+                                                )}
+                                            </Badge>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
 
