@@ -161,6 +161,9 @@ export function useNotificationBridge() {
         wsRef.current = socket;
 
         socket.onopen = async () => {
+          // Guard: If hook was cleaned up during connection handshake, abort
+          if (cancelled) return;
+
           let token = "";
           try {
             const res = await fetch("/api/auth/realtime-token", { credentials: "include" });
@@ -170,13 +173,18 @@ export function useNotificationBridge() {
             console.warn("Failed to fetch realtime token", error);
           }
 
+          // Guard: Check if socket was closed during async token fetch
+          if (cancelled || socket.readyState !== WebSocket.OPEN) {
+            return;
+          }
+
           socket.send(JSON.stringify({ type: "auth", data: { token, storeId: userStoreId || "" } }));
-          if (orgId) {
+          if (orgId && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: "subscribe", data: { channel: `org:${orgId}` } }));
           }
 
           const initialStoreChannel = pendingStoreChannelRef.current;
-          if (initialStoreChannel) {
+          if (initialStoreChannel && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: "subscribe", data: { channel: initialStoreChannel } }));
             subscribedStoreChannelRef.current = initialStoreChannel;
           }

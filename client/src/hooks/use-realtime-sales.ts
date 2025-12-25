@@ -37,6 +37,9 @@ export function useRealtimeSales(options: Options) {
       wsRef.current = ws;
 
       ws.onopen = async () => {
+        // Guard: If cancelled during connection handshake, abort
+        if (cancelled) return;
+
         let token = '';
         try {
           const url = storeId
@@ -49,10 +52,19 @@ export function useRealtimeSales(options: Options) {
           console.warn('Failed to fetch realtime auth token', error);
         }
 
+        // Guard: Check if socket was closed during async token fetch
+        if (cancelled || ws.readyState !== WebSocket.OPEN) {
+          return;
+        }
+
         try {
           ws.send(JSON.stringify({ type: 'auth', data: { token, storeId: storeId || '' } }));
-          if (orgId) ws.send(JSON.stringify({ type: 'subscribe', data: { channel: `org:${orgId}` } }));
-          if (storeId) ws.send(JSON.stringify({ type: 'subscribe', data: { channel: `store:${storeId}` } }));
+          if (orgId && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'subscribe', data: { channel: `org:${orgId}` } }));
+          }
+          if (storeId && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'subscribe', data: { channel: `store:${storeId}` } }));
+          }
         } catch (error) {
           console.warn('Failed to send realtime websocket auth', error);
         }
