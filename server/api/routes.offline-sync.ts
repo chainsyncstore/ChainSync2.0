@@ -23,6 +23,8 @@ const OfflineSaleSchema = z.object({
   customerPhone: z.string().optional(),
   redeemPoints: z.number().int().min(0).optional(),
   loyaltyEarnBase: z.number().min(0).optional(),
+  promotionId: z.string().optional().nullable(),
+  promotionDiscount: z.number().min(0).optional(),
 });
 
 const OfflineInventoryUpdateSchema = z.object({
@@ -45,11 +47,11 @@ const SyncBatchSchema = z.object({
 });
 
 export async function registerOfflineSyncRoutes(app: Express) {
-  
+
   // Sync offline data to server
   app.post('/api/sync/upload', requireAuth, async (req: Request, res: Response) => {
     const context = extractLogContext(req);
-    
+
     try {
       const parsed = SyncBatchSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -57,7 +59,7 @@ export async function registerOfflineSyncRoutes(app: Express) {
           operation: 'sync_upload',
           errors: parsed.error.errors
         });
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: 'Invalid sync data format',
           details: parsed.error.errors
         });
@@ -198,6 +200,8 @@ export async function registerOfflineSyncRoutes(app: Express) {
               unitPrice: String(sale.salePrice),
               lineDiscount: String(sale.discount),
               lineTotal: String(total),
+              // Note: offline sales from legacy endpoint might not support full promotion details yet
+              // but we map what we can if added
             } as any);
 
             // Update inventory
@@ -262,7 +266,7 @@ export async function registerOfflineSyncRoutes(app: Express) {
             saleId: sale.id,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
-          
+
           results.salesErrors.push({
             saleId: sale.id,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -300,7 +304,7 @@ export async function registerOfflineSyncRoutes(app: Express) {
             productId: update.productId,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
-          
+
           results.inventoryErrors.push({
             productId: update.productId,
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -334,7 +338,7 @@ export async function registerOfflineSyncRoutes(app: Express) {
         operation: 'sync_upload',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
-      
+
       res.status(500).json({
         error: 'Sync upload failed',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -345,7 +349,7 @@ export async function registerOfflineSyncRoutes(app: Express) {
   // Download data for offline use
   app.get('/api/sync/download', requireAuth, async (req: Request, res: Response) => {
     const context = extractLogContext(req);
-    
+
     try {
       const { storeId, lastSync, includeProducts = 'true', includeInventory = 'true' } = req.query;
 
@@ -434,7 +438,7 @@ export async function registerOfflineSyncRoutes(app: Express) {
   // Get sync status and conflict resolution
   app.get('/api/sync/status', requireAuth, async (req: Request, res: Response) => {
     const context = extractLogContext(req);
-    
+
     try {
       const { storeId, deviceId } = req.query;
       const storeIdStr = String(storeId);
@@ -486,7 +490,7 @@ export async function registerOfflineSyncRoutes(app: Express) {
   // Resolve sync conflicts
   app.post('/api/sync/resolve-conflicts', requireAuth, async (req: Request, res: Response) => {
     const context = extractLogContext(req);
-    
+
     try {
       const { conflicts, resolution = 'server-wins' } = req.body;
 
