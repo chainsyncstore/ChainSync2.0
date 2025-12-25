@@ -13,6 +13,14 @@ export interface CartItem {
   promotionType?: 'percentage' | 'bundle'; // Type of promotion
   discountPercent?: number; // Discount percentage if applicable
   isFreeItem?: boolean; // True for bundle "free" items (price=0, originalPrice retained)
+
+  // Bundle promotion metadata
+  availableBundle?: {
+    id: string; // Promotion ID
+    name: string;
+    buyQuantity: number;
+    getQuantity: number;
+  };
 }
 
 export interface CartSummary {

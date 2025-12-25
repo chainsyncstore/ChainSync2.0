@@ -48,6 +48,10 @@ const SaleSchema = z.object({
     unitPrice: z.string(),
     lineDiscount: z.string().default('0'),
     lineTotal: z.string(),
+    promotionId: z.string().uuid().optional(),
+    promotionDiscount: z.string().default('0').optional(),
+    originalUnitPrice: z.string().optional(),
+    isFreeItem: z.boolean().default(false).optional(),
   })),
 });
 
@@ -759,6 +763,10 @@ export async function registerPosRoutes(app: Express) {
             totalPrice: item.lineTotal,
             unitCost: String(unitCost.toFixed(4)),
             totalCost: String(totalCost.toFixed(4)),
+            promotionId: item.promotionId || null,
+            promotionDiscount: item.promotionDiscount || '0',
+            originalUnitPrice: item.originalUnitPrice || item.unitPrice,
+            isFreeItem: item.isFreeItem || false,
           } as any);
       }
       logger.info('POS: Transaction items inserted with COGS', { transactionId: tx.id, itemCount: parsed.data.items.length });

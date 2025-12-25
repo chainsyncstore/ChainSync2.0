@@ -315,6 +315,77 @@ export const transactions = pgTable("transactions", {
   createdAtIdx: index("transactions_created_at_idx").on(table.createdAt),
 }));
 
+// Promotions tables
+export const promotions = pgTable("promotions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  storeId: uuid("store_id").references(() => stores.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  promotionType: promotionTypeEnum("promotion_type").notNull(),
+  scope: promotionScopeEnum("scope").notNull(),
+  categoryFilter: varchar("category_filter", { length: 255 }),
+  discountPercent: decimal("discount_percent", { precision: 5, scale: 2 }),
+  bundleBuyQuantity: integer("bundle_buy_quantity"),
+  bundleGetQuantity: integer("bundle_get_quantity"),
+  perProductPricing: boolean("per_product_pricing").notNull().default(false),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  status: promotionStatusEnum("status").notNull().default("draft"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  orgIdx: index("promotions_org_idx").on(table.orgId, table.status),
+  storeIdx: index("promotions_store_idx").on(table.storeId, table.status),
+  dateIdx: index("promotions_date_idx").on(table.startsAt, table.endsAt),
+}));
+
+export const promotionProducts = pgTable("promotion_products", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  promotionId: uuid("promotion_id").notNull().references(() => promotions.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  customDiscountPercent: decimal("custom_discount_percent", { precision: 5, scale: 2 }),
+}, (table) => ({
+  promotionIdx: index("promotion_products_promotion_idx").on(table.promotionId),
+  productIdx: index("promotion_products_product_idx").on(table.productId),
+  uniqueProductPromo: uniqueIndex("promotion_products_unique").on(table.promotionId, table.productId),
+}));
+
+// Promotion relations
+export const promotionsRelations = relations(promotions, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [promotions.orgId],
+    references: [organizations.id],
+  }),
+  store: one(stores, {
+    fields: [promotions.storeId],
+    references: [stores.id],
+  }),
+  createdByUser: one(users, {
+    fields: [promotions.createdBy],
+    references: [users.id],
+  }),
+  products: many(promotionProducts),
+}));
+
+export const promotionProductsRelations = relations(promotionProducts, ({ one }) => ({
+  promotion: one(promotions, {
+    fields: [promotionProducts.promotionId],
+    references: [promotions.id],
+  }),
+  product: one(products, {
+    fields: [promotionProducts.productId],
+    references: [products.id],
+  }),
+}));
+
+// Promotion Types
+export type Promotion = typeof promotions.$inferSelect;
+export type InsertPromotion = typeof promotions.$inferInsert;
+export type PromotionProduct = typeof promotionProducts.$inferSelect;
+export type InsertPromotionProduct = typeof promotionProducts.$inferInsert;
+
 // Transaction Items table
 export const transactionItems = pgTable("transaction_items", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -325,9 +396,15 @@ export const transactionItems = pgTable("transaction_items", {
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
   unitCost: decimal("unit_cost", { precision: 12, scale: 4 }).notNull().default("0"),
   totalCost: decimal("total_cost", { precision: 14, scale: 4 }).notNull().default("0"),
+  // Promotion Tracking
+  promotionId: uuid("promotion_id").references(() => promotions.id, { onDelete: "set null" }),
+  promotionDiscount: decimal("promotion_discount", { precision: 12, scale: 2 }).default("0"),
+  originalUnitPrice: decimal("original_unit_price", { precision: 12, scale: 2 }),
+  isFreeItem: boolean("is_free_item").default(false),
 }, (table) => ({
   transactionIdIdx: index("transaction_items_transaction_id_idx").on(table.transactionId),
   productIdIdx: index("transaction_items_product_id_idx").on(table.productId),
+  promotionIdx: index("transaction_items_promotion_idx").on(table.promotionId),
 }));
 
 // Legacy POS sales tables (production-aligned)
@@ -641,6 +718,10 @@ export const transactionItemsRelations = relations(transactionItems, ({ one }) =
   product: one(products, {
     fields: [transactionItems.productId],
     references: [products.id],
+  }),
+  promotion: one(promotions, {
+    fields: [transactionItems.promotionId],
+    references: [promotions.id],
   }),
 }));
 
@@ -1325,77 +1406,4 @@ export type InsertAiInsight = typeof aiInsights.$inferInsert;
 export type AiBatchRun = typeof aiBatchRuns.$inferSelect;
 export type AiProductProfitability = typeof aiProductProfitability.$inferSelect;
 
-// Promotions tables
-export const promotions = pgTable("promotions", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
-  storeId: uuid("store_id").references(() => stores.id, { onDelete: "cascade" }),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  promotionType: promotionTypeEnum("promotion_type").notNull(),
-  scope: promotionScopeEnum("scope").notNull(),
-  categoryFilter: varchar("category_filter", { length: 255 }),
-  discountPercent: decimal("discount_percent", { precision: 5, scale: 2 }),
-  bundleBuyQuantity: integer("bundle_buy_quantity"),
-  bundleGetQuantity: integer("bundle_get_quantity"),
-  perProductPricing: boolean("per_product_pricing").notNull().default(false),
-  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
-  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
-  status: promotionStatusEnum("status").notNull().default("draft"),
-  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (table) => ({
-  orgIdx: index("promotions_org_idx").on(table.orgId, table.status),
-  storeIdx: index("promotions_store_idx").on(table.storeId, table.status),
-  dateIdx: index("promotions_date_idx").on(table.startsAt, table.endsAt),
-}));
 
-export const promotionProducts = pgTable("promotion_products", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  promotionId: uuid("promotion_id").notNull().references(() => promotions.id, { onDelete: "cascade" }),
-  productId: uuid("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
-  customDiscountPercent: decimal("custom_discount_percent", { precision: 5, scale: 2 }),
-}, (table) => ({
-  promotionIdx: index("promotion_products_promotion_idx").on(table.promotionId),
-  productIdx: index("promotion_products_product_idx").on(table.productId),
-  uniqueProductPromo: uniqueIndex("promotion_products_unique").on(table.promotionId, table.productId),
-}));
-
-// Promotion relations
-export const promotionsRelations = relations(promotions, ({ one, many }) => ({
-  organization: one(organizations, {
-    fields: [promotions.orgId],
-    references: [organizations.id],
-  }),
-  store: one(stores, {
-    fields: [promotions.storeId],
-    references: [stores.id],
-  }),
-  createdByUser: one(users, {
-    fields: [promotions.createdBy],
-    references: [users.id],
-  }),
-  products: many(promotionProducts),
-}));
-
-export const promotionProductsRelations = relations(promotionProducts, ({ one }) => ({
-  promotion: one(promotions, {
-    fields: [promotionProducts.promotionId],
-    references: [promotions.id],
-  }),
-  product: one(products, {
-    fields: [promotionProducts.productId],
-    references: [products.id],
-  }),
-}));
-
-// Promotion insert schemas
-export const insertPromotionSchema = createInsertSchema(promotions);
-export const insertPromotionProductSchema = createInsertSchema(promotionProducts);
-
-// Promotion Types
-export type Promotion = typeof promotions.$inferSelect;
-export type InsertPromotion = typeof promotions.$inferInsert;
-export type PromotionProduct = typeof promotionProducts.$inferSelect;
-export type InsertPromotionProduct = typeof promotionProducts.$inferInsert;
