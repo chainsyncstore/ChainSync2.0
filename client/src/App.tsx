@@ -37,6 +37,7 @@ const Loyalty = lazy(() => import("@/pages/loyalty"));
 const Alerts = lazy(() => import("@/pages/alerts"));
 const DataImport = lazy(() => import("@/pages/data-import"));
 const MultiStore = lazy(() => import("@/pages/multi-store"));
+const Promotions = lazy(() => import("@/pages/promotions"));
 const Settings = lazy(() => import("@/pages/settings"));
 const StoreStaff = lazy(() => import("./pages/store-staff"));
 const DebugCsrf = lazy(() => import("@/pages/debug-csrf"));
@@ -89,6 +90,7 @@ function Dashboard({ userRole }: { userRole: string }) {
               <Route path="/admin/bulk-pricing" component={AdminBulk} />
               <Route path="/admin/billing" component={AdminBilling} />
               <Route path="/loyalty" component={Loyalty} />
+              <Route path="/promotions" component={Promotions} />
               <Route path="/alerts" component={Alerts} />
               <Route path="/multi-store" component={MultiStore} />
               <Route path="/settings" component={Settings} />
@@ -116,6 +118,7 @@ function Dashboard({ userRole }: { userRole: string }) {
               <Route path="/admin/ip-whitelist" component={AdminIp} />
               <Route path="/admin/bulk-pricing" component={AdminBulk} />
               <Route path="/loyalty" component={Loyalty} />
+              <Route path="/promotions" component={Promotions} />
               <Route path="/alerts" component={Alerts} />
               {managerHasStore ? (
                 <Route path="/data-import" component={DataImport} />

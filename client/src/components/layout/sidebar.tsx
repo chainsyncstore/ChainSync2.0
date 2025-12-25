@@ -10,6 +10,7 @@ import {
 	CreditCard,
 	Users,
 	Undo2,
+	Tag,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +50,7 @@ const getNavigationItems = (
 		{ path: "/inventory", icon: Package, label: "Inventory" },
 		{ path: "/analytics", icon: TrendingUp, label: "Analytics" },
 		{ path: "/loyalty", icon: Crown, label: "Loyalty" },
+		{ path: "/promotions", icon: Tag, label: "Promotions" },
 		{ path: "/alerts", icon: AlertTriangle, label: "Alerts", hasAlert: true },
 		{ path: "/settings", icon: Settings, label: "Settings" },
 	];
