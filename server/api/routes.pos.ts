@@ -861,6 +861,37 @@ export async function registerPosRoutes(app: Express) {
     }
   });
 
+  // Look up a sale by idempotency key (used to resolve offline sales that synced via service worker)
+  app.get('/api/pos/sales/by-idempotency-key/:key', requireAuth, requireRole('CASHIER'), async (req: Request, res: Response) => {
+    const { key } = req.params;
+    const storeId = String(req.query.storeId ?? '').trim();
+
+    if (!key || !storeId) {
+      return res.status(400).json({ error: 'key and storeId are required' });
+    }
+
+    try {
+      const rows = await db
+        .select()
+        .from(sales)
+        .where(and(eq(sales.idempotencyKey, key), eq(sales.storeId, storeId)))
+        .limit(1);
+
+      if (!rows[0]) {
+        return res.status(404).json({ error: 'Sale not found' });
+      }
+
+      return res.json(rows[0]);
+    } catch (error) {
+      logger.error('Failed to lookup sale by idempotency key', {
+        key,
+        storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({ error: 'Failed to lookup sale' });
+    }
+  });
+
   // List recent POS sales for a store (used for offline returns/swaps snapshot)
   app.get('/api/pos/sales', requireAuth, requireRole('CASHIER'), enforceIpWhitelist, async (req: Request, res: Response) => {
     const storeId = String((req.query.storeId ?? '')).trim();

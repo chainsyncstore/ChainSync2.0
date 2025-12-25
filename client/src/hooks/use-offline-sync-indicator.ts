@@ -77,14 +77,44 @@ export function useOfflineSyncIndicator(options: UseOfflineSyncOptions = {}) {
       for (const returnRecord of pendingReturns) {
         try {
           // Get the cached sale to find the actual server sale ID
-          const cachedSale = await getCachedSale(returnRecord.saleId);
-          const actualSaleId = cachedSale?.serverId || cachedSale?.id || returnRecord.saleId;
+          let cachedSale = await getCachedSale(returnRecord.saleId);
+          let actualSaleId = cachedSale?.serverId || cachedSale?.id || returnRecord.saleId;
 
-          // Skip if the sale was created offline and not yet synced
+          // If the cached sale is marked as offline and unsynced, try to look it up on the server
+          // by idempotency key - it may have synced via service worker while we were away
+          if (cachedSale?.isOffline && !cachedSale.syncedAt && cachedSale.idempotencyKey) {
+            try {
+              const lookupRes = await fetch(
+                `/api/pos/sales/by-idempotency-key/${encodeURIComponent(cachedSale.idempotencyKey)}?storeId=${encodeURIComponent(returnRecord.storeId)}`,
+                { credentials: "include" }
+              );
+              if (lookupRes.ok) {
+                const serverSale = await lookupRes.json();
+                if (serverSale?.id && isUuid(serverSale.id)) {
+                  // Sale exists on server! Update cached record and use server ID
+                  await updateCachedSale(cachedSale.id, {
+                    isOffline: false,
+                    syncedAt: new Date().toISOString(),
+                    serverId: serverSale.id,
+                  });
+                  actualSaleId = serverSale.id;
+                  console.log(`Resolved offline sale ${returnRecord.saleId} to server ID ${serverSale.id}`);
+                }
+              }
+            } catch (lookupErr) {
+              console.warn(`Failed to lookup sale by idempotency key for return ${returnRecord.id}`, lookupErr);
+            }
+          }
+
+          // Re-check: Skip if the sale is still offline and unsynced after lookup attempt
+          cachedSale = await getCachedSale(returnRecord.saleId);
           if (cachedSale?.isOffline && !cachedSale.syncedAt) {
             console.log(`Skipping return for unsynced offline sale: ${returnRecord.saleId}`);
             continue;
           }
+
+          // Update actualSaleId after potential cache update
+          actualSaleId = cachedSale?.serverId || cachedSale?.id || returnRecord.saleId;
 
           if (!isUuid(actualSaleId)) {
             console.log(`Skipping return for non-UUID sale id: ${actualSaleId}`);
