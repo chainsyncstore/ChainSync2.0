@@ -728,7 +728,7 @@ export default function POSV2() {
     // Add free items (price 0)
     for (let i = 0; i < item.availableBundle.getQuantity; i++) {
       addItem({
-        id: item.productId,
+        id: `${item.productId}_free`,
         name: item.name,
         barcode: item.barcode,
         price: 0,
