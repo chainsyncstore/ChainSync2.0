@@ -10,8 +10,9 @@ import type { Store } from "@shared/schema";
 
 export default function Promotions() {
     const { user } = useAuth();
-    const isAdmin = user?.role === "ADMIN";
-    const isManager = user?.role === "MANAGER";
+    // Roles are normalized to lowercase in useAuth
+    const isAdmin = user?.role === "admin";
+    const isManager = user?.role === "manager";
     const userStoreId = user?.storeId;
 
     const [selectedStoreId, setSelectedStoreId] = useState<string | undefined>(
