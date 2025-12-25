@@ -3,9 +3,16 @@ export interface CartItem {
   productId: string;
   name: string;
   barcode: string;
-  price: number;
+  price: number; // Current price (may be discounted or 0 for free items)
   quantity: number | undefined;
   total: number;
+  // Promotional pricing fields
+  originalPrice?: number; // Store original price when promotion applied
+  promotionId?: string; // ID of applied promotion
+  promotionName?: string; // Name of applied promotion
+  promotionType?: 'percentage' | 'bundle'; // Type of promotion
+  discountPercent?: number; // Discount percentage if applicable
+  isFreeItem?: boolean; // True for bundle "free" items (price=0, originalPrice retained)
 }
 
 export interface CartSummary {

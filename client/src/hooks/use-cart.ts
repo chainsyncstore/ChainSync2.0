@@ -45,13 +45,44 @@ export function useCart() {
     setItems(currentItems => currentItems.filter(item => item.id !== itemId));
   }, []);
 
-  const addItem = useCallback((product: { id: string; name: string; barcode: string; price: number }) => {
+  const addItem = useCallback((product: {
+    id: string;
+    name: string;
+    barcode: string;
+    price: number;
+    // Optional promotion fields
+    originalPrice?: number;
+    promotionId?: string;
+    promotionName?: string;
+    promotionType?: 'percentage' | 'bundle';
+    discountPercent?: number;
+    isFreeItem?: boolean;
+  }) => {
     setItems(currentItems => {
-      const existingItem = currentItems.find(item => item.productId === product.id);
+      // For free items, always add as a new line item (don't increment quantity of existing)
+      if (product.isFreeItem) {
+        return [...currentItems, {
+          id: `${product.id}-free-${Date.now()}`,
+          productId: product.id,
+          name: product.name,
+          barcode: product.barcode,
+          price: product.price,
+          quantity: 1,
+          total: product.price,
+          originalPrice: product.originalPrice,
+          promotionId: product.promotionId,
+          promotionName: product.promotionName,
+          promotionType: product.promotionType,
+          discountPercent: product.discountPercent,
+          isFreeItem: true,
+        }];
+      }
+
+      const existingItem = currentItems.find(item => item.productId === product.id && !item.isFreeItem);
 
       if (existingItem) {
         return currentItems.map(item =>
-          item.productId === product.id
+          item.productId === product.id && !item.isFreeItem
             ? { ...item, quantity: item.quantity + 1, total: (item.quantity + 1) * item.price }
             : item
         );
@@ -65,6 +96,12 @@ export function useCart() {
         price: product.price,
         quantity: 1,
         total: product.price,
+        // Include promotion data if provided
+        originalPrice: product.originalPrice,
+        promotionId: product.promotionId,
+        promotionName: product.promotionName,
+        promotionType: product.promotionType,
+        discountPercent: product.discountPercent,
       }];
     });
   }, [setItems]);

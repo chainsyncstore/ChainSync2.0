@@ -22,16 +22,27 @@ import {
   Settings,
   ArrowRightLeft,
   Package,
+  Tag,
+  Gift,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useScannerContext } from "@/hooks/use-barcode-scanner";
 import { useCart } from "@/hooks/use-cart";
 import { useHeldTransactions } from "@/hooks/use-held-transactions";
+import { usePromotions } from "@/hooks/use-promotions";
 import { useRealtimeSales } from "@/hooks/use-realtime-sales";
 import { useReceiptPrinter } from "@/hooks/use-receipt-printer";
 import { useToast } from "@/hooks/use-toast";
@@ -112,6 +123,19 @@ export default function POSV2() {
   const [loyaltyLoading, setLoyaltyLoading] = useState(false);
   const [, setLoyaltySyncStatus] = useState<LoyaltySyncState>({ state: "idle" });
 
+  // Bundle promotion prompt state
+  const [bundlePrompt, setBundlePrompt] = useState<{
+    productId: string;
+    productName: string;
+    promotionId: string;
+    promotionName: string;
+    freeQuantity: number;
+    unitPrice: number;
+    barcode: string;
+  } | null>(null);
+  // Track already handled bundle thresholds to avoid re-prompting
+  const bundleHandledRef = useRef<Map<string, number>>(new Map());
+
   const containerRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -136,6 +160,9 @@ export default function POSV2() {
   } = useCart();
 
   const { heldTransactions, holdTransaction, resumeTransaction, discardTransaction } = useHeldTransactions(selectedStore);
+
+  // Promotions hook for applying discounts
+  const { fetchPromotions } = usePromotions(selectedStore);
 
   const { printReceipt } = useReceiptPrinter();
 
@@ -469,7 +496,7 @@ export default function POSV2() {
     }
   };
 
-  // Barcode scanning
+  // Barcode scanning with promotion integration
   const handleBarcodeSubmit = useCallback(
     async (barcode: string) => {
       if (!barcode || !barcode.trim()) return;
@@ -477,10 +504,47 @@ export default function POSV2() {
         const res = await fetch(`/api/products/barcode/${encodeURIComponent(barcode)}`, { credentials: "include" });
         if (res.ok) {
           const product = await res.json();
-          addItem({ id: product.id, name: product.name, barcode: product.barcode || "", price: parseFloat(product.price) });
-          toast({ title: "Added", description: product.name });
+          const originalPrice = parseFloat(product.salePrice || product.price);
+
+          // Check for active promotion
+          let promoData = {};
+          if (navigator.onLine && selectedStore) {
+            try {
+              const promos = await fetchPromotions([product.id]);
+              const promo = promos[product.id];
+              if (promo && promo.promotionType === 'percentage') {
+                const discountPercent = Number(promo.customDiscountPercent || promo.discountPercent || promo.effectiveDiscount || 0);
+                if (discountPercent > 0) {
+                  const discountedPrice = originalPrice * (1 - discountPercent / 100);
+                  promoData = {
+                    price: Math.max(0, discountedPrice),
+                    originalPrice,
+                    promotionId: promo.id,
+                    promotionName: promo.name,
+                    promotionType: promo.promotionType,
+                    discountPercent,
+                  };
+                }
+              }
+            } catch {
+              // Failed to fetch promotion, continue without it
+            }
+          }
+
+          addItem({
+            id: product.id,
+            name: product.name,
+            barcode: product.barcode || "",
+            price: (promoData as any).price ?? originalPrice,
+            ...(promoData as any),
+          });
+
+          const promoInfo = (promoData as any).discountPercent
+            ? ` (${(promoData as any).discountPercent}% off)`
+            : '';
+          toast({ title: "Added", description: `${product.name}${promoInfo}` });
         } else {
-          // Try local cache
+          // Try local cache (no promotions when offline)
           const local = await getProductByBarcodeLocally(barcode);
           if (local) {
             addItem({ id: local.id, name: local.name, barcode: local.barcode || "", price: parseFloat(local.price) });
@@ -502,7 +566,7 @@ export default function POSV2() {
       setBarcodeInput("");
       barcodeInputRef.current?.focus();
     },
-    [addItem, toast]
+    [addItem, toast, selectedStore, fetchPromotions]
   );
 
   useEffect(() => {
@@ -606,6 +670,109 @@ export default function POSV2() {
     setRedeemPoints(0);
     setLoyaltySyncStatus({ state: "idle" });
   };
+
+  // Bundle promotion handler - adds free items to cart
+  const handleAddBundleFreeItems = useCallback(() => {
+    if (!bundlePrompt) return;
+
+    // Add free items with price=0 but originalPrice retained
+    for (let i = 0; i < bundlePrompt.freeQuantity; i++) {
+      addItem({
+        id: bundlePrompt.productId,
+        name: bundlePrompt.productName,
+        barcode: bundlePrompt.barcode,
+        price: 0, // Free item
+        originalPrice: bundlePrompt.unitPrice,
+        promotionId: bundlePrompt.promotionId,
+        promotionName: bundlePrompt.promotionName,
+        promotionType: 'bundle',
+        discountPercent: 100,
+        isFreeItem: true,
+      });
+    }
+
+    // Update handled threshold
+    const key = `${bundlePrompt.productId}_${bundlePrompt.promotionId}`;
+    const currentHandled = bundleHandledRef.current.get(key) || 0;
+    bundleHandledRef.current.set(key, currentHandled + bundlePrompt.freeQuantity);
+
+    toast({
+      title: "Free items added!",
+      description: `${bundlePrompt.freeQuantity}x ${bundlePrompt.productName} added (FREE)`,
+    });
+    setBundlePrompt(null);
+  }, [bundlePrompt, addItem, toast]);
+
+  // Bundle promotion detection - checks cart for bundle eligibility
+  useEffect(() => {
+    const checkBundlePromotions = async () => {
+      if (!navigator.onLine || !selectedStore) return;
+
+      // Group items by productId (excluding free items)
+      const productQuantities = new Map<string, { qty: number; item: typeof items[0] }>();
+      for (const item of items) {
+        if (item.isFreeItem) continue;
+        const existing = productQuantities.get(item.productId);
+        productQuantities.set(item.productId, {
+          qty: (existing?.qty || 0) + (item.quantity || 0),
+          item,
+        });
+      }
+
+      // Check each product for bundle promotions
+      const productIds = Array.from(productQuantities.keys());
+      if (productIds.length === 0) return;
+
+      try {
+        const promos = await fetchPromotions(productIds);
+
+        for (const [productId, { qty, item }] of productQuantities) {
+          const promo = promos[productId];
+          if (!promo || promo.promotionType !== 'bundle') continue;
+
+          const buyQty = Number(promo.bundleBuyQuantity || 0);
+          const getQty = Number(promo.bundleGetQuantity || 0);
+          if (buyQty <= 0 || getQty <= 0) continue;
+
+          // Calculate how many free items customer is entitled to
+          const timesQualified = Math.floor(qty / buyQty);
+          const totalFreeEntitled = timesQualified * getQty;
+
+          // Check how many we've already handled
+          const key = `${productId}_${promo.id}`;
+          const alreadyHandled = bundleHandledRef.current.get(key) || 0;
+          const newFreeItems = totalFreeEntitled - alreadyHandled;
+
+          if (newFreeItems > 0 && !bundlePrompt) {
+            // Show prompt for new free items
+            setBundlePrompt({
+              productId,
+              productName: item.name,
+              promotionId: promo.id,
+              promotionName: promo.name,
+              freeQuantity: newFreeItems,
+              unitPrice: item.originalPrice || item.price,
+              barcode: item.barcode,
+            });
+            break; // Only show one prompt at a time
+          }
+        }
+      } catch {
+        // Failed to check promotions, ignore
+      }
+    };
+
+    // Debounce the check
+    const timeout = setTimeout(checkBundlePromotions, 500);
+    return () => clearTimeout(timeout);
+  }, [items, selectedStore, fetchPromotions, bundlePrompt]);
+
+  // Clear bundle tracking when cart is cleared
+  useEffect(() => {
+    if (items.length === 0) {
+      bundleHandledRef.current.clear();
+    }
+  }, [items.length]);
 
   const maxRedeemablePoints = (() => {
     if (!loyaltyBalance || redeemValue <= 0) return 0;
@@ -1100,8 +1267,35 @@ export default function POSV2() {
                   {items.map((item) => (
                     <div key={item.id} className="px-4 py-3 flex items-center gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-slate-800 truncate">{item.name}</p>
-                        <p className="text-sm text-slate-500">{formatCurrency(item.price, currency)} each</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-slate-800 truncate">{item.name}</p>
+                          {item.isFreeItem ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-500 text-white rounded text-xs font-medium">
+                              <Gift className="w-3 h-3" />
+                              FREE
+                            </span>
+                          ) : item.promotionId && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+                              <Tag className="w-3 h-3" />
+                              {item.discountPercent}% off
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          {item.isFreeItem ? (
+                            <>
+                              <span className="text-slate-400 line-through">{formatCurrency(item.originalPrice || 0, currency)}</span>
+                              <span className="text-green-600 font-medium">FREE</span>
+                            </>
+                          ) : item.originalPrice && item.originalPrice !== item.price ? (
+                            <>
+                              <span className="text-slate-400 line-through">{formatCurrency(item.originalPrice, currency)}</span>
+                              <span className="text-green-600 font-medium">{formatCurrency(item.price, currency)} each</span>
+                            </>
+                          ) : (
+                            <span className="text-slate-500">{formatCurrency(item.price, currency)} each</span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-1">
                         <Button
@@ -1369,6 +1563,38 @@ export default function POSV2() {
           </div>
         </div>
       )}
+
+      {/* Bundle Promotion Prompt Dialog */}
+      <Dialog open={!!bundlePrompt} onOpenChange={(open) => !open && setBundlePrompt(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Gift className="h-5 w-5 text-green-600" />
+              Bundle Promotion Available!
+            </DialogTitle>
+            <DialogDescription>
+              Customer qualifies for free items with &quot;{bundlePrompt?.promotionName}&quot;
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+              <p className="text-lg font-semibold text-green-800">
+                {bundlePrompt?.freeQuantity}x {bundlePrompt?.productName}
+              </p>
+              <p className="text-sm text-green-600 mt-1">FREE (valued at {formatCurrency((bundlePrompt?.unitPrice || 0) * (bundlePrompt?.freeQuantity || 0), currency)})</p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setBundlePrompt(null)}>
+              Skip
+            </Button>
+            <Button onClick={handleAddBundleFreeItems} className="bg-green-600 hover:bg-green-700">
+              <Gift className="mr-2 h-4 w-4" />
+              Add Free Items
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
