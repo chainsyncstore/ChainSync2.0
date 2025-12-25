@@ -534,7 +534,13 @@ export async function registerPosRoutes(app: Express) {
     const idempotencyKey = String(req.headers['idempotency-key'] || '');
     if (!idempotencyKey) return res.status(400).json({ error: 'Idempotency-Key required' });
     const parsed = SaleSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+    if (!parsed.success) {
+      logger.error('POS Sale Validation Failed', {
+        errors: parsed.error.errors,
+        body: req.body
+      });
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.errors });
+    }
 
     // Check idempotency
     const existing = await db
