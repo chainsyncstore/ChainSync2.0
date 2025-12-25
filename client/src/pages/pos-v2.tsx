@@ -611,6 +611,49 @@ export default function POSV2() {
     }
   }, [selectedStore]);
 
+  const handleProductSelect = useCallback(async (product: any) => {
+    const originalPrice = parseFloat(product.salePrice || product.price);
+    let promoData = {};
+
+    if (navigator.onLine && selectedStore) {
+      try {
+        const promos = await fetchPromotions([product.id]);
+        const promo = promos[product.id];
+        if (promo && promo.promotionType === 'percentage') {
+          const discountPercent = Number(promo.customDiscountPercent || promo.discountPercent || promo.effectiveDiscount || 0);
+          if (discountPercent > 0) {
+            const discountedPrice = originalPrice * (1 - discountPercent / 100);
+            promoData = {
+              price: Math.max(0, discountedPrice),
+              originalPrice,
+              promotionId: promo.id,
+              promotionName: promo.name,
+              promotionType: promo.promotionType,
+              discountPercent,
+            };
+          }
+        }
+      } catch {
+        // Ignore promotion fetch errors
+      }
+    }
+
+    addItem({
+      id: product.id,
+      name: product.name,
+      barcode: product.barcode || "",
+      price: (promoData as any).price ?? originalPrice,
+      ...(promoData as any),
+    });
+
+    const promoInfo = (promoData as any).discountPercent
+      ? ` (${(promoData as any).discountPercent}% off)`
+      : '';
+    toast({ title: "Added", description: `${product.name}${promoInfo}` });
+    setIsSearchOpen(false);
+    setSearchQuery("");
+  }, [addItem, selectedStore, fetchPromotions, toast]);
+
   useEffect(() => {
     const timeout = setTimeout(() => handleSearch(searchQuery), 300);
     return () => clearTimeout(timeout);
@@ -1536,17 +1579,7 @@ export default function POSV2() {
                   <button
                     key={product.id}
                     className="w-full px-4 py-3 text-left hover:bg-slate-50 flex items-center justify-between"
-                    onClick={() => {
-                      addItem({
-                        id: product.id,
-                        name: product.name,
-                        barcode: product.barcode || "",
-                        price: parseFloat(product.salePrice || product.price || "0"),
-                      });
-                      toast({ title: "Added", description: product.name });
-                      setIsSearchOpen(false);
-                      setSearchQuery("");
-                    }}
+                    onClick={() => handleProductSelect(product)}
                   >
                     <div>
                       <p className="font-medium">{product.name}</p>
