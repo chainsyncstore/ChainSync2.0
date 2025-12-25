@@ -57,6 +57,13 @@ export function useCart() {
     promotionType?: 'percentage' | 'bundle';
     discountPercent?: number;
     isFreeItem?: boolean;
+    // Bundle promotion metadata
+    availableBundle?: {
+      id: string;
+      name: string;
+      buyQuantity: number;
+      getQuantity: number;
+    };
   }) => {
     setItems(currentItems => {
       // For free items, always add as a new line item (don't increment quantity of existing)
@@ -83,7 +90,13 @@ export function useCart() {
       if (existingItem) {
         return currentItems.map(item =>
           item.productId === product.id && !item.isFreeItem
-            ? { ...item, quantity: item.quantity + 1, total: (item.quantity + 1) * item.price }
+            ? {
+              ...item,
+              quantity: (item.quantity ?? 0) + 1,
+              total: ((item.quantity ?? 0) + 1) * item.price,
+              // Preserve or update bundle info
+              availableBundle: product.availableBundle || item.availableBundle,
+            }
             : item
         );
       }
@@ -102,6 +115,7 @@ export function useCart() {
         promotionName: product.promotionName,
         promotionType: product.promotionType,
         discountPercent: product.discountPercent,
+        availableBundle: product.availableBundle,
       }];
     });
   }, [setItems]);
