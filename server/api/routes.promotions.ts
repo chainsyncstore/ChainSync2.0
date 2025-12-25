@@ -732,6 +732,19 @@ export async function registerPromotionRoutes(app: Express) {
                     }
 
                     if (applies) {
+                        // For bundle promotions, always prefer them (they offer free items, not percentage discount)
+                        if (promo.promotionType === 'bundle') {
+                            // Bundle promotions take priority - return immediately
+                            bestPromotion = {
+                                ...promo,
+                                effectiveDiscount: 0,
+                                customDiscountPercent: null,
+                            };
+                            // Don't break - allow percentage promos to also be considered
+                            // But for now, bundle should win if it applies
+                            break;
+                        }
+
                         const effectiveDiscount = Number(customDiscount || promo.discountPercent || 0);
                         if (effectiveDiscount > bestDiscount) {
                             bestDiscount = effectiveDiscount;
