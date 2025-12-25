@@ -721,25 +721,31 @@ export default function POSV2() {
     setLoyaltySyncStatus({ state: "idle" });
   };
 
-  // Inline bundle handler - adds free items for a specific item
+  // Inline bundle handler - adds free items for a specific item (one entry with total qty)
   const handleAddFreeItems = useCallback((item: CartItem) => {
     if (!item.availableBundle) return;
 
-    // Add free items (price 0)
-    for (let i = 0; i < item.availableBundle.getQuantity; i++) {
-      addItem({
-        id: `${item.productId}_free`,
-        name: item.name,
-        barcode: item.barcode,
-        price: 0,
-        originalPrice: item.originalPrice || item.price,
-        promotionId: item.availableBundle.id,
-        promotionName: item.availableBundle.name,
-        promotionType: 'bundle',
-        discountPercent: 100,
-        isFreeItem: true,
-      });
-    }
+    const buyQty = item.availableBundle.buyQuantity;
+    const getQty = item.availableBundle.getQuantity;
+    const qualifiedSets = Math.floor((item.quantity || 0) / buyQty);
+    const totalFreeQty = qualifiedSets * getQty;
+
+    if (totalFreeQty <= 0) return;
+
+    // Add single free item entry with total quantity
+    addItem({
+      id: `${item.productId}_free`,
+      name: item.name,
+      barcode: item.barcode,
+      price: 0,
+      quantity: totalFreeQty,
+      originalPrice: item.originalPrice || item.price,
+      promotionId: item.availableBundle.id,
+      promotionName: item.availableBundle.name,
+      promotionType: 'bundle',
+      discountPercent: 100,
+      isFreeItem: true,
+    });
   }, [addItem]);
 
   // Monitor cart for bundle adjustments - auto-add AND auto-remove free items
@@ -1314,9 +1320,9 @@ export default function POSV2() {
                       const getQty = item.availableBundle.getQuantity;
                       const qualifiedSets = Math.floor((item.quantity || 0) / buyQty);
 
+                      const freeItemsExist = items.some(i => i.isFreeItem && i.promotionId === item.availableBundle?.id);
                       const freeItemsInCart = items.filter(i => i.isFreeItem && i.promotionId === item.availableBundle?.id).reduce((sum, i) => sum + (i.quantity || 0), 0);
                       const totalFreeDue = qualifiedSets * getQty;
-                      const remainingFree = totalFreeDue - freeItemsInCart;
 
                       if (qualifiedSets > 0) {
                         bundleUI = (
@@ -1325,7 +1331,8 @@ export default function POSV2() {
                               <Gift className="w-3 h-3 mr-1" />
                               Bundle Active: Buy {buyQty} Get {getQty} Free
                             </div>
-                            {remainingFree > 0 && (
+                            {/* Only show claim button if no free items have been claimed yet */}
+                            {!freeItemsExist && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1333,11 +1340,11 @@ export default function POSV2() {
                                 onClick={() => handleAddFreeItems(item)}
                               >
                                 <Plus className="w-3 h-3 mr-1" />
-                                Claim {remainingFree} Free Item{remainingFree > 1 ? 's' : ''}
+                                Claim {totalFreeDue} Free Item{totalFreeDue > 1 ? 's' : ''}
                               </Button>
                             )}
-                            {remainingFree === 0 && (
-                              <span className="text-slate-500 italic">All free items added</span>
+                            {freeItemsExist && (
+                              <span className="text-slate-500 italic">{freeItemsInCart} free item{freeItemsInCart !== 1 ? 's' : ''} added (auto-managed)</span>
                             )}
                           </div>
                         );

@@ -57,6 +57,7 @@ export function useCart() {
     promotionType?: 'percentage' | 'bundle';
     discountPercent?: number;
     isFreeItem?: boolean;
+    quantity?: number;
     // Bundle promotion metadata
     availableBundle?: {
       id: string;
@@ -66,16 +67,30 @@ export function useCart() {
     };
   }) => {
     setItems(currentItems => {
-      // For free items, always add as a new line item (don't increment quantity of existing)
-      if (product.isFreeItem) {
+      // For free items, merge with existing free item for same promotion if exists
+      if (product.isFreeItem && product.promotionId) {
+        const existingFreeItem = currentItems.find(
+          item => item.isFreeItem && item.promotionId === product.promotionId && item.productId === product.id
+        );
+
+        if (existingFreeItem) {
+          // Increment existing free item quantity
+          return currentItems.map(item =>
+            item.id === existingFreeItem.id
+              ? { ...item, quantity: (item.quantity || 0) + (product.quantity || 1), total: 0 }
+              : item
+          );
+        }
+
+        // Create new free item entry
         return [...currentItems, {
-          id: `${product.id}-free-${Date.now()}`,
+          id: `${product.id}-free-${product.promotionId}`,
           productId: product.id,
           name: product.name,
           barcode: product.barcode,
-          price: product.price,
-          quantity: 1,
-          total: product.price,
+          price: 0,
+          quantity: product.quantity || 1,
+          total: 0,
           originalPrice: product.originalPrice,
           promotionId: product.promotionId,
           promotionName: product.promotionName,
