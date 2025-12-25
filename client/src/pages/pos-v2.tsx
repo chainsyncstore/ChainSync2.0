@@ -742,13 +742,13 @@ export default function POSV2() {
     }
   }, [addItem]);
 
-  // Monitor cart for excess free items and auto-remove
+  // Monitor cart for bundle adjustments - auto-add AND auto-remove free items
   useEffect(() => {
-    const productGroups = new Map<string, { paid: number, free: CartItem[], bundle: any }>();
+    const productGroups = new Map<string, { paid: number, free: CartItem[], bundle: any, paidItem: CartItem | null }>();
 
     for (const item of items) {
       if (!productGroups.has(item.productId)) {
-        productGroups.set(item.productId, { paid: 0, free: [], bundle: null });
+        productGroups.set(item.productId, { paid: 0, free: [], bundle: null, paidItem: null });
       }
       const group = productGroups.get(item.productId)!;
 
@@ -756,23 +756,27 @@ export default function POSV2() {
         group.free.push(item);
       } else {
         group.paid += (item.quantity || 0);
-        if (item.availableBundle) group.bundle = item.availableBundle;
+        if (item.availableBundle) {
+          group.bundle = item.availableBundle;
+          group.paidItem = item;
+        }
       }
     }
 
     for (const [, group] of productGroups) {
-      if (!group.bundle) continue;
+      if (!group.bundle || !group.paidItem) continue;
 
       const buyQty = group.bundle.buyQuantity;
       const getQty = group.bundle.getQuantity;
 
       const qualifiedSets = Math.floor(group.paid / buyQty);
-      const allowedFreeParams = qualifiedSets * getQty;
+      const allowedFree = qualifiedSets * getQty;
 
       const currentFreeQty = group.free.reduce((sum, item) => sum + (item.quantity || 0), 0);
 
-      if (currentFreeQty > allowedFreeParams) {
-        let remainingToRemove = currentFreeQty - allowedFreeParams;
+      // Auto-remove excess free items
+      if (currentFreeQty > allowedFree) {
+        let remainingToRemove = currentFreeQty - allowedFree;
 
         for (const freeItem of group.free) {
           if (remainingToRemove <= 0) break;
@@ -786,16 +790,20 @@ export default function POSV2() {
           }
           remainingToRemove -= toRemove;
         }
+      }
 
-        if (remainingToRemove < (currentFreeQty - allowedFreeParams)) {
-          toast({
-            title: "Bundle adjustment",
-            description: "Removed excess free items due to quantity change.",
-          });
+      // Auto-add more free items if we have existing free items and need more
+      // (This triggers only if the bundle was already claimed - i.e., free items exist)
+      if (group.free.length > 0 && currentFreeQty < allowedFree) {
+        const toAdd = allowedFree - currentFreeQty;
+        // Update the existing free item's quantity instead of adding new ones
+        const existingFreeItem = group.free[0];
+        if (existingFreeItem) {
+          updateQuantity(existingFreeItem.id, (existingFreeItem.quantity || 0) + toAdd);
         }
       }
     }
-  }, [items, removeItem, updateQuantity, toast]);
+  }, [items, removeItem, updateQuantity]);
 
   // Clear bundle tracking when cart is cleared
   useEffect(() => {
@@ -1370,12 +1378,14 @@ export default function POSV2() {
                               )}
                             </div>
                           </div>
+                          {/* Quantity controls - disabled for free items */}
                           <div className="flex items-center gap-1">
                             <Button
                               variant="outline"
                               size="icon"
                               className="w-8 h-8"
                               onClick={() => updateQuantity(item.id, Math.max(1, (item.quantity ?? 1) - 1))}
+                              disabled={item.isFreeItem}
                             >
                               <Minus className="w-4 h-4" />
                             </Button>
@@ -1385,6 +1395,7 @@ export default function POSV2() {
                               value={item.quantity ?? ""}
                               className="w-12 h-8 text-center font-medium px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                               onChange={(e) => {
+                                if (item.isFreeItem) return; // Prevent manual editing of free items
                                 const val = e.target.value;
                                 if (val === "") {
                                   updateQuantity(item.id, undefined);
@@ -1392,12 +1403,14 @@ export default function POSV2() {
                                   updateQuantity(item.id, Math.max(1, parseInt(val) || 1));
                                 }
                               }}
+                              disabled={item.isFreeItem}
                             />
                             <Button
                               variant="outline"
                               size="icon"
                               className="w-8 h-8"
                               onClick={() => updateQuantity(item.id, (item.quantity ?? 0) + 1)}
+                              disabled={item.isFreeItem}
                             >
                               <Plus className="w-4 h-4" />
                             </Button>
