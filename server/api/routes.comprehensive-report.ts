@@ -87,8 +87,9 @@ export interface ComprehensiveReportData {
         stockLoss: Money; // New
         manufacturerRefund: Money; // New
         grossStockLoss: Money; // New
+        promotionLoss: Money; // New: promotion discounts
         grossProfit: Money; // Net Revenue - COGS
-        netProfit: Money; // Gross Profit - Stock Loss (or just Net Rev - COGS - Loss)
+        netProfit: Money; // Gross Profit - Stock Loss - Promotion Loss
         profitMargin: number;
     };
     timeseries: Array<{
@@ -108,7 +109,8 @@ export interface ComprehensiveReportData {
         stockLoss: number; // New (Net Loss)
         manufacturerRefund: number; // New (Recovered)
         grossStockLoss: number; // New (Total value lost before recovery)
-        profit: number; // New (Net Revenue - COGS - Stock Loss)
+        promotionLoss: number; // New (Promotion discounts)
+        profit: number; // New (Net Revenue - COGS - Stock Loss - Promotion Loss)
     }>;
     topProducts: Array<{
         productId: string;
@@ -178,10 +180,11 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     COALESCE(SUM(${transactions.total}::numeric), 0) as revenue,
                     COALESCE(SUM(${transactions.taxAmount}::numeric), 0) as tax,
                     COUNT(*) as transactions,
-                    COALESCE(SUM(items_sum.total_cost), 0) as cogs
+                    COALESCE(SUM(items_sum.total_cost), 0) as cogs,
+                    COALESCE(SUM(items_sum.promo_discount), 0) as promo_loss
                 FROM ${transactions}
                 LEFT JOIN (
-                    SELECT transaction_id, SUM(total_cost) as total_cost
+                    SELECT transaction_id, SUM(total_cost) as total_cost, SUM(promotion_discount) as promo_discount
                     FROM ${transactionItems}
                     GROUP BY transaction_id
                 ) items_sum ON items_sum.transaction_id = ${transactions.id}
@@ -267,6 +270,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             let totalRefundCount = 0;
             let totalStockLoss = 0;
             let totalManufacturerRefund = 0;
+            let totalPromotionLoss = 0;
 
             // Collect all unique dates
             const allDates = new Set<string>();
@@ -305,8 +309,11 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 // Net COGS = Gross COGS (Sales) - Cost of Returns
                 const netCogs = cogs - refundCogs;
 
-                // Profit = (Revenue - Tax) - RefundNet - Net COGS - Loss
-                const profit = (revenue - tax) - refundNet - netCogs - netLossAmount;
+                // Promotion loss from promo_discount field
+                const promotionLoss = Number(s?.promo_loss ?? 0);
+
+                // Profit = (Revenue - Tax) - RefundNet - Net COGS - Loss - Promotion Discounts
+                const profit = (revenue - tax) - refundNet - netCogs - netLossAmount - promotionLoss;
 
                 totalRevenue += revenue;
                 totalTax += tax;
@@ -318,6 +325,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                 totalRefundCount += refundCount;
                 totalStockLoss += netLossAmount;
                 totalManufacturerRefund += manufacturerRefund;
+                totalPromotionLoss += promotionLoss;
 
                 timeseries.push({
                     date: dateKey,
@@ -336,6 +344,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     stockLoss: netLossAmount,
                     manufacturerRefund,
                     grossStockLoss: netLossAmount + manufacturerRefund,
+                    promotionLoss,
                     profit
                 });
             }
@@ -355,7 +364,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
             const summaryGrossProfit = summaryNetSalesExTax - totalNetCogs;
             // Note: Use Gross Profit as simply Net Sales - COGS.
 
-            const summaryNetProfit = summaryGrossProfit - totalStockLoss;
+            const summaryNetProfit = summaryGrossProfit - totalStockLoss - totalPromotionLoss;
             const profitMargin = summaryNetSalesExTax > 0 ? (summaryNetProfit / summaryNetSalesExTax) * 100 : 0;
             const avgOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
@@ -400,6 +409,7 @@ export async function registerComprehensiveReportRoutes(app: Express) {
                     stockLoss: toMoney(totalStockLoss, storeCurrency),
                     manufacturerRefund: toMoney(totalManufacturerRefund, storeCurrency),
                     grossStockLoss: toMoney(totalStockLoss + totalManufacturerRefund, storeCurrency),
+                    promotionLoss: toMoney(totalPromotionLoss, storeCurrency), // New
                     grossProfit: toMoney(summaryGrossProfit, storeCurrency),
                     netProfit: toMoney(summaryNetProfit, storeCurrency),
                     profitMargin: roundAmount(profitMargin),

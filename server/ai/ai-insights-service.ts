@@ -36,7 +36,8 @@ export interface ProductProfitabilityData {
     refundedTax: number;      // Tax refunded
     refundedQuantity: number; // Units returned
     stockLossAmount: number;  // Value lost from damaged/expired/theft
-    totalProfit: number;      // NetRevenue - NetCost - StockLoss
+    promotionLoss: number;    // Promotion discounts given
+    totalProfit: number;      // NetRevenue - NetCost - StockLoss - PromotionLoss
     profitMargin: number;
     avgProfitPerUnit: number;
     currentStock: number;
@@ -307,6 +308,7 @@ export class AiInsightsService {
                         ti.quantity,
                         ti.total_price,
                         ti.total_cost,
+                        ti.promotion_discount as promo_loss,
                         -- Proportional tax allocation: item's share of transaction subtotal * tax_amount
                         CASE 
                             WHEN COALESCE(t.subtotal, 0) > 0 
@@ -328,6 +330,7 @@ export class AiInsightsService {
                     COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.item_tax ELSE 0 END), 0) as sales_tax,
                     COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_price + ti.item_tax ELSE 0 END), 0) as gross_revenue,
                     COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.total_cost ELSE 0 END), 0) as cogs,
+                    COALESCE(SUM(CASE WHEN ti.kind = 'SALE' THEN ti.promo_loss ELSE 0 END), 0) as promo_loss,
                     -- Refunds (Kind = REFUND/SWAP_REFUND)
                     COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.quantity ELSE 0 END), 0) as units_refunded,
                     COALESCE(SUM(CASE WHEN ti.kind IN ('REFUND', 'SWAP_REFUND') THEN ti.total_price ELSE 0 END), 0) as refund_subtotal,
@@ -410,17 +413,18 @@ export class AiInsightsService {
                 const refundCogs = Number(row.refund_cogs);
 
                 const stockLoss = lossMap.get(productId) || 0;
+                const promotionLoss = Number(row.promo_loss || 0);
 
                 // Corrected Profit Calculation (matching comprehensive report):
                 // Net Revenue = (Gross Revenue - Sales Tax) - (Refund Gross - Refund Tax)
                 //             = subtotal_sales - refund_subtotal
                 // Net COGS = Sales COGS - Refund COGS
-                // Net Profit = Net Revenue - Net COGS - Stock Loss
+                // Net Profit = Net Revenue - Net COGS - Stock Loss - Promotion Loss
                 const netSalesExTax = grossRevenue - salesTax;        // = subtotal_sales
                 const netRefundsExTax = refundGross - refundTax;      // = refund_subtotal
                 const netRevenue = netSalesExTax - netRefundsExTax;
                 const netCost = cogs - refundCogs;
-                const totalProfit = netRevenue - netCost - stockLoss;
+                const totalProfit = netRevenue - netCost - stockLoss - promotionLoss;
 
                 const profitMargin = netRevenue > 0 ? (totalProfit / netRevenue) : 0;
                 // Adj Units = Sold - Refunded
@@ -461,6 +465,7 @@ export class AiInsightsService {
                     refundedTax: refundTax,
                     refundedQuantity: unitsRefunded,
                     stockLossAmount: stockLoss,
+                    promotionLoss,
                     totalProfit,
                     profitMargin,
                     avgProfitPerUnit,

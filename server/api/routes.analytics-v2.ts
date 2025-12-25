@@ -278,6 +278,7 @@ async function registerAnalyticsV2RoutesExtended(app: Express) {
         netRevenue: metrics.netRevenue,
         cogs: metrics.cogs,
         stockRemovalLoss: metrics.stockRemovalLoss,
+        promotionLoss: metrics.promotionLoss,
         netProfit: metrics.netProfit,
         marginPercent: metrics.marginPercent,
       });
@@ -368,12 +369,17 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
     .from(transactionItems).innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
     .where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'REFUND'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
+  // Promotion discounts from sales
+  const [promoDiscountRow] = await db.select({ promotionLoss: sql`COALESCE(SUM(${transactionItems.promotionDiscount}), 0)` })
+    .from(transactionItems).innerJoin(transactions, eq(transactionItems.transactionId, transactions.id))
+    .where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'SALE'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
+
   // Refund amounts: subtotal (product), taxAmount (tax refunded), total
-  const [refundRow] = await db.select({ 
+  const [refundRow] = await db.select({
     productAmount: sql`COALESCE(SUM(${transactions.subtotal}), 0)`,
     taxAmount: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`,
-    total: sql`COALESCE(SUM(${transactions.total}), 0)`, 
-    count: sql`COUNT(*)` 
+    total: sql`COALESCE(SUM(${transactions.total}), 0)`,
+    count: sql`COUNT(*)`
   }).from(transactions).where(and(inArray(transactions.storeId, storeIds), eq(transactions.status, 'completed'), eq(transactions.kind, 'REFUND'), gte(transactions.createdAt, window.start), lt(transactions.createdAt, window.end)));
 
   // Stock removal events - get net losses (lossAmount is already cost minus any refund)
@@ -392,6 +398,7 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
   const transactionCount = Number(salesRow?.transactionCount || 0);
   const salesCogs = Number(salesCogsRow?.cogs || 0);
   const refundCogs = Number(refundCogsRow?.cogs || 0);
+  const promotionLoss = Number(promoDiscountRow?.promotionLoss || 0);
   const cogs = salesCogs - refundCogs; // Net COGS = sales cost - refunded items cost
   const refundProductAmount = Number(refundRow?.productAmount || 0); // Product portion of refunds
   const refundTaxAmount = Number(refundRow?.taxAmount || 0); // Tax portion of refunds
@@ -403,8 +410,8 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
   const revenueExcludingTax = grossRevenue - salesTax;
   // Subtract only the product portion of refunds (tax portion already handled via taxCollected)
   const netRevenue = revenueExcludingTax - refundProductAmount;
-  // Profit = Net Revenue - COGS - Stock Losses (losses already net of any manufacturer refunds)
-  const netProfit = netRevenue - cogs - stockRemovalLoss;
+  // Profit = Net Revenue - COGS - Stock Losses - Promotion Discounts (losses already net of any manufacturer refunds)
+  const netProfit = netRevenue - cogs - stockRemovalLoss - promotionLoss;
   const marginPercent = revenueExcludingTax > 0 ? roundAmount((netProfit / revenueExcludingTax) * 100) : 0;
 
   return {
@@ -412,6 +419,7 @@ async function computeMetrics(storeIds: string[], window: { start: Date; end: Da
     taxCollected: toMoney(taxCollected, currency),
     refundAmount: toMoney(refundAmount, currency), refundCount, cogs: toMoney(cogs, currency),
     stockRemovalLoss: toMoney(stockRemovalLoss, currency),
+    promotionLoss: toMoney(promotionLoss, currency),
     netProfit: toMoney(netProfit, currency), marginPercent,
   };
 }
@@ -430,7 +438,7 @@ async function computeCustomerMetrics(storeIds: string[], window: { start: Date;
     total: sql<number>`COUNT(*)`,
     newThisPeriod: sql<number>`COUNT(CASE WHEN ${customers.createdAt} >= ${window.start} AND ${customers.createdAt} < ${window.end} THEN 1 END)`,
   }).from(customers).where(and(inArray(customers.storeId, storeIds), eq(customers.isActive, true)));
-  
+
   // Count active customers (those who made transactions in the period)
   const activeResult = await db.execute(sql`
     SELECT COUNT(DISTINCT lt.customer_id) as active
@@ -440,12 +448,12 @@ async function computeCustomerMetrics(storeIds: string[], window: { start: Date;
       AND t.created_at >= ${window.start} AND t.created_at < ${window.end}
   `);
   const activeCount = Number(((activeResult as any).rows || [])[0]?.active || 0);
-  
-  return { 
+
+  return {
     active: Number(totalRow?.total || 0),  // Total enrolled customers
     activeTransacting: activeCount,         // Customers who made purchases
-    newThisPeriod: Number(totalRow?.newThisPeriod || 0), 
-    retentionRate: 0 
+    newThisPeriod: Number(totalRow?.newThisPeriod || 0),
+    retentionRate: 0
   };
 }
 
@@ -508,7 +516,7 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
       const [prevCounts] = await db.select({
         total: sql<number>`COUNT(*)`,
       }).from(customers).where(and(
-        inArray(customers.storeId, targetStoreIds), 
+        inArray(customers.storeId, targetStoreIds),
         eq(customers.isActive, true),
         lt(customers.createdAt, prevWindow.end)
       ));
@@ -693,10 +701,10 @@ export async function registerAnalyticsV2RoutesExtra(app: Express) {
         .from(inventoryRevaluationEvents).where(and(inArray(inventoryRevaluationEvents.storeId, targetStoreIds), eq(inventoryRevaluationEvents.productId, productId), gte(inventoryRevaluationEvents.occurredAt, window.start), lt(inventoryRevaluationEvents.occurredAt, window.end))).orderBy(inventoryRevaluationEvents.occurredAt);
 
       const timeline = [...priceEvents.map(e => ({ date: e.occurredAt?.toISOString() || '', salePrice: e.newSalePrice ? Number(e.newSalePrice) : null, costPrice: e.newCost ? Number(e.newCost) : null, eventType: 'price_change' as const })),
-        ...revalEvents.map(e => ({ date: e.occurredAt?.toISOString() || '', salePrice: null, costPrice: e.avgCostAfter ? Number(e.avgCostAfter) : null, eventType: 'revaluation' as const }))].sort((a, b) => a.date.localeCompare(b.date));
+      ...revalEvents.map(e => ({ date: e.occurredAt?.toISOString() || '', salePrice: null, costPrice: e.avgCostAfter ? Number(e.avgCostAfter) : null, eventType: 'revaluation' as const }))].sort((a, b) => a.date.localeCompare(b.date));
 
       const recentEvents = [...priceEvents.map(e => ({ type: 'Price Change' as const, occurredAt: e.occurredAt?.toISOString() || '', oldSalePrice: e.oldSalePrice ? Number(e.oldSalePrice) : null, newSalePrice: e.newSalePrice ? Number(e.newSalePrice) : null, oldCost: e.oldCost ? Number(e.oldCost) : null, newCost: e.newCost ? Number(e.newCost) : null, source: e.source })),
-        ...revalEvents.map(e => ({ type: 'Inventory Revaluation' as const, occurredAt: e.occurredAt?.toISOString() || '', oldCost: e.avgCostBefore ? Number(e.avgCostBefore) : null, newCost: e.avgCostAfter ? Number(e.avgCostAfter) : null, adjustmentAmount: e.deltaValue ? Number(e.deltaValue) : null, source: e.source }))
+      ...revalEvents.map(e => ({ type: 'Inventory Revaluation' as const, occurredAt: e.occurredAt?.toISOString() || '', oldCost: e.avgCostBefore ? Number(e.avgCostBefore) : null, newCost: e.avgCostAfter ? Number(e.avgCostAfter) : null, adjustmentAmount: e.deltaValue ? Number(e.deltaValue) : null, source: e.source }))
       ].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)).slice(0, 10);
 
       const currentQuantity = Number(invRow?.quantity || 0);

@@ -36,6 +36,7 @@ interface ComprehensiveReportData {
         stockLoss?: Money;
         manufacturerRefund?: Money;
         grossStockLoss?: Money;
+        promotionLoss?: Money;
         grossProfit?: Money;
         netProfit?: Money;
         profit?: Money;
@@ -58,6 +59,7 @@ interface ComprehensiveReportData {
         stockLoss: number;
         manufacturerRefund: number;
         grossStockLoss: number;
+        promotionLoss?: number;
         profit: number;
     }>;
     topProducts: Array<{
@@ -253,6 +255,10 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                 <div class="stat-label">Gross Stock Loss</div>
                 <div class="stat-value">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</div>
             </div>
+             ${(data.summary.promotionLoss?.amount || 0) > 0 ? `<div class="stat-card loss-section">
+                <div class="stat-label">Promotion Discounts</div>
+                <div class="stat-value">${formatCurrency(data.summary.promotionLoss || toMoney(0))}</div>
+            </div>` : ''}
         </div>
 
         <!-- Chart -->
@@ -284,6 +290,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                             <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Gross)</span></th>
                             <th class="text-right">Mfr Refund<br><span style="font-size:0.7em;font-weight:400">(Recovery)</span></th>
                             <th class="text-right">Stock Loss<br><span style="font-size:0.7em;font-weight:400">(Net)</span></th>
+                            <th class="text-right" style="color:#9333ea">Promo Loss</th>
                             <th class="text-right">Net Profit</th>
                         </tr>
                     </thead>
@@ -303,6 +310,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                             <td class="text-right">${formatCurrency(toMoney(d.grossStockLoss))}</td>
                             <td class="text-right" style="color:green">(${formatCurrency(toMoney(d.manufacturerRefund))})</td>
                             <td class="text-right" style="color:red">${formatCurrency(toMoney(d.stockLoss))}</td>
+                            <td class="text-right" style="color:#9333ea">${formatCurrency(toMoney(d.promotionLoss || 0))}</td>
                             <td class="text-right"><strong>${formatCurrency(toMoney(d.profit))}</strong></td>
                         </tr>
                         `).join('')}
@@ -320,6 +328,7 @@ function generateHtmlReport(data: ComprehensiveReportData): string {
                                 <td class="text-right">${formatCurrency(data.summary.grossStockLoss || toMoney(0))}</td>
                                 <td class="text-right" style="color:green">(${formatCurrency(data.summary.manufacturerRefund || toMoney(0))})</td>
                                 <td class="text-right" style="color:red">${formatCurrency(data.summary.stockLoss || toMoney(0))}</td>
+                                <td class="text-right" style="color:#9333ea">${formatCurrency(data.summary.promotionLoss || toMoney(0))}</td>
                                 <td class="text-right">${formatCurrency(data.summary.netProfit || data.summary.profit || toMoney(0))}</td>
                             </tr>
                     </tbody>

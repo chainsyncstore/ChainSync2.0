@@ -130,6 +130,7 @@ interface ProfitLossData {
   netRevenue: Money;
   cogs: Money;
   stockRemovalLoss: Money;
+  promotionLoss: Money;
   netProfit: Money;
   marginPercent: number;
 }
@@ -763,6 +764,12 @@ function SalesTab({ storeId, currency, effectiveRange, salesData, timeseriesData
                   <span>Stock Removal Loss</span>
                   <span>−{formatMoney(profitLoss.stockRemovalLoss)}</span>
                 </div>
+                {profitLoss.promotionLoss.amount > 0 && (
+                  <div className="flex justify-between text-purple-600">
+                    <span>Promotion Discounts</span>
+                    <span>−{formatMoney(profitLoss.promotionLoss)}</span>
+                  </div>
+                )}
 
                 {/* Profit Section */}
                 <div className="border-t pt-2 flex justify-between font-bold">
