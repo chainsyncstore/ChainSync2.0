@@ -674,15 +674,24 @@ export async function registerPromotionRoutes(app: Express) {
 
                     if (promo.scope === 'all_products') {
                         applies = true;
-                    } else if (promo.scope === 'category' && category === promo.categoryFilter) {
-                        const promoProducts = promoProductMap.get(promo.id) || [];
-                        if (promoProducts.length === 0) {
-                            applies = true;
-                        } else {
-                            const match = promoProducts.find(pp => pp.productId === productId);
-                            if (match) {
+                    } else if (promo.scope === 'category') {
+                        // Case-insensitive category check
+                        const productCat = category?.toLowerCase();
+                        const promoCat = promo.categoryFilter?.toLowerCase();
+
+                        if (productCat === promoCat) {
+                            const promoProducts = promoProductMap.get(promo.id) || [];
+
+                            // If specific products are selected, ONLY apply to those (filtering behavior)
+                            // If no specific products, apply to ALL in category
+                            if (promoProducts.length === 0) {
                                 applies = true;
-                                customDiscount = match.customDiscountPercent;
+                            } else {
+                                const match = promoProducts.find(pp => pp.productId === productId);
+                                if (match) {
+                                    applies = true;
+                                    customDiscount = match.customDiscountPercent;
+                                }
                             }
                         }
                     } else if (promo.scope === 'specific_products') {
