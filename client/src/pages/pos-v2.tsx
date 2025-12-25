@@ -750,63 +750,96 @@ export default function POSV2() {
 
   // Monitor cart for bundle adjustments - auto-add AND auto-remove free items
   useEffect(() => {
-    const productGroups = new Map<string, { paid: number, free: CartItem[], bundle: any, paidItem: CartItem | null }>();
+    // Group by promotionId (bundle ID) to properly track paid vs free items
+    const bundleGroups = new Map<string, {
+      paidQty: number;
+      freeItems: CartItem[];
+      bundleInfo: { buyQuantity: number; getQuantity: number } | null;
+      paidItemExists: boolean;
+    }>();
 
+    // First pass: identify all bundles and their paid quantities
     for (const item of items) {
-      if (!productGroups.has(item.productId)) {
-        productGroups.set(item.productId, { paid: 0, free: [], bundle: null, paidItem: null });
-      }
-      const group = productGroups.get(item.productId)!;
-
-      if (item.isFreeItem) {
-        group.free.push(item);
-      } else {
-        group.paid += (item.quantity || 0);
-        if (item.availableBundle) {
-          group.bundle = item.availableBundle;
-          group.paidItem = item;
+      if (item.availableBundle && !item.isFreeItem) {
+        const bundleId = item.availableBundle.id;
+        if (!bundleGroups.has(bundleId)) {
+          bundleGroups.set(bundleId, {
+            paidQty: 0,
+            freeItems: [],
+            bundleInfo: {
+              buyQuantity: item.availableBundle.buyQuantity,
+              getQuantity: item.availableBundle.getQuantity,
+            },
+            paidItemExists: true,
+          });
         }
+        const group = bundleGroups.get(bundleId)!;
+        group.paidQty += (item.quantity || 0);
+        group.paidItemExists = true;
       }
     }
 
-    for (const [, group] of productGroups) {
-      if (!group.bundle || !group.paidItem) continue;
-
-      const buyQty = group.bundle.buyQuantity;
-      const getQty = group.bundle.getQuantity;
-
-      const qualifiedSets = Math.floor(group.paid / buyQty);
-      const allowedFree = qualifiedSets * getQty;
-
-      const currentFreeQty = group.free.reduce((sum, item) => sum + (item.quantity || 0), 0);
-
-      // Auto-remove excess free items
-      if (currentFreeQty > allowedFree) {
-        let remainingToRemove = currentFreeQty - allowedFree;
-
-        for (const freeItem of group.free) {
-          if (remainingToRemove <= 0) break;
-          const currentQty = freeItem.quantity || 0;
-          const toRemove = Math.min(currentQty, remainingToRemove);
-
-          if (currentQty - toRemove === 0) {
-            removeItem(freeItem.id);
-          } else {
-            updateQuantity(freeItem.id, currentQty - toRemove);
-          }
-          remainingToRemove -= toRemove;
+    // Second pass: collect free items and associate with their bundle
+    for (const item of items) {
+      if (item.isFreeItem && item.promotionId) {
+        if (!bundleGroups.has(item.promotionId)) {
+          // Orphaned free item - no paid item exists for this bundle
+          bundleGroups.set(item.promotionId, {
+            paidQty: 0,
+            freeItems: [],
+            bundleInfo: null,
+            paidItemExists: false,
+          });
         }
+        bundleGroups.get(item.promotionId)!.freeItems.push(item);
+      }
+    }
+
+    // Process each bundle
+    for (const [, group] of bundleGroups) {
+      const currentFreeQty = group.freeItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
+
+      // If no paid item exists or no bundle info, remove all free items
+      if (!group.paidItemExists || !group.bundleInfo) {
+        for (const freeItem of group.freeItems) {
+          removeItem(freeItem.id);
+        }
+        continue;
       }
 
-      // Auto-add more free items if we have existing free items and need more
-      // (This triggers only if the bundle was already claimed - i.e., free items exist)
-      if (group.free.length > 0 && currentFreeQty < allowedFree) {
-        const toAdd = allowedFree - currentFreeQty;
-        // Update the existing free item's quantity instead of adding new ones
-        const existingFreeItem = group.free[0];
-        if (existingFreeItem) {
-          updateQuantity(existingFreeItem.id, (existingFreeItem.quantity || 0) + toAdd);
+      const { buyQuantity, getQuantity } = group.bundleInfo;
+      const qualifiedSets = Math.floor(group.paidQty / buyQuantity);
+      const allowedFree = qualifiedSets * getQuantity;
+
+      // No free items allowed - remove all
+      if (allowedFree === 0) {
+        for (const freeItem of group.freeItems) {
+          removeItem(freeItem.id);
         }
+        continue;
+      }
+
+      // Adjust free item quantities
+      if (currentFreeQty > allowedFree) {
+        // Need to reduce free items
+        let toRemove = currentFreeQty - allowedFree;
+        for (const freeItem of group.freeItems) {
+          if (toRemove <= 0) break;
+          const itemQty = freeItem.quantity || 0;
+          const removeFromThis = Math.min(itemQty, toRemove);
+
+          if (itemQty - removeFromThis <= 0) {
+            removeItem(freeItem.id);
+          } else {
+            updateQuantity(freeItem.id, itemQty - removeFromThis);
+          }
+          toRemove -= removeFromThis;
+        }
+      } else if (currentFreeQty < allowedFree && group.freeItems.length > 0) {
+        // Need to add more free items - update existing free item quantity
+        const toAdd = allowedFree - currentFreeQty;
+        const existingFreeItem = group.freeItems[0];
+        updateQuantity(existingFreeItem.id, (existingFreeItem.quantity || 0) + toAdd);
       }
     }
   }, [items, removeItem, updateQuantity]);
@@ -1321,7 +1354,6 @@ export default function POSV2() {
                       const qualifiedSets = Math.floor((item.quantity || 0) / buyQty);
 
                       const freeItemsExist = items.some(i => i.isFreeItem && i.promotionId === item.availableBundle?.id);
-                      const freeItemsInCart = items.filter(i => i.isFreeItem && i.promotionId === item.availableBundle?.id).reduce((sum, i) => sum + (i.quantity || 0), 0);
                       const totalFreeDue = qualifiedSets * getQty;
 
                       if (qualifiedSets > 0) {
@@ -1344,7 +1376,7 @@ export default function POSV2() {
                               </Button>
                             )}
                             {freeItemsExist && (
-                              <span className="text-slate-500 italic">{freeItemsInCart} free item{freeItemsInCart !== 1 ? 's' : ''} added (auto-managed)</span>
+                              <span className="text-slate-500 italic">Free item added (auto-managed)</span>
                             )}
                           </div>
                         );
