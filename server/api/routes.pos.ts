@@ -775,7 +775,7 @@ export async function registerPosRoutes(app: Express) {
             unitCost: String(unitCost.toFixed(4)),
             totalCost: String(totalCost.toFixed(4)),
             promotionId: item.promotionId || null,
-            promotionDiscount: item.promotionDiscount || '0',
+            promotionDiscount: item.isFreeItem ? String(totalCost.toFixed(4)) : (item.promotionDiscount || '0'),
             originalUnitPrice: item.originalUnitPrice || item.unitPrice,
             isFreeItem: item.isFreeItem || false,
           } as any);
