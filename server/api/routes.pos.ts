@@ -43,7 +43,7 @@ const SaleSchema = z.object({
   walletReference: z.string().max(128).optional().nullable(),
   paymentBreakdown: z.array(PaymentBreakdownSchema).optional().nullable(),
   items: z.array(z.object({
-    productId: z.string().uuid(),
+    productId: z.string(), // Relaxed from uuid to allow suffixes like _free
     quantity: z.number().int().positive(),
     unitPrice: z.union([z.string(), z.number()]).transform(String),
     lineDiscount: z.union([z.string(), z.number()]).transform(String).default('0'),
@@ -670,9 +670,13 @@ export async function registerPosRoutes(app: Express) {
       const sale = inserted[0];
 
       for (const item of parsed.data.items) {
+        // Sanitize productId to remove suffixes (e.g. _free)
+        const rawProductId = item.productId;
+        const productId = rawProductId.replace(/_free$/, '');
+
         await db.insert(saleItems).values({
           saleId: sale.id,
-          productId: item.productId,
+          productId,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           lineDiscount: item.lineDiscount,
@@ -681,20 +685,20 @@ export async function registerPosRoutes(app: Express) {
 
         // Check if inventory is sufficient and auto-adjust if needed
         try {
-          const currentInv = await storage.getInventoryItem(item.productId, parsed.data.storeId);
+          const currentInv = await storage.getInventoryItem(productId, parsed.data.storeId);
           const currentQty = Number(currentInv?.quantity || 0);
 
           // If inventory is insufficient, auto-add discovered units before reducing
           if (currentQty < item.quantity) {
             logger.info('POS Sale: Insufficient inventory detected, performing stock adjustment', {
-              productId: item.productId,
+              productId,
               storeId: parsed.data.storeId,
               currentQty,
               requiredQty: item.quantity,
             });
 
             await storage.addStockAdjustmentForPOS(
-              item.productId,
+              productId,
               parsed.data.storeId,
               item.quantity,
               me.id,
@@ -705,7 +709,7 @@ export async function registerPosRoutes(app: Express) {
 
           // Now reduce inventory (will have enough after adjustment)
           await storage.adjustInventory(
-            item.productId,
+            productId,
             parsed.data.storeId,
             -item.quantity,
             me.id,
@@ -715,7 +719,7 @@ export async function registerPosRoutes(app: Express) {
           );
         } catch (invErr) {
           logger.warn('Inventory adjustment failed for POS sale', {
-            productId: item.productId,
+            productId,
             storeId: parsed.data.storeId,
             quantity: item.quantity,
             error: invErr instanceof Error ? invErr.message : String(invErr),
@@ -746,7 +750,7 @@ export async function registerPosRoutes(app: Express) {
       logger.info('POS: Transaction inserted', { transactionId: tx.id, storeId: parsed.data.storeId });
 
       // Fetch inventory costs for COGS tracking
-      const productIds = parsed.data.items.map(i => i.productId);
+      const productIds = parsed.data.items.map(i => i.productId.replace(/_free$/, ''));
       const inventoryCosts = await db
         .select({ productId: inventory.productId, avgCost: inventory.avgCost })
         .from(inventory)
@@ -757,13 +761,14 @@ export async function registerPosRoutes(app: Express) {
       }
 
       for (const item of parsed.data.items) {
-        const unitCost = costMap.get(item.productId) || 0;
+        const productId = item.productId.replace(/_free$/, '');
+        const unitCost = costMap.get(productId) || 0;
         const totalCost = unitCost * item.quantity;
         await db
           .insert(prdTransactionItems)
           .values({
             transactionId: tx.id,
-            productId: item.productId,
+            productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             totalPrice: item.lineTotal,
