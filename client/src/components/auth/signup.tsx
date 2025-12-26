@@ -126,8 +126,8 @@ function SignupForm() {
       password: "",
       confirmPassword: "",
       tier: normalizeTier(tierFromUrl),
-      location: (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international')) 
-        ? locationFromUrl as 'nigeria' | 'international' 
+      location: (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international'))
+        ? locationFromUrl as 'nigeria' | 'international'
         : 'international'
     }
   });
@@ -146,25 +146,44 @@ function SignupForm() {
         setValue('tier', normalizedTier);
       }
     }
+  }, [getValues, setValue, tierFromUrl]);
 
-    const currentLocation = getValues('location');
-    if (!currentLocation) {
-      const defaultLocation = (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international'))
-        ? locationFromUrl as 'nigeria' | 'international'
-        : 'international';
-      setValue('location', defaultLocation);
-    }
-  }, [getValues, locationFromUrl, setValue, tierFromUrl]);
+  // Auto-detect location from IP via server API (if not already in URL)
+  useEffect(() => {
+    const detectLocation = async () => {
+      // If location is already in URL, use that
+      if (locationFromUrl && VALID_LOCATIONS.includes(locationFromUrl as 'nigeria' | 'international')) {
+        setValue('location', locationFromUrl as 'nigeria' | 'international');
+        return;
+      }
+
+      // Otherwise fetch from API
+      try {
+        const response = await fetch('/api/geolocation');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.location === 'nigeria' || data.location === 'international') {
+            setValue('location', data.location);
+          }
+        }
+      } catch (error) {
+        console.warn('Could not detect location, defaulting to international', error);
+        setValue('location', 'international');
+      }
+    };
+
+    void detectLocation();
+  }, [locationFromUrl, setValue]);
 
   // Handle input changes with proper error clearing
   const handleInputChange = async (field: keyof SignupFormData, value: string) => {
     setValue(field, value, { shouldValidate: false }); // Set value without immediate validation
-    
+
     // Clear error for this field only after setting the value
     if (errors[field]) {
       clearErrors(field);
     }
-    
+
     // Trigger validation for this field after a short delay to prevent race conditions
     setTimeout(() => {
       void trigger(field);
@@ -179,11 +198,11 @@ function SignupForm() {
 
     setIsLoading(true);
     setGeneralError('');
-    
+
     try {
       // Generate reCAPTCHA token for bot protection
       const recaptchaToken = await generateRecaptchaToken();
-      
+
       const signupData = {
         firstName: data.firstName,
         lastName: data.lastName,
@@ -195,7 +214,7 @@ function SignupForm() {
         location: data.location,
         recaptchaToken
       };
-      
+
       const response = await apiClient.post<any>('/auth/signup', signupData);
       clearErrors();
       setGeneralError('');
@@ -285,7 +304,7 @@ function SignupForm() {
                   <p className="text-sm text-red-500">{errors.firstName.message}</p>
                 )}
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="lastName">Last Name *</Label>
                 <Input
@@ -359,11 +378,10 @@ function SignupForm() {
                 {pricingTiers.map((tier) => (
                   <div
                     key={tier.name}
-                    className={`border rounded-lg p-3 cursor-pointer transition-colors ${
-                      watchedValues.tier === tier.name
+                    className={`border rounded-lg p-3 cursor-pointer transition-colors ${watchedValues.tier === tier.name
                         ? 'border-primary bg-primary/5'
                         : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                      }`}
                     onClick={() => handleInputChange('tier', tier.name)}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -388,36 +406,8 @@ function SignupForm() {
               <input type="hidden" {...register('tier')} />
             </div>
 
-            {/* Location Selection */}
-            <div className="space-y-2">
-              <Label>Location *</Label>
-              <div className="flex bg-gray-100 rounded-lg p-1 w-fit">
-                <button
-                  type="button"
-                  onClick={() => handleInputChange('location', 'nigeria')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    watchedValues.location === 'nigeria'
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Nigeria
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInputChange('location', 'international')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    watchedValues.location === 'international'
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  International
-                </button>
-              </div>
-              {/* Hidden input for form validation */}
-              <input type="hidden" {...register('location')} />
-            </div>
+            {/* Location auto-detected from IP - hidden input for form */}
+            <input type="hidden" {...register('location')} />
 
             {/* Password */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -440,7 +430,7 @@ function SignupForm() {
                   <PasswordStrength password={watchedValues.password} />
                 )}
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password *</Label>
                 <Input
@@ -502,14 +492,14 @@ export default function Signup() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-3">
-                <Button 
+                <Button
                   onClick={() => window.location.reload()}
                   className="flex-1"
                   variant="default"
                 >
                   Refresh Page
                 </Button>
-                <Button 
+                <Button
                   onClick={() => window.location.href = '/'}
                   className="flex-1"
                   variant="outline"

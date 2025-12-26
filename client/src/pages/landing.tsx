@@ -63,38 +63,23 @@ export default function Landing() {
   const [userLocation, setUserLocation] = useState<'nigeria' | 'international'>('international');
   const [selectedTier, setSelectedTier] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(true);
 
   useEffect(() => {
-    // Detect user location (simplified - in production, use a proper geolocation service)
+    // Detect user location from IP via server API
     const detectLocation = async () => {
       try {
-        // Use browser's built-in geolocation API instead of external service
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            () => {
-              // For now, default to international since we can't easily determine country from coordinates
-              // In production, you could use a reverse geocoding service that's allowed in your CSP
-              setUserLocation('international');
-            },
-            (error) => {
-              console.warn('Geolocation failed, defaulting to international:', error.message);
-              setUserLocation('international');
-            },
-            { timeout: 5000, enableHighAccuracy: false }
-          );
-        } else {
-
-          // Fallback: try to detect from timezone (less accurate but no external API needed)
-          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          if (timezone && timezone.includes('Africa/Lagos')) {
-            setUserLocation('nigeria');
-          } else {
-            setUserLocation('international');
+        const response = await fetch('/api/geolocation');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.location === 'nigeria' || data.location === 'international') {
+            setUserLocation(data.location);
           }
         }
       } catch (error) {
         console.warn('Could not detect location, defaulting to international', error);
-        setUserLocation('international');
+      } finally {
+        setIsDetectingLocation(false);
       }
     };
 
@@ -221,30 +206,16 @@ export default function Landing() {
               2-week free trial • No credit card required • Cancel anytime
             </p>
 
-            {/* Location Toggle */}
-            <div className="flex items-center justify-center space-x-4 mb-8">
-              <span className="text-sm text-gray-600">Pricing for:</span>
-              <div className="flex bg-gray-100 rounded-lg p-1">
-                <button
-                  onClick={() => setUserLocation('nigeria')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${userLocation === 'nigeria'
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                >
-                  Nigeria
-                </button>
-                <button
-                  onClick={() => setUserLocation('international')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${userLocation === 'international'
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                >
-                  International
-                </button>
+            {/* Location auto-detected from IP */}
+            {isDetectingLocation ? (
+              <div className="text-sm text-gray-500 mb-4">
+                Detecting your location...
               </div>
-            </div>
+            ) : (
+              <div className="text-sm text-gray-500 mb-4">
+                Pricing for: <span className="font-medium text-gray-700">{userLocation === 'nigeria' ? 'Nigeria' : 'International'}</span>
+              </div>
+            )}
 
             <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
               <Calendar className="h-4 w-4" />

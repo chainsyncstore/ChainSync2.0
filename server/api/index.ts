@@ -19,6 +19,7 @@ import { registerBillingRoutes } from './routes.billing';
 import { registerComprehensiveReportRoutes } from './routes.comprehensive-report';
 import { registerCustomerRoutes } from './routes.customers';
 import { registerExportRoutes } from './routes.export';
+import { registerGeolocationRoutes } from './routes.geolocation';
 import { registerInventoryRoutes } from './routes.inventory';
 import { registerIpWhitelistRoutes } from './routes.ip-whitelist';
 import { registerLoyaltyRoutes } from './routes.loyalty';
@@ -78,6 +79,7 @@ export async function registerRoutes(app: Express) {
   await registerStoreRoutes(app);
   await registerStoreStaffRoutes(app);
   await registerWebhookRoutes(app);
+  registerGeolocationRoutes(app);
 
   // Test-only utility routes
   try {
