@@ -1,4 +1,5 @@
 import { Briefcase, Heart, Mail, Rocket } from "lucide-react";
+import { useState } from "react";
 
 import PublicPageLayout from "@/components/layout/public-page-layout";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ const values = [
     {
         icon: Heart,
         title: "Care Deeply",
-        description: "We genuinely care about our users&apos; success.",
+        description: "We genuinely care about our users & apps success.",
     },
     {
         icon: Briefcase,
@@ -23,6 +24,8 @@ const values = [
 ];
 
 export default function CareersPage() {
+    const [showEmail, setShowEmail] = useState(false);
+
     return (
         <PublicPageLayout>
             <div className="space-y-12">
@@ -73,12 +76,20 @@ export default function CareersPage() {
                             Check back soon for opportunities. In the meantime, feel free to
                             introduce yourself.
                         </p>
-                        <Button asChild>
-                            <a href="mailto:careers@chainsync.store" className="gap-2">
+                        <div className="flex flex-col items-center gap-4">
+                            <Button onClick={() => setShowEmail(!showEmail)} className="gap-2">
                                 <Mail className="h-4 w-4" />
                                 Say Hello
-                            </a>
-                        </Button>
+                            </Button>
+                            {showEmail && (
+                                <a
+                                    href="mailto:hello.chainsync.store"
+                                    className="text-lg font-medium text-primary hover:underline animate-in fade-in slide-in-from-top-2"
+                                >
+                                    hello.chainsync.store
+                                </a>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

@@ -21,7 +21,7 @@ const docSections: DocSection[] = [
             "Products are added to the cart by clicking or scanning. Quantities can be adjusted.",
             "Multiple payment methods are supported: cash, card, and bank transfer.",
             "Each transaction is automatically recorded with timestamp and user information.",
-            "Receipts can be printed or sent digitally to customers.",
+            "Receipts can be printed.",
             "All sales sync in real-time with inventory and analytics.",
         ],
     },
@@ -59,8 +59,7 @@ const docSections: DocSection[] = [
             "Each store operates independently with its own inventory and staff.",
             "Admins can view consolidated reports across all stores.",
             "Store managers only see data for their assigned location.",
-            "Products can be shared across stores or managed separately.",
-            "Transfer products between stores with built-in tracking.",
+
             "Each store has unique settings for taxes, receipts, and operations.",
         ],
     },
