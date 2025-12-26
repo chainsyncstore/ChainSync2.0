@@ -97,14 +97,14 @@ export default function Landing() {
         setUserLocation('international');
       }
     };
-    
+
     void detectLocation();
   }, []);
 
   const handleSignup = async (tier: string) => {
     setIsLoading(true);
     setSelectedTier(tier);
-    
+
     // Redirect to signup page with tier selection
     setLocation(`/signup?tier=${tier}&location=${userLocation}`);
   };
@@ -149,7 +149,7 @@ export default function Landing() {
             <span className="text-primary block">Smart POS & Analytics</span>
           </h1>
           <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-            Streamline your retail operations with our comprehensive POS system, 
+            Streamline your retail operations with our comprehensive POS system,
             AI-powered insights, and multi-store management platform.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -175,7 +175,7 @@ export default function Landing() {
               Powerful features designed for modern retail businesses
             </p>
           </div>
-          
+
           <div className="grid md:grid-cols-3 gap-8">
             <div className="text-center">
               <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -186,7 +186,7 @@ export default function Landing() {
                 Manage multiple locations from a single dashboard with real-time synchronization.
               </p>
             </div>
-            
+
             <div className="text-center">
               <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Zap className="text-primary h-8 w-8" />
@@ -196,7 +196,7 @@ export default function Landing() {
                 Get intelligent recommendations for inventory, pricing, and business decisions.
               </p>
             </div>
-            
+
             <div className="text-center">
               <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Shield className="text-primary h-8 w-8" />
@@ -220,34 +220,32 @@ export default function Landing() {
             <p className="text-xl text-gray-600 mb-8">
               2-week free trial • No credit card required • Cancel anytime
             </p>
-            
+
             {/* Location Toggle */}
             <div className="flex items-center justify-center space-x-4 mb-8">
               <span className="text-sm text-gray-600">Pricing for:</span>
               <div className="flex bg-gray-100 rounded-lg p-1">
                 <button
                   onClick={() => setUserLocation('nigeria')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    userLocation === 'nigeria'
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${userLocation === 'nigeria'
                       ? 'bg-white text-gray-900 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
-                  }`}
+                    }`}
                 >
                   Nigeria
                 </button>
                 <button
                   onClick={() => setUserLocation('international')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    userLocation === 'international'
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${userLocation === 'international'
                       ? 'bg-white text-gray-900 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
-                  }`}
+                    }`}
                 >
                   International
                 </button>
               </div>
             </div>
-            
+
             <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
               <Calendar className="h-4 w-4" />
               <span>Enjoy full access for 14 days before billing begins</span>
@@ -256,7 +254,7 @@ export default function Landing() {
 
           <div className="grid md:grid-cols-3 gap-8">
             {pricingTiers.map((tier) => (
-              <Card 
+              <Card
                 key={tier.name}
                 className={`relative ${tier.popular ? 'ring-2 ring-primary shadow-lg' : ''}`}
               >
@@ -268,7 +266,7 @@ export default function Landing() {
                     </Badge>
                   </div>
                 )}
-                
+
                 <CardHeader className="text-center">
                   <CardTitle className="text-2xl">{tier.name}</CardTitle>
                   <div className="mt-4">
@@ -281,7 +279,7 @@ export default function Landing() {
                     {tier.stores} • No credit card required to start
                   </CardDescription>
                 </CardHeader>
-                
+
                 <CardContent className="space-y-4">
                   <ul className="space-y-3">
                     {tier.features.map((feature) => (
@@ -291,15 +289,15 @@ export default function Landing() {
                       </li>
                     ))}
                   </ul>
-                  
-                  <Button 
+
+                  <Button
                     className="w-full mt-6"
                     variant={tier.popular ? "default" : "outline"}
                     onClick={() => handleSignup(tier.name.toLowerCase())}
                     disabled={isLoading}
                   >
-                    {isLoading && selectedTier === tier.name.toLowerCase() 
-                      ? "Processing..." 
+                    {isLoading && selectedTier === tier.name.toLowerCase()
+                      ? "Processing..."
                       : "Start Free Trial"
                     }
                   </Button>
@@ -319,8 +317,8 @@ export default function Landing() {
           <p className="text-xl text-primary-100 mb-8">
             Join thousands of businesses already using ChainSync
           </p>
-          <Button 
-            size="lg" 
+          <Button
+            size="lg"
             variant="secondary"
             onClick={() => setLocation('/signup')}
           >
@@ -345,38 +343,86 @@ export default function Landing() {
                 The complete retail management solution for modern businesses.
               </p>
             </div>
-            
+
             <div>
               <h3 className="font-semibold mb-4">Product</h3>
               <ul className="space-y-2 text-gray-400">
-                <li>POS System</li>
-                <li>Inventory Management</li>
-                <li>Analytics</li>
-                <li>Multi-Store</li>
+                <li>
+                  <button onClick={() => setLocation("/product/pos")} className="hover:text-white transition-colors">
+                    POS System
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/product/inventory")} className="hover:text-white transition-colors">
+                    Inventory Management
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/product/analytics")} className="hover:text-white transition-colors">
+                    Analytics
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/product/multi-store")} className="hover:text-white transition-colors">
+                    Multi-Store
+                  </button>
+                </li>
               </ul>
             </div>
-            
+
             <div>
               <h3 className="font-semibold mb-4">Support</h3>
               <ul className="space-y-2 text-gray-400">
-                <li>Help Center</li>
-                <li>Documentation</li>
-                <li>Contact Us</li>
-                <li>Status</li>
+                <li>
+                  <button onClick={() => setLocation("/support/help")} className="hover:text-white transition-colors">
+                    Help Center
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/support/docs")} className="hover:text-white transition-colors">
+                    Documentation
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/support/contact")} className="hover:text-white transition-colors">
+                    Contact Us
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/support/status")} className="hover:text-white transition-colors">
+                    Status
+                  </button>
+                </li>
               </ul>
             </div>
-            
+
             <div>
               <h3 className="font-semibold mb-4">Company</h3>
               <ul className="space-y-2 text-gray-400">
-                <li>About</li>
-                <li>Blog</li>
-                <li>Careers</li>
-                <li>Privacy</li>
+                <li>
+                  <button onClick={() => setLocation("/company/about")} className="hover:text-white transition-colors">
+                    About
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/company/blog")} className="hover:text-white transition-colors">
+                    Blog
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/company/careers")} className="hover:text-white transition-colors">
+                    Careers
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setLocation("/company/privacy")} className="hover:text-white transition-colors">
+                    Privacy
+                  </button>
+                </li>
               </ul>
             </div>
           </div>
-          
+
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
             <p>&copy; 2024 ChainSync. All rights reserved.</p>
           </div>

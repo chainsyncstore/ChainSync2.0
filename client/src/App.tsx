@@ -43,6 +43,20 @@ const StoreStaff = lazy(() => import("./pages/store-staff"));
 const DebugCsrf = lazy(() => import("@/pages/debug-csrf"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
+// Public pages (footer links)
+const POSSystemPage = lazy(() => import("@/pages/public/pos-system"));
+const InventoryManagementPage = lazy(() => import("@/pages/public/inventory-management"));
+const AnalyticsProductPage = lazy(() => import("@/pages/public/analytics-product"));
+const MultiStoreProductPage = lazy(() => import("@/pages/public/multi-store-product"));
+const HelpCenterPage = lazy(() => import("@/pages/public/help-center"));
+const DocumentationPage = lazy(() => import("@/pages/public/documentation"));
+const ContactUsPage = lazy(() => import("@/pages/public/contact-us"));
+const SystemStatusPage = lazy(() => import("@/pages/public/system-status"));
+const AboutPage = lazy(() => import("@/pages/public/about"));
+const BlogPage = lazy(() => import("@/pages/public/blog"));
+const CareersPage = lazy(() => import("@/pages/public/careers"));
+const PrivacyPolicyPage = lazy(() => import("@/pages/public/privacy-policy"));
+
 
 // Loading component for lazy-loaded pages
 const PageLoader = () => (
@@ -242,6 +256,21 @@ function App() {
                   );
                 }}</Route>
                 <Route path="/" component={Landing} />
+                {/* Product pages */}
+                <Route path="/product/pos" component={POSSystemPage} />
+                <Route path="/product/inventory" component={InventoryManagementPage} />
+                <Route path="/product/analytics" component={AnalyticsProductPage} />
+                <Route path="/product/multi-store" component={MultiStoreProductPage} />
+                {/* Support pages */}
+                <Route path="/support/help" component={HelpCenterPage} />
+                <Route path="/support/docs" component={DocumentationPage} />
+                <Route path="/support/contact" component={ContactUsPage} />
+                <Route path="/support/status" component={SystemStatusPage} />
+                {/* Company pages */}
+                <Route path="/company/about" component={AboutPage} />
+                <Route path="/company/blog" component={BlogPage} />
+                <Route path="/company/careers" component={CareersPage} />
+                <Route path="/company/privacy" component={PrivacyPolicyPage} />
                 <Route component={NotFound} />
               </Switch>
             </Suspense>
