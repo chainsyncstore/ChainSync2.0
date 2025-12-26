@@ -1089,7 +1089,7 @@ function StaffTab({ data, isLoading }: StaffTabProps) {
           title="Staff on Shift"
           value={data.staffOnShift.toString()}
           icon={<Users className="h-4 w-4 text-slate-500" />}
-          subtitle="Active in last hour"
+          subtitle="Currently active"
         />
         {data.topPerformer && (
           <KpiCard
