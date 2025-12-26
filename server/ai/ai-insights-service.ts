@@ -506,7 +506,7 @@ export class AiInsightsService {
                 .where(and(
                     eq(stockMovements.storeId, storeId),
                     gte(stockMovements.occurredAt, lookbackDate),
-                    inArray(stockMovements.actionType, ['removal', 'discard_loss', 'adjustment'])
+                    inArray(stockMovements.actionType, ['removal', 'discard_loss'])
                 ));
 
             // Aggregate by product and reason
