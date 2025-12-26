@@ -1,5 +1,5 @@
 import { Store } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -35,13 +35,7 @@ export function StoreReactivationModal({
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (isOpen && inactiveStoreIds.length > 0) {
-      fetchStores();
-    }
-  }, [isOpen, inactiveStoreIds]);
-
-  const fetchStores = async () => {
+  const fetchStores = useCallback(async () => {
     setLoading(true);
     try {
       const allStores = await apiClient.get<StoreRecord[]>('/api/stores');
@@ -60,7 +54,13 @@ export function StoreReactivationModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, [inactiveStoreIds, toast]);
+
+  useEffect(() => {
+    if (isOpen && inactiveStoreIds.length > 0) {
+      void fetchStores();
+    }
+  }, [isOpen, inactiveStoreIds, fetchStores]);
 
   const handleToggleStore = (storeId: string) => {
     setSelectedStoreIds((prev) => {
