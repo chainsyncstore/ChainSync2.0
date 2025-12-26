@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { StoreReactivationModal } from '@/components/admin/store-reactivation-modal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,6 +62,9 @@ interface BillingOverviewResponse {
     total: number;
     limit: number | null;
     requiresStoreReduction: boolean;
+    canReactivate?: boolean;
+    needsReactivation?: boolean;
+    inactiveStoreIds?: string[];
   };
   pricing: {
     provider: string;
@@ -144,6 +148,7 @@ export default function AdminBillingPage() {
   const [storeError, setStoreError] = useState<string | null>(null);
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [storeSubmitting, setStoreSubmitting] = useState(false);
+  const [reactivationModalOpen, setReactivationModalOpen] = useState(false);
 
   const fetchOverview = useCallback(async () => {
     setLoading(true);
@@ -219,6 +224,13 @@ export default function AdminBillingPage() {
   useEffect(() => {
     void fetchOverview();
   }, [fetchOverview]);
+
+  // Show reactivation modal when subscription is reactivated and stores need reactivation
+  useEffect(() => {
+    if (overview?.stores?.needsReactivation && overview?.stores?.canReactivate) {
+      setReactivationModalOpen(true);
+    }
+  }, [overview?.stores?.needsReactivation, overview?.stores?.canReactivate]);
 
   const trialDaysRemaining = overview?.trial.daysRemaining;
   const trialEndsAt = overview?.trial.endsAt ?? overview?.subscription.trialEndsAt;
@@ -436,6 +448,16 @@ export default function AdminBillingPage() {
       }
       toast({ title: 'Subscription updated', description: `You are now on the ${tier.toUpperCase()} plan.` });
       await refreshOverview();
+      
+      // After plan change, check if we should show reactivation modal
+      // This happens when upgrading and there are inactive stores that can now be reactivated
+      const newOverview = await fetch('/api/billing/overview', { credentials: 'include' }).then(r => r.json()).catch(() => null);
+      if (newOverview?.stores?.canReactivate && newOverview?.stores?.inactiveStoreIds?.length > 0) {
+        // Small delay to ensure state is updated
+        setTimeout(() => {
+          setReactivationModalOpen(true);
+        }, 500);
+      }
     } catch (err) {
       toast({
         title: 'Plan update failed',
@@ -827,6 +849,16 @@ export default function AdminBillingPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <StoreReactivationModal
+        isOpen={reactivationModalOpen}
+        onClose={() => setReactivationModalOpen(false)}
+        onSuccess={() => {
+          void fetchOverview();
+        }}
+        storeLimit={overview?.stores?.limit ?? null}
+        inactiveStoreIds={overview?.stores?.inactiveStoreIds ?? []}
+      />
     </div>
   );
 }

@@ -1289,3 +1289,101 @@ export function scheduleDunning(): void {
   };
   scheduleNext();
 }
+
+// Check subscription expiration and deactivate stores
+async function runSubscriptionExpirationCheckOnce(): Promise<void> {
+  try {
+    const now = new Date();
+    
+    // Find subscriptions that have expired based on currentPeriodEnd or trialEndDate
+    const expiredSubs = await db
+      .select()
+      .from(subscriptions)
+      .where(
+        and(
+          or(
+            eq(subscriptions.status as any, 'ACTIVE' as any),
+            eq(subscriptions.status as any, 'TRIAL' as any),
+            eq(subscriptions.status as any, 'PAST_DUE' as any)
+          ),
+          or(
+            // Check if currentPeriodEnd has passed
+            lte(subscriptions.currentPeriodEnd as any, now),
+            // Check if trialEndDate has passed (for trial subscriptions)
+            lte(subscriptions.trialEndDate as any, now)
+          )
+        )
+      );
+
+    for (const sub of expiredSubs) {
+      const expirationDate = sub.currentPeriodEnd 
+        ? new Date(sub.currentPeriodEnd) 
+        : new Date(sub.trialEndDate);
+      
+      // Only expire if the date has actually passed
+      if (expirationDate > now) continue;
+
+      logger.info('Subscription expired, deactivating stores', {
+        subscriptionId: sub.id,
+        orgId: sub.orgId,
+        status: sub.status,
+        expirationDate: expirationDate.toISOString()
+      });
+
+      // Update subscription status to CANCELLED
+      await db
+        .update(subscriptions)
+        .set({
+          status: 'CANCELLED' as any,
+          updatedAt: now as any,
+        } as any)
+        .where(eq(subscriptions.id, sub.id));
+
+      // Deactivate all stores for this organization
+      await db
+        .update(stores)
+        .set({
+          isActive: false as any,
+          updatedAt: now as any,
+        } as any)
+        .where(eq(stores.orgId, sub.orgId));
+
+      // Deactivate organization
+      await db
+        .update(organizations)
+        .set({
+          isActive: false as any,
+        } as any)
+        .where(eq(organizations.id, sub.orgId));
+
+      logger.info('Stores deactivated due to subscription expiration', {
+        orgId: sub.orgId,
+        subscriptionId: sub.id
+      });
+    }
+  } catch (err) {
+    logger.error('Subscription expiration check error', { err });
+  }
+}
+
+export async function runSubscriptionExpirationCheckNow(): Promise<void> {
+  await runSubscriptionExpirationCheckOnce();
+}
+
+export function scheduleSubscriptionExpirationCheck(): void {
+  const enabled = process.env.SUBSCRIPTION_EXPIRATION_CHECK_SCHEDULE !== 'false';
+  if (!enabled) {
+    logger.info('Subscription expiration check scheduler disabled via env');
+    return;
+  }
+  const hourUtc = Number(process.env.SUBSCRIPTION_EXPIRATION_CHECK_HOUR_UTC ?? 2);
+  const scheduleNext = () => {
+    const delay = msUntilNextHourUtc(hourUtc);
+    logger.info('Scheduling subscription expiration check', { runInMs: delay });
+    setTimeout(async () => {
+      await runSubscriptionExpirationCheckOnce();
+      setInterval(runSubscriptionExpirationCheckOnce, ONE_DAY_MS);
+    }, delay);
+  };
+  scheduleNext();
+}

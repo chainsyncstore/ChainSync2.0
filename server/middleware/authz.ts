@@ -118,11 +118,14 @@ export function requireRole(required: AnyRole | AnyRole[]) {
       // In production, enforce org activation/locks strictly. In tests, if
       // the org row is missing we skip these checks so that storage-backed
       // users without full org scaffolding can still exercise routes.
-      if (!org) {
-        if (!isTestEnv) return res.status(402).json({ error: 'Organization inactive' });
-      } else {
-        if (!org.isActive) return res.status(402).json({ error: 'Organization inactive' });
-        if (org.lockedUntil && new Date(org.lockedUntil) > now) return res.status(402).json({ error: 'Organization locked' });
+      // Admins can bypass organization inactive/locked checks to manage subscription
+      if (!user.isAdmin) {
+        if (!org) {
+          if (!isTestEnv) return res.status(402).json({ error: 'Organization inactive' });
+        } else {
+          if (!org.isActive) return res.status(402).json({ error: 'Organization inactive' });
+          if (org.lockedUntil && new Date(org.lockedUntil) > now) return res.status(402).json({ error: 'Organization locked' });
+        }
       }
     }
 
@@ -183,8 +186,11 @@ export function requireManagerWithStore() {
     const orgRows = await db.select().from(organizations).where(eq(organizations.id, user.orgId));
     const org = orgRows[0];
     const now = new Date();
-    if (!org?.isActive) return res.status(402).json({ error: 'Organization inactive' });
-    if (org.lockedUntil && new Date(org.lockedUntil) > now) return res.status(402).json({ error: 'Organization locked' });
+    // Admins can bypass organization inactive/locked checks to manage subscription
+    if (!user.isAdmin) {
+      if (!org?.isActive) return res.status(402).json({ error: 'Organization inactive' });
+      if (org.lockedUntil && new Date(org.lockedUntil) > now) return res.status(402).json({ error: 'Organization locked' });
+    }
 
     const sub = (await db.select().from(subscriptions).where(eq(subscriptions.orgId, user.orgId)))[0];
     const plan = getPlan(sub?.planCode || 'basic');

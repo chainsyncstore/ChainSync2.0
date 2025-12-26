@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { loadEnv } from "../shared/env";
 import { registerRoutes } from "./api";
-import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, scheduleAnalyticsReports, scheduleSubscriptionReconciliation, scheduleTrialExpirationBilling, scheduleDunning, scheduleTrialReminders, scheduleStorePerformanceAlerts, scheduleAnalyticsInsightScan } from "./jobs/cleanup";
+import { scheduleAbandonedSignupCleanup, scheduleNightlyLowStockAlerts, scheduleAnalyticsReports, scheduleSubscriptionReconciliation, scheduleTrialExpirationBilling, scheduleDunning, scheduleTrialReminders, scheduleStorePerformanceAlerts, scheduleAnalyticsInsightScan, scheduleSubscriptionExpirationCheck } from "./jobs/cleanup";
 import { sendErrorResponse, isOperationalError } from "./lib/errors";
 import { logger, requestLogger, pinoHttpMiddleware } from "./lib/logger";
 import { monitoringMiddleware } from "./lib/monitoring";
@@ -172,6 +172,8 @@ void (async () => {
     scheduleDunning();
     // Schedule trial reminder emails (7 & 3 days)
     scheduleTrialReminders();
+    // Schedule subscription expiration check
+    scheduleSubscriptionExpirationCheck();
 
     server.listen({
       port,

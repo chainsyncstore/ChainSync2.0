@@ -274,11 +274,15 @@ export async function registerWebhookRoutes(app: Express) {
       // Activate or lock org based on status
       if (status === 'ACTIVE') {
         await db.execute(sql`UPDATE organizations SET is_active = true, locked_until = NULL WHERE id = ${orgId}`);
+        // Note: Stores remain inactive - admin must reactivate them via the reactivation modal
+        // This allows admins to choose which stores to reactivate based on their plan limits
       } else if (status === 'PAST_DUE') {
         const grace = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
         await db.execute(sql`UPDATE organizations SET locked_until = ${grace} WHERE id = ${orgId}`);
       } else if (status === 'CANCELLED') {
         await db.execute(sql`UPDATE organizations SET is_active = false WHERE id = ${orgId}`);
+        // Deactivate all stores when subscription is cancelled
+        await db.execute(sql`UPDATE stores SET is_active = false WHERE org_id = ${orgId}`);
       }
 
       if (data?.status === 'success' || data?.status === 'failed') {
@@ -457,11 +461,15 @@ export async function registerWebhookRoutes(app: Express) {
 
       if (status === 'ACTIVE') {
         await db.execute(sql`UPDATE organizations SET is_active = true, locked_until = NULL WHERE id = ${orgId}`);
+        // Note: Stores remain inactive - admin must reactivate them via the reactivation modal
+        // This allows admins to choose which stores to reactivate based on their plan limits
       } else if (status === 'PAST_DUE') {
         const grace = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
         await db.execute(sql`UPDATE organizations SET locked_until = ${grace} WHERE id = ${orgId}`);
       } else if (status === 'CANCELLED') {
         await db.execute(sql`UPDATE organizations SET is_active = false WHERE id = ${orgId}`);
+        // Deactivate all stores when subscription is cancelled
+        await db.execute(sql`UPDATE stores SET is_active = false WHERE org_id = ${orgId}`);
       }
 
       if (data?.status === 'successful' || data?.status === 'failed') {

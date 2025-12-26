@@ -208,6 +208,115 @@ export async function registerStoreRoutes(app: Express) {
 
     res.json(updatedStore);
   });
+
+  // Bulk reactivate stores (used after subscription reactivation/upgrade)
+  const ReactivateStoresSchema = z.object({
+    storeIds: z.array(z.string().uuid()).min(1),
+  });
+
+  app.post('/api/stores/reactivate', requireAuth, requireRole('ADMIN'), enforceIpWhitelist, async (req: Request, res: Response) => {
+    const parsed = ReactivateStoresSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.errors });
+    }
+
+    const currentUserId = (req.session as any)?.userId as string | undefined;
+    if (!currentUserId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const me = (await db.select().from(users).where(eq(users.id, currentUserId)))[0] as any;
+    if (!me?.orgId) return res.status(400).json({ error: 'Missing org' });
+
+    // Get subscription and plan
+    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.orgId, me.orgId)).limit(1))[0];
+    if (!sub) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    const plan = getPlan((sub?.planCode ?? sub?.tier ?? 'basic').toLowerCase());
+    
+    // Get current active store count
+    const activeStoreCountResult = await db.execute(
+      sql`select count(*) from stores where org_id = ${me.orgId} and coalesce(is_active, true) = true`
+    );
+    const activeStoreCount = parseInt((activeStoreCountResult.rows[0] as any).count, 10);
+
+    // Check if we have a store limit
+    if (Number.isFinite(plan.maxStores)) {
+      const requestedCount = parsed.data.storeIds.length;
+      const newActiveCount = activeStoreCount + requestedCount;
+      
+      if (newActiveCount > plan.maxStores) {
+        return res.status(403).json({ 
+          error: 'Store limit exceeded',
+          message: `Your plan allows up to ${plan.maxStores} stores. You currently have ${activeStoreCount} active stores. You can reactivate up to ${plan.maxStores - activeStoreCount} more store(s).`,
+          maxAllowed: plan.maxStores,
+          currentActive: activeStoreCount,
+          requested: requestedCount
+        });
+      }
+    }
+
+    // Verify all stores belong to the organization and are currently inactive
+    const storesToReactivate = await db
+      .select()
+      .from(stores)
+      .where(
+        and(
+          eq(stores.orgId, me.orgId),
+          sql`${stores.id} = ANY(${parsed.data.storeIds})`
+        )
+      );
+
+    if (storesToReactivate.length !== parsed.data.storeIds.length) {
+      return res.status(400).json({ error: 'Some stores not found or do not belong to your organization' });
+    }
+
+    // Check if any stores are already active
+    const alreadyActive = storesToReactivate.filter(s => s.isActive === true);
+    if (alreadyActive.length > 0) {
+      return res.status(400).json({ 
+        error: 'Some stores are already active',
+        alreadyActive: alreadyActive.map(s => s.id)
+      });
+    }
+
+    // Reactivate the stores
+    const now = new Date();
+    await db
+      .update(stores)
+      .set({
+        isActive: true as any,
+        updatedAt: now as any,
+      } as any)
+      .where(
+        sql`${stores.id} = ANY(${parsed.data.storeIds})`
+      );
+
+    // Reactivate users associated with these stores
+    await db
+      .update(users)
+      .set({ isActive: true as any } as any)
+      .where(
+        and(
+          sql`${users.storeId} = ANY(${parsed.data.storeIds})`,
+          eq(users.isAdmin, false)
+        )
+      );
+
+    // Get updated store list
+    const updatedStores = await db
+      .select()
+      .from(stores)
+      .where(
+        sql`${stores.id} = ANY(${parsed.data.storeIds})`
+      );
+
+    res.json({
+      success: true,
+      reactivated: updatedStores.length,
+      stores: updatedStores
+    });
+  });
 }
 
 

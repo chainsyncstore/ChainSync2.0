@@ -818,6 +818,11 @@ export async function registerBillingRoutes(app: Express) {
       sent3Day: toIsoString(subscription.trialReminder3SentAt as any),
     };
 
+    // Check if subscription was just reactivated and stores need reactivation
+    const hasInactiveStores = inactiveStores > 0;
+    const subscriptionJustActivated = subscription.status === 'ACTIVE' && hasInactiveStores;
+    const canReactivateStores = subscription.status === 'ACTIVE' && hasInactiveStores;
+
     return res.json({
       subscription: {
         id: subscription.id,
@@ -845,6 +850,9 @@ export async function registerBillingRoutes(app: Express) {
         total: storeRows.length,
         limit: planStoreLimit,
         requiresStoreReduction,
+        canReactivate: canReactivateStores,
+        needsReactivation: subscriptionJustActivated,
+        inactiveStoreIds: storeRows.filter(s => s.isActive === false).map(s => s.id),
       },
       pricing: {
         provider: subscription.provider,
