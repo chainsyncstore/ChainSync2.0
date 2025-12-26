@@ -1,15 +1,20 @@
+import { format } from 'date-fns';
+import { CalendarIcon } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { cn } from '@/lib/utils';
 import type { Store } from '@shared/schema';
 import { useAuth } from '../../hooks/use-auth';
 import { useIpWhitelist, type WhitelistRole } from '../../hooks/use-ip-whitelist';
 import { useToast } from '../../hooks/use-toast';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { Calendar } from '../ui/calendar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Alert, AlertDescription } from '../ui/notice';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 
@@ -36,6 +41,14 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRequirementsDialogOpen, setIsRequirementsDialogOpen] = useState(false);
+  
+  // Date filter state for logs
+  const [dateFilter, setDateFilter] = useState<{ from: Date; to: Date }>(() => {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 7); // Default to 7 days back
+    return { from, to };
+  });
 
   const isAdmin = Boolean((user as any)?.isAdmin || user?.role === 'admin');
   const requiresStoreSetup = isAdmin && stores.length === 0;
@@ -53,6 +66,20 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
   const sortedWhitelist = useMemo(() => {
     return [...whitelist].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [whitelist]);
+
+  // Filter logs based on date range
+  const filteredLogs = useMemo(() => {
+    const fromDate = new Date(dateFilter.from);
+    fromDate.setHours(0, 0, 0, 0); // Start of day
+    
+    const toDate = new Date(dateFilter.to);
+    toDate.setHours(23, 59, 59, 999); // End of day
+    
+    return logs.filter(log => {
+      const logDate = new Date(log.createdAt);
+      return logDate >= fromDate && logDate <= toDate;
+    });
+  }, [logs, dateFilter]);
 
   const toggleRole = (role: WhitelistRole) => {
     setSelectedRoles(prev =>
@@ -307,51 +334,53 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
               No IP addresses are currently whitelisted
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>IP Address</TableHead>
-                  <TableHead>Scope</TableHead>
-                  <TableHead>Store</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Added</TableHead>
-                  {isAdmin && <TableHead>Actions</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedWhitelist.map((item) => {
-                  const storeName = item.storeId ? storeLookup.get(item.storeId) ?? 'Store' : '-';
-                  return (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-mono">{item.ipAddress}</TableCell>
-                      <TableCell className="capitalize">{item.scope || (item.storeId ? 'store' : 'user')}</TableCell>
-                      <TableCell>{storeName}</TableCell>
-                      <TableCell>
-                        <Badge className={getRoleBadgeColor(item.role)}>
-                          {formatRole(item.role)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{item.description || '-'}</TableCell>
-                      <TableCell>
-                        {new Date(item.createdAt).toLocaleDateString()}
-                      </TableCell>
-                      {isAdmin && (
+            <div className="max-h-[500px] overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>IP Address</TableHead>
+                    <TableHead>Scope</TableHead>
+                    <TableHead>Store</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Added</TableHead>
+                    {isAdmin && <TableHead>Actions</TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedWhitelist.map((item) => {
+                    const storeName = item.storeId ? storeLookup.get(item.storeId) ?? 'Store' : '-';
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-mono">{item.ipAddress}</TableCell>
+                        <TableCell className="capitalize">{item.scope || (item.storeId ? 'store' : 'user')}</TableCell>
+                        <TableCell>{storeName}</TableCell>
                         <TableCell>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleRemoveIp(item.ipAddress, item.id)}
-                          >
-                            Remove
-                          </Button>
+                          <Badge className={getRoleBadgeColor(item.role)}>
+                            {formatRole(item.role)}
+                          </Badge>
                         </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                        <TableCell>{item.description || '-'}</TableCell>
+                        <TableCell>
+                          {new Date(item.createdAt).toLocaleDateString()}
+                        </TableCell>
+                        {isAdmin && (
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRemoveIp(item.ipAddress, item.id)}
+                            >
+                              Remove
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -359,45 +388,99 @@ export function IpWhitelistManager({ stores }: IpWhitelistManagerProps) {
       {user?.role === 'admin' && (
         <Card>
           <CardHeader>
-            <CardTitle>IP Access Logs</CardTitle>
-            <CardDescription>Recent IP access attempts and whitelist changes</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>IP Access Logs</CardTitle>
+                <CardDescription>Recent IP access attempts and whitelist changes</CardDescription>
+              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-[280px] justify-start text-left font-normal",
+                      !dateFilter && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateFilter?.from ? (
+                      dateFilter.to ? (
+                        <>
+                          {format(dateFilter.from, "LLL dd, y")} -{" "}
+                          {format(dateFilter.to, "LLL dd, y")}
+                        </>
+                      ) : (
+                        format(dateFilter.from, "LLL dd, y")
+                      )
+                    ) : (
+                      <span>Pick a date range</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={dateFilter?.from}
+                    selected={{
+                      from: dateFilter.from,
+                      to: dateFilter.to,
+                    }}
+                    onSelect={(range) => {
+                      if (range?.from && range?.to) {
+                        setDateFilter({ from: range.from, to: range.to });
+                      } else if (range?.from) {
+                        setDateFilter({ from: range.from, to: range.from });
+                      }
+                    }}
+                    numberOfMonths={2}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
           </CardHeader>
           <CardContent>
-            {logs.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-4">Loading...</div>
+            ) : filteredLogs.length === 0 ? (
               <div className="text-center py-4 text-gray-500">
-                No access logs available
+                {logs.length === 0
+                  ? 'No access logs available'
+                  : `No logs found for the selected date range (${format(dateFilter.from, "MMM dd, yyyy")} - ${format(dateFilter.to, "MMM dd, yyyy")})`}
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>IP Address</TableHead>
-                    <TableHead>Username</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {logs.map((log) => (
-                    <TableRow key={log.id}>
-                      <TableCell className="font-mono">{log.ipAddress}</TableCell>
-                      <TableCell>{log.username || '-'}</TableCell>
-                      <TableCell>{log.action}</TableCell>
-                      <TableCell>
-                        <Badge variant={log.success ? "default" : "destructive"}>
-                          {log.success ? 'Success' : 'Failed'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{log.reason || '-'}</TableCell>
-                      <TableCell>
-                        {new Date(log.createdAt).toLocaleString()}
-                      </TableCell>
+              <div className="max-h-[500px] overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>IP Address</TableHead>
+                      <TableHead>Username</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Date</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredLogs.map((log) => (
+                      <TableRow key={log.id}>
+                        <TableCell className="font-mono">{log.ipAddress}</TableCell>
+                        <TableCell>{log.username || '-'}</TableCell>
+                        <TableCell>{log.action}</TableCell>
+                        <TableCell>
+                          <Badge variant={log.success ? "default" : "destructive"}>
+                            {log.success ? 'Success' : 'Failed'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{log.reason || '-'}</TableCell>
+                        <TableCell>
+                          {new Date(log.createdAt).toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
