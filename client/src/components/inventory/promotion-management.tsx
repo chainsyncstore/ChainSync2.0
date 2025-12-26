@@ -122,7 +122,7 @@ export function PromotionManagement({ storeId, stores = [], isAdmin = false }: P
     // Fetch products for selection
     const { data: allProducts = [] } = useQuery<Product[]>({
         queryKey: ["/api/products"],
-        enabled: showProductSelector,
+        enabled: showProductSelector || formData.scope === "specific_products",
     });
 
     // Create/Update mutation
@@ -681,8 +681,8 @@ export function PromotionManagement({ storeId, stores = [], isAdmin = false }: P
                                             className="flex-1"
                                         />
                                     </div>
-                                    <div className="max-h-48 space-y-1 overflow-y-auto rounded border p-2">
-                                        {filteredProducts.slice(0, 50).map((product) => (
+                                    <div className="max-h-60 space-y-1 overflow-y-auto rounded border p-2">
+                                        {filteredProducts.map((product) => (
                                             <label
                                                 key={product.id}
                                                 className="flex cursor-pointer items-center gap-2 rounded p-1 hover:bg-accent"
