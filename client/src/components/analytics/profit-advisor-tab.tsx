@@ -35,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { getCsrfToken } from "@/lib/csrf";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 // Types
 interface AiInsight {
@@ -226,7 +227,7 @@ export function ProfitAdvisorTab({ storeId, currency = 'NGN' }: ProfitAdvisorTab
         },
     });
 
-    // Dismiss insight mutation
+    // Dismiss insight mutation with Optimistic UI
     const dismissMutation = useMutation({
         mutationFn: async (insightId: string) => {
             const csrfToken = await getCsrfToken();
@@ -241,12 +242,51 @@ export function ProfitAdvisorTab({ storeId, currency = 'NGN' }: ProfitAdvisorTab
             if (!res.ok) throw new Error('Failed to dismiss insight');
             return res.json();
         },
-        onSuccess: () => {
+        onMutate: async (insightId) => {
+            // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
+            await queryClient.cancelQueries({ queryKey: ['/api/ai/insights', storeId] });
+
+            // Snapshot the previous value
+            const previousInsights = queryClient.getQueryData(['/api/ai/insights', storeId]);
+
+            // Optimistically update to the new value
+            queryClient.setQueryData<InsightsResponse>(['/api/ai/insights', storeId], (old) => {
+                if (!old) return old;
+                return {
+                    ...old,
+                    grouped: {
+                        ...old.grouped,
+                        removalPatterns: old.grouped.removalPatterns.filter(i => i.id !== insightId),
+                        stockRecommendations: old.grouped.stockRecommendations.filter(i => i.id !== insightId),
+                        // Filter other lists if needed, but removalPatterns/stockRecommendations are the main ones with dismiss
+                    },
+                };
+            });
+
+            // Return a context object with the snapshotted value
+            return { previousInsights };
+        },
+        onError: (_err, _newInsight, context) => {
+            // If the mutation fails, use the context returned from onMutate to roll back
+            if (context?.previousInsights) {
+                queryClient.setQueryData(['/api/ai/insights', storeId], context.previousInsights);
+            }
+            toast({
+                title: 'Error',
+                description: 'Failed to dismiss insight. Please try again.',
+                variant: 'destructive',
+            });
+        },
+        onSettled: () => {
+            // Always refetch after error or success:
             void queryClient.invalidateQueries({ queryKey: ['/api/ai/insights', storeId] });
         },
     });
 
     // Filter products by search
+    const { user } = useAuth();
+    const isAdmin = user?.isAdmin;
+
     const filteredProducts = profitabilityQuery.data?.products.filter(p =>
         p.productName.toLowerCase().includes(productSearch.toLowerCase())
     ) || [];
@@ -510,17 +550,23 @@ export function ProfitAdvisorTab({ storeId, currency = 'NGN' }: ProfitAdvisorTab
                                             <AlertDescription className="text-sm">
                                                 {insight.description}
                                             </AlertDescription>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="absolute top-2 right-2 h-6 w-6 z-10 hover:bg-red-100/50"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    dismissMutation.mutate(insight.id);
-                                                }}
-                                            >
-                                                <X className="h-4 w-4" />
-                                            </Button>
+                                            {isAdmin ? (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="absolute top-2 right-2 h-6 w-6 z-10 hover:bg-red-100/50"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        dismissMutation.mutate(insight.id);
+                                                    }}
+                                                >
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            ) : (
+                                                <span className="absolute top-2 right-2 text-[10px] text-muted-foreground bg-background/80 px-1.5 py-0.5 rounded border">
+                                                    Admin only
+                                                </span>
+                                            )}
                                         </Alert>
                                     ))}
                                 </div>
@@ -619,14 +665,16 @@ export function ProfitAdvisorTab({ storeId, currency = 'NGN' }: ProfitAdvisorTab
                                                 </div>
                                             )}
                                         </AlertDescription>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="absolute top-2 right-2 h-6 w-6"
-                                            onClick={() => dismissMutation.mutate(insight.id)}
-                                        >
-                                            <X className="h-4 w-4" />
-                                        </Button>
+                                        {isAdmin && (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="absolute top-2 right-2 h-6 w-6"
+                                                onClick={() => dismissMutation.mutate(insight.id)}
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </Button>
+                                        )}
                                     </Alert>
                                 );
                             })}

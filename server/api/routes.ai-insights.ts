@@ -316,7 +316,7 @@ export async function registerAIInsightsRoutes(app: Express) {
     });
 
     // Dismiss an insight
-    app.post('/api/ai/insights/:insightId/dismiss', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
+    app.post('/api/ai/insights/:insightId/dismiss', requireAuth, requireRole(['admin']), async (req: Request, res: Response) => {
         try {
             const { insightId } = req.params;
             const userId = (req.session as any)?.userId;
