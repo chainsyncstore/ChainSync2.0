@@ -10,6 +10,21 @@ export const PUBLIC_ROUTES = new Set<string>([
   "/reset-password",
   "/payment-callback",
   "/post-onboarding",
+  // Product pages
+  "/product/pos",
+  "/product/inventory",
+  "/product/analytics",
+  "/product/multi-store",
+  // Support pages
+  "/support/help",
+  "/support/docs",
+  "/support/contact",
+  "/support/status",
+  // Company pages
+  "/company/about",
+  "/company/blog",
+  "/company/careers",
+  "/company/privacy",
 ]);
 
 export function useProtectedRouteGuard(isLoading: boolean, isAuthenticated: boolean) {
