@@ -319,7 +319,7 @@ export async function registerAIInsightsRoutes(app: Express) {
     app.post('/api/ai/insights/:insightId/dismiss', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
         try {
             const { insightId } = req.params;
-            const userId = (req as any).user?.id;
+            const userId = (req.session as any)?.userId;
 
             if (!userId) {
                 return res.status(401).json({ error: 'User ID required' });
