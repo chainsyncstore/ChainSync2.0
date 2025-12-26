@@ -513,8 +513,11 @@ export function ProfitAdvisorTab({ storeId, currency = 'NGN' }: ProfitAdvisorTab
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="absolute top-2 right-2 h-6 w-6"
-                                                onClick={() => dismissMutation.mutate(insight.id)}
+                                                className="absolute top-2 right-2 h-6 w-6 z-10 hover:bg-red-100/50"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    dismissMutation.mutate(insight.id);
+                                                }}
                                             >
                                                 <X className="h-4 w-4" />
                                             </Button>
