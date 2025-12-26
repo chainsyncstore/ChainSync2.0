@@ -63,7 +63,6 @@ export default function Landing() {
   const [userLocation, setUserLocation] = useState<'nigeria' | 'international'>('international');
   const [selectedTier, setSelectedTier] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDetectingLocation, setIsDetectingLocation] = useState(true);
 
   useEffect(() => {
     // Detect user location from IP via server API
@@ -78,8 +77,6 @@ export default function Landing() {
         }
       } catch (error) {
         console.warn('Could not detect location, defaulting to international', error);
-      } finally {
-        setIsDetectingLocation(false);
       }
     };
 
