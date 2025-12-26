@@ -83,10 +83,10 @@ export default function CareersPage() {
                             </Button>
                             {showEmail && (
                                 <a
-                                    href="mailto:hello.chainsync.store"
+                                    href="mailto:hello@chainsync.store"
                                     className="text-lg font-medium text-primary hover:underline animate-in fade-in slide-in-from-top-2"
                                 >
-                                    hello.chainsync.store
+                                    hello@chainsync.store
                                 </a>
                             )}
                         </div>
