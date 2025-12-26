@@ -206,16 +206,7 @@ export default function Landing() {
               2-week free trial • No credit card required • Cancel anytime
             </p>
 
-            {/* Location auto-detected from IP */}
-            {isDetectingLocation ? (
-              <div className="text-sm text-gray-500 mb-4">
-                Detecting your location...
-              </div>
-            ) : (
-              <div className="text-sm text-gray-500 mb-4">
-                Pricing for: <span className="font-medium text-gray-700">{userLocation === 'nigeria' ? 'Nigeria' : 'International'}</span>
-              </div>
-            )}
+
 
             <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
               <Calendar className="h-4 w-4" />
