@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Request, Response, NextFunction } from 'express';
-import { organizations, users } from '@shared/schema';
+import { stores, users } from '@shared/schema';
 import { db } from '../db';
 
 // Enforce org active subscription for non-admin users
@@ -16,23 +16,22 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     // Admins always have access, even when subscription is expired
     if (me.isAdmin) return next();
     if (!me.orgId) return res.status(400).json({ error: 'Organization not set' });
-    const [org] = await db
-      .select({
-        isActive: organizations.isActive,
-        lockedUntil: organizations.lockedUntil,
-      })
-      .from(organizations)
-      .where(eq(organizations.id, me.orgId))
+
+    const storeFilters = [eq(stores.orgId, me.orgId), eq(stores.isActive, true)];
+    if (!me.isAdmin && me.storeId) {
+      storeFilters.push(eq(stores.id, me.storeId));
+    }
+
+    const [activeStore] = await db
+      .select({ id: stores.id })
+      .from(stores)
+      .where(and(...storeFilters))
       .limit(1);
-    if (!org) return res.status(400).json({ error: 'Organization not found' });
-    if (!org.isActive) {
-      return res.status(402).json({ error: 'Organization inactive' });
+
+    if (!activeStore) {
+      return res.status(402).json({ error: 'All stores inactive' });
     }
-    const lockedUntil = org.lockedUntil ? new Date(org.lockedUntil) : null;
-    if (lockedUntil && lockedUntil > new Date()) {
-      return res.status(402).json({ error: 'Organization locked' });
-    }
-    // Allow when organization is active; downstream checks already scope stores
+
     return next();
   } catch {
     return res.status(500).json({ error: 'Subscription check failed' });
