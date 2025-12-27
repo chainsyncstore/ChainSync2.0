@@ -1,6 +1,6 @@
-import { desc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Request, Response, NextFunction } from 'express';
-import { subscriptions, users } from '@shared/schema';
+import { organizations, users } from '@shared/schema';
 import { db } from '../db';
 
 // Enforce org active subscription for non-admin users
@@ -16,18 +16,23 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     // Admins always have access, even when subscription is expired
     if (me.isAdmin) return next();
     if (!me.orgId) return res.status(400).json({ error: 'Organization not set' });
-    const subRows = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.orgId, me.orgId))
-      .orderBy(desc(subscriptions.createdAt))
+    const [org] = await db
+      .select({
+        isActive: organizations.isActive,
+        lockedUntil: organizations.lockedUntil,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, me.orgId))
       .limit(1);
-    const sub = subRows[0];
-    const hasAccessStatus = sub?.status === 'ACTIVE' || sub?.status === 'PAST_DUE' || sub?.status === 'TRIAL';
-    if (!hasAccessStatus) {
-      return res.status(402).json({ error: 'Subscription required' });
+    if (!org) return res.status(400).json({ error: 'Organization not found' });
+    if (!org.isActive) {
+      return res.status(402).json({ error: 'Organization inactive' });
     }
-    // Allow PAST_DUE with grace; client should restrict functionality accordingly
+    const lockedUntil = org.lockedUntil ? new Date(org.lockedUntil) : null;
+    if (lockedUntil && lockedUntil > new Date()) {
+      return res.status(402).json({ error: 'Organization locked' });
+    }
+    // Allow when organization is active; downstream checks already scope stores
     return next();
   } catch {
     return res.status(500).json({ error: 'Subscription check failed' });
