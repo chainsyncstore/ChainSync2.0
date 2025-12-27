@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { Server } from 'http';
+import { IncomingMessage, Server } from 'http';
 import jwt from 'jsonwebtoken';
 import { WebSocket, WebSocketServer } from 'ws';
 
@@ -85,20 +85,40 @@ export class NotificationService {
     }, 30000); // Check every 30 seconds
   }
 
+  private getClientIp(request: IncomingMessage): string {
+    const headerCandidates = [
+      request.headers['cf-connecting-ip'],
+      request.headers['true-client-ip'],
+      request.headers['x-forwarded-for']
+    ];
+
+    for (const candidate of headerCandidates) {
+      const raw = Array.isArray(candidate) ? candidate[0] : candidate;
+      if (raw) {
+        const ip = raw.split(',')[0]?.trim();
+        if (ip) {
+          return ip.startsWith('::ffff:') ? ip.substring(7) : ip;
+        }
+      }
+    }
+
+    const fallback = request.socket.remoteAddress || (request as any).connection?.remoteAddress || '';
+    if (!fallback) return 'unknown';
+    return fallback.startsWith('::ffff:') ? fallback.substring(7) : fallback;
+  }
+
   private setupWebSocketServer() {
     this.wss.on('connection', (ws: WebSocket, request) => {
       const connectionId = this.generateConnectionId();
-      const clientIp = request.socket.remoteAddress || 'unknown';
-      
-      // Security audit for new connection
-      securityAuditService.logNetworkEvent('suspicious_request', {
-        ipAddress: clientIp,
-        userAgent: request.headers['user-agent'],
-        path: request.url
-      }, { connectionType: 'websocket' });
-      
+      const clientIp = this.getClientIp(request);
+
       // Check if IP is suspicious
       if (securityAuditService.isIpSuspicious(clientIp)) {
+        securityAuditService.logNetworkEvent('ip_blocked', {
+          ipAddress: clientIp,
+          userAgent: request.headers['user-agent'],
+          path: request.url
+        }, { connectionType: 'websocket', reason: 'suspicious_ip' });
         logger.warn('WebSocket connection from suspicious IP', { connectionId, clientIp });
         ws.close(1008, 'Access denied');
         return;

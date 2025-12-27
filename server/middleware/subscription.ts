@@ -23,8 +23,8 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
       .orderBy(desc(subscriptions.createdAt))
       .limit(1);
     const sub = subRows[0];
-    const allowedStatuses: Array<'ACTIVE' | 'PAST_DUE' | 'TRIAL'> = ['ACTIVE', 'PAST_DUE', 'TRIAL'];
-    if (!sub || !allowedStatuses.includes(sub.status)) {
+    const hasAccessStatus = sub?.status === 'ACTIVE' || sub?.status === 'PAST_DUE' || sub?.status === 'TRIAL';
+    if (!hasAccessStatus) {
       return res.status(402).json({ error: 'Subscription required' });
     }
     // Allow PAST_DUE with grace; client should restrict functionality accordingly
