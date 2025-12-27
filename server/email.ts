@@ -403,13 +403,13 @@ export function generateMonitoringAlertEmail(params: MonitoringAlertEmailParams)
   };
 }
 
-const fallbackOutlineSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'><rect width='120' height='60' rx='8' fill='white'/><rect x='15' y='12' width='90' height='8' rx='4' fill='%232196F3'/><rect x='15' y='26' width='90' height='8' rx='4' fill='%232196F3'/><rect x='15' y='40' width='90' height='8' rx='4' fill='%232196F3'/></svg>`;
-const outlineAsset = loadLogoAsset('chainsync-logo-outline.png', 'image/png', fallbackOutlineSvg);
-const LOGO_OUTLINE_CID = 'chainsync-logo-outline';
+const fallbackSolidSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'><rect width='120' height='60' rx='12' fill='%230f5cc8'/><rect x='24' y='16' width='72' height='6' rx='3' fill='white'/><rect x='24' y='27' width='72' height='6' rx='3' fill='white'/><rect x='24' y='38' width='72' height='6' rx='3' fill='white'/></svg>`;
+const outlineAsset = loadLogoAsset('chainsync-logo-solid.png', 'image/png', fallbackSolidSvg);
+const LOGO_OUTLINE_CID = 'chainsync-logo-solid';
 const LOGO_OUTLINE = `cid:${LOGO_OUTLINE_CID}`;
 const BRANDING_ATTACHMENTS = [
   {
-    filename: 'chainsync-logo-outline.png',
+    filename: 'chainsync-logo-solid.png',
     content: outlineAsset.buffer,
     cid: LOGO_OUTLINE_CID,
     contentType: outlineAsset.mimeType,
