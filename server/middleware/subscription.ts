@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { Request, Response, NextFunction } from 'express';
 import { subscriptions, users } from '@shared/schema';
 import { db } from '../db';
@@ -16,9 +16,15 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     // Admins always have access, even when subscription is expired
     if (me.isAdmin) return next();
     if (!me.orgId) return res.status(400).json({ error: 'Organization not set' });
-    const subs = await db.select().from(subscriptions).where(eq(subscriptions.orgId, me.orgId));
-    const sub = subs[0];
-    if (!sub || (sub.status !== 'ACTIVE' && sub.status !== 'PAST_DUE')) {
+    const subRows = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.orgId, me.orgId))
+      .orderBy(desc(subscriptions.createdAt))
+      .limit(1);
+    const sub = subRows[0];
+    const allowedStatuses: Array<'ACTIVE' | 'PAST_DUE' | 'TRIAL'> = ['ACTIVE', 'PAST_DUE', 'TRIAL'];
+    if (!sub || !allowedStatuses.includes(sub.status)) {
       return res.status(402).json({ error: 'Subscription required' });
     }
     // Allow PAST_DUE with grace; client should restrict functionality accordingly

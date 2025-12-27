@@ -206,7 +206,6 @@ export default function LoyaltyPage() {
   const totalCustomers = customersData?.total ?? 0;
   const customersList = useMemo(() => customersData?.data ?? [], [customersData]);
   const customerPages = Math.max(1, Math.ceil(totalCustomers / PAGE_SIZE));
-
   const transactionsList = useMemo(() => transactionsData?.data ?? [], [transactionsData]);
   const totalTransactions = transactionsData?.total ?? 0;
   const transactionPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
@@ -545,87 +544,93 @@ export default function LoyaltyPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Loyalty #</TableHead>
-                        <TableHead>Contact</TableHead>
-                        <TableHead className="text-right">Current points</TableHead>
-                        <TableHead className="text-right">Lifetime points</TableHead>
-                        <TableHead>Status</TableHead>
-                        {canManageCustomers && <TableHead>Actions</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {customersList.map((customer) => (
-                        <TableRow key={customer.id}>
-                          <TableCell>
-                            <div className="font-medium">
-                              {customer.firstName} {customer.lastName}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Joined {new Date(customer.createdAt).toLocaleDateString()}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{customer.loyaltyNumber}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              {customer.email && <div>{customer.email}</div>}
-                              {customer.phone && <div className="text-muted-foreground">{customer.phone}</div>}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">{customer.currentPoints.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{customer.lifetimePoints.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Badge variant={customer.isActive ? "default" : "secondary"}>
-                              {customer.isActive ? "Active" : "Inactive"}
-                            </Badge>
-                          </TableCell>
-                          {canManageCustomers && (
-                            <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={customerStatusMutation.isPending}
-                                onClick={() =>
-                                  customerStatusMutation.mutate({
-                                    customerId: customer.id,
-                                    action: customer.isActive ? "deactivate" : "reactivate",
-                                  })
-                                }
-                              >
-                                {customer.isActive ? "Deactivate" : "Reactivate"}
-                              </Button>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                <div className="rounded-lg border border-slate-200">
+                  <div className="overflow-x-auto">
+                    <div className="max-h-[60vh] overflow-y-auto">
+                      <Table>
+                        <TableHeader className="sticky top-0 bg-white shadow-sm">
+                          <TableRow>
+                            <TableHead>Customer</TableHead>
+                            <TableHead>Loyalty #</TableHead>
+                            <TableHead>Contact</TableHead>
+                            <TableHead className="text-right">Current points</TableHead>
+                            <TableHead className="text-right">Lifetime points</TableHead>
+                            <TableHead>Status</TableHead>
+                            {canManageCustomers && <TableHead>Actions</TableHead>}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {customersList.map((customer) => (
+                            <TableRow key={customer.id}>
+                              <TableCell>
+                                <div className="font-medium">
+                                  {customer.firstName} {customer.lastName}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Joined {new Date(customer.createdAt).toLocaleDateString()}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{customer.loyaltyNumber}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-sm">
+                                  {customer.email && <div>{customer.email}</div>}
+                                  {customer.phone && <div className="text-muted-foreground">{customer.phone}</div>}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right font-medium">{customer.currentPoints.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">{customer.lifetimePoints.toLocaleString()}</TableCell>
+                              <TableCell>
+                                <Badge variant={customer.isActive ? "default" : "secondary"}>
+                                  {customer.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                              </TableCell>
+                              {canManageCustomers && (
+                                <TableCell>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={customerStatusMutation.isPending}
+                                    onClick={() =>
+                                      customerStatusMutation.mutate({
+                                        customerId: customer.id,
+                                        action: customer.isActive ? "deactivate" : "reactivate",
+                                      })
+                                    }
+                                  >
+                                    {customer.isActive ? "Deactivate" : "Reactivate"}
+                                  </Button>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <div className="flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
                   <div>
-                    Showing page {customerPage} of {customerPages}
+                    Showing page {customerPage.toLocaleString()} of {customerPages.toLocaleString()} — displaying{" "}
+                    {customersList.length.toLocaleString()} customer
+                    {customersList.length === 1 ? "" : "s"} (total {totalCustomers.toLocaleString()}).
                   </div>
-                  <div className="space-x-2">
+                  <div className="space-x-2 text-right">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setCustomerPage((p) => Math.max(1, p - 1))}
-                      disabled={customerPage === 1}
+                      onClick={() => setCustomerPage((page) => Math.max(1, page - 1))}
+                      disabled={customerPage === 1 || customersQuery.isLoading}
                     >
                       Previous
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setCustomerPage((p) => Math.min(customerPages, p + 1))}
-                      disabled={customerPage >= customerPages}
+                      onClick={() => setCustomerPage((page) => Math.min(customerPages, page + 1))}
+                      disabled={customerPage >= customerPages || customersQuery.isLoading}
                     >
                       Next
                     </Button>

@@ -1506,7 +1506,7 @@ export default function Inventory() {
                     <CardTitle>Stock Levels</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="overflow-auto">
+                    <div className="overflow-auto max-h-[50vh] sm:max-h-[60vh]">
                       <table className="w-full">
                         <thead>
                           <tr className="border-b">
@@ -1674,7 +1674,7 @@ export default function Inventory() {
                   ) : stockMovements.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No stock history found for the selected filters.</p>
                   ) : (
-                    <div className="overflow-auto">
+                    <div className="overflow-auto max-h-[45vh] sm:max-h-[55vh]">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left border-b">

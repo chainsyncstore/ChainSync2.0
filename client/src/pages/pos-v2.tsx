@@ -1336,7 +1336,7 @@ export default function POSV2() {
                 </Button>
               )}
             </div>
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 overflow-auto max-h-[45vh] lg:max-h-full">
               {items.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-slate-400 py-8">
                   <Package className="w-12 h-12 mb-2" />
