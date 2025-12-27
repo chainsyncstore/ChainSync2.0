@@ -490,7 +490,7 @@ export function generateTrialPaymentReminderEmail(
             <tr>
               <td style="background: #F1F5F9; padding: 20px 24px; text-align: center;">
                 <p style="color: #94A3B8; font-size: 12px; line-height: 1.6; margin: 0;">
-                  ChainSync · Smarter retail operations, unified.
+                  ChainSync, smarter retail operations.
                 </p>
               </td>
             </tr>
@@ -714,7 +714,7 @@ export function generateSignupOtpEmail(
             <tr>
               <td style="background: #F1F5F9; padding: 20px 24px; text-align: center;">
                 <p style="color: #94A3B8; font-size: 12px; line-height: 1.6; margin: 0;">
-                  ChainSync · Smarter retail operations, unified.
+                  ChainSync, smarter retail operations.
                 </p>
               </td>
             </tr>
