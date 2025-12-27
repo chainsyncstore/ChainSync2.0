@@ -152,6 +152,10 @@ function addDays(date: Date, days: number) {
   return result;
 }
 
+function toNumber(value: unknown): number {
+  return parseFloat(String(value ?? '0'));
+}
+
 function determineSeverity(snapshot: StorePerformanceSnapshot) {
   const revenueDelta = snapshot.revenueDeltaPct ?? 0;
   const refundRatio = snapshot.refundRatio ?? 0;
@@ -176,6 +180,8 @@ async function fetchStorePerformanceSnapshot(storeId: string, orgId: string, sto
   const [daySalesRow] = await db
     .select({
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+      subtotal: sql`COALESCE(SUM(${transactions.subtotal}), 0)`,
+      tax: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`,
       transactions: sql`COUNT(*)`
     })
     .from(transactions)
@@ -190,7 +196,11 @@ async function fetchStorePerformanceSnapshot(storeId: string, orgId: string, sto
     );
 
   const [dayRefundRow] = await db
-    .select({ revenue: sql`COALESCE(SUM(${transactions.total}), 0)` })
+    .select({
+      revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+      subtotal: sql`COALESCE(SUM(${transactions.subtotal}), 0)`,
+      tax: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`
+    })
     .from(transactions)
     .where(
       and(
@@ -202,15 +212,26 @@ async function fetchStorePerformanceSnapshot(storeId: string, orgId: string, sto
       )
     );
 
-  const grossRevenue = parseFloat(String(daySalesRow?.revenue || '0'));
-  const refundTotal = parseFloat(String(dayRefundRow?.revenue || '0'));
-  const netRevenue = grossRevenue - refundTotal;
-  const transactionsCount = parseInt(String(daySalesRow?.transactions || '0'));
+  const grossRevenue = toNumber(daySalesRow?.revenue);
+
+  const salesTax = toNumber(daySalesRow?.tax);
+  const transactionsCount = parseInt(String(daySalesRow?.transactions || '0'), 10);
+
+  const refundTotal = toNumber(dayRefundRow?.revenue);
+  const refundSubtotal = toNumber(dayRefundRow?.subtotal);
+  const refundTax = toNumber(dayRefundRow?.tax);
+
+  const netTax = salesTax - refundTax;
+  const netRefundPrincipal = refundSubtotal;
+  const netRevenue = grossRevenue - netTax - refundTax - netRefundPrincipal;
+
   const averageOrderValue = transactionsCount > 0 ? netRevenue / transactionsCount : 0;
 
-  const [baselineRow] = await db
+  const [baselineSalesRow] = await db
     .select({
       revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+      subtotal: sql`COALESCE(SUM(${transactions.subtotal}), 0)`,
+      tax: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`,
       transactions: sql`COUNT(*)`
     })
     .from(transactions)
@@ -224,8 +245,32 @@ async function fetchStorePerformanceSnapshot(storeId: string, orgId: string, sto
       )
     );
 
-  const baselineRevenue = parseFloat(String(baselineRow?.revenue || '0')) / Math.max(STORE_ALERT_BASELINE_DAYS, 1);
-  const baselineTransactions = parseFloat(String(baselineRow?.transactions || '0')) / Math.max(STORE_ALERT_BASELINE_DAYS, 1);
+  const [baselineRefundRow] = await db
+    .select({
+      revenue: sql`COALESCE(SUM(${transactions.total}), 0)`,
+      subtotal: sql`COALESCE(SUM(${transactions.subtotal}), 0)`,
+      tax: sql`COALESCE(SUM(${transactions.taxAmount}), 0)`
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.storeId, storeId),
+        eq(transactions.status, 'completed'),
+        eq(transactions.kind, 'REFUND'),
+        gte(transactions.createdAt, baselineStart),
+        lt(transactions.createdAt, baselineEnd)
+      )
+    );
+
+  const baselineGross = toNumber(baselineSalesRow?.revenue);
+  const baselineSalesTax = toNumber(baselineSalesRow?.tax);
+  const baselineRefundSubtotal = toNumber(baselineRefundRow?.subtotal);
+  const baselineRefundTax = toNumber(baselineRefundRow?.tax);
+  const baselineNetTax = baselineSalesTax - baselineRefundTax;
+  const baselineNetRevenueTotal = baselineGross - baselineNetTax - baselineRefundTax - baselineRefundSubtotal;
+
+  const baselineRevenue = baselineNetRevenueTotal / Math.max(STORE_ALERT_BASELINE_DAYS, 1);
+  const baselineTransactions = toNumber(baselineSalesRow?.transactions) / Math.max(STORE_ALERT_BASELINE_DAYS, 1);
 
   const revenueDeltaPct = baselineRevenue > 0 ? ((netRevenue - baselineRevenue) / baselineRevenue) * 100 : null;
   const transactionsDeltaPct = baselineTransactions > 0 ? ((transactionsCount - baselineTransactions) / baselineTransactions) * 100 : null;

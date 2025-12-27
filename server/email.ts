@@ -24,6 +24,12 @@ const transporter = nodemailer.createTransport(emailConfig);
 // Logo loading utilities
 const brandingDir = path.join(process.cwd(), 'assets', 'branding');
 
+type LogoAsset = {
+  buffer: Buffer;
+  mimeType: string;
+  dataUri: string;
+};
+
 const getMimeTypeForAsset = (fileName: string, defaultMime: string): string => {
   const extension = path.extname(fileName).toLowerCase();
   if (extension === '.png') {
@@ -35,14 +41,24 @@ const getMimeTypeForAsset = (fileName: string, defaultMime: string): string => {
   return defaultMime;
 };
 
-const loadLogoDataUri = (fileName: string, defaultMime: string, fallback: string): string => {
+const loadLogoAsset = (fileName: string, defaultMime: string, fallback: string): LogoAsset => {
   try {
     const fileBuffer = readFileSync(path.join(brandingDir, fileName));
     const mimeType = getMimeTypeForAsset(fileName, defaultMime);
-    return `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+    return {
+      buffer: fileBuffer,
+      mimeType,
+      dataUri: `data:${mimeType};base64,${fileBuffer.toString('base64')}`,
+    };
   } catch (error) {
     console.warn(`ChainSync logo asset missing (${fileName}). Using fallback.`, error);
-    return fallback;
+    const fallbackBuffer = Buffer.from(fallback, 'utf-8');
+    const mimeType = 'image/svg+xml';
+    return {
+      buffer: fallbackBuffer,
+      mimeType,
+      dataUri: `data:${mimeType};base64,${fallbackBuffer.toString('base64')}`,
+    };
   }
 };
 
@@ -388,9 +404,17 @@ export function generateMonitoringAlertEmail(params: MonitoringAlertEmailParams)
 }
 
 const fallbackOutlineSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'><rect width='120' height='60' rx='8' fill='white'/><rect x='15' y='12' width='90' height='8' rx='4' fill='%232196F3'/><rect x='15' y='26' width='90' height='8' rx='4' fill='%232196F3'/><rect x='15' y='40' width='90' height='8' rx='4' fill='%232196F3'/></svg>`;
-const inlineFallbackLogoOutline = `data:image/svg+xml;base64,${Buffer.from(fallbackOutlineSvg).toString('base64')}`;
-
-const LOGO_OUTLINE = loadLogoDataUri('chainsync-logo-outline.png', 'image/png', inlineFallbackLogoOutline);
+const outlineAsset = loadLogoAsset('chainsync-logo-outline.png', 'image/png', fallbackOutlineSvg);
+const LOGO_OUTLINE_CID = 'chainsync-logo-outline';
+const LOGO_OUTLINE = `cid:${LOGO_OUTLINE_CID}`;
+const BRANDING_ATTACHMENTS = [
+  {
+    filename: 'chainsync-logo-outline.png',
+    content: outlineAsset.buffer,
+    cid: LOGO_OUTLINE_CID,
+    contentType: outlineAsset.mimeType,
+  },
+];
 
 // Lightweight, non-sensitive health state for SMTP transporter
 let emailTransporterStatus = {
@@ -905,6 +929,7 @@ export interface EmailOptions {
     filename: string;
     content: Buffer | string;
     contentType?: string;
+    cid?: string;
   }[];
 }
 
@@ -913,13 +938,17 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
     if (process.env.NODE_ENV === 'test') {
       return true;
     }
+    const inlineAttachments = (options.attachments ?? []).length
+      ? options.attachments
+      : BRANDING_ATTACHMENTS;
+
     const mailOptions = {
       from: process.env.SMTP_FROM || emailConfig.auth.user,
       to: options.to,
       subject: options.subject,
       html: options.html,
       text: options.text,
-      attachments: options.attachments,
+      attachments: inlineAttachments,
     };
 
     await transporter.sendMail(mailOptions);
