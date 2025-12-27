@@ -672,13 +672,8 @@ export function generateSignupOtpEmail(
   supportEmail?: string
 ): EmailOptions {
   const friendlyName = userName?.trim().length ? userName.trim() : 'there';
-  const formattedExpiry = expiresAt.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  const expiresInMinutes = Math.max(1, Math.round((expiresAt.getTime() - Date.now()) / 60000));
 
-  const frontendUrl = process.env.FRONTEND_URL || 'https://app.chainsync.com';
   const helpEmail = supportEmail || process.env.SUPPORT_EMAIL || 'support@chainsync.com';
   // Logo is now loaded from assets
 
@@ -702,17 +697,12 @@ export function generateSignupOtpEmail(
                 <div style="background: #E3F2FD; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 28px;">
                   <span style="display: inline-block; font-size: 32px; letter-spacing: 12px; font-weight: 700; color: #0F172A;">${otpCode}</span>
                   <p style="color: #1E3A8A; font-size: 14px; font-weight: 500; margin: 16px 0 0;">
-                    This passcode expires at ${formattedExpiry}.
+                    This passcode expires in ${expiresInMinutes} minute${expiresInMinutes === 1 ? '' : 's'}.
                   </p>
                 </div>
                 <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">
-                  You can enter this code directly in your browser or use the button below to resume your signup flow.
+                  You can enter this code directly in your browser to finish signing up. For security reasons we ask every user to type it in manually.
                 </p>
-                <div style="text-align: center; margin: 32px 0;">
-                  <a href="${frontendUrl}/signup/verify-otp" style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); color: #ffffff; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-size: 15px; font-weight: 600; display: inline-block; box-shadow: 0 12px 24px rgba(33, 150, 243, 0.28);">
-                    Continue Signup
-                  </a>
-                </div>
                 <p style="color: #64748B; font-size: 14px; line-height: 1.6; margin: 0 0 10px;">
                   Didn’t request this code? Simply ignore this email—it will expire shortly.
                 </p>
@@ -740,9 +730,8 @@ Welcome to ChainSync! Use the one-time passcode below to finish setting up your 
 
 ${otpCode}
 
-This code expires at ${formattedExpiry}. If you didn’t request this, you can ignore this email.
+This code expires in ${expiresInMinutes} minute${expiresInMinutes === 1 ? '' : 's'}. If you didn’t request this, you can ignore this email.
 
-Continue your signup: ${frontendUrl}/signup/verify-otp
 Need help? Contact us at ${helpEmail}.
 
 The ChainSync Team`;

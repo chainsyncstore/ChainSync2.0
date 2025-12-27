@@ -155,7 +155,7 @@ function SignupVerifyOtpForm() {
           </div>
 
           <div className="text-center text-xs text-gray-500">
-            If you close this window you can restart the signup process, but you will receive a new code.
+            If you close this window no need to worry, log in with your credentials to finish signup, but you will receive a new code.
           </div>
         </CardContent>
       </Card>
